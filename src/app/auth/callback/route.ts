@@ -1,19 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 
+import { safeNextUrl } from "@/lib/safe-redirect";
 import { createClient } from "@/lib/supabase/server";
-
-/**
- * Only same-origin paths are allowed through the `next` parameter. Without this
- * a crafted link could carry someone straight from our domain to another one,
- * having just signed them in.
- */
-function safeNextPath(raw: string | null): string {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) {
-    return "/";
-  }
-  return raw;
-}
 
 /**
  * Turns the emailed link into a session.
@@ -25,7 +14,11 @@ function safeNextPath(raw: string | null): string {
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams, origin } = request.nextUrl;
-  const next = safeNextPath(searchParams.get("next"));
+
+  // Resolved once, here, and passed to redirect as-is. This is the one place a
+  // stranger's URL reaches a redirect that fires the instant someone is signed
+  // in, so it is checked before anything else happens.
+  const next = safeNextUrl(searchParams.get("next"), origin);
 
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
@@ -36,7 +29,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      return NextResponse.redirect(new URL(next, origin));
+      return NextResponse.redirect(next);
     }
   } else if (tokenHash && type) {
     const { error } = await supabase.auth.verifyOtp({
@@ -44,7 +37,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       token_hash: tokenHash,
     });
     if (!error) {
-      return NextResponse.redirect(new URL(next, origin));
+      return NextResponse.redirect(next);
     }
   }
 
