@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+/* Brand palette, mirrored from the landing page. */
+:root {
+  --background: #f2f2f0;
+  --surface: #ffffff;
+  --foreground: #14161b;
+  --muted: #4a505c;
+  --faint: #767c88;
+  --rule: #d6d6d1;
+  --accent: #c1121f;
+  --accent-foreground: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0f1115;
+    --surface: #161a20;
+    --foreground: #ecedea;
+    --muted: #a2a9b4;
+    --faint: #767e8b;
+    --rule: #2a2f37;
+    --accent: #ff5a5f;
+    --accent-foreground: #180405;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-rule: var(--rule);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --font-sans: var(--font-archivo);
+  --font-mono: var(--font-plex-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
