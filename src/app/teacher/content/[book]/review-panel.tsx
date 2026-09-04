@@ -10,6 +10,13 @@ import {
   type ResolvedPage,
 } from "@/lib/extraction/pipeline";
 
+import {
+  asksForPoint,
+  canConfirm,
+  chosenPoint,
+  type PageQuestion,
+} from "@/lib/content/point-question";
+
 import { confirmPoint } from "../actions";
 import type { PageFailure } from "./book-workbench";
 import { CropCanvas } from "./crop-canvas";
@@ -117,22 +124,19 @@ export function ReviewPanel({
     [pages],
   );
 
-  /**
-   * The point this page's blocks will be written to.
-   *
-   * A page that carries a number uses it. A continuation uses the point the
-   * page before it opened, or the one the teacher typed when the upload gave no
-   * predecessor to inherit from.
-   */
+  /** The page's side of the question, which does not change while typing. */
+  function questionOf(page: ResolvedPage): PageQuestion {
+    return {
+      points: page.points,
+      inheritedPoint: page.inheritedPoint,
+      disputeCandidates: [
+        ...new Set(page.disputes.flatMap((dispute) => dispute.candidates)),
+      ].sort((a, b) => a - b),
+    };
+  }
+
   function targetPoint(page: ResolvedPage, draft: PageDraft): number | null {
-    if (draft.continuation) {
-      const typed = Number(draft.typedPoint);
-      if (Number.isInteger(typed) && typed > 0) {
-        return typed;
-      }
-      return page.inheritedPoint;
-    }
-    return draft.pointNumber;
+    return chosenPoint(questionOf(page), draft);
   }
 
   function update(id: string, change: Partial<PageDraft>) {
@@ -256,7 +260,11 @@ export function ReviewPanel({
         <h2 className="text-2xl font-extrabold tracking-tight">
           Revisão, {bookTitle}
         </h2>
-        <button type="button" onClick={onDone} className="text-faint text-sm">
+        <button
+          type="button"
+          onClick={onDone}
+          className="text-faint hover:text-foreground text-sm transition-colors"
+        >
           Descartar
         </button>
       </header>
@@ -346,13 +354,16 @@ export function ReviewPanel({
         if (draft === undefined) {
           return null;
         }
-        const target = targetPoint(page, draft);
+        const question = questionOf(page);
+        const target = chosenPoint(question, draft);
         // Every candidate the batch could not choose between, as one question.
         // A page carries at most one number at a given height, so several
         // questions on one page read as several numbers to find.
-        const candidates = [
-          ...new Set(page.disputes.flatMap((dispute) => dispute.candidates)),
-        ].sort((a, b) => a - b);
+        const candidates = question.disputeCandidates;
+        // Derived from the page, never from the answer: the question has to
+        // stay put while a number is being typed into it.
+        const asking = asksForPoint(question) && !draft.saved;
+        const ready = canConfirm(question, draft);
         return (
           <article
             key={page.extraction.id}
@@ -389,14 +400,19 @@ export function ReviewPanel({
               <button
                 type="button"
                 onClick={() => void save(page)}
-                disabled={draft.saved}
-                className="bg-accent text-accent-foreground rounded-sm px-4 py-2 font-semibold disabled:opacity-50"
+                disabled={draft.saved || !ready}
+                title={
+                  ready
+                    ? undefined
+                    : "Diga primeiro qual é o ponto desta página"
+                }
+                className="bg-accent text-accent-foreground rounded-sm px-4 py-2 font-semibold transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:opacity-50"
               >
                 {draft.saved ? "Gravado" : "Confirmar e gravar"}
               </button>
             </header>
 
-            {(candidates.length > 0 || target === null) && (
+            {asking && (
               <div className="border-accent flex flex-col gap-3 rounded-sm border p-4">
                 <p className="text-accent font-mono text-xs tracking-[0.16em] uppercase">
                   Qual é o ponto desta página?
@@ -420,8 +436,8 @@ export function ReviewPanel({
                       }
                       className={
                         draft.pointNumber === candidate && !draft.continuation
-                          ? "bg-accent text-accent-foreground rounded-sm px-3 py-1 font-mono text-sm"
-                          : "border-rule rounded-sm border px-3 py-1 font-mono text-sm"
+                          ? "bg-accent text-accent-foreground rounded-sm px-3 py-1 font-mono text-sm transition-colors"
+                          : "border-rule hover:border-foreground hover:bg-background rounded-sm border px-3 py-1 font-mono text-sm transition-colors"
                       }
                     >
                       {candidate}
@@ -437,8 +453,8 @@ export function ReviewPanel({
                     }
                     className={
                       draft.continuation
-                        ? "bg-foreground text-background rounded-sm px-3 py-1 text-sm"
-                        : "border-rule rounded-sm border px-3 py-1 text-sm"
+                        ? "bg-foreground text-background rounded-sm px-3 py-1 text-sm transition-colors"
+                        : "border-rule hover:border-foreground hover:bg-background rounded-sm border px-3 py-1 text-sm transition-colors"
                     }
                   >
                     Sem número, é continuação

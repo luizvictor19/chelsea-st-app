@@ -15,7 +15,10 @@ export default async function VocabularyImagesPage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-3xl flex-col gap-8 p-6 py-12">
       <header className="flex flex-col gap-3">
-        <Link href="/teacher/content" className="text-faint font-mono text-xs">
+        <Link
+          href="/teacher/content"
+          className="text-faint hover:text-foreground font-mono text-xs transition-colors"
+        >
           ← Conteúdo
         </Link>
         <h1 className="text-3xl font-extrabold tracking-tight">

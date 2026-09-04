@@ -132,7 +132,7 @@ export function BookWorkbench({
             type="button"
             onClick={saveCeiling}
             disabled={savingCeiling}
-            className="border-rule rounded-sm border px-4 py-2 font-semibold disabled:opacity-60"
+            className="border-rule hover:border-foreground hover:bg-background disabled:hover:border-rule rounded-sm border px-4 py-2 font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
           >
             {savingCeiling ? "Salvando..." : "Salvar"}
           </button>

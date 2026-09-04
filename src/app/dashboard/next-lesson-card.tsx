@@ -89,8 +89,8 @@ export function NextLessonCard({
           rel="noreferrer"
           className={
             isImminent
-              ? "bg-accent text-accent-foreground self-start rounded-sm px-5 py-3 font-semibold"
-              : "border-rule self-start rounded-sm border px-5 py-3 font-semibold"
+              ? "bg-accent text-accent-foreground self-start rounded-sm px-5 py-3 font-semibold transition-colors hover:opacity-90"
+              : "border-rule hover:border-foreground hover:bg-background self-start rounded-sm border px-5 py-3 font-semibold transition-colors"
           }
         >
           Entrar na aula

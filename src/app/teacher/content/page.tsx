@@ -22,7 +22,7 @@ export default async function ContentIndexPage() {
         <ProgressBar progress={overall} label="Curso inteiro" emphasis />
         <Link
           href="/teacher/content/images"
-          className="text-accent text-sm font-semibold"
+          className="text-accent hover:text-foreground text-sm font-semibold transition-colors"
         >
           Imagens do vocabulário →
         </Link>

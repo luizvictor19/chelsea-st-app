@@ -25,7 +25,10 @@ export function AccountPending() {
       {contact ? (
         <p className="text-muted">
           Fale com o professor em{" "}
-          <a href={`mailto:${contact}`} className="text-accent font-semibold">
+          <a
+            href={`mailto:${contact}`}
+            className="text-accent hover:text-foreground font-semibold transition-colors"
+          >
             {contact}
           </a>
           .
