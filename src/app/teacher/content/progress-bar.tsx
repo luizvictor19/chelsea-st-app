@@ -20,7 +20,7 @@ export function ProgressBar({
         <span className="text-faint font-mono text-xs">
           {progress.total === 0
             ? "não configurado"
-            : `${progress.filled} de ${progress.total}`}
+            : `${progress.filled} de ${progress.total} preenchidos · ${Math.round(progress.fraction * 100)}% · faltam ${progress.remaining}`}
         </span>
       </div>
       <div

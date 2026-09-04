@@ -17,7 +17,7 @@ import {
 } from "./testing/synthetic-page.ts";
 import type { Bitmap, OcrReader, OcrWord } from "./types.ts";
 
-const CEILING = 128;
+const RANGE = { first: 1, last: 128 };
 
 function word(text: string, x: number, y: number, agreement = 1): OcrWord {
   void agreement;
@@ -104,7 +104,7 @@ describe("criterion 4: the same page twice does not duplicate anything", () => {
       await extractPage("p057-534", 1, lessonPage(534), reader),
     ];
 
-    const resolved = resolveBatch(pages, CEILING);
+    const resolved = resolveBatch(pages, RANGE);
     const duplicates = resolved.filter((page) => page.duplicateOf !== null);
     assert.equal(duplicates.length, 1, "exactly one is a re-upload");
     assert.equal(
@@ -132,7 +132,7 @@ describe("criterion 9: a page with no number, and an image that is not a page", 
       await extractPage("p060", 0, lessonPage(1100), numbered),
       await extractPage("continuation", 1, lessonPage(1100), unnumbered),
     ];
-    const resolved = resolveBatch(pages, CEILING);
+    const resolved = resolveBatch(pages, RANGE);
     const continuation = resolved.find(
       (page) => page.extraction.id === "continuation",
     );

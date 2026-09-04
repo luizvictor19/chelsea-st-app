@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 
 import {
   gaps,
-  pointsUpTo,
+  pointsInRange,
   progress,
   type Gap,
   type Progress,
@@ -40,6 +40,7 @@ export type BookSummary = {
   readonly id: string;
   readonly position: number;
   readonly title: string;
+  readonly firstPoint: number | null;
   readonly lastPoint: number | null;
   readonly progress: Progress;
 };
@@ -52,7 +53,7 @@ export async function listBooks(): Promise<{
 
   const { data: books } = await supabase
     .from("books")
-    .select("id, position, title, last_point")
+    .select("id, position, title, first_point, last_point")
     .order("position");
 
   const { data: points } = await supabase
@@ -70,8 +71,13 @@ export async function listBooks(): Promise<{
     id: book.id,
     position: book.position,
     title: book.title,
+    firstPoint: book.first_point,
     lastPoint: book.last_point,
-    progress: progress(byBook.get(book.id) ?? [], book.last_point),
+    progress: progress(
+      byBook.get(book.id) ?? [],
+      book.first_point,
+      book.last_point,
+    ),
   }));
 
   const filled = summaries.reduce((sum, book) => sum + book.progress.filled, 0);
@@ -82,6 +88,7 @@ export async function listBooks(): Promise<{
     overall: {
       filled,
       total,
+      remaining: Math.max(0, total - filled),
       fraction: total === 0 ? 0 : Math.min(1, filled / total),
     },
   };
@@ -91,6 +98,7 @@ export type BookDetail = {
   readonly id: string;
   readonly position: number;
   readonly title: string;
+  readonly firstPoint: number | null;
   readonly lastPoint: number | null;
   readonly points: readonly { number: number; filled: boolean }[];
   readonly gaps: readonly Gap[];
@@ -102,7 +110,7 @@ export async function loadBook(position: number): Promise<BookDetail | null> {
 
   const { data: book } = await supabase
     .from("books")
-    .select("id, position, title, last_point")
+    .select("id, position, title, first_point, last_point")
     .eq("position", position)
     .maybeSingle();
 
@@ -119,16 +127,21 @@ export async function loadBook(position: number): Promise<BookDetail | null> {
   const filledNumbers = (rows ?? [])
     .filter((row) => row.filled_at !== null)
     .map((row) => row.number);
-  const points = pointsUpTo(filledNumbers, book.last_point);
+  const points = pointsInRange(
+    filledNumbers,
+    book.first_point,
+    book.last_point,
+  );
 
   return {
     id: book.id,
     position: book.position,
     title: book.title,
+    firstPoint: book.first_point,
     lastPoint: book.last_point,
     points,
     gaps: gaps(points),
-    progress: progress(points, book.last_point),
+    progress: progress(points, book.first_point, book.last_point),
   };
 }
 
@@ -164,6 +177,7 @@ export async function listWordsWithoutImage(): Promise<{
     progress: {
       filled: withImage,
       total: all.length,
+      remaining: all.length - withImage,
       fraction: all.length === 0 ? 0 : withImage / all.length,
     },
   };

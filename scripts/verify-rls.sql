@@ -18,6 +18,8 @@ $$;
 \i supabase/migrations/0002_profile_on_signup.sql
 \i supabase/migrations/0003_lesson_schedules.sql
 \i supabase/migrations/0004_content.sql
+\i supabase/migrations/0005_block_source_page.sql
+\i supabase/migrations/0006_book_first_point.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
@@ -27,7 +29,7 @@ insert into students (id) values ('22222222-2222-2222-2222-222222222222');
 
 insert into books (position, title) values (2, 'Book 2');
 select set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
-select materialize_points((select id from books where position = 2), 128);
+select materialize_points((select id from books where position = 2), 1, 128);
 insert into lessons_content (book_id, number, first_point, last_point)
   values ((select id from books where position = 2), 10, 53, 60);
 insert into blocks (point_id, position, kind, content)

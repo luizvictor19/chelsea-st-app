@@ -30,7 +30,7 @@ const manifest = JSON.parse(
   pages_detail: { file: string; points: number[]; duplicate_of?: string }[];
 };
 const truth = new Map(manifest.pages_detail.map((p) => [p.file, p]));
-const CEILING = 128;
+const RANGE = { first: 1, last: 128 };
 
 function build(order: string[]): PageReadings[] {
   return order.map((file, uploadIndex) => {
@@ -53,7 +53,7 @@ function build(order: string[]): PageReadings[] {
 }
 
 function run(label: string, order: string[], verbose = true) {
-  const r = reconcilePoints(build(order), CEILING);
+  const r = reconcilePoints(build(order), RANGE);
   const assigned = [...new Set(r.assigned)].sort((a, b) => a - b);
   const expected = Array.from({ length: 76 }, (_, i) => 53 + i);
 
@@ -133,7 +133,7 @@ const SLICES: Record<string, string[]> = {
 console.log("=== lotes pequenos ===");
 for (const [label, slice] of Object.entries(SLICES)) {
   const present = slice.filter((f) => calib.some((c) => c.file === f));
-  const result = reconcilePoints(build(present), CEILING);
+  const result = reconcilePoints(build(present), RANGE);
   const assigned = result.assigned;
   const wrong = result.pages.filter((p) => {
     const want = truth.get(p.id)!;

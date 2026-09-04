@@ -43,35 +43,53 @@ export function gaps(points: readonly PointProgress[]): readonly Gap[] {
 export type Progress = {
   readonly filled: number;
   readonly total: number;
-  /** Zero when the book has no ceiling yet, so a bar can render at all. */
+  /** What is left, so the screen does not make the teacher subtract. */
+  readonly remaining: number;
+  /** Zero when the book has no range yet, so a bar can render at all. */
   readonly fraction: number;
 };
 
-/** How far a book is, against the ceiling the teacher typed. */
+/**
+ * How far a book is, over the span it actually uses.
+ *
+ * Counted across first to last inclusive, not up to the last: book 5 runs from
+ * 250 to 320, which is 71 points and not 320.
+ */
 export function progress(
   points: readonly PointProgress[],
+  firstPoint: number | null,
   lastPoint: number | null,
 ): Progress {
-  const total = lastPoint ?? 0;
+  const total =
+    firstPoint === null || lastPoint === null || lastPoint < firstPoint
+      ? 0
+      : lastPoint - firstPoint + 1;
   const filled = points.filter((point) => point.filled).length;
   return {
     filled,
     total,
+    remaining: Math.max(0, total - filled),
     fraction: total === 0 ? 0 : Math.min(1, filled / total),
   };
 }
 
 /** Every point of a book, filled or not, so a screen can list them all. */
-export function pointsUpTo(
+export function pointsInRange(
   filledNumbers: readonly number[],
+  firstPoint: number | null,
   lastPoint: number | null,
 ): readonly PointProgress[] {
-  if (lastPoint === null || lastPoint < 1) {
+  if (
+    firstPoint === null ||
+    lastPoint === null ||
+    firstPoint < 1 ||
+    lastPoint < firstPoint
+  ) {
     return [];
   }
   const filled = new Set(filledNumbers);
-  return Array.from({ length: lastPoint }, (_, index) => ({
-    number: index + 1,
-    filled: filled.has(index + 1),
+  return Array.from({ length: lastPoint - firstPoint + 1 }, (_, index) => ({
+    number: firstPoint + index,
+    filled: filled.has(firstPoint + index),
   }));
 }

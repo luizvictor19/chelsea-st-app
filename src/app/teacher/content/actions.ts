@@ -62,15 +62,17 @@ function refreshBookScreens(bookPosition: number): void {
   revalidatePath(`/teacher/content/${bookPosition}`);
 }
 
-/** Sets the book's ceiling and creates its empty points. */
+/** Records the book's range and creates its empty points. */
 export async function configureBook(
   bookId: string,
   bookPosition: number,
+  firstPoint: number,
   lastPoint: number,
 ): Promise<ActionResult> {
   const supabase = await createClient();
   const { error } = await supabase.rpc("materialize_points", {
     p_book_id: bookId,
+    p_first_point: firstPoint,
     p_last_point: lastPoint,
   });
   if (error) {

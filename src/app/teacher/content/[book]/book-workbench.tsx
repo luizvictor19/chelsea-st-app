@@ -33,13 +33,18 @@ export function BookWorkbench({
   bookId,
   bookPosition,
   bookTitle,
+  firstPoint,
   lastPoint,
 }: {
   bookId: string;
   bookPosition: number;
   bookTitle: string;
+  firstPoint: number | null;
   lastPoint: number | null;
 }) {
+  const [floor, setFloor] = useState(
+    firstPoint === null ? "" : String(firstPoint),
+  );
   const [ceiling, setCeiling] = useState(
     lastPoint === null ? "" : String(lastPoint),
   );
@@ -47,15 +52,25 @@ export function BookWorkbench({
   const [ceilingError, setCeilingError] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
 
-  async function saveCeiling() {
-    const value = Number(ceiling);
-    if (!Number.isInteger(value) || value < 1) {
-      setCeilingError("Digite um número inteiro maior que zero.");
+  async function saveRange() {
+    const from = Number(floor);
+    const to = Number(ceiling);
+    if (
+      !Number.isInteger(from) ||
+      from < 1 ||
+      !Number.isInteger(to) ||
+      to < 1
+    ) {
+      setCeilingError("Os dois números são inteiros maiores que zero.");
+      return;
+    }
+    if (to < from) {
+      setCeilingError("O último ponto não pode ser menor que o primeiro.");
       return;
     }
     setSavingCeiling(true);
     setCeilingError(null);
-    const result = await configureBook(bookId, bookPosition, value);
+    const result = await configureBook(bookId, bookPosition, from, to);
     setSavingCeiling(false);
     if (result.status === "error") {
       setCeilingError(result.message);
@@ -63,10 +78,11 @@ export function BookWorkbench({
   }
 
   async function readFiles(files: FileList) {
-    if (lastPoint === null) {
+    if (firstPoint === null || lastPoint === null) {
       setPhase({
         kind: "failed",
-        message: "Defina o último ponto do livro antes de subir páginas.",
+        message:
+          "Defina o primeiro e o último ponto do livro antes de subir páginas.",
       });
       return;
     }
@@ -101,7 +117,10 @@ export function BookWorkbench({
       }
       setPhase({
         kind: "reviewing",
-        pages: resolveBatch(extractions, lastPoint),
+        pages: resolveBatch(extractions, {
+          first: firstPoint,
+          last: lastPoint,
+        }),
         failures,
       });
     } finally {
@@ -112,25 +131,45 @@ export function BookWorkbench({
   return (
     <div className="flex flex-col gap-6">
       <section
-        aria-label="Último ponto do livro"
+        aria-label="Faixa de pontos do livro"
         className="border-rule bg-surface flex flex-col gap-3 rounded-sm border p-5"
       >
-        <h2 className="font-bold tracking-tight">Último ponto do livro</h2>
+        <h2 className="font-bold tracking-tight">
+          Primeiro e último ponto do livro
+        </h2>
         <p className="text-muted text-sm">
-          É o teto que valida a leitura da margem. Sem ele nenhuma página pode
-          ser lida.
+          Os dois vêm do próprio livro, lidos na primeira e na última página.
+          Não do lote que você está subindo, e não do livro anterior: o livro 5
+          começa onde o livro 5 começa, mesmo que o 4 ainda não tenha subido.
         </p>
-        <div className="flex flex-wrap items-center gap-3">
-          <input
-            aria-label="Último ponto"
-            inputMode="numeric"
-            value={ceiling}
-            onChange={(event) => setCeiling(event.target.value)}
-            className="border-rule bg-background w-32 rounded-sm border px-3 py-2 font-mono"
-          />
+        <p className="text-muted text-sm">
+          Juntos eles são o piso e o teto que validam a leitura da margem. Uma
+          leitura fora deles é ruído.
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-faint font-mono text-xs">primeiro</span>
+            <input
+              aria-label="Primeiro ponto"
+              inputMode="numeric"
+              value={floor}
+              onChange={(event) => setFloor(event.target.value)}
+              className="border-rule bg-background w-28 rounded-sm border px-3 py-2 font-mono"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-faint font-mono text-xs">último</span>
+            <input
+              aria-label="Último ponto"
+              inputMode="numeric"
+              value={ceiling}
+              onChange={(event) => setCeiling(event.target.value)}
+              className="border-rule bg-background w-28 rounded-sm border px-3 py-2 font-mono"
+            />
+          </label>
           <button
             type="button"
-            onClick={saveCeiling}
+            onClick={saveRange}
             disabled={savingCeiling}
             className="border-rule hover:border-foreground hover:bg-background disabled:hover:border-rule rounded-sm border px-4 py-2 font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
           >

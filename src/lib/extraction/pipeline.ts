@@ -10,6 +10,7 @@ import {
   reconcilePoints,
   type PageReadings,
   type Placement,
+  type PointRange,
 } from "./reconcile.ts";
 import type { Band, Bitmap, OcrReader } from "./types.ts";
 
@@ -165,7 +166,7 @@ export type ResolvedPage = {
  */
 export function resolveBatch(
   extractions: readonly ExtractedPage[],
-  ceiling: number,
+  range: PointRange,
 ): readonly ResolvedPage[] {
   const readable = extractions.filter((page) => page.unsupported === null);
   const byId = new Map(extractions.map((page) => [page.id, page]));
@@ -178,7 +179,7 @@ export function resolveBatch(
     structureCount: page.structureCount,
   }));
 
-  const reconciliation = reconcilePoints(input, ceiling);
+  const reconciliation = reconcilePoints(input, range);
 
   let lastLesson: number | null = null;
   const resolved: ResolvedPage[] = [];

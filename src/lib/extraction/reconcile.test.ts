@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import { MARGIN_GROUP_Y_TOLERANCE } from "./constants.ts";
 import { reconcilePoints, type PageReadings } from "./reconcile.ts";
 
-const CEILING = 128;
+const RANGE = { first: 1, last: 128 };
 /** Enough crops saw it that the assignment gate lets it through on its own. */
 const CONFIDENT = 3;
 /** One crop, once: the shape noise takes, and the shape a faint real number takes. */
@@ -55,7 +55,7 @@ describe("reconcilePoints, within one page", () => {
           [40, 900, CONFIDENT],
         ]),
       ],
-      CEILING,
+      RANGE,
     );
     assert.deepEqual(pointsById(result), { a: [10, 20, 30, 40] });
     assert.deepEqual(
@@ -76,7 +76,7 @@ describe("reconcilePoints, within one page", () => {
           [58, 1293, ONCE],
         ]),
       ],
-      CEILING,
+      RANGE,
     );
     assert.deepEqual(pointsById(result), { "p057-058": [57, 58] });
     assert.deepEqual(disputesOf(result, "p057-058"), []);
@@ -90,7 +90,7 @@ describe("reconcilePoints, within one page", () => {
           [95, 640 + MARGIN_GROUP_Y_TOLERANCE - 1, ONCE],
         ]),
       ],
-      CEILING,
+      RANGE,
     );
     assert.deepEqual(pointsById(result), { a: [55] });
   });
@@ -103,7 +103,7 @@ describe("reconcilePoints, within one page", () => {
           [71, 100 + MARGIN_GROUP_Y_TOLERANCE + 1, CONFIDENT],
         ]),
       ],
-      CEILING,
+      RANGE,
     );
     assert.deepEqual(pointsById(result), { a: [70, 71] });
   });
@@ -118,7 +118,7 @@ describe("reconcilePoints, within one page", () => {
           [110, 701, CONFIDENT],
         ]),
       ],
-      CEILING,
+      RANGE,
     );
     assert.deepEqual(pointsById(result), { a: [109, 110] });
   });
@@ -126,14 +126,14 @@ describe("reconcilePoints, within one page", () => {
 
 describe("reconcilePoints, what may be assigned", () => {
   test("two crops agreeing is enough on its own", () => {
-    const result = reconcilePoints([page("a", 0, [[60, 100, 2]])], CEILING);
+    const result = reconcilePoints([page("a", 0, [[60, 100, 2]])], RANGE);
     assert.deepEqual(pointsById(result), { a: [60] });
   });
 
   test("a lone reading one crop saw once is asked about, never assigned", () => {
     // Nothing corroborates it: one crop, one page, no run to join. This is the
     // shape of noise, and the answer is a question rather than a guess.
-    const result = reconcilePoints([page("a", 0, [[1, 326, ONCE]])], CEILING);
+    const result = reconcilePoints([page("a", 0, [[1, 326, ONCE]])], RANGE);
     assert.deepEqual(pointsById(result), { a: [] });
     assert.deepEqual(disputesOf(result, "a"), [[1]]);
   });
@@ -146,7 +146,7 @@ describe("reconcilePoints, what may be assigned", () => {
           [58, 1293, ONCE],
         ]),
       ],
-      CEILING,
+      RANGE,
     );
     assert.deepEqual(pointsById(result), { a: [57, 58] });
   });
@@ -163,7 +163,7 @@ describe("reconcilePoints, what may be assigned", () => {
         ]),
         page("b", 1, [[62, 100, CONFIDENT]]),
       ],
-      CEILING,
+      RANGE,
     );
     assert.deepEqual(pointsById(result), { a: [60, 61], b: [62] });
   });
@@ -176,7 +176,7 @@ describe("reconcilePoints, what may be assigned", () => {
           [56, 644, ONCE],
         ]),
       ],
-      CEILING,
+      RANGE,
     );
     assert.deepEqual(pointsById(result), { a: [] });
     assert.deepEqual(disputesOf(result, "a"), [[50, 56]]);
@@ -192,7 +192,7 @@ describe("reconcilePoints, what may be assigned", () => {
           [56, 644, 2],
         ]),
       ],
-      CEILING,
+      RANGE,
     );
     assert.deepEqual(pointsById(result), { a: [56] });
   });
@@ -219,7 +219,7 @@ describe("reconcilePoints, on a small upload", () => {
         ]),
         page("p121", 2, [[121, 200, CONFIDENT]]),
       ],
-      CEILING,
+      RANGE,
     );
     assert.deepEqual(pointsById(result), {
       "p117-118": [117, 118],
@@ -239,7 +239,7 @@ describe("reconcilePoints, on a small upload", () => {
         page("continuation", 1, [[57, 300, ONCE]]),
         page("p120", 2, [[120, 200, CONFIDENT]]),
       ],
-      CEILING,
+      RANGE,
     );
     const continuation = result.pages.find((p) => p.id === "continuation");
     assert.deepEqual(continuation?.points, [], "119 must not be invented here");
@@ -252,7 +252,7 @@ describe("reconcilePoints, on a small upload", () => {
         page("b", 1, [[113, 300, ONCE]]),
         page("c", 2, [[120, 200, CONFIDENT]]),
       ],
-      CEILING,
+      RANGE,
     );
     assert.deepEqual(pointsById(result)["b"], [], "nothing is forced");
   });
@@ -261,7 +261,7 @@ describe("reconcilePoints, on a small upload", () => {
     // With no number placed after it, the run of free values is open-ended.
     const result = reconcilePoints(
       [page("a", 0, [[110, 200, CONFIDENT]]), page("b", 1, [[111, 300, ONCE]])],
-      CEILING,
+      RANGE,
     );
     assert.deepEqual(pointsById(result)["b"], []);
   });
@@ -284,7 +284,7 @@ describe("reconcilePoints, across the batch", () => {
           [59, 1103, ONCE],
         ]),
       ],
-      CEILING,
+      RANGE,
     );
     assert.deepEqual(pointsById(result), {
       "p057-058": [57, 58],
@@ -319,7 +319,7 @@ describe("reconcilePoints, across the batch", () => {
           { boxCount: 3, structureCount: 0 },
         ),
       ],
-      CEILING,
+      RANGE,
     );
     const primary = result.pages.find((p) => p.id === "p053-054");
     const duplicate = result.pages.find((p) => p.id === "dup-534px");
@@ -336,7 +336,7 @@ describe("reconcilePoints, across the batch", () => {
         page("a", 0, [[60, 100, CONFIDENT]], { boxCount: 3 }),
         page("b", 1, [[60, 100, CONFIDENT]], { boxCount: 1 }),
       ],
-      CEILING,
+      RANGE,
     );
     assert.equal(result.pages.filter((p) => p.duplicateOf !== null).length, 0);
   });
@@ -349,7 +349,7 @@ describe("reconcilePoints, across the batch", () => {
         page("first", 0, [], { boxCount: 1 }),
         page("second", 1, [], { boxCount: 1 }),
       ],
-      CEILING,
+      RANGE,
     );
     assert.equal(result.pages.filter((p) => p.duplicateOf !== null).length, 0);
   });
@@ -361,7 +361,7 @@ describe("reconcilePoints, across the batch", () => {
         page("continuation", 1, []),
         page("next", 2, [[61, 100, CONFIDENT]]),
       ],
-      CEILING,
+      RANGE,
     );
     const continuation = result.pages.find((p) => p.id === "continuation");
     assert.deepEqual(continuation?.points, []);
@@ -375,7 +375,7 @@ describe("reconcilePoints, across the batch", () => {
         page("early", 1, [[54, 100, CONFIDENT]]),
         page("middle", 2, [[70, 100, CONFIDENT]]),
       ],
-      CEILING,
+      RANGE,
     );
     assert.deepEqual(
       result.pages.map((p) => p.id),
@@ -390,7 +390,7 @@ describe("reconcilePoints, across the batch", () => {
         page("after-late", 1, []),
         page("early", 2, [[54, 100, CONFIDENT]]),
       ],
-      CEILING,
+      RANGE,
     );
     assert.deepEqual(
       result.pages.map((p) => p.id),
@@ -415,7 +415,7 @@ describe("reconcilePoints, across the batch", () => {
     const runOrder = (order: readonly number[]) =>
       reconcilePoints(
         order.map((which, index) => shapes[which](index)),
-        CEILING,
+        RANGE,
       );
 
     const baseline = pointsById(runOrder([0, 1, 2]));

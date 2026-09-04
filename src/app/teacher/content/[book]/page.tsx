@@ -73,6 +73,7 @@ export default async function BookPage({
         bookId={book.id}
         bookPosition={book.position}
         bookTitle={book.title}
+        firstPoint={book.firstPoint}
         lastPoint={book.lastPoint}
       />
 
@@ -80,7 +81,7 @@ export default async function BookPage({
         <h2 className="font-bold tracking-tight">Pontos</h2>
         {book.points.length === 0 ? (
           <p className="text-muted border-rule rounded-sm border border-dashed p-5">
-            Defina o último ponto do livro para criar a lista.
+            Defina o primeiro e o último ponto do livro para criar a lista.
           </p>
         ) : (
           <ol className="flex flex-wrap gap-1">

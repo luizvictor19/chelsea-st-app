@@ -89,11 +89,21 @@ type Group = {
  * Whatever is still undecided is a question for the teacher. A program that
  * cannot know should ask rather than guess.
  */
+/** The span of numbers a book actually uses, read off its first and last page. */
+export type PointRange = {
+  readonly first: number;
+  readonly last: number;
+};
+
 export function reconcilePoints(
   pages: readonly PageReadings[],
-  ceiling: number,
+  range: PointRange,
 ): Reconciliation {
-  const inRange = (value: number) => value >= 1 && value <= ceiling;
+  const { first, last: ceiling } = range;
+  // A reading below the book's first point is noise exactly as one above its
+  // last is. Book 5 does not start at 1, and validating against a floor of 1
+  // lets every stray small number through.
+  const inRange = (value: number) => value >= first && value <= ceiling;
 
   // Rule 1. The same page scanned twice reads the same numbers and shows the
   // same panels. Box contents are not usable as the key: two scans of one page
@@ -407,9 +417,9 @@ export function reconcilePoints(
       sequence.push(...groupsByPage[pageIndex]);
     }
 
-    const lower = new Array<number>(sequence.length).fill(0);
+    const lower = new Array<number>(sequence.length).fill(first - 1);
     const upper = new Array<number>(sequence.length).fill(ceiling + 1);
-    let seen = 0;
+    let seen = first - 1;
     for (let i = 0; i < sequence.length; i += 1) {
       lower[i] = seen;
       if (sequence[i].assigned !== null) {
@@ -445,7 +455,7 @@ export function reconcilePoints(
       }
       // Bounded means a placed number sits on that side, not the open end of
       // the book. Only then can the interval force a value.
-      group.boundedBelow = lower[i] > 0;
+      group.boundedBelow = lower[i] > first - 1;
       group.boundedAbove = upper[i] <= ceiling;
       for (const value of [...group.candidates]) {
         if (value <= lower[i] || value >= upper[i]) {
@@ -490,28 +500,28 @@ export function reconcilePoints(
         continue;
       }
 
-      const first = sequence.indexOf(undecided[0]);
-      const last = sequence.indexOf(undecided[undecided.length - 1]);
-      if (first < 0 || last < 0) {
+      const firstIndex = sequence.indexOf(undecided[0]);
+      const lastIndex = sequence.indexOf(undecided[undecided.length - 1]);
+      if (firstIndex < 0 || lastIndex < 0) {
         continue;
       }
 
-      let lower = 0;
-      for (let i = first - 1; i >= 0; i -= 1) {
+      let lower = first - 1;
+      for (let i = firstIndex - 1; i >= 0; i -= 1) {
         if (sequence[i].assigned !== null) {
           lower = sequence[i].assigned as number;
           break;
         }
       }
       let upper = ceiling + 1;
-      for (let i = last + 1; i < sequence.length; i += 1) {
+      for (let i = lastIndex + 1; i < sequence.length; i += 1) {
         if (sequence[i].assigned !== null) {
           upper = sequence[i].assigned as number;
           break;
         }
       }
       // Both sides must be anchored, or the count means nothing.
-      if (lower === 0 || upper === ceiling + 1) {
+      if (lower === first - 1 || upper === ceiling + 1) {
         continue;
       }
 

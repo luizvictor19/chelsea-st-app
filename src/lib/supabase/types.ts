@@ -203,6 +203,7 @@ export type Database = {
       books: {
         Row: {
           created_at: string;
+          first_point: number | null;
           id: string;
           last_point: number | null;
           position: number;
@@ -210,6 +211,7 @@ export type Database = {
         };
         Insert: {
           created_at?: string;
+          first_point?: number | null;
           id?: string;
           last_point?: number | null;
           position: number;
@@ -217,6 +219,7 @@ export type Database = {
         };
         Update: {
           created_at?: string;
+          first_point?: number | null;
           id?: string;
           last_point?: number | null;
           position?: number;
@@ -568,7 +571,11 @@ export type Database = {
         Returns: number;
       };
       materialize_points: {
-        Args: { p_book_id: string; p_last_point: number };
+        Args: {
+          p_book_id: string;
+          p_first_point: number;
+          p_last_point: number;
+        };
         Returns: number;
       };
       pgp_armor_headers: {
