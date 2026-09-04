@@ -207,6 +207,43 @@ entra aqui, entra na F2, mas o campo de referência é `points.id`.
 Geração das perguntas, que usa estes alvos como entrada. Exclusão de livro. Edição de ponto fora do
 fluxo de upload.
 
+### Dívidas conhecidas do vocabulário
+
+Achadas lendo o código, não em produção. Nenhuma impede o fluxo, todas afetam o
+que `vocabulary_items` libera para a geração de frases.
+
+- **Palavra de uma letra é descartada.** O filtro por tamanho existe para matar
+  lixo de OCR, mas o ponto 117 ensina `a` ao lado de `some`, e `I` tem o mesmo
+  problema. Como `vocabulary_items` é o que libera palavra para a geração, essas
+  ficariam proibidas para sempre. A regra tem que olhar se é letra, não tamanho.
+- **Termo composto é quebrado por espaço.** `flower plant` são dois termos e o
+  espaço acerta, mas `made of` vira dois, `the fewest` vira dois e
+  `more ... than` vira três. Na caixa os termos são separados por **coluna**, não
+  por espaço, e isso não se recupera do texto achatado. Recupera-se na extração:
+  o OCR entrega o `x` de cada palavra, e o vão entre colunas é muito maior que o
+  vão entre palavras do mesmo termo. Medir a distribuição desses vãos nas 60
+  fixtures antes de escolher qualquer limiar.
+- **Consequência de formato.** Um bloco de vocabulário passa a ser uma lista de
+  termos em vez de uma string achatada, e a tela de revisão passa a mostrar um
+  campo por termo, para o professor corrigir um sem mexer nos outros.
+
+### Modo de segmentação na leitura das caixas
+
+Medido nas 151 caixas das fixtures, comparando o modo automático com o `psm 6`:
+139 idênticas, 12 diferentes, e o `psm 6` lê 31 palavras a mais no total.
+
+A comparação **não decide sozinha**, porque o baseline do manifest é a saída do
+CLI e não uma transcrição à mão: nas caixas em que os dois discordam, "bater com
+o baseline" mede concordância entre motores, não acerto. Em pelo menos dois
+casos o `psm 6` está certo e o baseline errado — recupera o `a` da caixa
+`a some` e recupera todos os pronomes de uma tabela de `have not`. Em pelo menos
+dois outros ele piora, acrescentando `|` solto e embaralhando uma tabela.
+
+As diferenças se concentram nas caixas altas, que já vão para revisão manual, e
+é justamente por isso que o caso que importa é o outro: `a some` é caixa curta,
+não marcada para revisão, e perde uma palavra em silêncio. Decidir com as caixas
+na mão, não por contagem.
+
 ### Exercícios de revisão, suporte completo
 
 Fica para depois que as telas funcionarem ponta a ponta com página de lição. Por ora só existe o
