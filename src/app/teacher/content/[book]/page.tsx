@@ -68,6 +68,7 @@ export default async function BookPage({
 
       <BookWorkbench
         bookId={book.id}
+        bookPosition={book.position}
         bookTitle={book.title}
         lastPoint={book.lastPoint}
       />

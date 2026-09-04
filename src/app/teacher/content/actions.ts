@@ -18,6 +18,8 @@ export type ConfirmedBlock = {
 
 export type ConfirmedPoint = {
   readonly bookId: string;
+  /** The book's position, which is also its path segment. */
+  readonly bookPosition: number;
   readonly pointNumber: number;
   readonly lessonNumber: number | null;
   readonly blocks: readonly ConfirmedBlock[];
@@ -31,9 +33,23 @@ export type ConfirmedPoint = {
   readonly mode: "replace" | "append";
 };
 
+/**
+ * Refreshes the screens a write changes.
+ *
+ * The index, for the bars, and the book itself, because that is where the
+ * ceiling and the list of points live. Revalidating only the index left the
+ * book page holding the value it was rendered with, so an upload kept being
+ * refused for want of a ceiling that had in fact just been saved.
+ */
+function refreshBookScreens(bookPosition: number): void {
+  revalidatePath("/teacher/content");
+  revalidatePath(`/teacher/content/${bookPosition}`);
+}
+
 /** Sets the book's ceiling and creates its empty points. */
 export async function configureBook(
   bookId: string,
+  bookPosition: number,
   lastPoint: number,
 ): Promise<ActionResult> {
   const supabase = await createClient();
@@ -44,7 +60,7 @@ export async function configureBook(
   if (error) {
     return { status: "error", message: error.message };
   }
-  revalidatePath("/teacher/content");
+  refreshBookScreens(bookPosition);
   return { status: "ok" };
 }
 
@@ -188,6 +204,6 @@ export async function confirmPoint(
     return { status: "error", message: fillError.message };
   }
 
-  revalidatePath("/teacher/content");
+  refreshBookScreens(point.bookPosition);
   return { status: "ok" };
 }

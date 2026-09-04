@@ -31,10 +31,12 @@ type Phase =
 
 export function BookWorkbench({
   bookId,
+  bookPosition,
   bookTitle,
   lastPoint,
 }: {
   bookId: string;
+  bookPosition: number;
   bookTitle: string;
   lastPoint: number | null;
 }) {
@@ -53,7 +55,7 @@ export function BookWorkbench({
     }
     setSavingCeiling(true);
     setCeilingError(null);
-    const result = await configureBook(bookId, value);
+    const result = await configureBook(bookId, bookPosition, value);
     setSavingCeiling(false);
     if (result.status === "error") {
       setCeilingError(result.message);
@@ -189,6 +191,7 @@ export function BookWorkbench({
       {phase.kind === "reviewing" && (
         <ReviewPanel
           bookId={bookId}
+          bookPosition={bookPosition}
           bookTitle={bookTitle}
           pages={phase.pages}
           failures={phase.failures}

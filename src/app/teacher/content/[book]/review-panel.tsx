@@ -58,12 +58,14 @@ function initialDraft(page: ResolvedPage): PageDraft {
 
 export function ReviewPanel({
   bookId,
+  bookPosition,
   bookTitle,
   pages,
   failures = [],
   onDone,
 }: {
   bookId: string;
+  bookPosition: number;
   bookTitle: string;
   pages: readonly ResolvedPage[];
   failures?: readonly PageFailure[];
@@ -184,6 +186,7 @@ export function ReviewPanel({
       }
       const result = await confirmPoint({
         bookId,
+        bookPosition,
         pointNumber: target,
         lessonNumber: page.lessonNumber,
         mode: "append",
@@ -231,6 +234,7 @@ export function ReviewPanel({
     for (const [pointNumber, blocks] of byPoint) {
       const result = await confirmPoint({
         bookId,
+        bookPosition,
         pointNumber,
         lessonNumber: page.lessonNumber,
         mode: "replace",
