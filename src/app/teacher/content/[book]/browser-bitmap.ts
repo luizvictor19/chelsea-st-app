@@ -14,10 +14,24 @@ function context(width: number, height: number) {
 /** Decodes an uploaded file into the pixels the pipeline works on. */
 export async function fileToBitmap(file: File): Promise<Bitmap> {
   const decoded = await createImageBitmap(file);
-  const { ctx } = context(decoded.width, decoded.height);
-  ctx.drawImage(decoded, 0, 0);
-  decoded.close();
-  const image = ctx.getImageData(0, 0, decoded.width, decoded.height);
+  // Read the size before releasing it. close() sets width and height to zero,
+  // so asking afterwards gets a zero-sized read that fails inside the canvas
+  // with nothing to say where it came from.
+  const { width, height } = decoded;
+  if (width === 0 || height === 0) {
+    decoded.close();
+    throw new Error(`${file.name}: a imagem chegou sem dimensões.`);
+  }
+  try {
+    const { ctx } = context(width, height);
+    ctx.drawImage(decoded, 0, 0);
+    return toBitmap(ctx.getImageData(0, 0, width, height));
+  } finally {
+    decoded.close();
+  }
+}
+
+function toBitmap(image: ImageData): Bitmap {
   return { width: image.width, height: image.height, data: image.data };
 }
 

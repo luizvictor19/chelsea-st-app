@@ -13,10 +13,20 @@ import { configureBook } from "../actions";
 import { bitmapToCanvas, fileToBitmap } from "./browser-bitmap";
 import { ReviewPanel } from "./review-panel";
 
+/** A page that could not be read, kept so the batch can carry on without it. */
+export type PageFailure = {
+  readonly id: string;
+  readonly reason: string;
+};
+
 type Phase =
   | { readonly kind: "idle" }
   | { readonly kind: "reading"; readonly done: number; readonly total: number }
-  | { readonly kind: "reviewing"; readonly pages: readonly ResolvedPage[] }
+  | {
+      readonly kind: "reviewing";
+      readonly pages: readonly ResolvedPage[];
+      readonly failures: readonly PageFailure[];
+    }
   | { readonly kind: "failed"; readonly message: string };
 
 export function BookWorkbench({
@@ -71,22 +81,26 @@ export function BookWorkbench({
 
     try {
       const extractions = [];
+      const failures: PageFailure[] = [];
       for (const [index, file] of list.entries()) {
-        const bitmap = await fileToBitmap(file);
-        extractions.push(await extractPage(file.name, index, bitmap, reader));
+        // One bad page must not cost the other fifty-nine. It is named in the
+        // review with its reason, and the batch carries on without it.
+        try {
+          const bitmap = await fileToBitmap(file);
+          extractions.push(await extractPage(file.name, index, bitmap, reader));
+        } catch (error) {
+          failures.push({
+            id: file.name,
+            reason:
+              error instanceof Error ? error.message : "erro desconhecido",
+          });
+        }
         setPhase({ kind: "reading", done: index + 1, total: list.length });
       }
       setPhase({
         kind: "reviewing",
         pages: resolveBatch(extractions, lastPoint),
-      });
-    } catch (error) {
-      setPhase({
-        kind: "failed",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Não foi possível ler as páginas.",
+        failures,
       });
     } finally {
       await reader.close();
@@ -177,6 +191,7 @@ export function BookWorkbench({
           bookId={bookId}
           bookTitle={bookTitle}
           pages={phase.pages}
+          failures={phase.failures}
           onDone={() => setPhase({ kind: "idle" })}
         />
       )}

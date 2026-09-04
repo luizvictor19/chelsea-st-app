@@ -10,6 +10,7 @@ import {
 } from "@/lib/extraction/pipeline";
 
 import { confirmPoint } from "../actions";
+import type { PageFailure } from "./book-workbench";
 import { CropCanvas } from "./crop-canvas";
 
 const KIND_LABELS: Record<BlockKind, string> = {
@@ -54,11 +55,13 @@ export function ReviewPanel({
   bookId,
   bookTitle,
   pages,
+  failures = [],
   onDone,
 }: {
   bookId: string;
   bookTitle: string;
   pages: readonly ResolvedPage[];
+  failures?: readonly PageFailure[];
   onDone: () => void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, PageDraft>>(() =>
@@ -181,6 +184,7 @@ export function ReviewPanel({
           `, ${duplicates.length} reconhecida(s) como reenvio`}
         {unsupported.length > 0 && `, ${unsupported.length} não suportada(s)`}
         {refused.length > 0 && `, ${refused.length} recusada(s)`}
+        {failures.length > 0 && `, ${failures.length} com erro`}
         {unresolved.length > 0 && `, ${unresolved.length} sem número resolvido`}
         . Nada foi gravado ainda.
       </p>
@@ -197,6 +201,25 @@ export function ReviewPanel({
           <ul className="text-muted mt-2 font-mono text-xs">
             {unsupported.map((page) => (
               <li key={page.extraction.id}>{page.extraction.id}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {failures.length > 0 && (
+        <div className="border-accent rounded-sm border p-5">
+          <p className="text-accent font-mono text-xs tracking-[0.16em] uppercase">
+            Não foi possível ler
+          </p>
+          <p className="text-muted mt-2 text-sm">
+            Estas páginas deram erro e foram puladas. O resto do lote seguiu.
+          </p>
+          <ul className="text-muted mt-2 flex flex-col gap-1 text-sm">
+            {failures.map((failure) => (
+              <li key={failure.id}>
+                <span className="font-mono text-xs">{failure.id}</span>
+                <span className="text-faint"> — {failure.reason}</span>
+              </li>
             ))}
           </ul>
         </div>
@@ -338,14 +361,18 @@ export function ReviewPanel({
                       <p className="text-accent font-mono text-xs tracking-[0.16em] uppercase">
                         Recorte original
                       </p>
-                      <CropCanvas
-                        page={page.extraction.page}
-                        band={
-                          orderedByPage.get(page.extraction.id)?.[index]
-                            ?.band ?? { top: 0, bottom: 0 }
-                        }
-                        label="Recorte da caixa original"
-                      />
+                      {(() => {
+                        const band = orderedByPage.get(page.extraction.id)?.[
+                          index
+                        ]?.band;
+                        return band === undefined ? null : (
+                          <CropCanvas
+                            page={page.extraction.page}
+                            band={band}
+                            label="Recorte da caixa original"
+                          />
+                        );
+                      })()}
                     </div>
                   )}
                   <div className="flex flex-1 flex-col gap-2">

@@ -209,7 +209,14 @@ export function boxLeft(mask: Mask): number {
   return Math.trunc(mask.width * 0.1);
 }
 
-/** Rectangular crop. `right` and `bottom` are exclusive. */
+/**
+ * Rectangular crop. `right` and `bottom` are exclusive.
+ *
+ * Throws on a rectangle it cannot honour rather than returning an empty bitmap.
+ * Silently handing back zero pixels moves the failure somewhere far away, where
+ * it surfaces as a canvas complaining about a zero width and says nothing about
+ * which crop asked for it.
+ */
 export function crop(
   image: Bitmap,
   left: number,
@@ -217,13 +224,28 @@ export function crop(
   right: number,
   bottom: number,
 ): Bitmap {
-  const width = Math.max(0, Math.min(right, image.width) - Math.max(left, 0));
-  const height = Math.max(0, Math.min(bottom, image.height) - Math.max(top, 0));
+  const width = right - left;
+  const height = bottom - top;
+  if (
+    !Number.isInteger(left) ||
+    !Number.isInteger(top) ||
+    !Number.isInteger(right) ||
+    !Number.isInteger(bottom) ||
+    width <= 0 ||
+    height <= 0 ||
+    left < 0 ||
+    top < 0 ||
+    right > image.width ||
+    bottom > image.height
+  ) {
+    throw new Error(
+      `crop asked for [${left}, ${top}, ${right}, ${bottom}] of a ${image.width}x${image.height} image`,
+    );
+  }
+
   const data = new Uint8ClampedArray(width * height * 4);
-  const startX = Math.max(left, 0);
-  const startY = Math.max(top, 0);
   for (let y = 0; y < height; y += 1) {
-    const source = ((startY + y) * image.width + startX) * 4;
+    const source = ((top + y) * image.width + left) * 4;
     data.set(image.data.subarray(source, source + width * 4), y * width * 4);
   }
   return { width, height, data };

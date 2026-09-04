@@ -124,9 +124,16 @@ describe("crop", () => {
     assert.deepEqual(pixel(result, 5, 5), [...INK]);
   });
 
-  test("clamps to the image rather than reading past it", () => {
-    const result = crop(toBitmap(blankPage(50, 50)), 40, 40, 999, 999);
-    assert.equal(result.width, 10);
-    assert.equal(result.height, 10);
+  test("refuses a rectangle it cannot honour, naming it", () => {
+    // Returning an empty bitmap here used to move the failure into a canvas
+    // call somewhere else, which reported a zero width and nothing about the
+    // crop that caused it.
+    const page = toBitmap(blankPage(50, 50));
+    assert.throws(
+      () => crop(page, 40, 40, 999, 999),
+      /\[40, 40, 999, 999\].*50x50/,
+    );
+    assert.throws(() => crop(page, 0, 0, 0, 10), /\[0, 0, 0, 10\]/);
+    assert.throws(() => crop(page, -1, 0, 10, 10), /\[-1, 0, 10, 10\]/);
   });
 });
