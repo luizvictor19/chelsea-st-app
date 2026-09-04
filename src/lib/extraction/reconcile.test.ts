@@ -6,15 +6,25 @@ import { reconcilePoints, type PageReadings } from "./reconcile.ts";
 
 const CEILING = 128;
 
+/** Readings as [value, y] or [value, y, agreement]; agreement defaults to 1. */
 function page(
   id: string,
   uploadIndex: number,
-  readings: readonly [number, number][],
+  readings: readonly (
+    readonly [number, number] | readonly [number, number, number]
+  )[],
+  structure: { boxCount?: number; structureCount?: number } = {},
 ): PageReadings {
   return {
     id,
     uploadIndex,
-    readings: readings.map(([value, y]) => ({ value, y })),
+    readings: readings.map(([value, y, agreement]) => ({
+      value,
+      y,
+      agreement: agreement ?? 1,
+    })),
+    boxCount: structure.boxCount ?? 0,
+    structureCount: structure.structureCount ?? 0,
   };
 }
 
@@ -60,26 +70,104 @@ describe("reconcilePoints", () => {
     assert.equal(result.needsReview, false);
   });
 
-  test("two positions equally certain of the same value are both asked about", () => {
-    // Measured on the real set: a continuation page reads 53 and 54 at two
-    // separate positions, exactly as the page that carries them does. Nothing
-    // in the batch tells them apart, and whichever the loop reached first would
-    // win by iteration order alone. Both are questions instead.
+  test("criterion 4: two scans of one page are merged, not counted twice", () => {
+    // The pair that motivated this rule: the same page at 521px and 534px. It
+    // reads the same numbers and shows the same panels. Box contents are not
+    // usable as the key, because the two scans differ exactly inside the
+    // flattened table, where the reading order changes.
     const result = reconcilePoints(
       [
-        page("p053-054", 0, [
-          [53, 173],
-          [54, 1275],
+        page(
+          "p053-054",
+          0,
+          [
+            [53, 173],
+            [54, 1275],
+          ],
+          { boxCount: 3, structureCount: 1 },
+        ),
+        page(
+          "dup-534px",
+          1,
+          [
+            [53, 178],
+            [54, 1280],
+          ],
+          { boxCount: 3, structureCount: 0 },
+        ),
+      ],
+      CEILING,
+    );
+
+    const primary = result.pages.find((p) => p.id === "p053-054");
+    const duplicate = result.pages.find((p) => p.id === "dup-534px");
+    assert.deepEqual(primary?.points, [53, 54]);
+    assert.equal(primary?.duplicateOf, null);
+    // The scan that gave up a lesson header is the one worth keeping.
+    assert.equal(duplicate?.duplicateOf, "p053-054");
+    assert.deepEqual(duplicate?.points, []);
+    assert.equal(result.needsReview, false);
+  });
+
+  test("pages that merely read alike are not merged", () => {
+    // Same numbers, different panel count: two different pages.
+    const result = reconcilePoints(
+      [
+        page("a", 0, [[60, 100]], { boxCount: 3 }),
+        page("b", 1, [[60, 100]], { boxCount: 1 }),
+      ],
+      CEILING,
+    );
+    assert.equal(
+      result.pages.filter((p) => p.duplicateOf !== null).length,
+      0,
+      "neither may be treated as a copy of the other",
+    );
+  });
+
+  test("criterion: a stray number between two anchors is impossible", () => {
+    // With 73 and 75 placed, the position between them can only hold 74. The
+    // 4 and the 45 go without any threshold saying so, which is the sequence
+    // half of "validate by sequence and ceiling".
+    const result = reconcilePoints(
+      [
+        page("p073", 0, [[73, 200]]),
+        page("p074", 1, [
+          [74, 538],
+          [4, 538],
+          [45, 538],
         ]),
-        page("continuation", 1, [
-          [53, 228],
-          [54, 1280],
+        page("p075", 2, [[75, 200]]),
+      ],
+      CEILING,
+    );
+    assert.deepEqual(pointsById(result), {
+      p073: [73],
+      p074: [74],
+      p075: [75],
+    });
+    assert.equal(result.needsReview, false);
+  });
+
+  test("agreement decides a tie, and only inside one position", () => {
+    // 56 seen by two crops beats 50 seen by one. Never used as a filter:
+    // requiring two would discard real numbers only one crop found.
+    const result = reconcilePoints(
+      [
+        page("p056", 0, [
+          [50, 644, 1],
+          [56, 644, 2],
         ]),
       ],
       CEILING,
     );
-    assert.equal(result.needsReview, true);
-    assert.deepEqual(pointsById(result), { "p053-054": [], continuation: [] });
+    assert.deepEqual(pointsById(result), { p056: [56] });
+    assert.equal(result.needsReview, false);
+  });
+
+  test("a number only one crop saw is still a number", () => {
+    const result = reconcilePoints([page("a", 0, [[58, 900, 1]])], CEILING);
+    assert.deepEqual(pointsById(result), { a: [58] });
   });
 
   test("readings at nearly the same height are one number, not two", () => {
@@ -189,27 +277,45 @@ describe("reconcilePoints", () => {
     );
   });
 
-  test("the result does not depend on the order pages arrived in", () => {
-    const build = (order: readonly number[]) =>
+  test("a numbered page keeps its numbers whatever the upload order", () => {
+    // Book order comes from the numbers, so a page that carries them must not
+    // depend on when it was uploaded. A page that carries none is a different
+    // matter: it is placed by upload order, which is the specified behaviour.
+    const shapes = [
+      (i: number) =>
+        page("continuation", i, [
+          [58, 1102],
+          [59, 1103],
+        ]),
+      (i: number) =>
+        page("p057-058", i, [
+          [57, 258],
+          [58, 1293],
+        ]),
+      (i: number) => page("p059", i, [[59, 1112]]),
+    ];
+    const runOrder = (order: readonly number[]) =>
       reconcilePoints(
-        order.map((n, i) =>
-          n === 0
-            ? page("continuation", i, [
-                [58, 300],
-                [59, 700],
-              ])
-            : n === 1
-              ? page("p057-058", i, [
-                  [57, 200],
-                  [58, 900],
-                ])
-              : page("p059", i, [[59, 200]]),
-        ),
+        order.map((which, index) => shapes[which](index)),
         CEILING,
       );
-    assert.deepEqual(
-      pointsById(build([0, 1, 2])),
-      pointsById(build([2, 0, 1])),
-    );
+
+    const baseline = pointsById(runOrder([0, 1, 2]));
+    for (const order of [
+      [1, 2, 0],
+      [2, 0, 1],
+      [2, 1, 0],
+    ]) {
+      assert.deepEqual(
+        pointsById(runOrder(order)),
+        baseline,
+        `order ${order.join(",")} disagreed`,
+      );
+    }
+    assert.deepEqual(baseline, {
+      "p057-058": [57, 58],
+      p059: [59],
+      continuation: [],
+    });
   });
 });

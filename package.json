@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --test \"src/**/*.test.ts\"",
-    "calibrate": "node scripts/calibrate-extraction.ts"
+    "calibrate": "node scripts/calibrate-extraction.ts",
+    "smoke:reconcile": "node scripts/smoke-reconciliation.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",
