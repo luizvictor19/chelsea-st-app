@@ -17,11 +17,13 @@ import {
   type PageQuestion,
 } from "@/lib/content/point-question";
 
+import { GRAMMAR_TABLE_PLACEHOLDER } from "@/lib/extraction/grammar-table";
 import { splitTerms } from "@/lib/extraction/terms";
 
 import { confirmPoint, filledPoints } from "../actions";
 import type { PageFailure } from "./book-workbench";
 import { CropCanvas } from "./crop-canvas";
+import { GrammarTablePreview } from "./grammar-table-preview";
 
 const KIND_LABELS: Record<BlockKind, string> = {
   vocabulary: "Vocabulário",
@@ -681,6 +683,15 @@ export function ReviewPanel({
                         excluir
                       </button>
                     </div>
+                    {block.kind === "grammar_table" && (
+                      <p className="text-faint text-xs">
+                        Uma linha por linha da tabela, colunas separadas por{" "}
+                        <span className="font-mono">|</span>, e linha em branco
+                        entre blocos. Uma linha sem{" "}
+                        <span className="font-mono">|</span> é o título do bloco
+                        seguinte. É isto que a aluna vê na aula.
+                      </p>
+                    )}
                     {block.kind === "vocabulary" && (
                       <p className="text-faint text-xs">
                         Um termo por vírgula. A vírgula é a fronteira entre
@@ -691,6 +702,11 @@ export function ReviewPanel({
                     <textarea
                       aria-label="Conteúdo do bloco"
                       value={block.content}
+                      placeholder={
+                        block.kind === "grammar_table"
+                          ? GRAMMAR_TABLE_PLACEHOLDER
+                          : undefined
+                      }
                       rows={block.needsReview ? 8 : 3}
                       onChange={(event) =>
                         updateBlock(page.extraction.id, index, {
@@ -699,6 +715,14 @@ export function ReviewPanel({
                       }
                       className="border-rule bg-background w-full rounded-sm border p-2 font-mono text-sm"
                     />
+                    {block.kind === "grammar_table" && (
+                      <div className="border-rule bg-background rounded-sm border p-3">
+                        <p className="text-faint mb-2 font-mono text-xs tracking-[0.16em] uppercase">
+                          Como a aluna vai ver
+                        </p>
+                        <GrammarTablePreview content={block.content} />
+                      </div>
+                    )}
                   </div>
                 </li>
               ))}

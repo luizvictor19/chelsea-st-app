@@ -207,6 +207,37 @@ entra aqui, entra na F2, mas o campo de referência é `points.id`.
 Geração das perguntas, que usa estes alvos como entrada. Exclusão de livro. Edição de ponto fora do
 fluxo de upload.
 
+### Formato da tabela de gramática
+
+As caixas com `needs_review` são reescritas à mão e aparecem na tela compartilhada
+durante a aula, então o que o professor digita é o que a aluna lê. São ~150 nos 12
+livros, e sem convenção cada uma sai de um jeito.
+
+Três regras:
+
+- uma linha por linha da tabela
+- colunas separadas por `|`
+- linha em branco começa outro bloco, e linha sem `|` é o título do bloco seguinte
+
+```
+Present continuous (negative)
+I | am not speaking
+you | are not speaking
+he, she, it | is not speaking
+we, you, they | are not speaking
+```
+
+Cobre as três formas que o livro usa: grade de conjugação, comparação de duas
+colunas com cabeçalho (`Possessive adjectives | Possessive pronouns`) e grade de
+três (`many | more ... than | the most`).
+
+O separador é `|` porque `/` é a pausa de leitura do ditado e colidiria, `;`
+aparece dentro de texto normal, e tabulação é invisível num campo de texto.
+
+A tela mostra o exemplo como placeholder e o **resultado ao lado do campo**,
+porque a convenção se aprende melhor pelo que ela produz do que pela regra: uma
+barra no lugar errado é óbvia no preview e invisível no texto.
+
 ### Separação de termos do vocabulário, resolvida
 
 Os termos de uma caixa são separados por **coluna**, não por espaço. Achatados em
