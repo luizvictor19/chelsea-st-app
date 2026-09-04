@@ -19,7 +19,7 @@ não são gravadas.
 
 ## Anatomia da página, verificada
 
-Medido em 64 páginas do livro 2 normalizadas para 1100px de largura.
+Medido em 61 páginas do livro 2 normalizadas para 1100px de largura.
 
 | Elemento                          | Onde fica                             | Como se reconhece                                                        |
 | --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------ |
@@ -71,19 +71,19 @@ Consequências:
 
 ## Resultado medido
 
-64 páginas, cobrindo as lições 10 a 24 do livro 2, ou seja os pontos 53 a 128 sem buraco.
+61 páginas, cobrindo as lições 10 a 24 do livro 2, ou seja os pontos 53 a 128 sem buraco.
 
 | Métrica                                                 | Resultado                                          |
 | ------------------------------------------------------- | -------------------------------------------------- |
 | Números de ponto recuperados                            | 76 de 76                                           |
-| Caixas detectadas                                       | 156, sem falso positivo após fusão e altura mínima |
-| Caixas de vocabulário extraídas palavra por palavra     | 144 de 156                                         |
-| Caixas achatadas, marcadas automaticamente              | 12 de 156                                          |
+| Caixas detectadas                                       | 154, sem falso positivo após fusão e altura mínima |
+| Caixas de vocabulário extraídas palavra por palavra     | 141 de 154                                         |
+| Caixas achatadas, marcadas automaticamente              | 13 de 154                                          |
 | Cabeçalhos `LESSON N`                                   | 15 de 15                                           |
 | `Revision Exercise N`                                   | 4 de 4                                             |
 | `See Chart N`                                           | 9 de 9                                             |
-| Páginas de ditado identificadas por densidade de barras | 9 de 9                                             |
-| Ocorrências de `Dictation N` lidas por OCR              | 1 de 9                                             |
+| Páginas de ditado identificadas por densidade de barras | 8 de 8                                             |
+| Ocorrências de `Dictation N` lidas por OCR              | 1 de 8                                             |
 
 O texto `Dictation N` é itálico claro ao lado de um ícone e o OCR não o lê. A densidade de barras
 identifica a página com folga: páginas de ditado ficam entre 0,11 e 0,35, todas as outras abaixo de
@@ -153,22 +153,25 @@ A revisão espaçada individual, essa sim é nossa, e sai dos `attempts` da alun
 
 Cada critério é um teste. Os testes correm contra fixtures sintéticas, geradas com a
 geometria medida e conteúdo original, porque a verdade de referência é construída em vez
-de rotulada à mão. As 64 páginas reais ficam em `fixtures/real/`, fora do repositório, e
-servem a um smoke test local que nenhum critério depende.
+de rotulada à mão. As 61 páginas reais ficam em `fixtures/real/`, fora do repositório, e
+servem a um smoke test local que nenhum critério depende. O alvo desse smoke test é o
+`manifest.json` que acompanha as páginas, nunca a saída anterior do próprio extrator.
 
 1. Definir `last_point` como 128 cria 128 pontos vazios e a barra mostra 0 de 128.
-2. Subir as 64 páginas de teste, em ordem aleatória, preenche exatamente os pontos 53 a 128, e
+2. Subir as 61 páginas de teste, em ordem aleatória, preenche exatamente os pontos 53 a 128, e
    nenhum outro.
 3. Subir o mesmo lote sem as páginas dos pontos 84 a 88 faz a tela do livro listar esse buraco como
    páginas faltando.
 4. Subir a mesma página duas vezes, em 519px e em 534px de largura, não duplica nenhum bloco.
-5. As 12 caixas de tabela aparecem com `needs_review` verdadeiro e o recorte original ao lado.
+5. As 13 caixas de tabela aparecem com `needs_review` verdadeiro e o recorte original ao lado.
 6. Uma caixa larga com texto denso o bastante para partir em duas faixas é reconstituída como uma
    caixa só, com o conteúdo completo.
 7. Um parágrafo justificado na coluna inteira vira bloco `explanation`, e nenhuma linha de
    pergunta e resposta vira bloco.
-8. As 9 páginas de ditado produzem um bloco `dictation` cada, com as barras preservadas.
-9. Uma imagem sem número de ponto é recusada com mensagem e nada é gravado.
+8. As 8 páginas de ditado produzem um bloco `dictation` cada, com as barras preservadas.
+9. Uma página sem número na margem herda o ponto corrente da sequência de upload. Uma imagem
+   sem número, sem caixa sombreada, sem cabeçalho de lição e sem parágrafo de ditado é recusada
+   com mensagem e nada é gravado.
 10. Aluna autenticada recebe zero linhas ao consultar `books`, `lessons_content`, `points` e
     `blocks`.
 11. `prettier --check`, `lint`, `tsc --noEmit`, `test` e `build` passam.

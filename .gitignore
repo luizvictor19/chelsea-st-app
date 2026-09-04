@@ -51,9 +51,11 @@ next-env.d.ts
 .branches
 .temp
 
-# Real book pages, kept out of the repository on purpose. Synthetic
-# fixtures are committed instead; these are for local smoke tests only.
-fixtures/real/
+# Book pages, and the archives they arrive in, never enter the repository.
+# The whole directory is ignored rather than a subpath, so dropping another
+# book's pages in here cannot commit them by accident. Synthetic fixtures are
+# produced by a committed generator at test time, not stored as images.
+fixtures/
 
 # Claude Code local state
 .claude/settings.local.json
