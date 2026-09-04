@@ -2,6 +2,7 @@ import {
   EXPLANATION_LEFT_TOLERANCE,
   EXPLANATION_MAX_GAP,
   INK_LEVEL,
+  MARGIN_JITTER,
   MIN_LINE_HEIGHT,
   MIN_ROW_INK,
 } from "./constants.ts";
@@ -16,6 +17,57 @@ import type { Bitmap, Band } from "./types.ts";
  */
 function luma(red: number, green: number, blue: number): number {
   return (red * 19595 + green * 38470 + blue * 7471 + 0x8000) >> 16;
+}
+
+/** Left-hand ink column of a line, or -1 when the line is blank. */
+function firstInkColumn(ink: Uint8Array, width: number, band: Band): number {
+  for (let x = 0; x < width; x += 1) {
+    for (let y = band.top; y < band.bottom; y += 1) {
+      if (ink[y * width + x] === 1) {
+        return x;
+      }
+    }
+  }
+  return -1;
+}
+
+/**
+ * Where the text column starts, taken from the text itself.
+ *
+ * Not the same thing as the left edge of a shaded panel, though the two agree
+ * whenever a page has one, and that coincidence hid the difference. Measured
+ * across the book, prose begins at the same column on every page; the panel
+ * begins there only when there is a panel. A page without one was falling back
+ * to a tenth of the width, twenty-one pixels out, which is enough to fail a
+ * fifteen-pixel tolerance and reject every line on the page.
+ *
+ * The mode rather than the minimum, because an indented heading or a stray mark
+ * further left would drag a minimum with it. Lines within a couple of pixels
+ * count together: a glyph starting on a round letter sits a pixel in from one
+ * starting on a stem.
+ */
+export function textMargin(image: Bitmap): number {
+  const { spans, ink, width } = collect(image);
+  const starts = spans
+    .map((span) => firstInkColumn(ink, width, span))
+    .filter((column) => column >= 0);
+
+  if (starts.length === 0) {
+    return Math.trunc(width * 0.1);
+  }
+
+  let best = starts[0];
+  let bestCount = -1;
+  for (const candidate of starts) {
+    const count = starts.filter(
+      (start) => Math.abs(start - candidate) <= MARGIN_JITTER,
+    ).length;
+    if (count > bestCount || (count === bestCount && candidate < best)) {
+      best = candidate;
+      bestCount = count;
+    }
+  }
+  return best;
 }
 
 /**
@@ -78,8 +130,12 @@ function collect(image: Bitmap) {
  * well right of the margin or carry a gap in the middle. Nothing here reads a
  * word, which is why it survives the OCR being imperfect.
  */
-export function explanationLines(image: Bitmap, left: number): readonly Band[] {
+export function explanationLines(image: Bitmap): readonly Band[] {
   const { spans, ink, width } = collect(image);
+  // Taken from the text, not from the shaded panel. They agree on a page that
+  // has a panel, which is why the difference went unnoticed until a page
+  // without one rejected every line it had.
+  const left = textMargin(image);
 
   return spans.filter((span) => {
     // Collapse the line to the columns it touches anywhere in its height.

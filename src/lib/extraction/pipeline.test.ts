@@ -204,6 +204,53 @@ describe("criterion 8: a dictation page with nothing else on it", () => {
   });
 });
 
+describe("criterion 7: prose on a page with no shaded panel", () => {
+  test("a justified paragraph is found where there is no panel to measure from", () => {
+    // The text column starts in the same place with a panel or without one, but
+    // box_left only knows about the panel. On a page with none it fell back to a
+    // tenth of the width, twenty-one pixels out, and rejected every line: the
+    // page carrying the present continuous explanation came out empty.
+    const page: MutablePage = blankPage(1100, 900);
+    const textLeft = 89;
+    // Line spacing close enough that the three read as one paragraph, as they
+    // do on the page: a blank wider than a line is what separates paragraphs.
+    for (const top of [200, 215, 230]) {
+      inkLine(page, { left: textLeft, right: 980, top });
+    }
+
+    const words = ["We", "use", "the", "present", "continuous"].map(
+      (text, index) => word(text, textLeft + index * 70, 200),
+    );
+    const reader = scriptedReader({ margin: [], page: words, box: [] });
+
+    return extractPage("p057-058", 0, toBitmap(page), reader).then(
+      (extracted) => {
+        const explanations = extracted.blocks.filter(
+          (block) => block.kind === "explanation",
+        );
+        assert.equal(explanations.length, 1);
+        assert.ok(explanations[0].content.includes("present continuous"));
+      },
+    );
+  });
+
+  test("question and answer on such a page still yields nothing", () => {
+    // Two columns leave a wide hole mid-line whatever the margin is.
+    const page: MutablePage = blankPage(1100, 900);
+    for (const top of [200, 240, 280]) {
+      inkLine(page, { left: 89, right: 980, top, centreGap: 120 });
+    }
+    const reader = scriptedReader({ margin: [], page: [], box: [] });
+
+    return extractPage("p123", 0, toBitmap(page), reader).then((extracted) => {
+      assert.deepEqual(
+        extracted.blocks.filter((block) => block.kind === "explanation"),
+        [],
+      );
+    });
+  });
+});
+
 describe("criterion 5: boxes needing a human come first", () => {
   test("review-first ordering puts flagged boxes ahead of the rest", () => {
     const ordered = reviewOrder([

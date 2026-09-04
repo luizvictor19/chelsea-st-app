@@ -88,7 +88,7 @@ export async function extractPage(
 
   const asRegion = (band: Band) => ({ band, content: textInBand(words, band) });
   const lines = inkLines(page).map(asRegion);
-  const explanations = explanationLines(page, left).map(asRegion);
+  const explanations = explanationLines(page).map(asRegion);
 
   const result = classify({
     boxes: boxRegions,

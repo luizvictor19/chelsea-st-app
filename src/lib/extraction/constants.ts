@@ -16,12 +16,13 @@
  *   raw readings differ on 27 pages, but only in which false positives appear:
  *   no true number was lost. That is expected and is why the spec validates by
  *   sequence and ceiling rather than by confidence.
- * - Explanation lines matched on 60 of 61 pages, 190 lines against 189. The one
- *   extra line is a boundary case: this resampler is not bit-identical to the
- *   PIL Lanczos the baseline was taken with, and one line on p117-118 sits close
- *   enough to the justification test to move across it. Not worth chasing PIL's
- *   exact fixed-point arithmetic for; recorded here so the discrepancy is known
- *   rather than discovered later.
+ * - Explanation lines have since been deliberately taken past the baseline. The
+ *   reference implementation measured justification against the left edge of the
+ *   shaded panel, which is not where the text column starts: the two agree only
+ *   on pages that have a panel. Measuring against the text itself finds 225
+ *   lines against the baseline's 189, on 15 pages, and loses none. It is what
+ *   recovers the present-continuous explanation on p057-058, which the baseline
+ *   reported as an empty page.
  */
 
 /** Normalisation width. Below this the margin digits stop resolving. */
@@ -90,7 +91,12 @@ export const INK_LEVEL = 160;
 export const MIN_ROW_INK = 2;
 /** Shorter than this a run of rows is noise, not a line of text. */
 export const MIN_LINE_HEIGHT = 6;
-/** How far a line may start from box_left and still count as justified. */
+/**
+ * Two lines starting within this many pixels of each other begin in the same
+ * column. A glyph with a round left side sits a pixel inside one with a stem.
+ */
+export const MARGIN_JITTER = 2;
+/** How far a line may start from the text margin and still count as justified. */
 export const EXPLANATION_LEFT_TOLERANCE = 15;
 /**
  * The widest internal gap a justified line may contain. Question and answer

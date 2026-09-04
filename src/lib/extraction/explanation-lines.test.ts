@@ -18,7 +18,7 @@ const COLUMN_RIGHT = 980;
 function linesOf(draw: (page: MutablePage) => void) {
   const page = blankPage(WIDTH, 700);
   draw(page);
-  return explanationLines(toBitmap(page), BOX_LEFT);
+  return explanationLines(toBitmap(page));
 }
 
 describe("explanationLines", () => {
@@ -51,10 +51,16 @@ describe("explanationLines", () => {
   });
 
   test("a line starting right of the text margin is not prose", () => {
-    const lines = linesOf((page) =>
-      inkLine(page, { left: WIDTH / 2, right: COLUMN_RIGHT, top: 100 }),
-    );
-    assert.deepEqual(lines, []);
+    // The margin comes from the text, so prose has to be on the page for an
+    // indented line to be indented against anything.
+    const lines = linesOf((page) => {
+      for (const top of [100, 130, 160]) {
+        inkLine(page, { left: BOX_LEFT, right: COLUMN_RIGHT, top });
+      }
+      inkLine(page, { left: WIDTH / 2, right: COLUMN_RIGHT, top: 200 });
+    });
+    assert.equal(lines.length, 3, "only the three justified lines");
+    assert.ok(lines.every((line) => line.top < 200));
   });
 
   test("word spacing is not a column gap", () => {

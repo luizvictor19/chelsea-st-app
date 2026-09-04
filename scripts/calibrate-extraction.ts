@@ -113,7 +113,7 @@ for (const [index, file] of files.entries()) {
     box_count: bands.length,
     needs_review_count: bands.filter((b) => b.bottom - b.top > TABLE_HEIGHT)
       .length,
-    explanation_line_count: explanationLines(page, left).length,
+    explanation_line_count: explanationLines(page).length,
     box_heights: bands.map((b) => b.bottom - b.top),
     box_left: left,
   };
