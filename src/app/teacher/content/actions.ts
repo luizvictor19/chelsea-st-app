@@ -23,6 +23,12 @@ export type ConfirmedPoint = {
   readonly blocks: readonly ConfirmedBlock[];
   /** Words to introduce at this point, already folded by the caller. */
   readonly vocabulary: readonly string[];
+  /**
+   * "replace" for the page that carries the number, which is what makes a
+   * re-upload idempotent. "append" for a continuation page, whose blocks belong
+   * to the same point and must not wipe what the first page put there.
+   */
+  readonly mode: "replace" | "append";
 };
 
 /** Sets the book's ceiling and creates its empty points. */
@@ -76,19 +82,31 @@ export async function confirmPoint(
     };
   }
 
-  const { error: clearError } = await supabase
-    .from("blocks")
-    .delete()
-    .eq("point_id", row.id);
-  if (clearError) {
-    return { status: "error", message: clearError.message };
+  let offset = 0;
+  if (point.mode === "replace") {
+    const { error: clearError } = await supabase
+      .from("blocks")
+      .delete()
+      .eq("point_id", row.id);
+    if (clearError) {
+      return { status: "error", message: clearError.message };
+    }
+  } else {
+    const { data: last } = await supabase
+      .from("blocks")
+      .select("position")
+      .eq("point_id", row.id)
+      .order("position", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    offset = last === null ? 0 : last.position + 1;
   }
 
   if (point.blocks.length > 0) {
     const { error: insertError } = await supabase.from("blocks").insert(
       point.blocks.map((block, position) => ({
         point_id: row.id,
-        position,
+        position: offset + position,
         kind: block.kind,
         content: block.content,
         needs_review: block.needsReview,

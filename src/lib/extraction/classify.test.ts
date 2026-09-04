@@ -8,6 +8,7 @@ import type { Marker } from "./markers.ts";
 function input(overrides: Partial<ClassifyInput> = {}): ClassifyInput {
   return {
     boxes: [],
+    lines: [],
     explanations: [],
     markers: [],
     pageText: "",
@@ -90,7 +91,7 @@ describe("classify", () => {
       classify(
         input({
           tokens: spoken.split(" "),
-          explanations: [{ band: { top: 200, bottom: 240 }, content: spoken }],
+          lines: [{ band: { top: 200, bottom: 240 }, content: spoken }],
         }),
       ),
     );

@@ -31,6 +31,8 @@ export type ReadRegion = {
 
 export type ClassifyInput = {
   readonly boxes: readonly ReadRegion[];
+  /** Every text line of the page, whatever kind of text it is. */
+  readonly lines: readonly ReadRegion[];
   readonly explanations: readonly ReadRegion[];
   /** Fixed phrases with the rows they occupy, from findMarkers. */
   readonly markers: readonly Marker[];
@@ -103,12 +105,12 @@ export function classify(input: ClassifyInput): ClassifyResult {
     ...input.boxes.map((box) => box.band),
     ...input.markers.map((marker) => marker.band),
   ];
-  const prose = input.explanations.filter(
-    (line) =>
-      !occupied.some(
-        (band) => line.band.top < band.bottom && line.band.bottom > band.top,
-      ),
-  );
+  const unoccupied = (line: ReadRegion) =>
+    !occupied.some(
+      (band) => line.band.top < band.bottom && line.band.bottom > band.top,
+    );
+  const prose = input.explanations.filter(unoccupied);
+  const spoken = input.lines.filter(unoccupied);
 
   for (const box of input.boxes) {
     const isTable = box.band.bottom - box.band.top > TABLE_HEIGHT;
@@ -126,15 +128,22 @@ export function classify(input: ClassifyInput): ClassifyResult {
   if (isDictation) {
     // The dictation is the run of slashed lines; the slashes are the reading
     // pauses and are kept exactly as they came.
-    const spoken = prose.filter((line) => line.content.includes("/"));
-    if (spoken.length > 0) {
+    //
+    // Taken from every text line, not from the justified ones. A dictation page
+    // carries no shaded panel, so box_left falls back to a tenth of the width
+    // and the justification test rejects the whole paragraph: measured on the
+    // real pages, the text starts at x=89 while the fallback claims 120. The
+    // justification test exists to tell explanation from question and answer,
+    // which is not a question being asked here.
+    const dictated = spoken.filter((line) => line.content.includes("/"));
+    if (dictated.length > 0) {
       blocks.push({
         kind: "dictation",
-        content: spoken.map((line) => line.content).join(" "),
+        content: dictated.map((line) => line.content).join(" "),
         needsReview: false,
         band: {
-          top: spoken[0].band.top,
-          bottom: spoken[spoken.length - 1].band.bottom,
+          top: dictated[0].band.top,
+          bottom: dictated[dictated.length - 1].band.bottom,
         },
       });
     }

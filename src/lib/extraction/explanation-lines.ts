@@ -19,15 +19,19 @@ function luma(red: number, green: number, blue: number): number {
 }
 
 /**
- * Finds the lines that are explanation text rather than question and answer.
+ * Every run of rows carrying ink outside the shaded panels: the page's text
+ * lines, before any judgement about what kind of text they are.
  *
- * The distinction is geometric, not linguistic. An explanation is justified
- * across the whole column: it starts on the text margin and has no wide gap
- * inside it. Question and answer are set in two columns, so they either start
- * well right of the margin or carry a gap in the middle. Nothing here reads a
- * word, which is why it survives the OCR being imperfect.
+ * Separate from explanationLines because the two answer different questions.
+ * This one asks where the text is; that one asks which of it is justified prose
+ * rather than a two-column question and answer. A dictation needs the first and
+ * must not be gated on the second.
  */
-export function explanationLines(image: Bitmap, left: number): readonly Band[] {
+export function inkLines(image: Bitmap): readonly Band[] {
+  return collect(image).spans;
+}
+
+function collect(image: Bitmap) {
   const mask = shadedMask(image);
   const { width, height } = image;
 
@@ -61,6 +65,21 @@ export function explanationLines(image: Bitmap, left: number): readonly Band[] {
   if (start !== null && height - start >= MIN_LINE_HEIGHT) {
     spans.push({ top: start, bottom: height });
   }
+
+  return { spans, ink, width, height };
+}
+
+/**
+ * Finds the lines that are explanation text rather than question and answer.
+ *
+ * The distinction is geometric, not linguistic. An explanation is justified
+ * across the whole column: it starts on the text margin and has no wide gap
+ * inside it. Question and answer are set in two columns, so they either start
+ * well right of the margin or carry a gap in the middle. Nothing here reads a
+ * word, which is why it survives the OCR being imperfect.
+ */
+export function explanationLines(image: Bitmap, left: number): readonly Band[] {
+  const { spans, ink, width } = collect(image);
 
   return spans.filter((span) => {
     // Collapse the line to the columns it touches anywhere in its height.

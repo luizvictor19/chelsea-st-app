@@ -29,9 +29,12 @@ type BlockDraft = {
 };
 
 type PageDraft = {
-  /** Null means the teacher has not decided, or said it is a continuation. */
+  /** The number this page carries, when it carries one. */
   pointNumber: number | null;
+  /** The page adds to the point the page before it opened. */
   continuation: boolean;
+  /** Typed by the teacher when neither of the two above is known. */
+  typedPoint: string;
   blocks: BlockDraft[];
   saved: boolean;
   error: string | null;
@@ -41,6 +44,7 @@ function initialDraft(page: ResolvedPage): PageDraft {
   return {
     pointNumber: page.points[0] ?? null,
     continuation: page.points.length === 0 && page.disputes.length === 0,
+    typedPoint: "",
     blocks: reviewOrder(page.extraction.blocks).map((block) => ({
       kind: block.kind,
       content: block.content,
@@ -110,6 +114,24 @@ export function ReviewPanel({
     [pages],
   );
 
+  /**
+   * The point this page's blocks will be written to.
+   *
+   * A page that carries a number uses it. A continuation uses the point the
+   * page before it opened, or the one the teacher typed when the upload gave no
+   * predecessor to inherit from.
+   */
+  function targetPoint(page: ResolvedPage, draft: PageDraft): number | null {
+    if (draft.continuation) {
+      const typed = Number(draft.typedPoint);
+      if (Number.isInteger(typed) && typed > 0) {
+        return typed;
+      }
+      return page.inheritedPoint;
+    }
+    return draft.pointNumber;
+  }
+
   function update(id: string, change: Partial<PageDraft>) {
     setDrafts((current) => ({
       ...current,
@@ -130,22 +152,22 @@ export function ReviewPanel({
   async function save(page: ResolvedPage) {
     const id = page.extraction.id;
     const draft = drafts[id];
-    if (draft.continuation) {
-      // A continuation page adds nothing of its own; it belongs to the point
-      // the page before it opened.
-      update(id, { saved: true, error: null });
-      return;
-    }
-    if (draft.pointNumber === null) {
+    const target = targetPoint(page, draft);
+    if (target === null) {
       update(id, {
-        error: "Escolha o número do ponto ou marque como continuação.",
+        error:
+          "Escolha o número do ponto, ou diga a qual ponto esta continuação pertence.",
       });
       return;
     }
 
     const result = await confirmPoint({
       bookId,
-      pointNumber: draft.pointNumber,
+      pointNumber: target,
+      // A continuation adds to what the page before it put on the point; only
+      // the page carrying the number replaces, which is what makes a re-upload
+      // idempotent.
+      mode: draft.continuation ? "append" : "replace",
       lessonNumber: page.lessonNumber,
       blocks: draft.blocks.map((block) => ({
         kind: block.kind,
@@ -263,6 +285,13 @@ export function ReviewPanel({
         if (draft === undefined) {
           return null;
         }
+        const target = targetPoint(page, draft);
+        // Every candidate the batch could not choose between, as one question.
+        // A page carries at most one number at a given height, so several
+        // questions on one page read as several numbers to find.
+        const candidates = [
+          ...new Set(page.disputes.flatMap((dispute) => dispute.candidates)),
+        ].sort((a, b) => a - b);
         return (
           <article
             key={page.extraction.id}
@@ -273,17 +302,26 @@ export function ReviewPanel({
                 <span className="text-faint font-mono text-xs">
                   {page.extraction.id}
                 </span>
-                <span className="font-bold tracking-tight">
-                  {draft.continuation
-                    ? `Continuação do ponto ${page.inheritedPoint ?? "?"}`
-                    : `Ponto ${draft.pointNumber ?? "?"}`}
-                  {page.lessonNumber !== null && (
-                    <span className="text-muted font-normal">
-                      {" "}
-                      · Lição {page.lessonNumber}
-                    </span>
-                  )}
-                </span>
+                {target === null ? (
+                  // Unresolved is one state, not a number missing from beside a
+                  // lesson that is known. Showing the lesson here reads as a
+                  // defect rather than as a question.
+                  <span className="text-accent font-bold tracking-tight">
+                    Número do ponto não resolvido
+                  </span>
+                ) : (
+                  <span className="font-bold tracking-tight">
+                    {draft.continuation
+                      ? `Continuação do ponto ${target}`
+                      : `Ponto ${target}`}
+                    {page.lessonNumber !== null && (
+                      <span className="text-muted font-normal">
+                        {" "}
+                        · Lição {page.lessonNumber}
+                      </span>
+                    )}
+                  </span>
+                )}
               </div>
               <button
                 type="button"
@@ -295,54 +333,68 @@ export function ReviewPanel({
               </button>
             </header>
 
-            {page.disputes.length > 0 && (
-              <div className="border-accent flex flex-col gap-2 rounded-sm border p-4">
+            {(candidates.length > 0 || target === null) && (
+              <div className="border-accent flex flex-col gap-3 rounded-sm border p-4">
                 <p className="text-accent font-mono text-xs tracking-[0.16em] uppercase">
-                  Número do ponto não resolvido
+                  Qual é o ponto desta página?
                 </p>
                 <p className="text-muted text-sm">
-                  A leitura da margem ficou ambígua. Escolha o número certo, ou
-                  diga que a página é continuação.
+                  {candidates.length > 0
+                    ? "A leitura da margem ficou ambígua. Escolha o número certo, ou diga que a página é continuação da anterior."
+                    : "A página não carrega número e não há página anterior neste envio para herdar. Diga a qual ponto ela pertence."}
                 </p>
-                {page.disputes.map((dispute) => (
-                  <div key={dispute.y} className="flex flex-wrap gap-2">
-                    {dispute.candidates.map((candidate) => (
-                      <button
-                        key={candidate}
-                        type="button"
-                        onClick={() =>
-                          update(page.extraction.id, {
-                            pointNumber: candidate,
-                            continuation: false,
-                          })
-                        }
-                        className={
-                          draft.pointNumber === candidate && !draft.continuation
-                            ? "bg-accent text-accent-foreground rounded-sm px-3 py-1 font-mono text-sm"
-                            : "border-rule rounded-sm border px-3 py-1 font-mono text-sm"
-                        }
-                      >
-                        {candidate}
-                      </button>
-                    ))}
+                <div className="flex flex-wrap items-center gap-2">
+                  {candidates.map((candidate) => (
                     <button
+                      key={candidate}
                       type="button"
                       onClick={() =>
                         update(page.extraction.id, {
-                          continuation: true,
-                          pointNumber: null,
+                          pointNumber: candidate,
+                          continuation: false,
+                          typedPoint: "",
                         })
                       }
                       className={
-                        draft.continuation
-                          ? "bg-foreground text-background rounded-sm px-3 py-1 text-sm"
-                          : "border-rule rounded-sm border px-3 py-1 text-sm"
+                        draft.pointNumber === candidate && !draft.continuation
+                          ? "bg-accent text-accent-foreground rounded-sm px-3 py-1 font-mono text-sm"
+                          : "border-rule rounded-sm border px-3 py-1 font-mono text-sm"
                       }
                     >
-                      Sem número, é continuação
+                      {candidate}
                     </button>
-                  </div>
-                ))}
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      update(page.extraction.id, {
+                        continuation: true,
+                        pointNumber: null,
+                      })
+                    }
+                    className={
+                      draft.continuation
+                        ? "bg-foreground text-background rounded-sm px-3 py-1 text-sm"
+                        : "border-rule rounded-sm border px-3 py-1 text-sm"
+                    }
+                  >
+                    Sem número, é continuação
+                  </button>
+                  {draft.continuation && page.inheritedPoint === null && (
+                    <input
+                      aria-label="Ponto a que esta continuação pertence"
+                      inputMode="numeric"
+                      placeholder="ponto"
+                      value={draft.typedPoint}
+                      onChange={(event) =>
+                        update(page.extraction.id, {
+                          typedPoint: event.target.value,
+                        })
+                      }
+                      className="border-rule bg-background w-24 rounded-sm border px-2 py-1 font-mono text-sm"
+                    />
+                  )}
+                </div>
               </div>
             )}
 

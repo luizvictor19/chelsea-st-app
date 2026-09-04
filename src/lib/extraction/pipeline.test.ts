@@ -170,6 +170,40 @@ describe("criterion 9: a page with no number, and an image that is not a page", 
   });
 });
 
+describe("criterion 8: a dictation page with nothing else on it", () => {
+  test("a page that is only a slash paragraph still produces the dictation", () => {
+    // The case the real pages break on. With no shaded panel anywhere, box_left
+    // falls back to a tenth of the width, and the text sits to the left of that,
+    // so the justification test rejects every line. The dictation must not
+    // depend on that test: measured on the book, three of the eight dictation
+    // pages look exactly like this.
+    const page: MutablePage = blankPage(1100, 900);
+    const textLeft = 89;
+    for (const top of [200, 240, 280, 320]) {
+      inkLine(page, { left: textLeft, right: 900, top });
+    }
+
+    const spoken = "the man / who lives / next door / is a doctor";
+    const words = spoken
+      .split(" ")
+      .map((text, index) => word(text, textLeft + index * 60, 200));
+    const reader = scriptedReader({ margin: [], page: words, box: [] });
+
+    return extractPage("p061", 0, toBitmap(page), reader).then((extracted) => {
+      assert.equal(extracted.isDictation, true, "slash density says dictation");
+      const dictation = extracted.blocks.filter(
+        (block) => block.kind === "dictation",
+      );
+      assert.equal(dictation.length, 1, "exactly one dictation block");
+      assert.ok(
+        dictation[0].content.includes("/"),
+        "the slashes are the reading pauses and are kept",
+      );
+      assert.equal(isRefused(extracted), false);
+    });
+  });
+});
+
 describe("criterion 5: boxes needing a human come first", () => {
   test("review-first ordering puts flagged boxes ahead of the rest", () => {
     const ordered = reviewOrder([

@@ -1,7 +1,7 @@
 import { boxes } from "./boxes.ts";
 import { classify, type ExtractedBlock } from "./classify.ts";
 import { TABLE_HEIGHT } from "./constants.ts";
-import { explanationLines } from "./explanation-lines.ts";
+import { explanationLines, inkLines } from "./explanation-lines.ts";
 import { boxLeft, crop, normalise, resize, shadedMask } from "./image.ts";
 import { findMarkers } from "./markers.ts";
 import { marginReadings, type MarginReading } from "./margin-numbers.ts";
@@ -86,13 +86,13 @@ export async function extractPage(
     boxRegions.push({ band, content: read.map((word) => word.text).join(" ") });
   }
 
-  const explanations = explanationLines(page, left).map((band) => ({
-    band,
-    content: textInBand(words, band),
-  }));
+  const asRegion = (band: Band) => ({ band, content: textInBand(words, band) });
+  const lines = inkLines(page).map(asRegion);
+  const explanations = explanationLines(page, left).map(asRegion);
 
   const result = classify({
     boxes: boxRegions,
+    lines,
     explanations,
     markers,
     pageText,
