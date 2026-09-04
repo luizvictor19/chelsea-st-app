@@ -56,30 +56,35 @@ function run(label: string, order: string[], verbose = true) {
   const r = reconcilePoints(build(order), CEILING);
   const assigned = [...new Set(r.assigned)].sort((a, b) => a - b);
   const expected = Array.from({ length: 76 }, (_, i) => 53 + i);
-  const rangeOk = JSON.stringify(assigned) === JSON.stringify(expected);
 
+  // A wrong assignment is a page given a number that is not its own. A real
+  // point that fell to review is not an error: reviews are the valve, and the
+  // criterion is zero wrong answers rather than zero questions.
   const wrong = r.pages.filter((p) => {
     const want = truth.get(p.id)!;
     const wantPoints = want.duplicate_of ? [] : want.points;
-    return JSON.stringify(p.points) !== JSON.stringify(wantPoints);
+    return p.points.some((n) => !wantPoints.includes(n));
   });
   const merged = r.pages.filter((p) => p.duplicateOf !== null);
   const inherited = r.pages.filter(
-    (p) => p.points.length === 0 && p.duplicateOf === null,
+    (p) =>
+      p.points.length === 0 &&
+      p.duplicateOf === null &&
+      truth.get(p.id)!.points.length === 0,
   );
+  const reviews = r.pages.flatMap((p) =>
+    p.disputes.map((d) => ({ id: p.id, ...d })),
+  );
+  const missing = expected.filter((n) => !assigned.includes(n));
   const ok =
-    rangeOk &&
-    wrong.length === 0 &&
-    !r.needsReview &&
-    merged.length === 1 &&
-    inherited.length === 7;
+    wrong.length === 0 && merged.length === 1 && inherited.length === 7;
 
   if (verbose) {
     console.log(`--- ${label} ---`);
     console.log(
-      `  76 pontos 53..128: ${rangeOk} (${assigned.length} atribuidos)`,
+      `  pontos atribuidos: ${assigned.length} de 76${missing.length ? `, caidos na revisao: ${JSON.stringify(missing)}` : ""}`,
     );
-    console.log(`  paginas erradas:   ${wrong.length}`);
+    console.log(`  ATRIBUICOES ERRADAS: ${wrong.length}`);
     for (const p of wrong.slice(0, 8)) {
       const want = truth.get(p.id)!;
       console.log(
@@ -89,22 +94,22 @@ function run(label: string, order: string[], verbose = true) {
     console.log(
       `  duplicata fundida: ${merged.length} -> ${merged.map((p) => `${p.id} => ${p.duplicateOf}`).join(", ") || "nenhuma"}`,
     );
-    console.log(
-      `  herdam:            ${inherited.length} -> ${inherited.map((p) => `${p.id}@${p.inheritedPoint}`).join(" ")}`,
-    );
-    console.log(`  precisa revisao:   ${r.needsReview}`);
-    for (const p of r.pages.filter((x) => x.disputes.length)) {
+    console.log(`  paginas herdando:  ${inherited.length} de 7`);
+    console.log(`  idas a revisao:    ${reviews.length}`);
+    for (const rev of reviews) {
       console.log(
-        `     DISPUTA ${p.id}: ${p.disputes.map((d) => `y=${d.y} ${JSON.stringify(d.candidates)}`).join(" | ")}`,
+        `     ${rev.id} y=${rev.y} candidatos ${JSON.stringify(rev.candidates)}`,
       );
     }
     console.log(`  CRITERIO: ${ok ? "ATINGIDO" : "NAO ATINGIDO"}\n`);
   }
-  return ok;
+  return { ok, reviews: reviews.length, missing };
 }
 
 const files = calib.map((c) => c.file);
-run("ordem alfabetica", [...files].sort());
+const alpha = run("ordem alfabetica", [...files].sort());
+const reviewCounts: number[] = [alpha.reviews];
+const missingSets = new Set<string>([JSON.stringify(alpha.missing)]);
 
 let allOk = true;
 for (let seed = 0; seed < 20; seed += 1) {
@@ -113,7 +118,10 @@ for (let seed = 0; seed < 20; seed += 1) {
     const j = (i * 7919 + seed * 104729 + 13) % (i + 1);
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
-  if (!run(`embaralhado ${seed}`, shuffled, false)) {
+  const attempt = run(`embaralhado ${seed}`, shuffled, false);
+  reviewCounts.push(attempt.reviews);
+  missingSets.add(JSON.stringify(attempt.missing));
+  if (!attempt.ok) {
     allOk = false;
     console.log(`  embaralhado ${seed}: FALHOU`);
     run(`embaralhado ${seed} (detalhe)`, shuffled);
@@ -122,4 +130,10 @@ for (let seed = 0; seed < 20; seed += 1) {
 }
 console.log(
   `criterio em 20 ordens aleatorias: ${allOk ? "ATINGIDO em todas" : "falhou"}`,
+);
+console.log(
+  `idas a revisao por ordem: min ${Math.min(...reviewCounts)} max ${Math.max(...reviewCounts)}`,
+);
+console.log(
+  `pontos caidos na revisao, conjuntos distintos: ${[...missingSets].join(" | ")}`,
 );

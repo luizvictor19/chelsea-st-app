@@ -49,6 +49,9 @@ type Group = {
   candidates: Set<number>;
   readonly agreement: Map<number, number>;
   assigned: number | null;
+  /** Whether the interval pass found a placed number on each side. */
+  boundedBelow: boolean;
+  boundedAbove: boolean;
 };
 
 /**
@@ -153,12 +156,127 @@ export function reconcilePoints(
           candidates: new Set([reading.value]),
           agreement: new Map([[reading.value, reading.agreement]]),
           assigned: null,
+          boundedBelow: false,
+          boundedAbove: false,
         };
         groups.push(group);
         groupsByPage[pageIndex].push(group);
       }
     }
   });
+
+  /**
+   * The numbers run down the margin in increasing order. That is how the book
+   * is printed, not a guess about it, and it is the one constraint available
+   * before anything is known about the other pages.
+   *
+   * Each page is settled on its own first: keep only the readings that can take
+   * part in a longest increasing run down the page, and drop the positions that
+   * cannot take part in any. A stray 11 read between the 57 and the 58 cannot
+   * belong to the run, and dies here rather than surviving to the cross-page
+   * phase, where it would already have become an anchor for itself.
+   *
+   * Where several runs tie for longest, every value that appears in one of them
+   * is kept. Choosing between them is not this rule's business.
+   */
+  const narrowByPageMonotonicity = (): void => {
+    for (const clusters of groupsByPage) {
+      if (clusters.length === 0) {
+        continue;
+      }
+
+      const forward = clusters.map(() => new Map<number, number>());
+      for (let i = 0; i < clusters.length; i += 1) {
+        for (const value of clusters[i].candidates) {
+          let longest = 1;
+          for (let j = 0; j < i; j += 1) {
+            for (const earlier of clusters[j].candidates) {
+              if (earlier < value) {
+                longest = Math.max(longest, (forward[j].get(earlier) ?? 0) + 1);
+              }
+            }
+          }
+          forward[i].set(value, longest);
+        }
+      }
+
+      const backward = clusters.map(() => new Map<number, number>());
+      for (let i = clusters.length - 1; i >= 0; i -= 1) {
+        for (const value of clusters[i].candidates) {
+          let longest = 1;
+          for (let j = i + 1; j < clusters.length; j += 1) {
+            for (const later of clusters[j].candidates) {
+              if (later > value) {
+                longest = Math.max(longest, (backward[j].get(later) ?? 0) + 1);
+              }
+            }
+          }
+          backward[i].set(value, longest);
+        }
+      }
+
+      let longestRun = 0;
+      for (let i = 0; i < clusters.length; i += 1) {
+        for (const value of clusters[i].candidates) {
+          longestRun = Math.max(
+            longestRun,
+            (forward[i].get(value) ?? 0) + (backward[i].get(value) ?? 0) - 1,
+          );
+        }
+      }
+
+      for (let i = 0; i < clusters.length; i += 1) {
+        for (const value of [...clusters[i].candidates]) {
+          const participates =
+            (forward[i].get(value) ?? 0) + (backward[i].get(value) ?? 0) - 1 ===
+            longestRun;
+          if (!participates) {
+            clusters[i].candidates.delete(value);
+          }
+        }
+      }
+    }
+  };
+
+  /**
+   * Whether a position may be settled at all.
+   *
+   * Being the only candidate left is not enough on its own: a single reading
+   * that one crop saw once, on a page with nothing else to corroborate it, is
+   * exactly the shape of noise. It has to earn the assignment one of three
+   * ways, and if it earns none it goes to the teacher with its candidates
+   * listed. The failure mode is one more question, never a wrong answer.
+   */
+  const mayAssign = (group: Group, value: number): boolean => {
+    // (a) More than one crop read it, so it is not one engine's slip.
+    if ((group.agreement.get(value) ?? 0) >= 2) {
+      return true;
+    }
+
+    // (b) The placed numbers on either side leave no other possibility.
+    if (
+      group.boundedBelow &&
+      group.boundedAbove &&
+      group.candidates.size === 1 &&
+      group.candidates.has(value)
+    ) {
+      return true;
+    }
+
+    // (c) It continues the increasing run of its own page alongside a number
+    // already settled there.
+    const siblings = groupsByPage[group.pageIndex].filter(
+      (other) => other !== group && other.assigned !== null,
+    );
+    if (siblings.length === 0) {
+      return false;
+    }
+    return siblings.every((sibling) =>
+      sibling.y < group.y
+        ? (sibling.assigned as number) < value
+        : (sibling.assigned as number) > value,
+    );
+  };
 
   const assign = (group: Group, value: number): void => {
     group.assigned = value;
@@ -197,6 +315,9 @@ export function reconcilePoints(
       if ((soleCandidate.get(value) ?? 0) > 1) {
         continue;
       }
+      if (!mayAssign(group, value)) {
+        continue;
+      }
       assign(group, value);
       moved = true;
     }
@@ -225,7 +346,7 @@ export function reconcilePoints(
       const rivals = [...list[0].candidates].filter(
         (other) => other !== value && (claimants.get(other)?.length ?? 0) === 1,
       );
-      if (rivals.length > 0) {
+      if (rivals.length > 0 || !mayAssign(list[0], value)) {
         continue;
       }
       assign(list[0], value);
@@ -291,12 +412,29 @@ export function reconcilePoints(
       }
     }
 
+    // A page that has nothing placed on it has no known position: the order it
+    // was uploaded in says where an unnumbered page goes, but says nothing
+    // about where a page whose number is still undecided belongs. Narrowing it
+    // against the neighbours it happens to have been uploaded beside deletes
+    // good candidates, and does so differently for every upload order.
+    const positioned = new Set(
+      groupsByPage
+        .map((clusters, index) =>
+          clusters.some((group) => group.assigned !== null) ? index : -1,
+        )
+        .filter((index) => index >= 0),
+    );
+
     let moved = false;
     for (let i = 0; i < sequence.length; i += 1) {
       const group = sequence[i];
-      if (group.assigned !== null) {
+      if (group.assigned !== null || !positioned.has(group.pageIndex)) {
         continue;
       }
+      // Bounded means a placed number sits on that side, not the open end of
+      // the book. Only then can the interval force a value.
+      group.boundedBelow = lower[i] > 0;
+      group.boundedAbove = upper[i] <= ceiling;
       for (const value of [...group.candidates]) {
         if (value <= lower[i] || value >= upper[i]) {
           group.candidates.delete(value);
@@ -325,13 +463,18 @@ export function reconcilePoints(
           winners.push(value);
         }
       }
-      if (winners.length === 1) {
+      if (winners.length === 1 && mayAssign(group, winners[0])) {
         assign(group, winners[0]);
         moved = true;
       }
     }
     return moved;
   };
+
+  // Within a page first, where the printing order is a fact rather than an
+  // inference. Only then across pages, where everything depends on what has
+  // already been placed.
+  narrowByPageMonotonicity();
 
   let progressed = true;
   while (progressed) {

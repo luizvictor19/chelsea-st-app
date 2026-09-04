@@ -5,14 +5,15 @@ import { MARGIN_GROUP_Y_TOLERANCE } from "./constants.ts";
 import { reconcilePoints, type PageReadings } from "./reconcile.ts";
 
 const CEILING = 128;
+/** Enough crops saw it that the assignment gate lets it through on its own. */
+const CONFIDENT = 3;
+/** One crop, once: the shape noise takes, and the shape a faint real number takes. */
+const ONCE = 1;
 
-/** Readings as [value, y] or [value, y, agreement]; agreement defaults to 1. */
 function page(
   id: string,
   uploadIndex: number,
-  readings: readonly (
-    readonly [number, number] | readonly [number, number, number]
-  )[],
+  readings: readonly (readonly [number, number, number])[],
   structure: { boxCount?: number; structureCount?: number } = {},
 ): PageReadings {
   return {
@@ -21,7 +22,7 @@ function page(
     readings: readings.map(([value, y, agreement]) => ({
       value,
       y,
-      agreement: agreement ?? 1,
+      agreement,
     })),
     boxCount: structure.boxCount ?? 0,
     structureCount: structure.structureCount ?? 0,
@@ -32,32 +33,186 @@ function pointsById(result: ReturnType<typeof reconcilePoints>) {
   return Object.fromEntries(result.pages.map((p) => [p.id, p.points]));
 }
 
-describe("reconcilePoints", () => {
-  test("a page whose readings are unambiguous keeps them", () => {
+function disputesOf(result: ReturnType<typeof reconcilePoints>, id: string) {
+  return (
+    result.pages.find((p) => p.id === id)?.disputes.map((d) => d.candidates) ??
+    []
+  );
+}
+
+describe("reconcilePoints, within one page", () => {
+  test("a reading that breaks the printed order is dropped", () => {
+    // The numbers run down the margin in increasing order: that is how the book
+    // is printed. A 5 read between 20 and 30 cannot take part in the longest
+    // run, and goes before anything is known about any other page.
     const result = reconcilePoints(
-      [page("a", 0, [[57, 100]]), page("b", 1, [[58, 100]])],
+      [
+        page("a", 0, [
+          [10, 100, CONFIDENT],
+          [20, 300, CONFIDENT],
+          [5, 500, CONFIDENT],
+          [30, 700, CONFIDENT],
+          [40, 900, CONFIDENT],
+        ]),
+      ],
       CEILING,
     );
-    assert.deepEqual(pointsById(result), { a: [57], b: [58] });
-    assert.equal(result.needsReview, false);
+    assert.deepEqual(pointsById(result), { a: [10, 20, 30, 40] });
+    assert.deepEqual(
+      disputesOf(result, "a"),
+      [],
+      "the 5 is gone, not asked about",
+    );
   });
 
-  test("the pages that really carry a number push a misreading off it", () => {
-    // The case the whole design exists for, in the shape the real pages take:
-    // a continuation page carries no number, and OCR returns the facing page's
-    // 58 and 59 as two guesses at one position, a pixel apart. Alone it is
-    // indistinguishable from a page that carries them. In the batch it is not,
-    // because the pages that do carry them leave that position with nothing.
+  test("a stray between two numbers is impossible once they are placed", () => {
+    // 57, 11, 58 leaves two runs of length two, so the printed order alone
+    // cannot rule the 11 out. Placing 57 and 58 does: nothing fits between them.
     const result = reconcilePoints(
       [
         page("p057-058", 0, [
-          [57, 258],
-          [58, 1293],
+          [57, 258, CONFIDENT],
+          [11, 522, ONCE],
+          [58, 1293, ONCE],
         ]),
-        page("p059", 1, [[59, 1112]]),
+      ],
+      CEILING,
+    );
+    assert.deepEqual(pointsById(result), { "p057-058": [57, 58] });
+    assert.deepEqual(disputesOf(result, "p057-058"), []);
+  });
+
+  test("readings at nearly the same height are one number, not two", () => {
+    const result = reconcilePoints(
+      [
+        page("a", 0, [
+          [55, 640, CONFIDENT],
+          [95, 640 + MARGIN_GROUP_Y_TOLERANCE - 1, ONCE],
+        ]),
+      ],
+      CEILING,
+    );
+    assert.deepEqual(pointsById(result), { a: [55] });
+  });
+
+  test("readings far apart are separate numbers", () => {
+    const result = reconcilePoints(
+      [
+        page("a", 0, [
+          [70, 100, CONFIDENT],
+          [71, 100 + MARGIN_GROUP_Y_TOLERANCE + 1, CONFIDENT],
+        ]),
+      ],
+      CEILING,
+    );
+    assert.deepEqual(pointsById(result), { a: [70, 71] });
+  });
+
+  test("a value beyond the ceiling cannot be a point in this book", () => {
+    // Digits run together, such as 1091 on the page carrying 109.
+    const result = reconcilePoints(
+      [
+        page("a", 0, [
+          [109, 100, CONFIDENT],
+          [1091, 700, CONFIDENT],
+          [110, 701, CONFIDENT],
+        ]),
+      ],
+      CEILING,
+    );
+    assert.deepEqual(pointsById(result), { a: [109, 110] });
+  });
+});
+
+describe("reconcilePoints, what may be assigned", () => {
+  test("two crops agreeing is enough on its own", () => {
+    const result = reconcilePoints([page("a", 0, [[60, 100, 2]])], CEILING);
+    assert.deepEqual(pointsById(result), { a: [60] });
+  });
+
+  test("a lone reading one crop saw once is asked about, never assigned", () => {
+    // Nothing corroborates it: one crop, one page, no run to join. This is the
+    // shape of noise, and the answer is a question rather than a guess.
+    const result = reconcilePoints([page("a", 0, [[1, 326, ONCE]])], CEILING);
+    assert.deepEqual(pointsById(result), { a: [] });
+    assert.deepEqual(disputesOf(result, "a"), [[1]]);
+  });
+
+  test("one crop is enough when the page's own run corroborates it", () => {
+    const result = reconcilePoints(
+      [
+        page("a", 0, [
+          [57, 258, CONFIDENT],
+          [58, 1293, ONCE],
+        ]),
+      ],
+      CEILING,
+    );
+    assert.deepEqual(pointsById(result), { a: [57, 58] });
+  });
+
+  test("one crop is enough when two placed numbers leave one possibility", () => {
+    // 62 belongs to the next page, which leaves this position holding only 61,
+    // bounded below by its own 60 and above by that 62.
+    const result = reconcilePoints(
+      [
+        page("a", 0, [
+          [60, 100, CONFIDENT],
+          [61, 500, ONCE],
+          [62, 501, ONCE],
+        ]),
+        page("b", 1, [[62, 100, CONFIDENT]]),
+      ],
+      CEILING,
+    );
+    assert.deepEqual(pointsById(result), { a: [60, 61], b: [62] });
+  });
+
+  test("two candidates that nothing can separate are asked about", () => {
+    const result = reconcilePoints(
+      [
+        page("a", 0, [
+          [50, 644, ONCE],
+          [56, 644, ONCE],
+        ]),
+      ],
+      CEILING,
+    );
+    assert.deepEqual(pointsById(result), { a: [] });
+    assert.deepEqual(disputesOf(result, "a"), [[50, 56]]);
+  });
+
+  test("agreement decides a tie, and only inside one position", () => {
+    // 56 seen by two crops beats 50 seen by one. Never used as a filter:
+    // requiring two would discard real numbers only one crop found.
+    const result = reconcilePoints(
+      [
+        page("a", 0, [
+          [50, 644, ONCE],
+          [56, 644, 2],
+        ]),
+      ],
+      CEILING,
+    );
+    assert.deepEqual(pointsById(result), { a: [56] });
+  });
+});
+
+describe("reconcilePoints, across the batch", () => {
+  test("the pages that really carry a number push a misreading off it", () => {
+    // A continuation page carries no number, and OCR returns the facing page's
+    // 58 and 59 as two guesses at one position. Alone it is indistinguishable
+    // from a page that carries them; in the batch it is not.
+    const result = reconcilePoints(
+      [
+        page("p057-058", 0, [
+          [57, 258, CONFIDENT],
+          [58, 1293, CONFIDENT],
+        ]),
+        page("p059", 1, [[59, 1112, CONFIDENT]]),
         page("continuation", 2, [
-          [58, 1102],
-          [59, 1103],
+          [58, 1102, ONCE],
+          [59, 1103, ONCE],
         ]),
       ],
       CEILING,
@@ -71,18 +226,17 @@ describe("reconcilePoints", () => {
   });
 
   test("criterion 4: two scans of one page are merged, not counted twice", () => {
-    // The pair that motivated this rule: the same page at 521px and 534px. It
-    // reads the same numbers and shows the same panels. Box contents are not
-    // usable as the key, because the two scans differ exactly inside the
-    // flattened table, where the reading order changes.
+    // The same page at 521px and 534px. Box contents are not usable as the key:
+    // the two scans agree word for word except inside the flattened table,
+    // where the reading order changes.
     const result = reconcilePoints(
       [
         page(
           "p053-054",
           0,
           [
-            [53, 173],
-            [54, 1275],
+            [53, 173, CONFIDENT],
+            [54, 1275, CONFIDENT],
           ],
           { boxCount: 3, structureCount: 1 },
         ),
@@ -90,15 +244,14 @@ describe("reconcilePoints", () => {
           "dup-534px",
           1,
           [
-            [53, 178],
-            [54, 1280],
+            [53, 178, CONFIDENT],
+            [54, 1280, CONFIDENT],
           ],
           { boxCount: 3, structureCount: 0 },
         ),
       ],
       CEILING,
     );
-
     const primary = result.pages.find((p) => p.id === "p053-054");
     const duplicate = result.pages.find((p) => p.id === "dup-534px");
     assert.deepEqual(primary?.points, [53, 54]);
@@ -106,139 +259,38 @@ describe("reconcilePoints", () => {
     // The scan that gave up a lesson header is the one worth keeping.
     assert.equal(duplicate?.duplicateOf, "p053-054");
     assert.deepEqual(duplicate?.points, []);
-    assert.equal(result.needsReview, false);
   });
 
   test("pages that merely read alike are not merged", () => {
-    // Same numbers, different panel count: two different pages.
     const result = reconcilePoints(
       [
-        page("a", 0, [[60, 100]], { boxCount: 3 }),
-        page("b", 1, [[60, 100]], { boxCount: 1 }),
+        page("a", 0, [[60, 100, CONFIDENT]], { boxCount: 3 }),
+        page("b", 1, [[60, 100, CONFIDENT]], { boxCount: 1 }),
       ],
       CEILING,
     );
-    assert.equal(
-      result.pages.filter((p) => p.duplicateOf !== null).length,
-      0,
-      "neither may be treated as a copy of the other",
-    );
+    assert.equal(result.pages.filter((p) => p.duplicateOf !== null).length, 0);
   });
 
-  test("criterion: a stray number between two anchors is impossible", () => {
-    // With 73 and 75 placed, the position between them can only hold 74. The
-    // 4 and the 45 go without any threshold saying so, which is the sequence
-    // half of "validate by sequence and ceiling".
+  test("two pages carrying no number at all are never taken for copies", () => {
+    // With nothing to match on, the duplicate key says nothing, and two
+    // different continuation pages would be collapsed into one.
     const result = reconcilePoints(
       [
-        page("p073", 0, [[73, 200]]),
-        page("p074", 1, [
-          [74, 538],
-          [4, 538],
-          [45, 538],
-        ]),
-        page("p075", 2, [[75, 200]]),
+        page("first", 0, [], { boxCount: 1 }),
+        page("second", 1, [], { boxCount: 1 }),
       ],
       CEILING,
     );
-    assert.deepEqual(pointsById(result), {
-      p073: [73],
-      p074: [74],
-      p075: [75],
-    });
-    assert.equal(result.needsReview, false);
-  });
-
-  test("agreement decides a tie, and only inside one position", () => {
-    // 56 seen by two crops beats 50 seen by one. Never used as a filter:
-    // requiring two would discard real numbers only one crop found.
-    const result = reconcilePoints(
-      [
-        page("p056", 0, [
-          [50, 644, 1],
-          [56, 644, 2],
-        ]),
-      ],
-      CEILING,
-    );
-    assert.deepEqual(pointsById(result), { p056: [56] });
-    assert.equal(result.needsReview, false);
-  });
-
-  test("a number only one crop saw is still a number", () => {
-    const result = reconcilePoints([page("a", 0, [[58, 900, 1]])], CEILING);
-    assert.deepEqual(pointsById(result), { a: [58] });
-  });
-
-  test("readings at nearly the same height are one number, not two", () => {
-    const result = reconcilePoints(
-      [
-        page("a", 0, [
-          [55, 640],
-          [95, 640 + MARGIN_GROUP_Y_TOLERANCE - 1],
-        ]),
-        page("b", 1, [[95, 100]]),
-      ],
-      CEILING,
-    );
-    // 95 belongs to b, which leaves the single group on a holding 55.
-    assert.deepEqual(pointsById(result), { a: [55], b: [95] });
-  });
-
-  test("readings far apart are separate numbers", () => {
-    const result = reconcilePoints(
-      [
-        page("a", 0, [
-          [70, 100],
-          [71, 100 + MARGIN_GROUP_Y_TOLERANCE + 1],
-        ]),
-      ],
-      CEILING,
-    );
-    assert.deepEqual(pointsById(result), { a: [70, 71] });
-  });
-
-  test("a value beyond the ceiling cannot be a point in this book", () => {
-    // Digits run together, such as 1091 on the page carrying 109.
-    const result = reconcilePoints(
-      [
-        page("a", 0, [
-          [109, 100],
-          [1091, 700],
-          [110, 701],
-        ]),
-      ],
-      CEILING,
-    );
-    assert.deepEqual(pointsById(result), { a: [109, 110] });
-  });
-
-  test("two candidates that nothing else claims are a tie, and a tie is asked about", () => {
-    // Both are spoken for by nobody, so no rule can choose between them. The
-    // program does not get to invent an answer: a value may simply be absent,
-    // because the teacher can upload part of a book.
-    const result = reconcilePoints(
-      [
-        page("a", 0, [
-          [50, 640],
-          [56, 640],
-        ]),
-      ],
-      CEILING,
-    );
-    assert.deepEqual(pointsById(result), { a: [] });
-    assert.equal(result.needsReview, true);
-    assert.deepEqual(result.pages[0].disputes, [
-      { y: 640, candidates: [50, 56] },
-    ]);
+    assert.equal(result.pages.filter((p) => p.duplicateOf !== null).length, 0);
   });
 
   test("a page with no number inherits from the page before it in upload order", () => {
     const result = reconcilePoints(
       [
-        page("first", 0, [[60, 100]]),
+        page("first", 0, [[60, 100, CONFIDENT]]),
         page("continuation", 1, []),
-        page("next", 2, [[61, 100]]),
+        page("next", 2, [[61, 100, CONFIDENT]]),
       ],
       CEILING,
     );
@@ -250,9 +302,9 @@ describe("reconcilePoints", () => {
   test("book order comes from the numbers, not from the upload", () => {
     const result = reconcilePoints(
       [
-        page("late", 0, [[90, 100]]),
-        page("early", 1, [[54, 100]]),
-        page("middle", 2, [[70, 100]]),
+        page("late", 0, [[90, 100, CONFIDENT]]),
+        page("early", 1, [[54, 100, CONFIDENT]]),
+        page("middle", 2, [[70, 100, CONFIDENT]]),
       ],
       CEILING,
     );
@@ -265,9 +317,9 @@ describe("reconcilePoints", () => {
   test("an unnumbered page stays beside the page it followed", () => {
     const result = reconcilePoints(
       [
-        page("late", 0, [[90, 100]]),
+        page("late", 0, [[90, 100, CONFIDENT]]),
         page("after-late", 1, []),
-        page("early", 2, [[54, 100]]),
+        page("early", 2, [[54, 100, CONFIDENT]]),
       ],
       CEILING,
     );
@@ -278,21 +330,18 @@ describe("reconcilePoints", () => {
   });
 
   test("a numbered page keeps its numbers whatever the upload order", () => {
-    // Book order comes from the numbers, so a page that carries them must not
-    // depend on when it was uploaded. A page that carries none is a different
-    // matter: it is placed by upload order, which is the specified behaviour.
     const shapes = [
       (i: number) =>
         page("continuation", i, [
-          [58, 1102],
-          [59, 1103],
+          [58, 1102, ONCE],
+          [59, 1103, ONCE],
         ]),
       (i: number) =>
         page("p057-058", i, [
-          [57, 258],
-          [58, 1293],
+          [57, 258, CONFIDENT],
+          [58, 1293, CONFIDENT],
         ]),
-      (i: number) => page("p059", i, [[59, 1112]]),
+      (i: number) => page("p059", i, [[59, 1112, CONFIDENT]]),
     ];
     const runOrder = (order: readonly number[]) =>
       reconcilePoints(
