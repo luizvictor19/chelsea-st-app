@@ -106,6 +106,51 @@ function run(label: string, order: string[], verbose = true) {
   return { ok, reviews: reviews.length, missing };
 }
 
+// Small uploads first: the batch reasons from anchors and a small one has few,
+// and small is how pages are actually uploaded.
+const SLICES: Record<string, string[]> = {
+  "3 paginas": ["p116.png", "p117-118.png", "p119-120.png"],
+  "5 paginas": [
+    "nopoint-3.png",
+    "p116.png",
+    "p117-118.png",
+    "p119-120.png",
+    "p121.png",
+  ],
+  "10 paginas": [
+    "p116.png",
+    "p117-118.png",
+    "nopoint-3.png",
+    "p119-120.png",
+    "p121.png",
+    "p122.png",
+    "p123.png",
+    "p124-125.png",
+    "p126.png",
+    "p127-128.png",
+  ],
+};
+console.log("=== lotes pequenos ===");
+for (const [label, slice] of Object.entries(SLICES)) {
+  const present = slice.filter((f) => calib.some((c) => c.file === f));
+  const result = reconcilePoints(build(present), CEILING);
+  const assigned = result.assigned;
+  const wrong = result.pages.filter((p) => {
+    const want = truth.get(p.id)!;
+    const wantPoints = want.duplicate_of ? [] : want.points;
+    return p.points.some((n) => !wantPoints.includes(n));
+  });
+  console.log(
+    `  ${label.padEnd(11)} atribuidos ${assigned.join(",")}  erradas ${wrong.length}  revisoes ${result.pages.flatMap((p) => p.disputes).length}`,
+  );
+  for (const p of wrong) {
+    console.log(
+      `     ERRADA ${p.id}: ${JSON.stringify(p.points)} esperado ${JSON.stringify(truth.get(p.id)!.points)}`,
+    );
+  }
+}
+console.log();
+
 const files = calib.map((c) => c.file);
 const alpha = run("ordem alfabetica", [...files].sort());
 const reviewCounts: number[] = [alpha.reviews];

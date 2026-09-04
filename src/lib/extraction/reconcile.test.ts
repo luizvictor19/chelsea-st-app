@@ -198,6 +198,75 @@ describe("reconcilePoints, what may be assigned", () => {
   });
 });
 
+describe("reconcilePoints, on a small upload", () => {
+  // Anchors are what the batch reasons from, and a small upload has few. These
+  // are the shapes a teacher actually uploads: a handful of pages at a time.
+
+  test("two undecided positions between two anchors are settled together", () => {
+    // 118 and 121 are placed, which leaves 119 and 120 for two positions. There
+    // is one way to fit them, and the printed order says which is which.
+    // Neither is forced on its own, so the interval rule alone loses both and
+    // the page silently becomes a continuation of 118.
+    const result = reconcilePoints(
+      [
+        page("p117-118", 0, [
+          [117, 200, CONFIDENT],
+          [118, 900, CONFIDENT],
+        ]),
+        page("p119-120", 1, [
+          [119, 210, ONCE],
+          [120, 880, ONCE],
+        ]),
+        page("p121", 2, [[121, 200, CONFIDENT]]),
+      ],
+      CEILING,
+    );
+    assert.deepEqual(pointsById(result), {
+      "p117-118": [117, 118],
+      "p119-120": [119, 120],
+      p121: [121],
+    });
+    assert.equal(result.needsReview, false);
+  });
+
+  test("a position that read none of the free values is not filled from the count", () => {
+    // A position whose every reading was rejected has nothing to say. Filling
+    // it because the arithmetic works out invents a number nobody read, and
+    // takes it from the page that does carry it.
+    const result = reconcilePoints(
+      [
+        page("p118", 0, [[118, 200, CONFIDENT]]),
+        page("continuation", 1, [[57, 300, ONCE]]),
+        page("p120", 2, [[120, 200, CONFIDENT]]),
+      ],
+      CEILING,
+    );
+    const continuation = result.pages.find((p) => p.id === "continuation");
+    assert.deepEqual(continuation?.points, [], "119 must not be invented here");
+  });
+
+  test("more free values than positions leaves them undecided", () => {
+    const result = reconcilePoints(
+      [
+        page("a", 0, [[110, 200, CONFIDENT]]),
+        page("b", 1, [[113, 300, ONCE]]),
+        page("c", 2, [[120, 200, CONFIDENT]]),
+      ],
+      CEILING,
+    );
+    assert.deepEqual(pointsById(result)["b"], [], "nothing is forced");
+  });
+
+  test("an unanchored side means the count says nothing", () => {
+    // With no number placed after it, the run of free values is open-ended.
+    const result = reconcilePoints(
+      [page("a", 0, [[110, 200, CONFIDENT]]), page("b", 1, [[111, 300, ONCE]])],
+      CEILING,
+    );
+    assert.deepEqual(pointsById(result)["b"], []);
+  });
+});
+
 describe("reconcilePoints, across the batch", () => {
   test("the pages that really carry a number push a misreading off it", () => {
     // A continuation page carries no number, and OCR returns the facing page's

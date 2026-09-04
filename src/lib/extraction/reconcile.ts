@@ -457,6 +457,96 @@ export function reconcilePoints(
     return moved;
   };
 
+  /**
+   * Rule 3b. When a page's undecided positions and the values still free
+   * between its anchors are the same in number, there is only one way to fit
+   * them, and the printed order says which is which.
+   *
+   * This is rule 3 counted rather than applied one at a time. Two positions on
+   * a page bounded by 118 and 121 leave 119 and 120, and neither is forced
+   * alone, so the interval rule stalls and the page loses both its numbers. It
+   * only bites on a small upload, where there are few anchors, which is how
+   * pages will actually be uploaded.
+   *
+   * Forced only when it agrees with what was read: a position whose candidates
+   * exclude the value it would receive is a disagreement, not an arrangement,
+   * and goes to the teacher instead.
+   */
+  const forceByCount = (): boolean => {
+    const sequence: Group[] = [];
+    for (const pageIndex of pageOrder()) {
+      sequence.push(...groupsByPage[pageIndex]);
+    }
+    const taken = new Set(
+      groups
+        .filter((group) => group.assigned !== null)
+        .map((group) => group.assigned as number),
+    );
+
+    let moved = false;
+    for (const [pageIndex, clusters] of groupsByPage.entries()) {
+      const undecided = clusters.filter((group) => group.assigned === null);
+      if (undecided.length === 0) {
+        continue;
+      }
+
+      const first = sequence.indexOf(undecided[0]);
+      const last = sequence.indexOf(undecided[undecided.length - 1]);
+      if (first < 0 || last < 0) {
+        continue;
+      }
+
+      let lower = 0;
+      for (let i = first - 1; i >= 0; i -= 1) {
+        if (sequence[i].assigned !== null) {
+          lower = sequence[i].assigned as number;
+          break;
+        }
+      }
+      let upper = ceiling + 1;
+      for (let i = last + 1; i < sequence.length; i += 1) {
+        if (sequence[i].assigned !== null) {
+          upper = sequence[i].assigned as number;
+          break;
+        }
+      }
+      // Both sides must be anchored, or the count means nothing.
+      if (lower === 0 || upper === ceiling + 1) {
+        continue;
+      }
+
+      const free: number[] = [];
+      for (let value = lower + 1; value < upper; value += 1) {
+        if (!taken.has(value)) {
+          free.push(value);
+        }
+      }
+      if (free.length !== undecided.length) {
+        continue;
+      }
+
+      // Every position must have read the value it is about to receive. A
+      // position left with no candidate at all is one whose every reading was
+      // rejected, and filling it from the count would invent a number nobody
+      // read: measured, that handed a continuation page the number 56 and took
+      // it from the page that carries it.
+      const agrees = undecided.every((group, index) =>
+        group.candidates.has(free[index]),
+      );
+      if (!agrees) {
+        continue;
+      }
+
+      undecided.forEach((group, index) => {
+        assign(group, free[index]);
+        taken.add(free[index]);
+      });
+      moved = true;
+      void pageIndex;
+    }
+    return moved;
+  };
+
   /** Rule 4, last and only within one position. */
   const breakTiesByAgreement = (): boolean => {
     let moved = false;
@@ -490,12 +580,12 @@ export function reconcilePoints(
 
   let progressed = true;
   while (progressed) {
-    progressed = propagate() || narrowBySequence();
+    progressed = propagate() || narrowBySequence() || forceByCount();
   }
   if (breakTiesByAgreement()) {
     progressed = true;
     while (progressed) {
-      progressed = propagate() || narrowBySequence();
+      progressed = propagate() || narrowBySequence() || forceByCount();
     }
   }
 
