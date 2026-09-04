@@ -229,20 +229,34 @@ que `vocabulary_items` libera para a geração de frases.
 
 ### Modo de segmentação na leitura das caixas
 
-Medido nas 151 caixas das fixtures, comparando o modo automático com o `psm 6`:
-139 idênticas, 12 diferentes, e o `psm 6` lê 31 palavras a mais no total.
+**Decidido, a aplicar depois do primeiro lote real:** `psm 6` nas caixas normais,
+modo automático nas altas. O corte é o `needs_review` que já existe, não um
+limiar novo.
 
-A comparação **não decide sozinha**, porque o baseline do manifest é a saída do
-CLI e não uma transcrição à mão: nas caixas em que os dois discordam, "bater com
-o baseline" mede concordância entre motores, não acerto. Em pelo menos dois
-casos o `psm 6` está certo e o baseline errado — recupera o `a` da caixa
-`a some` e recupera todos os pronomes de uma tabela de `have not`. Em pelo menos
-dois outros ele piora, acrescentando `|` solto e embaralhando uma tabela.
+Medido nas 151 caixas das fixtures, separando pelas duas populações:
 
-As diferenças se concentram nas caixas altas, que já vão para revisão manual, e
-é justamente por isso que o caso que importa é o outro: `a some` é caixa curta,
-não marcada para revisão, e perde uma palavra em silêncio. Decidir com as caixas
-na mão, não por contagem.
+|                                    | idênticas | diferentes |
+| ---------------------------------- | --------- | ---------- |
+| Normais (139, aceitas sem revisão) | 136       | 3          |
+| Altas (12, vão para revisão)       | 3         | 9          |
+
+Nas normais, a única diferença de substância é o `psm 6` recuperar o `a` da caixa
+`a some`, que o modo automático perde. As outras duas acrescentam um `|` solto no
+fim, artefato de borda de tabela.
+
+A assimetria é o que decide. Perder uma palavra é silencioso e permanente: ela
+nunca entra em `vocabulary_items` e fica proibida para a geração de frases. Ganhar
+um `|` é visível no campo de revisão e inofensivo. E toda a instabilidade de
+verdade, 9 de 12, está nas caixas altas, que um humano vai reescrever de qualquer
+jeito.
+
+A fronteira não é escolhida por esses exemplos: as alturas medidas são 45 a 58px
+nas normais e 265 a 613px nas altas, 207px de vazio entre as duas populações e
+nada perto do corte. `needs_review` já significa "um humano vai olhar isto", que é
+exatamente a condição em que um erro de OCR deixa de ser silencioso.
+
+Fica anotado que o `|` solto é filtrável por si, mas isso é outra mudança e pede
+a sua própria medição.
 
 ### Exercícios de revisão, suporte completo
 
