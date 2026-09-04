@@ -138,6 +138,17 @@ mostrando quais estão preenchidos, e destaque para buracos na sequência.
 editáveis e o `kind` trocável. As caixas com `needs_review` aparecem primeiro, com a imagem do
 recorte original ao lado, para o professor reconstruir a tabela. Grava só ao confirmar.
 
+Três responsabilidades a mais, que apareceram ao construir:
+
+1. **Resolver número de ponto não atribuído.** Quando a reconciliação não consegue decidir, a tela
+   mostra a página, os candidatos que ela listou, e a opção "sem número, é continuação". Nas 60
+   páginas de teste isso acontece 4 vezes: três leituras de ruído e o ponto 74, cuja página lê
+   `4`, `45` e `74` com uma config cada e não tem outro número para corroborar.
+2. **As caixas com `needs_review` vêm primeiro**, com o recorte original ao lado.
+3. **A idempotência do critério 4 mora aqui, não no banco.** Ao confirmar, os `blocks` do ponto são
+   apagados antes de inserir os novos. O `unique (point_id, position)` impede o bug, não faz upsert;
+   está dito no comentário da migration 0004.
+
 **`/teacher/content/images`**: as palavras sem imagem, com upload. Barra própria.
 
 ## Geração das frases
