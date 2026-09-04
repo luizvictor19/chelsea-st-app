@@ -1,11 +1,9 @@
 import {
-  CHART_REFERENCE,
   DICTATION_SLASH_RATIO,
-  LESSON_HEADER,
   REVISION_EXERCISE_HEADING,
-  REVISION_EXERCISE_MARKER,
   TABLE_HEIGHT,
 } from "./constants.ts";
+import type { Marker } from "./markers.ts";
 import type { Band } from "./types.ts";
 
 /** Mirrors the block_kind enum in migration 0004. */
@@ -34,6 +32,8 @@ export type ReadRegion = {
 export type ClassifyInput = {
   readonly boxes: readonly ReadRegion[];
   readonly explanations: readonly ReadRegion[];
+  /** Fixed phrases with the rows they occupy, from findMarkers. */
+  readonly markers: readonly Marker[];
   readonly pageText: string;
   readonly tokens: readonly string[];
 };
@@ -51,12 +51,6 @@ export type ClassifyResult =
       readonly slashRatio: number;
       readonly blocks: readonly ExtractedBlock[];
     };
-
-function allMatches(text: string, pattern: RegExp): number[] {
-  return [...text.matchAll(new RegExp(pattern.source, pattern.flags))].map(
-    (match) => Number(match[1]),
-  );
-}
 
 /** Share of tokens carrying a slash, which is what marks a dictation page. */
 export function slashRatio(tokens: readonly string[]): number {
@@ -90,15 +84,29 @@ export function classify(input: ClassifyInput): ClassifyResult {
   const isDictation = ratio >= DICTATION_SLASH_RATIO;
   const blocks: ExtractedBlock[] = [];
 
-  // Ink inside a panel is still ink, so the line finder reports panel text as
-  // well as prose. It is the box's content, already captured, so anything
-  // overlapping a box band is dropped here rather than becoming a second block
-  // holding the same words.
+  // Everything already identified some other way is taken off the page before
+  // the justification test runs.
+  //
+  // Panel text first: ink inside a panel is still ink, so the line finder
+  // reports it, and it is the box's content already captured.
+  //
+  // Then the fixed phrases. Measured over 678 lines that start on the margin,
+  // real prose runs to a widest internal gap of 22px and question-and-answer
+  // starts at 52px, but headings, icon captions and chart references sit
+  // between 26 and 40px and would otherwise be sorted by a threshold that
+  // cannot separate them. They are found by regex with a known position, so
+  // excluding them by position is exact where a gap threshold is a guess. It
+  // also widens the margin between prose and everything else from 8px to 30px,
+  // which is what stops a one-pixel resampling difference from moving a line
+  // across the line.
+  const occupied: readonly Band[] = [
+    ...input.boxes.map((box) => box.band),
+    ...input.markers.map((marker) => marker.band),
+  ];
   const prose = input.explanations.filter(
     (line) =>
-      !input.boxes.some(
-        (box) =>
-          line.band.top < box.band.bottom && line.band.bottom > box.band.top,
+      !occupied.some(
+        (band) => line.band.top < band.bottom && line.band.bottom > band.top,
       ),
   );
 
@@ -146,27 +154,29 @@ export function classify(input: ClassifyInput): ClassifyResult {
     }
   }
 
-  for (const number of allMatches(input.pageText, REVISION_EXERCISE_MARKER)) {
-    blocks.push({
-      kind: "revision_exercise",
-      content: `Revision Exercise ${number}`,
-      needsReview: false,
-      band: { top: 0, bottom: 0 },
-    });
-  }
-
-  for (const number of allMatches(input.pageText, CHART_REFERENCE)) {
-    blocks.push({
-      kind: "chart_ref",
-      content: `See Chart ${number}`,
-      needsReview: false,
-      band: { top: 0, bottom: 0 },
-    });
+  for (const marker of input.markers) {
+    if (marker.kind === "revision_exercise") {
+      blocks.push({
+        kind: "revision_exercise",
+        content: `Revision Exercise ${marker.number}`,
+        needsReview: false,
+        band: marker.band,
+      });
+    } else if (marker.kind === "chart_ref") {
+      blocks.push({
+        kind: "chart_ref",
+        content: `See Chart ${marker.number}`,
+        needsReview: false,
+        band: marker.band,
+      });
+    }
   }
 
   return {
     supported: true,
-    lessonHeaders: allMatches(input.pageText, LESSON_HEADER),
+    lessonHeaders: input.markers
+      .filter((marker) => marker.kind === "lesson_header")
+      .map((marker) => marker.number),
     isDictation,
     slashRatio: ratio,
     blocks: blocks.sort((a, b) => a.band.top - b.band.top),

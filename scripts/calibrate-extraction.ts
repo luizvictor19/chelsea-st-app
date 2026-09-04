@@ -22,7 +22,7 @@ import {
 import { boxes } from "../src/lib/extraction/boxes.ts";
 import { explanationLines } from "../src/lib/extraction/explanation-lines.ts";
 import { boxLeft, normalise, shadedMask } from "../src/lib/extraction/image.ts";
-import { marginNumbers } from "../src/lib/extraction/margin-numbers.ts";
+import { marginReadings } from "../src/lib/extraction/margin-numbers.ts";
 import { createTesseractReader } from "../src/lib/extraction/ocr-tesseract.ts";
 import type { Bitmap } from "../src/lib/extraction/types.ts";
 
@@ -93,7 +93,7 @@ for (const [index, file] of files.entries()) {
   const left = boxLeft(mask);
   const bands = boxes(mask);
 
-  const raw = await marginNumbers(page, left, reader);
+  const raw = await marginReadings(page, left, reader);
   const words = await reader.read(page);
   const tokens = words.map((w) => w.text);
   const text = tokens.join(" ");
@@ -104,6 +104,7 @@ for (const [index, file] of files.entries()) {
     file,
     raw_margin_readings: [...raw].map((r) => r.value).sort((a, b) => a - b),
     raw_with_y: [...raw].map((r) => [r.value, r.y]),
+    raw_with_agreement: [...raw].map((r) => [r.value, r.y, r.agreement]),
     lesson_header: matchAll(text, LESSON_HEADER),
     revision_exercise: matchAll(text, REVISION_EXERCISE_MARKER),
     chart_ref: matchAll(text, CHART_REFERENCE),

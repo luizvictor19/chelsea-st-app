@@ -3,11 +3,13 @@ import { describe, test } from "node:test";
 
 import { classify, slashRatio, type ClassifyInput } from "./classify.ts";
 import { TABLE_HEIGHT } from "./constants.ts";
+import type { Marker } from "./markers.ts";
 
 function input(overrides: Partial<ClassifyInput> = {}): ClassifyInput {
   return {
     boxes: [],
     explanations: [],
+    markers: [],
     pageText: "",
     tokens: [],
     ...overrides,
@@ -63,8 +65,18 @@ describe("classify", () => {
   test("the loose marker on an ordinary page is not the heading", () => {
     // Four legitimate dictation pages carry this. Refusing them would throw
     // away real content.
+    const marker: Marker = {
+      kind: "revision_exercise",
+      number: 4,
+      band: { top: 500, bottom: 520 },
+    };
     const result = supported(
-      classify(input({ pageText: "Do Revision Exercise 4 after this lesson" })),
+      classify(
+        input({
+          pageText: "Do Revision Exercise 4 after this lesson",
+          markers: [marker],
+        }),
+      ),
     );
     assert.deepEqual(
       result.blocks.map((b) => [b.kind, b.content]),
@@ -142,7 +154,18 @@ describe("classify", () => {
 
   test("lesson headers and chart references are picked up", () => {
     const result = supported(
-      classify(input({ pageText: "LESSON 17 ... See Chart 9" })),
+      classify(
+        input({
+          markers: [
+            {
+              kind: "lesson_header",
+              number: 17,
+              band: { top: 40, bottom: 70 },
+            },
+            { kind: "chart_ref", number: 9, band: { top: 600, bottom: 620 } },
+          ],
+        }),
+      ),
     );
     assert.deepEqual(result.lessonHeaders, [17]);
     assert.deepEqual(

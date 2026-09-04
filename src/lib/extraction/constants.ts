@@ -75,6 +75,13 @@ export const MARGIN_RIGHT_TOLERANCE = 12;
 /** Longer than this is a run of digits stuck together, not a point number. */
 export const MARGIN_MAX_DIGITS = 4;
 
+/**
+ * Readings closer together than this belong to the same physical number, and
+ * are competing guesses at it rather than two numbers. Measured at the
+ * normalised width.
+ */
+export const MARGIN_GROUP_Y_TOLERANCE = 30;
+
 // --- Explanation lines -----------------------------------------------------
 
 /** Below this grey level a pixel counts as ink. */
@@ -106,6 +113,12 @@ export const LESSON_HEADER = /LESSON\s+(\d+)/g;
 export const REVISION_EXERCISE_MARKER = /Revision\s+Exercise\s+(\d+)/gi;
 /** `See Chart 9`. */
 export const CHART_REFERENCE = /See\s+Chart\s+(\d+)/gi;
+/**
+ * `Dictation 7`. Set in light italic beside an icon, so OCR reads it about one
+ * time in eight; the page is identified by slash density instead. It is listed
+ * here because when it is read, its line has to be kept out of the prose test.
+ */
+export const DICTATION_MARKER = /Dictation\s+(\d+)/gi;
 /**
  * The heading of a revision exercise page, which is a second page type the
  * pipeline cannot read yet. The parenthesised lesson range is required: without
