@@ -10,10 +10,12 @@ Read this before writing code in this repository.
 
 ## Content and licensing
 
-The teaching material in this product is written by Luiz. Published course
-books are not reproduced, stored or served here. A stage's `grammar_targets`
-and `vocabulary_targets` describe what to teach; the wording of every question
-is original.
+The teaching material in this product is written by Luiz. This platform
+does not redistribute or serve published course books to third parties.
+Extraction targets and the teacher's own working notes, derived from
+books he owns and used for his own lessons, are his material and may be
+stored here. Book page images are never committed to this repository.
+The wording of every generated practice sentence is original.
 
 ## Stack
 
