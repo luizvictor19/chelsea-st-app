@@ -5,7 +5,11 @@ import { explanationLines, inkLines } from "./explanation-lines.ts";
 import { boxLeft, crop, normalise, resize, shadedMask } from "./image.ts";
 import { findMarkers } from "./markers.ts";
 import { marginReadings, type MarginReading } from "./margin-numbers.ts";
-import { reconcilePoints, type PageReadings } from "./reconcile.ts";
+import {
+  reconcilePoints,
+  type PageReadings,
+  type Placement,
+} from "./reconcile.ts";
 import type { Band, Bitmap, OcrReader } from "./types.ts";
 
 /** Panel text is small; the reference implementation reads it at double size. */
@@ -132,6 +136,8 @@ export type ResolvedPage = {
   readonly extraction: ExtractedPage;
   /** Numbers settled for this page, ascending. */
   readonly points: readonly number[];
+  /** The same numbers with the height each was printed at. */
+  readonly placements: readonly Placement[];
   /** Where a page with no number of its own belongs. */
   readonly inheritedPoint: number | null;
   /** The page this is a second scan of. */
@@ -182,6 +188,7 @@ export function resolveBatch(
     resolved.push({
       extraction,
       points: page.points,
+      placements: page.placements,
       inheritedPoint: page.inheritedPoint,
       duplicateOf: page.duplicateOf,
       disputes: page.disputes,
@@ -196,6 +203,7 @@ export function resolveBatch(
       resolved.push({
         extraction: page,
         points: [],
+        placements: [],
         inheritedPoint: null,
         duplicateOf: null,
         disputes: [],
@@ -224,6 +232,28 @@ export function isRefused(page: ExtractedPage): boolean {
     page.lessonHeaders.length === 0 &&
     !page.isDictation
   );
+}
+
+/**
+ * Which of a page's numbers a block belongs to.
+ *
+ * A spread carries two numbers, and the book's rule is that a block belongs to
+ * the last number printed above it. Without this a two-page spread would put
+ * everything on its first point and leave the second empty.
+ */
+export function pointForBlock(
+  placements: readonly Placement[],
+  blockTop: number,
+): number | null {
+  let chosen: Placement | null = null;
+  for (const placement of placements) {
+    if (placement.y <= blockTop) {
+      chosen = placement;
+    }
+  }
+  // A block above the first number still belongs to the page, so it falls to the
+  // earliest number rather than to nothing.
+  return (chosen ?? placements[0] ?? null)?.number ?? null;
 }
 
 /** The blocks of a page, review-first, as the review screen shows them. */

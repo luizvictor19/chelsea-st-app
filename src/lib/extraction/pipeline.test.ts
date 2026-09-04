@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import {
   extractPage,
   isRefused,
+  pointForBlock,
   resolveBatch,
   reviewOrder,
 } from "./pipeline.ts";
@@ -248,6 +249,35 @@ describe("criterion 7: prose on a page with no shaded panel", () => {
         [],
       );
     });
+  });
+});
+
+describe("a spread splits its content between the numbers it carries", () => {
+  const spread = [
+    { number: 117, y: 210 },
+    { number: 118, y: 880 },
+  ];
+
+  test("a block belongs to the last number printed above it", () => {
+    assert.equal(pointForBlock(spread, 300), 117);
+    assert.equal(pointForBlock(spread, 879), 117);
+    assert.equal(pointForBlock(spread, 880), 118);
+    assert.equal(pointForBlock(spread, 1200), 118);
+  });
+
+  test("a block above the first number still belongs to the page", () => {
+    // A heading can sit above the first margin number. Dropping it would lose
+    // content; it goes to the earliest number instead.
+    assert.equal(pointForBlock(spread, 40), 117);
+  });
+
+  test("a page carrying one number keeps everything on it", () => {
+    assert.equal(pointForBlock([{ number: 121, y: 300 }], 40), 121);
+    assert.equal(pointForBlock([{ number: 121, y: 300 }], 900), 121);
+  });
+
+  test("a page carrying none has no number to give", () => {
+    assert.equal(pointForBlock([], 300), null);
   });
 });
 

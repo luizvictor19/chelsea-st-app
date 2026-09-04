@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import type { BlockKind } from "@/lib/extraction/classify";
 import {
   isRefused,
+  pointForBlock,
   reviewOrder,
   type ResolvedPage,
 } from "@/lib/extraction/pipeline";
@@ -149,44 +150,100 @@ export function ReviewPanel({
     });
   }
 
+  /** Words a vocabulary block introduces, folded the way the column is. */
+  function wordsOf(blocks: readonly BlockDraft[]): string[] {
+    return blocks
+      .filter((block) => block.kind === "vocabulary")
+      .flatMap((block) => block.content.split(/\s+/))
+      .map((word) => word.trim().toLowerCase())
+      .filter((word) => word.length > 1);
+  }
+
   async function save(page: ResolvedPage) {
     const id = page.extraction.id;
     const draft = drafts[id];
-    const target = targetPoint(page, draft);
-    if (target === null) {
+    const ordered = orderedByPage.get(id) ?? [];
+
+    const asConfirmed = (block: BlockDraft) => ({
+      kind: block.kind,
+      content: block.content,
+      needsReview: block.needsReview,
+    });
+
+    // A continuation adds to the point the page before it opened. Everything on
+    // it belongs there, and it appends rather than replaces so it does not wipe
+    // what that page already wrote.
+    if (draft.continuation) {
+      const target = targetPoint(page, draft);
+      if (target === null) {
+        update(id, {
+          error:
+            "Escolha o número do ponto, ou diga a qual ponto esta continuação pertence.",
+        });
+        return;
+      }
+      const result = await confirmPoint({
+        bookId,
+        pointNumber: target,
+        lessonNumber: page.lessonNumber,
+        mode: "append",
+        blocks: draft.blocks.map(asConfirmed),
+        vocabulary: wordsOf(draft.blocks),
+      });
+      update(
+        id,
+        result.status === "ok"
+          ? { saved: true, error: null }
+          : { error: result.message },
+      );
+      return;
+    }
+
+    // A spread carries two numbers and its content is split between them: a
+    // block belongs to the last number printed above it.
+    const placements =
+      page.placements.length > 0
+        ? page.placements
+        : draft.pointNumber === null
+          ? []
+          : [{ number: draft.pointNumber, y: 0 }];
+
+    if (placements.length === 0) {
       update(id, {
         error:
-          "Escolha o número do ponto, ou diga a qual ponto esta continuação pertence.",
+          "Escolha o número do ponto, ou marque a página como continuação.",
       });
       return;
     }
 
-    const result = await confirmPoint({
-      bookId,
-      pointNumber: target,
-      // A continuation adds to what the page before it put on the point; only
-      // the page carrying the number replaces, which is what makes a re-upload
-      // idempotent.
-      mode: draft.continuation ? "append" : "replace",
-      lessonNumber: page.lessonNumber,
-      blocks: draft.blocks.map((block) => ({
-        kind: block.kind,
-        content: block.content,
-        needsReview: block.needsReview,
-      })),
-      vocabulary: draft.blocks
-        .filter((block) => block.kind === "vocabulary")
-        .flatMap((block) => block.content.split(/\s+/))
-        .map((word) => word.trim().toLowerCase())
-        .filter((word) => word.length > 1),
+    const byPoint = new Map<number, BlockDraft[]>();
+    // Every number the page carries is written, even when nothing landed under
+    // it, so the point still counts as covered.
+    for (const placement of placements) {
+      byPoint.set(placement.number, []);
+    }
+    draft.blocks.forEach((block, index) => {
+      const top = ordered[index]?.band.top ?? 0;
+      const target = pointForBlock(placements, top) ?? placements[0].number;
+      byPoint.get(target)?.push(block);
     });
 
-    update(
-      id,
-      result.status === "ok"
-        ? { saved: true, error: null }
-        : { error: result.message },
-    );
+    for (const [pointNumber, blocks] of byPoint) {
+      const result = await confirmPoint({
+        bookId,
+        pointNumber,
+        lessonNumber: page.lessonNumber,
+        mode: "replace",
+        blocks: blocks.map(asConfirmed),
+        vocabulary: wordsOf(blocks),
+      });
+      if (result.status === "error") {
+        update(id, { error: result.message });
+        return;
+      }
+    }
+
+    update(id, { saved: true, error: null });
   }
 
   return (
@@ -313,7 +370,9 @@ export function ReviewPanel({
                   <span className="font-bold tracking-tight">
                     {draft.continuation
                       ? `Continuação do ponto ${target}`
-                      : `Ponto ${target}`}
+                      : page.points.length > 1
+                        ? `Pontos ${page.points.join(" e ")}`
+                        : `Ponto ${target}`}
                     {page.lessonNumber !== null && (
                       <span className="text-muted font-normal">
                         {" "}

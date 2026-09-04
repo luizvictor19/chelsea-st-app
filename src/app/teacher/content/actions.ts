@@ -118,16 +118,49 @@ export async function confirmPoint(
   }
 
   if (point.lessonNumber !== null) {
-    const { data: lesson } = await supabase
+    // The lesson is created the first time one of its points is confirmed, and
+    // its range widens as the rest arrive. Only linking, as this did before,
+    // left lessons_content permanently empty: nothing else creates a lesson.
+    const { data: existing } = await supabase
       .from("lessons_content")
-      .select("id")
+      .select("id, first_point, last_point")
       .eq("book_id", point.bookId)
       .eq("number", point.lessonNumber)
       .maybeSingle();
-    if (lesson !== null) {
+
+    let lessonId = existing?.id ?? null;
+    if (existing === null) {
+      const { data: created, error: lessonError } = await supabase
+        .from("lessons_content")
+        .insert({
+          book_id: point.bookId,
+          number: point.lessonNumber,
+          first_point: point.pointNumber,
+          last_point: point.pointNumber,
+        })
+        .select("id")
+        .maybeSingle();
+      if (lessonError) {
+        return { status: "error", message: lessonError.message };
+      }
+      lessonId = created?.id ?? null;
+    } else if (
+      point.pointNumber < existing.first_point ||
+      point.pointNumber > existing.last_point
+    ) {
+      await supabase
+        .from("lessons_content")
+        .update({
+          first_point: Math.min(existing.first_point, point.pointNumber),
+          last_point: Math.max(existing.last_point, point.pointNumber),
+        })
+        .eq("id", existing.id);
+    }
+
+    if (lessonId !== null) {
       await supabase
         .from("points")
-        .update({ lesson_content_id: lesson.id })
+        .update({ lesson_content_id: lessonId })
         .eq("id", row.id);
     }
   }

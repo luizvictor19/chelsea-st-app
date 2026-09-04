@@ -21,10 +21,22 @@ export type Dispute = {
   readonly candidates: readonly number[];
 };
 
+/** A settled number and the height it was printed at. */
+export type Placement = {
+  readonly number: number;
+  readonly y: number;
+};
+
 export type PageResolution = {
   readonly id: string;
   /** Numbers this page carries, ascending. Empty when it carries none. */
   readonly points: readonly number[];
+  /**
+   * The same numbers with their positions down the page. A spread carries two,
+   * and a block belongs to the last number printed above it, so splitting a
+   * page's content between its points needs the heights and not just the values.
+   */
+  readonly placements: readonly Placement[];
   /**
    * The point a page with no number of its own belongs to, taken from the page
    * before it in upload order.
@@ -488,13 +500,13 @@ export function reconcilePoints(
   }
 
   const byPage = pages.map(() => ({
-    points: [] as number[],
+    points: [] as Placement[],
     disputes: [] as Dispute[],
   }));
   for (const group of groups) {
     const target = byPage[group.pageIndex];
     if (group.assigned !== null) {
-      target.points.push(group.assigned);
+      target.points.push({ number: group.assigned, y: group.y });
     } else if (group.candidates.size >= 1) {
       target.disputes.push({
         y: group.y,
@@ -509,7 +521,7 @@ export function reconcilePoints(
   for (const index of order) {
     const points = byPage[index].points;
     if (points.length > 0) {
-      currentPoint = Math.max(...points);
+      currentPoint = Math.max(...points.map((placement) => placement.number));
       inherited.set(index, null);
     } else {
       inherited.set(index, currentPoint);
@@ -518,7 +530,10 @@ export function reconcilePoints(
 
   const resolutionFor = (index: number): PageResolution => ({
     id: pages[index].id,
-    points: [...byPage[index].points].sort((a, b) => a - b),
+    points: byPage[index].points
+      .map((placement) => placement.number)
+      .sort((a, b) => a - b),
+    placements: [...byPage[index].points].sort((a, b) => a.y - b.y),
     inheritedPoint:
       byPage[index].points.length > 0 ? null : (inherited.get(index) ?? null),
     duplicateOf: duplicateOf[index],
