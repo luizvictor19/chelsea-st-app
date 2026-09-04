@@ -207,30 +207,27 @@ entra aqui, entra na F2, mas o campo de referência é `points.id`.
 Geração das perguntas, que usa estes alvos como entrada. Exclusão de livro. Edição de ponto fora do
 fluxo de upload.
 
-### Dívidas conhecidas do vocabulário
+### Separação de termos do vocabulário, resolvida
 
-Achadas lendo o código, não em produção. Nenhuma impede o fluxo, todas afetam o
-que `vocabulary_items` libera para a geração de frases.
+Os termos de uma caixa são separados por **coluna**, não por espaço. Achatados em
+texto, `a day` e `flower plant` ficam idênticos: duas palavras com um espaço. Um
+é um termo, o outro são dois, e só a geometria distingue.
 
-- **Palavra de uma letra é descartada.** O filtro por tamanho existe para matar
-  lixo de OCR, mas o ponto 117 ensina `a` ao lado de `some`, e `I` tem o mesmo
-  problema. Como `vocabulary_items` é o que libera palavra para a geração, essas
-  ficariam proibidas para sempre. A regra tem que olhar se é letra, não tamanho.
-- **Termo composto é quebrado por espaço.** `flower plant` são dois termos e o
-  espaço acerta, mas `made of` vira dois, `the fewest` vira dois e
-  `more ... than` vira três. Na caixa os termos são separados por **coluna**, não
-  por espaço, e isso não se recupera do texto achatado. Recupera-se na extração:
-  o OCR entrega o `x` de cada palavra, e o vão entre colunas é muito maior que o
-  vão entre palavras do mesmo termo. Medir a distribuição desses vãos nas 60
-  fixtures antes de escolher qualquer limiar.
-- **Consequência de formato.** Um bloco de vocabulário passa a ser uma lista de
-  termos em vez de uma string achatada, e a tela de revisão passa a mostrar um
-  campo por termo, para o professor corrigir um sem mexer nos outros.
+Medido nas caixas normais das 61 fixtures: **68 vãos entre 8 e 19px, 170 a partir
+de 70px, e nenhum entre os dois**. O corte fica em 45, no meio de um vazio de
+50px, e a separação acontece na extração, onde as posições ainda existem.
+
+Um bloco de vocabulário passa a carregar os termos separados por vírgula, e a
+tela mostra a vírgula como fronteira editável, para o professor corrigir onde ela
+caiu errado.
+
+Com isso morre o filtro de palavra de uma letra: o `a` do ponto 117 é termo por
+ocupar coluna própria, não por tamanho, e `the fewest` deixa de virar `the` e
+`fewest` soltos em `vocabulary_items`.
 
 ### Modo de segmentação na leitura das caixas
 
-**Decidido, a aplicar depois do primeiro lote real:** `psm 6` nas caixas normais,
-modo automático nas altas. O corte é o `needs_review` que já existe, não um
+**Implementado:** `psm 6` nas caixas normais, modo automático nas altas. O corte é o `needs_review` que já existe, não um
 limiar novo.
 
 Medido nas 151 caixas das fixtures, separando pelas duas populações:

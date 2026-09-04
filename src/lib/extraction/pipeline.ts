@@ -1,11 +1,12 @@
 import { boxes } from "./boxes.ts";
 import { classify, type ExtractedBlock } from "./classify.ts";
-import { TABLE_HEIGHT } from "./constants.ts";
+import { BOX_PAGE_SEGMENTATION, TABLE_HEIGHT } from "./constants.ts";
 import { explanationLines, inkLines } from "./explanation-lines.ts";
 import { boxLeft, crop, normalise, resize, shadedMask } from "./image.ts";
 import { findMarkers } from "./markers.ts";
 import { marginReadings, type MarginReading } from "./margin-numbers.ts";
 import { repairClosingQuotes } from "./quotes.ts";
+import { joinTerms, termsFrom } from "./terms.ts";
 import {
   reconcilePoints,
   type PageReadings,
@@ -93,8 +94,21 @@ export async function extractPage(
       region.width * BOX_READ_SCALE,
       region.height * BOX_READ_SCALE,
     );
-    const read = await reader.read(enlarged);
-    boxRegions.push({ band, content: read.map((word) => word.text).join(" ") });
+
+    // A tall panel is a table, goes to the teacher anyway, and reads worse
+    // under the fixed segmentation. An ordinary one is a list of terms laid out
+    // in columns, and is read with the mode that does not drop a single letter.
+    const isTable = band.bottom - band.top > TABLE_HEIGHT;
+    const read = await reader.read(
+      enlarged,
+      isTable ? undefined : { pageSegmentation: BOX_PAGE_SEGMENTATION },
+    );
+    boxRegions.push({
+      band,
+      content: isTable
+        ? read.map((word) => word.text).join(" ")
+        : joinTerms(termsFrom(read, BOX_READ_SCALE)),
+    });
   }
 
   const asRegion = (band: Band) => ({ band, content: textInBand(words, band) });

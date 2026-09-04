@@ -56,6 +56,33 @@ export const MIN_BOX_HEIGHT = 35;
  */
 export const TABLE_HEIGHT = 250;
 
+/**
+ * The blank that separates one term from the next inside a shaded panel.
+ *
+ * Terms are laid out in columns, not run together with spaces, so "a day" and
+ * "flower plant" are lexically identical and only the geometry tells them apart.
+ * Splitting on whitespace made "a day" two terms and "the fewest" two more, and
+ * those went into vocabulary_items as words the sentence generator would then
+ * be allowed to use on their own.
+ *
+ * Measured over the ordinary panels of the 61 fixtures: 68 gaps fall between 8
+ * and 19 pixels, 170 fall at 70 or more, and nothing at all falls in between.
+ * The cut sits in the middle of that fifty-pixel void rather than on an edge.
+ */
+export const TERM_COLUMN_GAP = 45;
+
+/**
+ * Page segmentation for reading an ordinary panel.
+ *
+ * Measured over the 151 panels: against the automatic mode this changes 3 of
+ * the 139 ordinary ones, recovering the "a" of "a some" that the automatic mode
+ * drops and adding a stray pipe twice. A lost word is silent and permanent,
+ * since it never reaches vocabulary_items; a stray pipe is visible in the
+ * review field. Nine of the twelve disagreements are in the tall panels, which
+ * a person rewrites anyway, so those keep the automatic mode.
+ */
+export const BOX_PAGE_SEGMENTATION = 6;
+
 // --- Margin numbers --------------------------------------------------------
 
 /**

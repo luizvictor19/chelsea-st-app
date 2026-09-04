@@ -17,6 +17,8 @@ import {
   type PageQuestion,
 } from "@/lib/content/point-question";
 
+import { splitTerms } from "@/lib/extraction/terms";
+
 import { confirmPoint, filledPoints } from "../actions";
 import type { PageFailure } from "./book-workbench";
 import { CropCanvas } from "./crop-canvas";
@@ -254,13 +256,23 @@ export function ReviewPanel({
     });
   }
 
-  /** Words a vocabulary block introduces, folded the way the column is. */
-  function wordsOf(blocks: readonly BlockDraft[]): string[] {
+  /**
+   * The terms a set of vocabulary blocks introduces.
+   *
+   * Read straight off the block, which already holds them separated, because
+   * the separation is geometric and was worked out where the positions still
+   * existed. Splitting text on whitespace here is what turned "a day" into
+   * "day" and "the fewest" into "the" and "fewest", and put "the" into the
+   * vocabulary as a word of its own.
+   *
+   * No filter on length either: the book teaches "a" and "I", and a term earns
+   * its place by occupying a column, not by being long enough.
+   */
+  function termsOf(blocks: readonly BlockDraft[]): string[] {
     return blocks
       .filter((block) => block.kind === "vocabulary")
-      .flatMap((block) => block.content.split(/\s+/))
-      .map((word) => word.trim().toLowerCase())
-      .filter((word) => word.length > 1);
+      .flatMap((block) => splitTerms(block.content))
+      .map((term) => term.toLowerCase());
   }
 
   async function save(page: ResolvedPage) {
@@ -295,7 +307,7 @@ export function ReviewPanel({
         sourcePage: page.extraction.id,
         replaceWholePoint: wholePoint,
         blocks: draft.blocks.map(asConfirmed),
-        vocabulary: wordsOf(draft.blocks),
+        vocabulary: termsOf(draft.blocks),
       });
       if (result.status === "ok" && wholePoint) {
         setClearedPoints((current) => new Set([...current, target]));
@@ -349,7 +361,7 @@ export function ReviewPanel({
         sourcePage: page.extraction.id,
         replaceWholePoint: wholePoint,
         blocks: blocks.map(asConfirmed),
-        vocabulary: wordsOf(blocks),
+        vocabulary: termsOf(blocks),
       });
       if (result.status === "error") {
         update(id, { error: result.message });
@@ -669,6 +681,13 @@ export function ReviewPanel({
                         excluir
                       </button>
                     </div>
+                    {block.kind === "vocabulary" && (
+                      <p className="text-faint text-xs">
+                        Um termo por vírgula. A vírgula é a fronteira entre
+                        colunas do livro, então corrija-a se ela ficou no lugar
+                        errado.
+                      </p>
+                    )}
                     <textarea
                       aria-label="Conteúdo do bloco"
                       value={block.content}

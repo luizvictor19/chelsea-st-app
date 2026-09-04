@@ -28,6 +28,8 @@ export type OcrWord = {
   readonly text: string;
   readonly x: number;
   readonly y: number;
+  /** Needed to measure the gap between words, which is where a column shows. */
+  readonly width: number;
   readonly height: number;
   readonly confidence: number;
 };

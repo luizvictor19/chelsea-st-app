@@ -21,6 +21,7 @@ function word(text: string, pageX: number, pageY: number): OcrWord {
     text,
     x: pageX * MARGIN_UPSCALE,
     y: pageY * MARGIN_UPSCALE,
+    width: text.length * 8 * MARGIN_UPSCALE,
     height: 10 * MARGIN_UPSCALE,
     confidence: 0,
   };

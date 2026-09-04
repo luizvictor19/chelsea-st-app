@@ -21,7 +21,7 @@ const RANGE = { first: 1, last: 128 };
 
 function word(text: string, x: number, y: number, agreement = 1): OcrWord {
   void agreement;
-  return { text, x, y, height: 12, confidence: 50 };
+  return { text, x, y, width: text.length * 9, height: 12, confidence: 50 };
 }
 
 /**

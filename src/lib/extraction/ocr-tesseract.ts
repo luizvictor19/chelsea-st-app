@@ -67,6 +67,7 @@ export function createTesseractReader(
                   text,
                   x: word.bbox.x0,
                   y: word.bbox.y0,
+                  width: word.bbox.x1 - word.bbox.x0,
                   height: word.bbox.y1 - word.bbox.y0,
                   confidence: word.confidence,
                 });
