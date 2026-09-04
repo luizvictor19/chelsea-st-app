@@ -68,6 +68,16 @@ Consequências:
 8. **Ler as explicações** pela geometria das linhas descrita na tabela acima.
 9. **Marcar para revisão** toda caixa com mais de 250px de altura. São tabelas de conjugação e
    grades de comparação, e o achatamento em uma linha perde o pareamento das colunas.
+10. **Desviar as páginas de exercício de revisão.** Uma página cujo texto casa com
+    `Revision Exercise \d+ \(Lessons \d+ . \d+\)` é um segundo tipo de página, não uma página de
+    lição, e o pipeline acima a destrói: 61% a 73% dela é sombreada, então o detector devolve uma
+    caixa única de cerca de 1400px marcada como tabela. Ela é classificada como tipo não suportado,
+    não é extraída, não grava nada, e a tela diz isso. Continuação herda do último cabeçalho visto,
+    mesma regra do `LESSON N`, para as páginas do meio caírem no mesmo desvio.
+
+    O cabeçalho pede a faixa de lições entre parênteses de propósito. O marcador
+    `Do Revision Exercise N`, que aparece solto no meio de página de ditado legítima, não casa com
+    ele e continua sendo extraído como bloco.
 
 ## Resultado medido
 
@@ -185,3 +195,18 @@ entra aqui, entra na F2, mas o campo de referência é `points.id`.
 
 Geração das perguntas, que usa estes alvos como entrada. Exclusão de livro. Edição de ponto fora do
 fluxo de upload.
+
+### Exercícios de revisão, suporte completo
+
+Fica para depois que as telas funcionarem ponta a ponta com página de lição. Por ora só existe o
+desvio descrito no passo 10. O que vai ser preciso quando voltarmos:
+
+- **A dificuldade é a mesma das tabelas.** O número do item fica numa coluna estreita à esquerda e o
+  Tesseract separa os números do texto. O conserto é o `marginNumbers` aplicado a outra coluna:
+  recorta a coluna de números com whitelist de dígitos pegando o `y`, recorta a coluna de texto,
+  pareia por `y`.
+- **Não cabem em `blocks`**, que guarda um `content` só. Pedem `revision_exercises`
+  (`book_id`, `number`, `first_lesson`, `last_lesson`) e `revision_exercise_items`
+  (`exercise_id`, `position`, `prompt`, `answer`).
+- **O marcador `Do Revision Exercise N`** que já extraímos passa a apontar para a linha real em vez
+  de ser só um lembrete.
