@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { BlockKind } from "@/lib/extraction/classify";
 import {
@@ -17,7 +17,7 @@ import {
   type PageQuestion,
 } from "@/lib/content/point-question";
 
-import { confirmPoint } from "../actions";
+import { confirmPoint, filledPoints } from "../actions";
 import type { PageFailure } from "./book-workbench";
 import { CropCanvas } from "./crop-canvas";
 
@@ -45,6 +45,8 @@ type PageDraft = {
   typedPoint: string;
   blocks: BlockDraft[];
   saved: boolean;
+  /** The point already holds content, read from the database on opening. */
+  alreadyInDatabase: boolean;
   error: string | null;
 };
 
@@ -59,6 +61,7 @@ function initialDraft(page: ResolvedPage): PageDraft {
       needsReview: block.needsReview,
     })),
     saved: false,
+    alreadyInDatabase: false,
     error: null,
   };
 }
@@ -83,6 +86,50 @@ export function ReviewPanel({
       pages.map((page) => [page.extraction.id, initialDraft(page)]),
     ),
   );
+
+  // What the database already holds. Asked once, after mount, so a reload shows
+  // where the teacher stopped instead of offering to write it all again.
+  useEffect(() => {
+    let cancelled = false;
+    const wanted = [
+      ...new Set(
+        pages.flatMap((page) =>
+          page.points.length > 0
+            ? page.points
+            : page.inheritedPoint === null
+              ? []
+              : [page.inheritedPoint],
+        ),
+      ),
+    ];
+    void filledPoints(bookId, wanted).then((filled) => {
+      if (cancelled || filled.length === 0) {
+        return;
+      }
+      const done = new Set(filled);
+      setDrafts((current) => {
+        const next = { ...current };
+        for (const page of pages) {
+          const targets =
+            page.points.length > 0
+              ? page.points
+              : page.inheritedPoint === null
+                ? []
+                : [page.inheritedPoint];
+          if (targets.length > 0 && targets.every((n) => done.has(n))) {
+            next[page.extraction.id] = {
+              ...next[page.extraction.id],
+              alreadyInDatabase: true,
+            };
+          }
+        }
+        return next;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [bookId, pages]);
 
   // The blocks in the order the screen shows them, kept beside the drafts so a
   // block's band is available for its crop.
@@ -146,6 +193,46 @@ export function ReviewPanel({
     }));
   }
 
+  function removeBlock(id: string, index: number) {
+    setDrafts((current) => {
+      const draft = current[id];
+      return {
+        ...current,
+        [id]: {
+          ...draft,
+          blocks: draft.blocks.filter((_, i) => i !== index),
+        },
+      };
+    });
+  }
+
+  /*
+   * Adds an empty block right after the one being looked at, never at the end,
+   * because the order of blocks is the order of the page.
+   *
+   * It exists for content the geometry threw away, which in practice means an
+   * explanation: a shaded panel is found on 61 pages out of 61 and does not go
+   * missing. Measured, the right-margin rule loses two real explanations across
+   * the whole book, both a single declarative line that does not fill the
+   * column.
+   *
+   * If this button starts being used routinely for the same kind of block, that
+   * is a bug in the extraction and not a workflow. It is here to repair the
+   * odd page, not to patch sixty by hand.
+   */
+  function addBlockAfter(id: string, index: number) {
+    setDrafts((current) => {
+      const draft = current[id];
+      const blocks = [...draft.blocks];
+      blocks.splice(index + 1, 0, {
+        kind: "explanation",
+        content: "",
+        needsReview: false,
+      });
+      return { ...current, [id]: { ...draft, blocks } };
+    });
+  }
+
   function updateBlock(id: string, index: number, change: Partial<BlockDraft>) {
     setDrafts((current) => {
       const draft = current[id];
@@ -193,7 +280,7 @@ export function ReviewPanel({
         bookPosition,
         pointNumber: target,
         lessonNumber: page.lessonNumber,
-        mode: "append",
+        sourcePage: page.extraction.id,
         blocks: draft.blocks.map(asConfirmed),
         vocabulary: wordsOf(draft.blocks),
       });
@@ -241,7 +328,7 @@ export function ReviewPanel({
         bookPosition,
         pointNumber,
         lessonNumber: page.lessonNumber,
-        mode: "replace",
+        sourcePage: page.extraction.id,
         blocks: blocks.map(asConfirmed),
         vocabulary: wordsOf(blocks),
       });
@@ -383,6 +470,11 @@ export function ReviewPanel({
                   </span>
                 ) : (
                   <span className="font-bold tracking-tight">
+                    {draft.alreadyInDatabase && !draft.saved && (
+                      <span className="text-accent font-mono text-xs tracking-[0.16em] uppercase">
+                        já gravado ·{" "}
+                      </span>
+                    )}
                     {draft.continuation
                       ? `Continuação do ponto ${target}`
                       : page.points.length > 1
@@ -408,7 +500,11 @@ export function ReviewPanel({
                 }
                 className="bg-accent text-accent-foreground rounded-sm px-4 py-2 font-semibold transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:opacity-50"
               >
-                {draft.saved ? "Gravado" : "Confirmar e gravar"}
+                {draft.saved
+                  ? "Gravado"
+                  : draft.alreadyInDatabase
+                    ? "Substituir o que está gravado"
+                    : "Confirmar e gravar"}
               </button>
             </header>
 
@@ -443,22 +539,31 @@ export function ReviewPanel({
                       {candidate}
                     </button>
                   ))}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      update(page.extraction.id, {
-                        continuation: true,
-                        pointNumber: null,
-                      })
-                    }
-                    className={
-                      draft.continuation
-                        ? "bg-foreground text-background rounded-sm px-3 py-1 text-sm transition-colors"
-                        : "border-rule hover:border-foreground hover:bg-background rounded-sm border px-3 py-1 text-sm transition-colors"
-                    }
-                  >
-                    Sem número, é continuação
-                  </button>
+                  {/*
+                    Only where it can do something: there is a candidate to
+                    reject, or a page before this one to inherit from. With
+                    neither, pressing it would leave the page with no point at
+                    all, which is the one outcome nothing else on this screen
+                    allows.
+                  */}
+                  {(candidates.length > 0 || page.inheritedPoint !== null) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        update(page.extraction.id, {
+                          continuation: true,
+                          pointNumber: null,
+                        })
+                      }
+                      className={
+                        draft.continuation
+                          ? "bg-foreground text-background rounded-sm px-3 py-1 text-sm transition-colors"
+                          : "border-rule hover:border-foreground hover:bg-background rounded-sm border px-3 py-1 text-sm transition-colors"
+                      }
+                    >
+                      Sem número, é continuação
+                    </button>
+                  )}
                   {draft.continuation && page.inheritedPoint === null && (
                     <input
                       aria-label="Ponto a que esta continuação pertence"
@@ -523,6 +628,22 @@ export function ReviewPanel({
                         </option>
                       ))}
                     </select>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => addBlockAfter(page.extraction.id, index)}
+                        className="border-rule hover:border-foreground hover:bg-background rounded-sm border px-2 py-1 text-xs transition-colors"
+                      >
+                        + bloco abaixo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeBlock(page.extraction.id, index)}
+                        className="border-rule hover:border-accent hover:text-accent rounded-sm border px-2 py-1 text-xs transition-colors"
+                      >
+                        excluir
+                      </button>
+                    </div>
                     <textarea
                       aria-label="Conteúdo do bloco"
                       value={block.content}

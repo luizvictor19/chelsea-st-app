@@ -100,6 +100,50 @@ describe("explanationLines", () => {
     assert.equal(lines.length, 1);
   });
 
+  test("criterion 7: a question whose answer starts below is not prose", () => {
+    // It has no internal gap, so the gap test alone lets it through. What gives
+    // it away is that it stops short of the right margin while prose is
+    // justified to it.
+    const lines = linesOf((page) => {
+      for (const top of [100, 130, 160]) {
+        inkLine(page, { left: BOX_LEFT, right: COLUMN_RIGHT, top });
+      }
+      // Well clear of the column's edge, as the measured one is by 63px.
+      inkLine(page, { left: BOX_LEFT, right: COLUMN_RIGHT - 120, top: 400 });
+    });
+    assert.equal(lines.length, 3, "only the justified paragraph");
+    assert.ok(lines.every((line) => line.top < 400));
+  });
+
+  test("the short last line of a paragraph is kept", () => {
+    // Naturally short, but it follows a line that does reach the margin.
+    const lines = linesOf((page) => {
+      inkLine(page, { left: BOX_LEFT, right: COLUMN_RIGHT, top: 100 });
+      inkLine(page, { left: BOX_LEFT, right: COLUMN_RIGHT, top: 118 });
+      inkLine(page, { left: BOX_LEFT, right: COLUMN_RIGHT - 200, top: 136 });
+    });
+    assert.equal(lines.length, 3);
+  });
+
+  test("the right margin comes from the page, not from the lines being judged", () => {
+    // A page whose only justified line is a false positive would otherwise take
+    // that line as the margin and let itself through.
+    const lines = linesOf((page) => {
+      // Question-and-answer lines set the column, and are themselves rejected
+      // by the gap test.
+      for (const top of [100, 140, 180]) {
+        inkLine(page, {
+          left: BOX_LEFT,
+          right: COLUMN_RIGHT,
+          top,
+          centreGap: 80,
+        });
+      }
+      inkLine(page, { left: BOX_LEFT, right: COLUMN_RIGHT - 120, top: 400 });
+    });
+    assert.deepEqual(lines, []);
+  });
+
   test("a blank page has no lines", () => {
     assert.deepEqual(
       linesOf(() => {}),

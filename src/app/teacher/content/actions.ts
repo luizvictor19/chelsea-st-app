@@ -26,11 +26,11 @@ export type ConfirmedPoint = {
   /** Words to introduce at this point, already folded by the caller. */
   readonly vocabulary: readonly string[];
   /**
-   * "replace" for the page that carries the number, which is what makes a
-   * re-upload idempotent. "append" for a continuation page, whose blocks belong
-   * to the same point and must not wipe what the first page put there.
+   * The upload these blocks came from. A confirmation replaces what this page
+   * wrote on the point and leaves anything another page contributed alone,
+   * which is what makes confirming any page twice land the same content.
    */
-  readonly mode: "replace" | "append";
+  readonly sourcePage: string;
 };
 
 /**
@@ -98,25 +98,27 @@ export async function confirmPoint(
     };
   }
 
-  let offset = 0;
-  if (point.mode === "replace") {
-    const { error: clearError } = await supabase
-      .from("blocks")
-      .delete()
-      .eq("point_id", row.id);
-    if (clearError) {
-      return { status: "error", message: clearError.message };
-    }
-  } else {
-    const { data: last } = await supabase
-      .from("blocks")
-      .select("position")
-      .eq("point_id", row.id)
-      .order("position", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    offset = last === null ? 0 : last.position + 1;
+  // Only this page's rows go. Another page's contribution to the same point is
+  // not ours to remove.
+  const { error: clearError } = await supabase
+    .from("blocks")
+    .delete()
+    .eq("point_id", row.id)
+    .eq("source_page", point.sourcePage);
+  if (clearError) {
+    return { status: "error", message: clearError.message };
   }
+
+  // Positions continue after whatever is left, so the unique index holds and
+  // the order on screen is the order on the page.
+  const { data: last } = await supabase
+    .from("blocks")
+    .select("position")
+    .eq("point_id", row.id)
+    .order("position", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const offset = last === null ? 0 : last.position + 1;
 
   if (point.blocks.length > 0) {
     const { error: insertError } = await supabase.from("blocks").insert(
@@ -126,6 +128,7 @@ export async function confirmPoint(
         kind: block.kind,
         content: block.content,
         needs_review: block.needsReview,
+        source_page: point.sourcePage,
       })),
     );
     if (insertError) {
@@ -206,4 +209,29 @@ export async function confirmPoint(
 
   refreshBookScreens(point.bookPosition);
   return { status: "ok" };
+}
+
+/**
+ * Which of these points already hold content.
+ *
+ * The review screen asks before it draws. Without this the batch lives only in
+ * the browser's memory, so a reload showed everything as ungraved and the
+ * teacher had no way to tell what had already gone in. Knowing where you
+ * stopped is most of what this product is for.
+ */
+export async function filledPoints(
+  bookId: string,
+  numbers: readonly number[],
+): Promise<readonly number[]> {
+  if (numbers.length === 0) {
+    return [];
+  }
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("points")
+    .select("number")
+    .eq("book_id", bookId)
+    .in("number", [...numbers])
+    .not("filled_at", "is", null);
+  return (data ?? []).map((row) => row.number);
 }

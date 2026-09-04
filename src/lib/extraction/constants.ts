@@ -99,6 +99,20 @@ export const MARGIN_JITTER = 2;
 /** How far a line may start from the text margin and still count as justified. */
 export const EXPLANATION_LEFT_TOLERANCE = 15;
 /**
+ * How far short of the right margin a justified line may stop.
+ *
+ * Prose is justified on both sides, so a line of it reaches the column's right
+ * edge. A question whose answer begins on the line below has no internal gap and
+ * passes the gap test, but it stops well short: measured, the column ends at
+ * 1007 and such a question ends at 944.
+ *
+ * Measured over the 61 fixtures, 15px and 30px discard the same 55 lines and
+ * 50px discards 51, so 30 sits in the middle of a plateau rather than on an
+ * edge.
+ */
+export const EXPLANATION_RIGHT_TOLERANCE = 30;
+
+/**
  * The widest internal gap a justified line may contain. Question and answer
  * pages are set in two columns and always leave a bigger one.
  */

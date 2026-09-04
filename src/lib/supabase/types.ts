@@ -168,6 +168,7 @@ export type Database = {
           needs_review: boolean;
           point_id: string;
           position: number;
+          source_page: string | null;
         };
         Insert: {
           content: string;
@@ -177,6 +178,7 @@ export type Database = {
           needs_review?: boolean;
           point_id: string;
           position: number;
+          source_page?: string | null;
         };
         Update: {
           content?: string;
@@ -186,6 +188,7 @@ export type Database = {
           needs_review?: boolean;
           point_id?: string;
           position?: number;
+          source_page?: string | null;
         };
         Relationships: [
           {
