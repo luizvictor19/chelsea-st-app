@@ -47,6 +47,12 @@ next-env.d.ts
 .env.local
 .env.*.local
 
+# Tesseract language data, downloaded on first run, not ours to vendor.
+*.traineddata
+
+# Bytecode from importing the prototype in the calibration script.
+__pycache__/
+
 # Supabase CLI
 .branches
 .temp
