@@ -7,6 +7,18 @@
 --
 -- Both numbers are read off the book itself, the first page and the last, and
 -- neither depends on any other book.
+-- No backfill, on purpose.
+--
+-- A book already holding points has no first_point after this, and shows as not
+-- configured until someone types the range. That is deliberate: only the
+-- teacher knows where a book really starts, and it is read off the book's first
+-- page. Guessing it from the lowest point already uploaded would be wrong
+-- whenever the upload began part way in, and would be wrong silently, which is
+-- the failure this column exists to prevent.
+--
+-- The cost is typing the range once per book that was already populated. If
+-- that ever becomes more than a handful, the answer is a screen that asks,
+-- never a default that invents.
 alter table books add column first_point integer check (first_point > 0);
 
 alter table books
