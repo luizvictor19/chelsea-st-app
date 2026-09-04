@@ -81,6 +81,17 @@ export function ReviewPanel({
   failures?: readonly PageFailure[];
   onDone: () => void;
 }) {
+  /*
+   * Points this session has already emptied.
+   *
+   * A spread and the continuation after it write to the same point. If both
+   * were shown as already filled, the second would clear the point a second
+   * time and take the first one's work with it. Once a point has been replaced
+   * here, later pages write beside what was just put there.
+   */
+  const [clearedPoints, setClearedPoints] = useState<ReadonlySet<number>>(
+    () => new Set(),
+  );
   const [drafts, setDrafts] = useState<Record<string, PageDraft>>(() =>
     Object.fromEntries(
       pages.map((page) => [page.extraction.id, initialDraft(page)]),
@@ -275,15 +286,20 @@ export function ReviewPanel({
         });
         return;
       }
+      const wholePoint = draft.alreadyInDatabase && !clearedPoints.has(target);
       const result = await confirmPoint({
         bookId,
         bookPosition,
         pointNumber: target,
         lessonNumber: page.lessonNumber,
         sourcePage: page.extraction.id,
+        replaceWholePoint: wholePoint,
         blocks: draft.blocks.map(asConfirmed),
         vocabulary: wordsOf(draft.blocks),
       });
+      if (result.status === "ok" && wholePoint) {
+        setClearedPoints((current) => new Set([...current, target]));
+      }
       update(
         id,
         result.status === "ok"
@@ -323,18 +339,24 @@ export function ReviewPanel({
     });
 
     for (const [pointNumber, blocks] of byPoint) {
+      const wholePoint =
+        draft.alreadyInDatabase && !clearedPoints.has(pointNumber);
       const result = await confirmPoint({
         bookId,
         bookPosition,
         pointNumber,
         lessonNumber: page.lessonNumber,
         sourcePage: page.extraction.id,
+        replaceWholePoint: wholePoint,
         blocks: blocks.map(asConfirmed),
         vocabulary: wordsOf(blocks),
       });
       if (result.status === "error") {
         update(id, { error: result.message });
         return;
+      }
+      if (wholePoint) {
+        setClearedPoints((current) => new Set([...current, pointNumber]));
       }
     }
 
@@ -471,7 +493,10 @@ export function ReviewPanel({
                 ) : (
                   <span className="font-bold tracking-tight">
                     {draft.alreadyInDatabase && !draft.saved && (
-                      <span className="text-accent font-mono text-xs tracking-[0.16em] uppercase">
+                      <span
+                        className="text-accent font-mono text-xs tracking-[0.16em] uppercase"
+                        title="Confirmar aqui apaga tudo que este ponto já tem, inclusive o que outra página escreveu."
+                      >
                         já gravado ·{" "}
                       </span>
                     )}
@@ -503,7 +528,7 @@ export function ReviewPanel({
                 {draft.saved
                   ? "Gravado"
                   : draft.alreadyInDatabase
-                    ? "Substituir o que está gravado"
+                    ? "Substituir o ponto inteiro"
                     : "Confirmar e gravar"}
               </button>
             </header>

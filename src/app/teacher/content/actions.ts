@@ -26,11 +26,27 @@ export type ConfirmedPoint = {
   /** Words to introduce at this point, already folded by the caller. */
   readonly vocabulary: readonly string[];
   /**
-   * The upload these blocks came from. A confirmation replaces what this page
-   * wrote on the point and leaves anything another page contributed alone,
-   * which is what makes confirming any page twice land the same content.
+   * The upload these blocks came from.
+   *
+   * A file name, not an identity. It holds while the same page arrives called
+   * the same thing, and stops holding the moment a page is photographed again
+   * and saved under another name: the writer looks new, so its blocks are added
+   * beside the old ones instead of replacing them. Real page identity is what
+   * the duplicate merge works out inside a batch, from the numbers read and the
+   * panels found, and that knowledge does not survive the upload.
+   *
+   * Which is why the stronger scope below exists, and why it is only ever
+   * reached by someone deciding it.
    */
   readonly sourcePage: string;
+  /**
+   * Empty the point before writing, rather than only this page's rows.
+   *
+   * For when the teacher was shown that the point already holds content and
+   * said to replace it. A person saying "replace this" may be trusted further
+   * than a file name may.
+   */
+  readonly replaceWholePoint: boolean;
 };
 
 /**
@@ -98,13 +114,14 @@ export async function confirmPoint(
     };
   }
 
-  // Only this page's rows go. Another page's contribution to the same point is
-  // not ours to remove.
-  const { error: clearError } = await supabase
-    .from("blocks")
-    .delete()
-    .eq("point_id", row.id)
-    .eq("source_page", point.sourcePage);
+  // Normally only this page's rows go: another page's contribution to the same
+  // point is not ours to remove. When the teacher asked to replace a point that
+  // was already filled, everything goes, because a file name cannot be trusted
+  // to recognise a page that was photographed twice.
+  const clearing = supabase.from("blocks").delete().eq("point_id", row.id);
+  const { error: clearError } = point.replaceWholePoint
+    ? await clearing
+    : await clearing.eq("source_page", point.sourcePage);
   if (clearError) {
     return { status: "error", message: clearError.message };
   }
