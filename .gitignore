@@ -61,7 +61,10 @@ __pycache__/
 # The whole directory is ignored rather than a subpath, so dropping another
 # book's pages in here cannot commit them by accident. Synthetic fixtures are
 # produced by a committed generator at test time, not stored as images.
-fixtures/
+#
+# Anchored to the root: unanchored, this matched any directory called fixtures
+# anywhere in the tree, which silently swallowed source files under one.
+/fixtures/
 
 # Claude Code local state
 .claude/settings.local.json
