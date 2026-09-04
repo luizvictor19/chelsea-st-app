@@ -5,6 +5,7 @@ import { explanationLines, inkLines } from "./explanation-lines.ts";
 import { boxLeft, crop, normalise, resize, shadedMask } from "./image.ts";
 import { findMarkers } from "./markers.ts";
 import { marginReadings, type MarginReading } from "./margin-numbers.ts";
+import { repairClosingQuotes } from "./quotes.ts";
 import {
   reconcilePoints,
   type PageReadings,
@@ -44,13 +45,18 @@ function textInBand(
   words: readonly { text: string; y: number; height: number }[],
   band: Band,
 ): string {
-  return words
-    .filter((word) => {
-      const middle = word.y + word.height / 2;
-      return middle >= band.top && middle <= band.bottom;
-    })
-    .map((word) => word.text)
-    .join(" ");
+  // Repaired line by line, because the rule reads a line's shape and a band is
+  // one line. Joining first would let one line's opening quote reach for a
+  // closing quote on the next.
+  return repairClosingQuotes(
+    words
+      .filter((word) => {
+        const middle = word.y + word.height / 2;
+        return middle >= band.top && middle <= band.bottom;
+      })
+      .map((word) => word.text)
+      .join(" "),
+  );
 }
 
 /**

@@ -114,6 +114,19 @@ for (const [index, file] of files.entries()) {
     needs_review_count: bands.filter((b) => b.bottom - b.top > TABLE_HEIGHT)
       .length,
     explanation_line_count: explanationLines(page).length,
+    // The prose, so a run can be compared against the CLI baseline. Until this
+    // existed the calibration compared boxes, tables, dictation detection and
+    // numbers, and never the running text, which is where every quotation mark
+    // in the book lives.
+    prose_lines: explanationLines(page).map((band) =>
+      words
+        .filter((w) => {
+          const middle = w.y + w.height / 2;
+          return middle >= band.top && middle <= band.bottom;
+        })
+        .map((w) => w.text)
+        .join(" "),
+    ),
     box_heights: bands.map((b) => b.bottom - b.top),
     box_left: left,
   };
