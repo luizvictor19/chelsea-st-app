@@ -21,8 +21,10 @@ import { marginReadings } from "../src/lib/extraction/margin-numbers.ts";
 import { findMarkers } from "../src/lib/extraction/markers.ts";
 import { createTesseractReader } from "../src/lib/extraction/ocr-tesseract.ts";
 import type { Bitmap } from "../src/lib/extraction/types.ts";
+import { fixturesOption } from "./books.ts";
 
-const FIXTURES = "fixtures/real";
+/** Which book's pages to read, and why that is never left implicit: books.ts. */
+const FIXTURES = fixturesOption();
 
 function decode(path: string): Bitmap {
   const png = PNG.sync.read(readFileSync(path));

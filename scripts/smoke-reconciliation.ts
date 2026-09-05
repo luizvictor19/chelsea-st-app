@@ -11,10 +11,13 @@
  *   npm run smoke:reconcile -- fixtures/calibration.json
  */
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   reconcilePoints,
   type PageReadings,
 } from "../src/lib/extraction/reconcile.ts";
+
+import { BOOK_2 } from "./books.ts";
 
 const calib = JSON.parse(readFileSync(process.argv[2], "utf8")) as {
   file: string;
@@ -25,7 +28,7 @@ const calib = JSON.parse(readFileSync(process.argv[2], "utf8")) as {
   chart_ref: number[];
 }[];
 const manifest = JSON.parse(
-  readFileSync("fixtures/real/manifest.json", "utf8"),
+  readFileSync(join(BOOK_2, "manifest.json"), "utf8"),
 ) as {
   pages_detail: { file: string; points: number[]; duplicate_of?: string }[];
 };
