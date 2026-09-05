@@ -852,7 +852,7 @@ function FinishedReview({ onDiscard }: { onDiscard: () => void }) {
 }
 
 const HEADER_ACTION =
-  "text-faint hover:text-foreground font-mono text-[11px] transition-colors";
+  "text-faint hover:text-foreground -my-1 rounded-sm p-1 transition-colors";
 
 function PageWork({
   page,
@@ -1173,16 +1173,16 @@ function BlockCard({
             ))}
           </select>
           <span aria-hidden className="bg-rule h-3 w-px" />
-          <button type="button" onClick={onAdd} className={HEADER_ACTION}>
-            + bloco
-          </button>
           <button
             type="button"
-            onClick={onRemove}
-            className="text-faint hover:text-accent font-mono text-[11px] transition-colors"
+            onClick={onAdd}
+            aria-label="Acrescentar bloco abaixo deste"
+            title="Acrescentar bloco abaixo deste"
+            className={HEADER_ACTION}
           >
-            excluir
+            <PlusIcon />
           </button>
+          <DeleteBlockButton onRemove={onRemove} />
         </div>
       </div>
 
@@ -1856,6 +1856,97 @@ function TitleToggle({
       }`}
     >
       título
+    </button>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 7h16" />
+      <path d="M10 4h4" />
+      <path d="M6 7v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  );
+}
+
+/**
+ * Deleting a block, which takes two clicks.
+ *
+ * The icon has no text beside it, so a misplaced click is easy and what it
+ * would destroy is the block someone just spent time correcting. The first
+ * click only arms the button and says so; clicking anywhere else disarms it.
+ */
+function DeleteBlockButton({ onRemove }: { onRemove: () => void }) {
+  const [armed, setArmed] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!armed) {
+      return;
+    }
+    function disarm(event: PointerEvent) {
+      if (!button.current?.contains(event.target as Node)) {
+        setArmed(false);
+      }
+    }
+    document.addEventListener("pointerdown", disarm);
+    return () => document.removeEventListener("pointerdown", disarm);
+  }, [armed]);
+
+  const label = armed ? "Confirmar exclusão" : "Excluir este bloco";
+  return (
+    <button
+      ref={button}
+      type="button"
+      onClick={() => {
+        if (armed) {
+          setArmed(false);
+          onRemove();
+          return;
+        }
+        setArmed(true);
+      }}
+      aria-label={label}
+      title={label}
+      className={`-my-1 rounded-sm p-1 transition-colors ${
+        armed
+          ? "border-accent text-accent bg-accent/10 border"
+          : "text-faint hover:text-accent"
+      }`}
+    >
+      <TrashIcon />
     </button>
   );
 }
