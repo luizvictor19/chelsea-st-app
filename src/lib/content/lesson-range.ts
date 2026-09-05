@@ -26,25 +26,30 @@ export type LessonRange = {
 };
 
 /**
- * The lesson a point falls in: the last one that opens at or before it.
+ * The lesson a point falls in: the last one that opens at or before it, when
+ * another recorded lesson opens after it.
  *
- * The next lesson's own first point is what ends this one, so no other bound is
- * needed. A point before every recorded lesson has no answer here.
+ * Both halves are needed and neither uses last_point. The lesson that opens
+ * before says which one it is; a lesson opening after is what says this one has
+ * ended, and without it nothing recorded tells where the point stops belonging.
+ * With only lesson 22 written, point 125 could be in it or in a lesson nobody
+ * has uploaded, so this says nothing and the screen asks — the same answer the
+ * orphan sweep has always given, and now the same rule.
  */
 export function lessonForPoint(
   point: number,
   lessons: readonly LessonRange[],
 ): LessonRange | null {
   let found: LessonRange | null = null;
+  let closed = false;
   for (const lesson of lessons) {
-    if (
-      lesson.firstPoint <= point &&
-      (found === null || lesson.firstPoint > found.firstPoint)
-    ) {
+    if (lesson.firstPoint > point) {
+      closed = true;
+    } else if (found === null || lesson.firstPoint > found.firstPoint) {
       found = lesson;
     }
   }
-  return found;
+  return closed ? found : null;
 }
 
 /**
@@ -81,28 +86,18 @@ export type OrphanAttachment = {
  * yet, and a lesson appears the first time one of its own pages is written. So
  * points arrive before their lesson does, and this is what goes back for them.
  *
- * Stricter than `lessonForPoint`, deliberately. That one answers for a point
- * the teacher is looking at, on a screen that shows the answer before anything
- * is written. This one runs over rows nobody is looking at, so it only claims a
- * point that sits between two lessons that are both recorded. A point above the
- * last lesson that opens has no lesson above it to say where it stops, and it
- * stays an orphan until one arrives — an orphan is repairable, and a point
- * attached to the wrong lesson never is.
+ * The rule above and nothing more. A point above the last lesson recorded has
+ * nothing to say where it stops belonging, so it stays an orphan until a lesson
+ * arrives above it — an orphan is repairable, and a point attached to the wrong
+ * lesson never is.
  */
 export function orphansToAttach(
   lessons: readonly LessonRange[],
   orphans: readonly number[],
 ): readonly OrphanAttachment[] {
-  const highestStart = lessons.reduce(
-    (highest, lesson) => Math.max(highest, lesson.firstPoint),
-    Number.NEGATIVE_INFINITY,
-  );
   return [...orphans]
     .sort((a, b) => a - b)
     .flatMap((point) => {
-      if (point >= highestStart) {
-        return [];
-      }
       const lesson = lessonForPoint(point, lessons);
       return lesson === null ? [] : [{ point, lessonId: lesson.id }];
     });
@@ -118,10 +113,15 @@ export type LessonGroup<T> = {
 /**
  * The points of a book cut into the lessons they fall in.
  *
- * By the same rule the ingestion uses, so the screen shows what the database
- * would answer: a point belongs to the last lesson that opens at or before it.
- * Which is the point of drawing it — a first_point one square off, or a lesson
- * nobody recorded, is a boundary in the wrong place instead of a silence.
+ * By the rule the ingestion uses, so the screen shows what the database would
+ * answer — a first_point one square off, or a lesson nobody recorded, becomes a
+ * boundary in the wrong place instead of a silence.
+ *
+ * With one addition that only a drawing may make: the last lesson recorded has
+ * nothing above it to close it, so its own points would all read as belonging
+ * to nobody. The points it has actually been written to, up to its last_point,
+ * are shown under it. Drawing where a point already is costs nothing; deciding
+ * where to write one on the same reasoning is what the rule above refuses.
  */
 export function groupByLesson<T extends { readonly number: number }>(
   points: readonly T[],
@@ -130,8 +130,15 @@ export function groupByLesson<T extends { readonly number: number }>(
   const groups: LessonGroup<T>[] = [];
   let current: { lesson: number | null; points: T[] } | null = null;
 
+  const reached = (point: number): LessonRange | null =>
+    lessons.find(
+      (lesson) => lesson.firstPoint <= point && point <= lesson.lastPoint,
+    ) ?? null;
+
   for (const point of [...points].sort((a, b) => a.number - b.number)) {
-    const lesson = lessonForPoint(point.number, lessons)?.number ?? null;
+    const lesson =
+      (lessonForPoint(point.number, lessons) ?? reached(point.number))
+        ?.number ?? null;
     if (current === null || current.lesson !== lesson) {
       current = { lesson, points: [] };
       groups.push(current);

@@ -95,9 +95,14 @@ const lessonOf = (
   id: string,
 ) => batch.find((page) => page.extraction.id === id)?.lessonNumber ?? null;
 
-/** Lesson 22 as the database holds it after only its header page was written. */
+/**
+ * The book as the database holds it once lesson 22 and the one after it have
+ * been written. Both are needed to answer for a point inside 22: the lesson
+ * that opens above is what says where 22 stops.
+ */
 const STORED: readonly LessonRange[] = [
   { id: "lesson-22", number: 22, firstPoint: 114, lastPoint: 114 },
+  { id: "lesson-23", number: 23, firstPoint: 119, lastPoint: 121 },
 ];
 
 describe("a page's lesson must not depend on what else was in the upload", () => {
@@ -144,7 +149,15 @@ describe("lessonForPoint", () => {
     assert.equal(lessonForPoint(109, lessons)?.number, 21);
     assert.equal(lessonForPoint(113, lessons)?.number, 21);
     assert.equal(lessonForPoint(114, lessons)?.number, 22);
-    assert.equal(lessonForPoint(119, lessons)?.number, 23);
+  });
+
+  test("a point above the last lesson recorded is nobody's to answer for", () => {
+    // Nothing says where lesson 23 stops, so 125 may be in it or in a lesson
+    // that has not been uploaded. The screen asks instead of guessing, which is
+    // the rule the orphan sweep already used.
+    assert.equal(lessonForPoint(125, lessons), null);
+    assert.equal(lessonForPoint(119, lessons), null);
+    assert.equal(lessonForPage(null, 125, lessons), null);
   });
 
   test("a point past the recorded end still belongs to that lesson", () => {
@@ -153,7 +166,6 @@ describe("lessonForPoint", () => {
     // what has been uploaded, not about the book.
     assert.equal(lessonForPoint(115, lessons)?.number, 22);
     assert.equal(lessonForPoint(118, lessons)?.number, 22);
-    assert.equal(lessonForPoint(128, lessons)?.number, 23);
   });
 
   test("a point before every lesson is unknown, and is asked about", () => {
@@ -175,6 +187,13 @@ describe("lessonForPage", () => {
   test("with neither, nobody knows and the screen has to ask", () => {
     assert.equal(lessonForPage(null, 116, []), null);
     assert.equal(lessonForPage(null, null, STORED), null);
+  });
+
+  test("nor when nothing recorded says where the lesson stops", () => {
+    // Lesson 23 not written yet: 116 may be in 22 or in a lesson between them
+    // that nobody has uploaded. Uploading the whole book at once never reaches
+    // here — every header is in the batch and the first step answers.
+    assert.equal(lessonForPage(null, 116, STORED.slice(0, 1)), null);
   });
 });
 
