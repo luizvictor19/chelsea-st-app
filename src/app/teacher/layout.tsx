@@ -16,7 +16,7 @@ export default async function TeacherLayout({
   return (
     <div className="flex min-h-dvh flex-col">
       <TeacherNav initial={initial} />
-      <main className="mx-auto flex w-full max-w-[1160px] flex-1 flex-col gap-7 px-5 py-10 sm:px-7">
+      <main className="mx-auto flex w-full max-w-[1760px] flex-1 flex-col gap-7 px-5 py-10 sm:px-8">
         {children}
       </main>
     </div>

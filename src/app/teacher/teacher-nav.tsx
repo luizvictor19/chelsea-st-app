@@ -38,7 +38,7 @@ export function TeacherNav({ initial }: { readonly initial: string }) {
 
   return (
     <header className="border-rule bg-background sticky top-0 z-10 border-b">
-      <div className="mx-auto flex h-14 w-full max-w-[1160px] items-center justify-between gap-6 px-5 sm:px-7">
+      <div className="mx-auto flex h-14 w-full max-w-[1760px] items-center justify-between gap-6 px-5 sm:px-8">
         <div className="flex min-w-0 items-center gap-4 sm:gap-8">
           <Link
             href="/teacher"

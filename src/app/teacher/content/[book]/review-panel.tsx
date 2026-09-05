@@ -1155,7 +1155,7 @@ function PageWork({
 
         {draft.alreadyInDatabase && !draft.saved && (
           <p
-            className="border-accent text-muted rounded-sm border px-4 py-3 text-sm leading-relaxed"
+            className="border-accent text-muted max-w-[80ch] rounded-sm border px-4 py-3 text-sm leading-relaxed"
             role="note"
           >
             <span className="text-accent font-mono text-[10px] tracking-[0.14em] uppercase">
@@ -1168,7 +1168,7 @@ function PageWork({
 
         {changedSinceSaving(draft) && (
           <p
-            className="border-rule text-muted rounded-sm border border-dashed px-4 py-3 text-sm leading-relaxed"
+            className="border-rule text-muted max-w-[80ch] rounded-sm border border-dashed px-4 py-3 text-sm leading-relaxed"
             role="note"
           >
             Esta página já foi gravada e mudou depois disso. O que está na tela
@@ -1187,7 +1187,7 @@ function PageWork({
             (block) => block.needsReview && block.crop === null,
           ) &&
           !page.hasImage && (
-            <p className="border-rule text-muted rounded-sm border border-dashed px-4 py-3 text-sm leading-relaxed">
+            <p className="border-rule text-muted max-w-[80ch] rounded-sm border border-dashed px-4 py-3 text-sm leading-relaxed">
               A leitura foi retomada sem as imagens. A altura de cada bloco
               ficou salva, então uma página de dois pontos continua dividida
               como estava; o que não volta é o recorte ao lado de um bloco
@@ -1457,7 +1457,7 @@ function BlockCard({
       ) : (
         <>
           {flagged && (
-            <p className="border-rule text-faint border-b px-3.5 py-2 text-xs leading-relaxed">
+            <p className="border-rule text-faint max-w-[80ch] border-b px-3.5 py-2 text-xs leading-relaxed">
               {hasImage
                 ? "Este bloco foi acrescentado à mão, então não tem recorte."
                 : "Sem recorte: as imagens não ficam salvas neste computador. Para conferir contra o livro, suba a página de novo."}
@@ -1486,7 +1486,7 @@ function BlockBody({
           terms={splitTerms(block.content)}
           onChange={(terms) => onChange({ content: joinTerms(terms) })}
         />
-        <span className="text-faint text-xs leading-relaxed">
+        <span className="text-faint max-w-[70ch] text-xs leading-relaxed">
           Cada termo é uma coluna do livro. Clique em um para corrigi-lo.
         </span>
       </div>
@@ -1502,13 +1502,18 @@ function BlockBody({
     );
   }
 
+  /*
+   * The card is as wide as the screen now, and running text is not: a line of
+   * two hundred characters is a line nobody reads twice. The field keeps a
+   * reading measure of its own and the card keeps the width.
+   */
   return (
     <textarea
       aria-label="Conteúdo do bloco"
       value={block.content}
       rows={rows}
       onChange={(event) => onChange({ content: event.target.value })}
-      className="bg-background w-full resize-y p-3.5 font-mono text-xs leading-[1.85] outline-none"
+      className="bg-background w-full max-w-[86ch] resize-y p-3.5 font-mono text-xs leading-[1.85] outline-none"
     />
   );
 }
@@ -2102,7 +2107,7 @@ function TableGrid({
           ? field(true)
           : newRow(0, 0))}
 
-      <span className="text-faint text-xs leading-relaxed">
+      <span className="text-faint max-w-[70ch] text-xs leading-relaxed">
         Cada célula é uma coluna do livro. Clique em uma para corrigi-la; com o
         cursor onde a próxima coluna começa, Enter parte a célula em duas.
       </span>
