@@ -291,6 +291,28 @@ Com isso morre o filtro de palavra de uma letra: o `a` do ponto 117 é termo por
 ocupar coluna própria, não por tamanho, e `the fewest` deixa de virar `the` e
 `fewest` soltos em `vocabulary_items`.
 
+### Cabeçalho LESSON, medido e mantido como está
+
+O cabeçalho `LESSON N` vale para a imagem inteira, e uma página carrega até dois pontos. Se ele
+estivesse impresso abaixo do primeiro número da própria página, esse ponto pertenceria à lição
+anterior e o `first_point` gravado ficaria um ponto baixo demais — o que importa porque `first_point`
+é a chave contra a qual todo outro ponto é resolvido.
+
+Medido com `scripts/measure-lesson-headers.ts` nas 15 páginas das 61 fixtures que carregam
+cabeçalho: **em nenhuma delas um número da própria página está acima do cabeçalho**. O cabeçalho fica
+entre `y` 68 e 78, o primeiro número da página entre 228 e 269, e a menor folga entre os dois é de
+**91px**; o segundo número, quando existe, fica entre 966 e 1464.
+
+Duas consequências. A regra atual está certa: os dois pontos de uma página de cabeçalho pertencem
+mesmo à lição que ela abre. E não há o que separar pela horizontal: cada imagem é **uma página**
+retrato (519×778, normalizada para 1100 de largura), com os dois números empilhados na vertical, e
+não uma folha dupla com uma página em cada metade. Uma foto de folha dupla não passaria pelo
+extrator de qualquer forma, que lê a coluna de margem à esquerda de uma página só.
+
+Fica anotado que a medição vale para o livro 2. Um livro em que uma lição comece no meio da página
+mudaria a resposta, e aí o corte seria pela vertical — cabeçalho contra o `y` de cada número — e não
+pela horizontal.
+
 ### Modo de segmentação na leitura das caixas
 
 **Implementado:** `psm 6` nas caixas normais, modo automático nas altas. O corte é o `needs_review` que já existe, não um
