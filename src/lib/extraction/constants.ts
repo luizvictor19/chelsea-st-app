@@ -135,6 +135,49 @@ export const MARGIN_MAX_DIGITS = 4;
 export const MARGIN_GROUP_Y_TOLERANCE = 30;
 
 /**
+ * How many of the margin crops must have seen a number for it to stand alone.
+ *
+ * The three crops are read independently, and a number two of them found is not
+ * one engine's slip. This was a literal `2` inside the reconciler for a long
+ * time, with margin-numbers.ts saying beside it that the count was "a
+ * diagnostic, not yet a decision: no rule uses it until there is a measurement
+ * saying it separates signal from noise". Both could not be true. This is the
+ * measurement, made with scripts/measure-agreement-gate.ts against the
+ * hand-read truth of both books.
+ *
+ * It separates them, and the digit count does not change that: the gate refuses
+ * 3 of 51 true numbers in book 1, whose points run 1 to 52 and are mostly one
+ * digit, and 4 of 78 in book 2, whose points run 53 to 128. It admits none of
+ * the one noise reading in book 1's range and one of the three in book 2's.
+ *
+ * What the measurement did change is what happens to the refusals. In book 2
+ * they fall on four different pages, three of which carry another number that
+ * was corroborated, so the page settles anyway. In book 1 all three fall on one
+ * page — the first, the only one carrying three points — and that page had
+ * nothing left to bootstrap from. Hence MARGIN_CHAIN_MINIMUM below.
+ */
+export const MARGIN_AGREEMENT = 2;
+
+/**
+ * How many numbers a page must carry for its own printed order to corroborate
+ * them.
+ *
+ * The numbers run down the margin in increasing order: that is how the book is
+ * printed, not a guess about it. A page whose every position holds exactly one
+ * candidate, and whose candidates increase in the order they are printed, has
+ * said something about itself that no single reading could.
+ *
+ * Two, not one. A page carrying one number has no order to corroborate
+ * anything, and a lone reading no crop confirmed is exactly the shape noise
+ * takes: 29 of the 31 noise readings measured in book 2 were seen once. At two
+ * this fires on one page in the 31 of book 1 and none of the 61 of book 2, and
+ * admits no noise in either — every noise reading inside a book's own range
+ * either shares a position with a real number or holds two candidates, and
+ * neither is a chain.
+ */
+export const MARGIN_CHAIN_MINIMUM = 2;
+
+/**
  * How far below a block's top the number that names it may be printed.
  *
  * The margin number is not printed above the panel it labels. It sits beside

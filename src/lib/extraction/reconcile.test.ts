@@ -517,3 +517,97 @@ describe("the point a page opens in", () => {
     assert.equal(second?.openingPoint, 53);
   });
 });
+
+describe("what corroborates a reading", () => {
+  test("the printed order corroborates a page nobody read twice", () => {
+    // The first page of book 1: three numbers down the margin, each seen by one
+    // crop only. Nothing else in the batch anchors them — the book starts at 1,
+    // so no floor bounds the first, and no number is placed to bound the last.
+    // What is left is the page itself: three positions, one candidate each,
+    // increasing in the order they are printed, which is how the book is set.
+    const result = reconcilePoints(
+      [
+        page("lesson-1", 0, [
+          [1, 256, ONCE],
+          [2, 494, ONCE],
+          [3, 1208, ONCE],
+        ]),
+      ],
+      { first: 1, last: 52 },
+    );
+    assert.deepEqual(pointsById(result), { "lesson-1": [1, 2, 3] });
+    assert.deepEqual(disputesOf(result, "lesson-1"), []);
+  });
+
+  test("one number on its own is not an order, and still asks", () => {
+    // A single reading no crop confirmed is the shape noise takes. A page with
+    // one position has no printed order to corroborate anything, so nothing
+    // changes for it: it goes to the teacher exactly as before.
+    const result = reconcilePoints([page("p074", 0, [[74, 538, ONCE]])], {
+      first: 53,
+      last: 128,
+    });
+    assert.deepEqual(pointsById(result), { p074: [] });
+    assert.deepEqual(disputesOf(result, "p074"), [[74]]);
+  });
+
+  test("a position still holding two readings is not a chain", () => {
+    // nopoint-1 of book 2 carries no number at all, and the crops returned 58
+    // and 59 a pixel apart. That is one position with two candidates, not two
+    // positions increasing, and the order says nothing about it.
+    const result = reconcilePoints(
+      [
+        page("nopoint-1", 0, [
+          [58, 1102, ONCE],
+          [59, 1103, ONCE],
+        ]),
+      ],
+      { first: 53, last: 128 },
+    );
+    assert.deepEqual(pointsById(result), { "nopoint-1": [] });
+    assert.deepEqual(disputesOf(result, "nopoint-1"), [[58, 59]]);
+  });
+
+  test("a run of three leaves no room for another page to hold the middle", () => {
+    // The page reads 70, 71, 72, each seen once, which is a chain. Another page
+    // reads 71 alone, and three crops saw it. Both cannot be right, and the
+    // printed order settles it against the confident reading: numbers run
+    // consecutively down a page, so a page carrying 70 and 72 carries the 71
+    // between them, and there is no page left for the other one to be.
+    //
+    // Worth pinning because it is the one place this rule outranks agreement.
+    // It does not outrank it by preference — the chain places 70 and 72, which
+    // nothing contests, and the interval rule then finds no room for a 71
+    // anywhere else.
+    const result = reconcilePoints(
+      [
+        page("chain", 0, [
+          [70, 200, ONCE],
+          [71, 600, ONCE],
+          [72, 1000, ONCE],
+        ]),
+        page("rival", 1, [[71, 300, CONFIDENT]]),
+      ],
+      { first: 53, last: 128 },
+    );
+    assert.deepEqual(pointsById(result), { chain: [70, 71, 72], rival: [] });
+  });
+
+  test("readings that fall down the page are not a printed order", () => {
+    // 70 above 60 is not how the book is set. No increasing run exists, so the
+    // monotonicity pass has nothing to delete and both survive as they are —
+    // two positions, one candidate each, going the wrong way. The order says
+    // this page was misread, not that these are its numbers.
+    const result = reconcilePoints(
+      [
+        page("falling", 0, [
+          [70, 200, ONCE],
+          [60, 900, ONCE],
+        ]),
+      ],
+      { first: 53, last: 128 },
+    );
+    assert.deepEqual(pointsById(result), { falling: [] });
+    assert.deepEqual(disputesOf(result, "falling"), [[70], [60]]);
+  });
+});

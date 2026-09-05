@@ -1,4 +1,8 @@
-import { MARGIN_GROUP_Y_TOLERANCE } from "./constants.ts";
+import {
+  MARGIN_AGREEMENT,
+  MARGIN_CHAIN_MINIMUM,
+  MARGIN_GROUP_Y_TOLERANCE,
+} from "./constants.ts";
 import type { MarginReading } from "./margin-numbers.ts";
 
 export type PageReadings = {
@@ -99,7 +103,11 @@ type Group = {
  * 4. Only then, if a position is still undecided, the crop that saw a number
  *    more often wins. Never as a filter: requiring agreement would discard real
  *    numbers that only one crop found.
-
+ *
+ * None of them place a number that nothing corroborates. Corroboration is one
+ * of four things: two crops agreeing, the page's own printed order, an interval
+ * with a placed number on each side, or a number already settled on the same
+ * page. See mayAssign.
  *
  * Whatever is still undecided is a question for the teacher. A program that
  * cannot know should ask rather than guess.
@@ -288,18 +296,52 @@ export function reconcilePoints(
    * take part in a longest increasing run down the page is gone, so what
    * survives to be counted here is a page that reads cleanly top to bottom.
    */
+  const readsInPrintedOrder = (clusters: readonly Group[]): boolean => {
+    if (clusters.length < MARGIN_CHAIN_MINIMUM) {
+      return false;
+    }
+    if (clusters.some((group) => group.candidates.size !== 1)) {
+      return false;
+    }
+    const byHeight = [...clusters].sort((a, b) => a.y - b.y);
+    return byHeight.every(
+      (group, at) =>
+        at === 0 ||
+        [...group.candidates][0] > [...byHeight[at - 1].candidates][0],
+    );
+  };
+  let corroboratedByOrder: boolean[] = groupsByPage.map(() => false);
+
   /**
    * Whether a position may be settled at all.
    *
    * Being the only candidate left is not enough on its own: a single reading
    * that one crop saw once, on a page with nothing else to corroborate it, is
-   * exactly the shape of noise. It has to earn the assignment one of three
+   * exactly the shape of noise. It has to earn the assignment one of four
    * ways, and if it earns none it goes to the teacher with its candidates
    * listed. The failure mode is one more question, never a wrong answer.
    */
   const mayAssign = (group: Group, value: number): boolean => {
     // (a) More than one crop read it, so it is not one engine's slip.
-    if ((group.agreement.get(value) ?? 0) >= 2) {
+    if ((group.agreement.get(value) ?? 0) >= MARGIN_AGREEMENT) {
+      return true;
+    }
+
+    // (a2) Or the page's own printed order corroborates it, which is evidence
+    // no single reading can carry: several positions, one number each, rising
+    // down the margin. It is what settles the first page of book 1, whose three
+    // numbers were each seen by one crop and which had no anchor anywhere.
+    //
+    // Both readings have to hold: as the crops returned it, and still now. The
+    // first is what the rule is about, and only ever narrows — a page that
+    // arrived with a position holding two candidates never earns it. The second
+    // is what stops a chain being spent after it has been broken: a value taken
+    // by another page is deleted here too, and the position it leaves empty
+    // means the page no longer reads as the run this rule saw.
+    if (
+      corroboratedByOrder[group.pageIndex] &&
+      readsInPrintedOrder(groupsByPage[group.pageIndex])
+    ) {
       return true;
     }
 
@@ -615,6 +657,7 @@ export function reconcilePoints(
   // inference. Only then across pages, where everything depends on what has
   // already been placed.
   narrowByPageMonotonicity();
+  corroboratedByOrder = groupsByPage.map(readsInPrintedOrder);
 
   let progressed = true;
   while (progressed) {
