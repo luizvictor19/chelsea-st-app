@@ -1504,18 +1504,52 @@ function BlockBody({
     );
   }
 
-  /*
-   * The card is as wide as the screen now, and running text is not: a line of
-   * two hundred characters is a line nobody reads twice. The field keeps a
-   * reading measure of its own and the card keeps the width.
-   */
   return (
-    <textarea
-      aria-label="Conteúdo do bloco"
+    <BlockText
       value={block.content}
       rows={rows}
-      onChange={(event) => onChange({ content: event.target.value })}
-      className="bg-background w-full max-w-[86ch] resize-y p-3.5 font-mono text-xs leading-[1.85] outline-none"
+      onChange={(content) => onChange({ content })}
+    />
+  );
+}
+
+/**
+ * The content of a block that is not a table, as tall as what it holds.
+ *
+ * A field that scrolls inside itself hides the rest of the text at the one
+ * moment it has to be read whole: the teacher is comparing it against the page
+ * of the book, and an explanation of eight lines shown four at a time is read
+ * twice and checked once. `rows` stays as the smallest it may be.
+ */
+function BlockText({
+  value,
+  rows,
+  onChange,
+}: {
+  value: string;
+  rows: number;
+  onChange: (value: string) => void;
+}) {
+  const field = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const node = field.current;
+    if (node === null) {
+      return;
+    }
+    // Back to the height `rows` asks for first, or the box only ever grows.
+    node.style.height = "auto";
+    node.style.height = `${node.scrollHeight}px`;
+  }, [value]);
+
+  return (
+    <textarea
+      ref={field}
+      aria-label="Conteúdo do bloco"
+      value={value}
+      rows={rows}
+      onChange={(event) => onChange(event.target.value)}
+      className="bg-background w-full resize-none overflow-hidden p-3.5 font-mono text-xs leading-[1.85] outline-none"
     />
   );
 }
