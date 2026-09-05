@@ -126,6 +126,40 @@ subirem a imagem.
 RLS e grants na mesma migration, no padrão das outras. Só professor lê e escreve conteúdo. Aluna
 alcança `questions` publicadas e mais nada.
 
+### Formato de `blocks.content` numa tabela
+
+`blocks.content` é texto puro. Num bloco `grammar_table` ele carrega uma convenção que hoje só
+existe no editor, e o mesmo campo vai ser lido pela tela compartilhada da aula e pelo desafio do
+dia. A regra fica escrita aqui antes de existir um segundo leitor.
+
+- `|` separa coluna, linha em branco separa sub-bloco.
+- Linha sem nenhum `|` é o título do sub-bloco que vem depois dela.
+- Linha de uma célula só grava com `|` no fim. É esse `|` final que a distingue de um título, que
+  não tem nenhum.
+- Bloco sem nenhum `|` no conteúdo inteiro é tabela achatada: a extração não conseguiu separar as
+  colunas e ninguém separou à mão ainda. Cada linha dele é uma linha de uma célula, nenhuma é
+  título.
+
+```
+Present continuous (negative)
+I | am not speaking
+you | are not speaking
+he, she, it | is not speaking
+ver também o chart 3 |
+```
+
+Quatro linhas de tabela, a primeira delas título, a última de uma célula só. E uma tabela achatada,
+que é a forma que chega marcada com `needs_review`:
+
+```
+many more than the most
+few fewer than the fewest
+```
+
+**Consequência para quem consome:** ao dar split em `|`, descarte uma última célula vazia, que é o
+marcador da linha de uma célula e não uma coluna. Duas células vazias seguidas no fim nunca são
+geradas, então descartar uma basta. Célula vazia no meio é buraco de verdade na linha e se mantém.
+
 ## Telas
 
 **`/teacher/content`**: os 12 livros, cada um com barra de pontos preenchidos contra `last_point`, e
@@ -234,9 +268,9 @@ três (`many | more ... than | the most`).
 O separador é `|` porque `/` é a pausa de leitura do ditado e colidiria, `;`
 aparece dentro de texto normal, e tabulação é invisível num campo de texto.
 
-A tela mostra o exemplo como placeholder e o **resultado ao lado do campo**,
-porque a convenção se aprende melhor pelo que ela produz do que pela regra: uma
-barra no lugar errado é óbvia no preview e invisível no texto.
+A tela não pede essa sintaxe ao professor: o bloco é editado como **grade de
+células**, e a convenção acima é só a forma gravada. Ver "Formato de
+`blocks.content` numa tabela", junto do schema.
 
 ### Separação de termos do vocabulário, resolvida
 

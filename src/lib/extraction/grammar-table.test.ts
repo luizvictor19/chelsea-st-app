@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  COLUMN_SEPARATOR,
   columnCount,
   parseTable,
   serializeTable,
@@ -209,5 +210,82 @@ describe("columnCount", () => {
   test("a heading is not a row and does not count", () => {
     assert.equal(columnCount(parseTable(CONJUGATION)[0]), 2);
     assert.equal(columnCount([{ kind: "title", text: "só título" }]), 0);
+  });
+});
+
+describe("the contract a second reader depends on", () => {
+  /*
+   * The shared lesson screen and the daily challenge will read blocks.content
+   * without importing this module: they will split a line on "|" and drop the
+   * trailing empty cell that marks a row of one. So these read the stored text
+   * the way they will, and check the editor's own output against it.
+   */
+  function cellsOf(line: string): readonly string[] {
+    const cells = line.split(COLUMN_SEPARATOR).map((cell) => cell.trim());
+    if (cells.length > 1 && cells[cells.length - 1] === "") {
+      cells.pop();
+    }
+    return cells;
+  }
+
+  /** How many cells each line has, zero being a heading. */
+  function read(content: string): readonly number[] {
+    // Whether the block has a separator anywhere is what decides a line that
+    // has none: heading here, full-width row in a flattened block.
+    const columned = content.includes(COLUMN_SEPARATOR);
+    return content
+      .split("\n")
+      .filter((line) => line.trim() !== "")
+      .map((line) =>
+        columned && !line.includes(COLUMN_SEPARATOR) ? 0 : cellsOf(line).length,
+      );
+  }
+
+  const stored: readonly [string, readonly number[]][] = [
+    // A heading has no separator at all, which is what makes it a heading.
+    [CONJUGATION, [0, 2, 2]],
+    // Flattened: no separator anywhere, so every line is one cell.
+    [FLATTENED, [1, 1]],
+    ["many | more ... than | the most", [3]],
+    ["its |  | mine", [3]],
+  ];
+
+  for (const [content, widths] of stored) {
+    test(`each line reads back with the columns it was written with: ${content.split("\n")[0]}`, () => {
+      assert.deepEqual(read(serializeTable(parseTable(content))), widths);
+    });
+  }
+
+  test("a row of one cell is one cell once the marker is dropped", () => {
+    const content = serializeTable([
+      [
+        { kind: "title", text: "Present continuous (negative)" },
+        { kind: "row", cells: ["I", "am not speaking"] },
+        { kind: "row", cells: ["ver também o chart 3"] },
+      ],
+    ]);
+    const last = content.split("\n")[2];
+    assert.deepEqual(cellsOf(last), ["ver também o chart 3"]);
+  });
+
+  test("no line ever ends in two empty cells, so dropping one is enough", () => {
+    for (const [content] of stored) {
+      for (const line of serializeTable(parseTable(content)).split("\n")) {
+        const cells = line.split(COLUMN_SEPARATOR).map((cell) => cell.trim());
+        const ends = cells.slice(-2);
+        assert.notDeepEqual(ends, ["", ""], line);
+      }
+    }
+  });
+
+  test("an empty cell in the middle survives, being a hole and not a marker", () => {
+    const line = serializeTable(parseTable("its |  | mine"));
+    assert.deepEqual(cellsOf(line), ["its", "", "mine"]);
+  });
+
+  test("a flattened block carries no separator for a reader to split on", () => {
+    assert.ok(
+      !serializeTable(parseTable(FLATTENED)).includes(COLUMN_SEPARATOR),
+    );
   });
 });
