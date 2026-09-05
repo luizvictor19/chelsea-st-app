@@ -1962,18 +1962,29 @@ function TableGrid({
     );
   }
 
+  /*
+   * The two controls that grow the grid, kept quieter than the content.
+   *
+   * Bordered and the same size as a cell, they read as a cell each: one more
+   * column than the table has, and one more row. They sit against the edge they
+   * add to and come up when the block is under the cursor.
+   */
+  const ADD_CONTROL =
+    "text-faint hover:text-foreground font-mono text-[11px] opacity-0 transition-opacity group-hover/grid:opacity-100 focus-visible:opacity-100";
+
   const newRow = (section: number, at: number) => (
     <button
       type="button"
       onClick={() => open({ section, line: at, cell: 0 }, "")}
-      className="border-rule text-faint hover:border-foreground hover:text-foreground w-fit rounded-sm border border-dashed px-2.5 py-1 font-mono text-xs transition-colors"
+      title="Acrescentar uma linha ao fim deste sub-bloco"
+      className={`w-fit ${ADD_CONTROL}`}
     >
       + linha
     </button>
   );
 
   return (
-    <div className="flex flex-col gap-3 p-3.5">
+    <div className="group/grid flex flex-col gap-3 p-3.5">
       {table.map((section, sectionIndex) => {
         const columns = widthOf(
           section,
@@ -1985,8 +1996,8 @@ function TableGrid({
           cell: 0,
         });
         return (
-          <div key={sectionIndex} className="flex flex-col items-start gap-1.5">
-            <div className="flex w-full items-start gap-1.5">
+          <div key={sectionIndex} className="flex flex-col items-start gap-0.5">
+            <div className="flex w-full items-start gap-2">
               <div
                 className="grid min-w-0 flex-1 items-center gap-1.5"
                 style={{
@@ -2075,7 +2086,8 @@ function TableGrid({
                 onClick={() =>
                   setWidened({ section: sectionIndex, columns: columns + 1 })
                 }
-                className="border-rule text-faint hover:border-foreground hover:text-foreground rounded-sm border border-dashed px-2.5 py-1 font-mono text-xs transition-colors"
+                title="Acrescentar uma coluna a este sub-bloco"
+                className={`self-center ${ADD_CONTROL}`}
               >
                 + coluna
               </button>
