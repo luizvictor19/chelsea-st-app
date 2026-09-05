@@ -1,0 +1,126 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; background: #0f1115; color: #ecedea;
+      font-family: Archivo, "Helvetica Neue", Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #ff5a5f; text-decoration: none; }
+    a:hover { color: #ecedea; }
+    .mono { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; }
+    .pt { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 11px;
+      padding: 4px 6px; border-radius: 3px; border: 1px solid #2a2f37; color: #767e8b; }
+    .pt.on { background: #ecedea; color: #0f1115; border-color: #ecedea; }
+    .pt.gap { border-color: #ff5a5f; color: #ff5a5f; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; min-height: 980px; display: flex; flex-direction: column; background: #0f1115;">
+
+  <div style="display: flex; align-items: center; justify-content: space-between; gap: 32px; height: 56px; padding: 0 28px; border-bottom: 1px solid #2a2f37;">
+    <div style="display: flex; align-items: center; gap: 32px;">
+      <span style="font-weight: 800; letter-spacing: -0.02em; font-size: 15px;">Chelsea&nbsp;St</span>
+      <div style="display: flex; align-items: center; gap: 4px;">
+        <span style="padding: 6px 12px; border-radius: 4px; font-size: 14px; font-weight: 600; background: #161a20;">Conteúdo</span>
+        <span style="padding: 6px 12px; border-radius: 4px; font-size: 14px; color: #a2a9b4;">Imagens</span>
+        <span style="padding: 6px 12px; border-radius: 4px; font-size: 14px; color: #a2a9b4;">Aulas</span>
+        <span style="padding: 6px 12px; border-radius: 4px; font-size: 14px; color: #a2a9b4;">Alunos</span>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 14px;">
+      <span class="mono" style="font-size: 11px; color: #767e8b;">professor</span>
+      <div style="width: 26px; height: 26px; border-radius: 50%; background: #2a2f37; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #a2a9b4;">L</div>
+    </div>
+  </div>
+
+  <div style="padding: 32px 28px 48px; display: flex; flex-direction: column; gap: 24px; max-width: 1160px; width: 100%; margin: 0 auto; box-sizing: border-box;">
+
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <span class="mono" style="font-size: 11px; color: #767e8b;">← Conteúdo</span>
+      <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 40px;">
+        <span style="font-size: 30px; font-weight: 800; letter-spacing: -0.03em;">Book 2</span>
+        <div style="display: flex; flex-direction: column; gap: 6px; width: 340px;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px;">
+            <span style="font-size: 13px; color: #a2a9b4;">Pontos preenchidos</span>
+            <span class="mono" style="font-size: 11px; color: #767e8b;">3 de 76 · 4% · faltam 73</span>
+          </div>
+          <div style="height: 4px; border-radius: 4px; background: #2a2f37; overflow: hidden;">
+            <div style="width: 4%; height: 100%; background: #ff5a5f;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- two columns: setup on the left, points on the right -->
+    <div style="display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: start;">
+
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+
+        <div style="border: 1px solid #2a2f37; background: #161a20; border-radius: 4px; padding: 20px; display: flex; flex-direction: column; gap: 14px;">
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <span style="font-weight: 700; letter-spacing: -0.01em;">Faixa do livro</span>
+            <span style="font-size: 13px; color: #a2a9b4; line-height: 1.6;">Os dois números vêm do próprio livro, lidos na primeira e na última página. Juntos são o piso e o teto que validam a leitura da margem.</span>
+          </div>
+          <div style="display: flex; align-items: flex-end; gap: 10px;">
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+              <span class="mono" style="font-size: 10px; color: #767e8b;">primeiro</span>
+              <div class="mono" style="width: 92px; padding: 9px 12px; border: 1px solid #2a2f37; border-radius: 4px; background: #0f1115; font-size: 14px;">53</div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+              <span class="mono" style="font-size: 10px; color: #767e8b;">último</span>
+              <div class="mono" style="width: 92px; padding: 9px 12px; border: 1px solid #2a2f37; border-radius: 4px; background: #0f1115; font-size: 14px;">128</div>
+            </div>
+            <span style="padding: 10px 18px; border: 1px solid #2a2f37; border-radius: 4px; font-size: 13px; font-weight: 600;">Salvar</span>
+          </div>
+        </div>
+
+        <div style="border: 1px dashed #2a2f37; border-radius: 4px; padding: 28px 20px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#767e8b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M20 16v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3"/></svg>
+          <span style="font-weight: 600;">Arraste as páginas aqui</span>
+          <span style="font-size: 12px; color: #767e8b; line-height: 1.6; max-width: 380px;">A ordem não importa para página numerada: os números da margem dão a ordem. Página sem número herda da anterior no envio, e o navegador ordena por nome.</span>
+          <span class="mono" style="font-size: 11px; color: #ff5a5f; margin-top: 2px;">escolher arquivos</span>
+        </div>
+
+        <div style="border: 1px solid #ff5a5f; border-radius: 4px; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px;">
+          <span class="mono" style="font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #ff5a5f;">Envio interrompido</span>
+          <span style="font-size: 13px; color: #a2a9b4; line-height: 1.6;">5 páginas lidas em 04/09 às 23h12, 2 gravadas. A leitura ficou salva neste computador.</span>
+          <div style="display: flex; gap: 8px; margin-top: 2px;">
+            <span style="padding: 8px 14px; background: #ff5a5f; color: #180405; border-radius: 4px; font-size: 12px; font-weight: 700;">Retomar revisão</span>
+            <span style="padding: 8px 14px; border: 1px solid #2a2f37; border-radius: 4px; font-size: 12px; color: #a2a9b4;">Descartar</span>
+          </div>
+        </div>
+
+      </div>
+
+      <div style="border: 1px solid #2a2f37; background: #161a20; border-radius: 4px; padding: 20px; display: flex; flex-direction: column; gap: 14px;">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px;">
+          <span style="font-weight: 700; letter-spacing: -0.01em;">Pontos</span>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="display: flex; align-items: center; gap: 5px;"><span style="width: 9px; height: 9px; border-radius: 2px; background: #ecedea;"></span><span class="mono" style="font-size: 10px; color: #767e8b;">cheio</span></span>
+            <span style="display: flex; align-items: center; gap: 5px;"><span style="width: 9px; height: 9px; border-radius: 2px; border: 1px solid #2a2f37;"></span><span class="mono" style="font-size: 10px; color: #767e8b;">vazio</span></span>
+            <span style="display: flex; align-items: center; gap: 5px;"><span style="width: 9px; height: 9px; border-radius: 2px; border: 1px solid #ff5a5f;"></span><span class="mono" style="font-size: 10px; color: #767e8b;">buraco</span></span>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+          <span class="pt">53</span><span class="pt">54</span><span class="pt">55</span><span class="pt">56</span><span class="pt">57</span><span class="pt">58</span><span class="pt">59</span><span class="pt">60</span><span class="pt">61</span><span class="pt">62</span><span class="pt">63</span><span class="pt">64</span><span class="pt">65</span><span class="pt">66</span><span class="pt">67</span><span class="pt">68</span><span class="pt">69</span><span class="pt">70</span><span class="pt">71</span><span class="pt">72</span><span class="pt">73</span><span class="pt">74</span><span class="pt">75</span><span class="pt">76</span><span class="pt">77</span><span class="pt">78</span><span class="pt">79</span><span class="pt">80</span><span class="pt">81</span><span class="pt">82</span><span class="pt">83</span><span class="pt">84</span><span class="pt">85</span><span class="pt">86</span><span class="pt">87</span><span class="pt">88</span><span class="pt">89</span><span class="pt">90</span><span class="pt">91</span><span class="pt">92</span><span class="pt">93</span><span class="pt">94</span><span class="pt">95</span><span class="pt">96</span><span class="pt">97</span><span class="pt">98</span><span class="pt">99</span><span class="pt">100</span><span class="pt">101</span><span class="pt">102</span><span class="pt">103</span><span class="pt">104</span><span class="pt">105</span><span class="pt">106</span><span class="pt">107</span><span class="pt">108</span><span class="pt">109</span><span class="pt">110</span><span class="pt">111</span><span class="pt">112</span><span class="pt">113</span><span class="pt">114</span><span class="pt">115</span><span class="pt on">116</span><span class="pt on">117</span><span class="pt on">118</span><span class="pt">119</span><span class="pt">120</span><span class="pt">121</span><span class="pt">122</span><span class="pt">123</span><span class="pt">124</span><span class="pt">125</span><span class="pt">126</span><span class="pt">127</span><span class="pt">128</span>
+        </div>
+
+        <div style="border-top: 1px solid #2a2f37; padding-top: 12px; display: flex; flex-direction: column; gap: 4px;">
+          <span style="font-size: 13px; color: #a2a9b4;">Parou no ponto <span class="mono" style="color: #ecedea;">118</span>, lição 22.</span>
+          <span style="font-size: 12px; color: #767e8b; line-height: 1.55;">Sem buraco na sequência até aqui.</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

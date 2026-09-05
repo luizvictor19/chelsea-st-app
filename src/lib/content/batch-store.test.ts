@@ -11,8 +11,10 @@ import {
 function page(overrides: Partial<StoredPage> = {}): StoredPage {
   return {
     id: "p116.png",
+    fileName: "p116.png",
     uploadIndex: 0,
     points: [116],
+    placements: [{ number: 116, y: 80 }],
     inheritedPoint: null,
     duplicateOf: null,
     lessonNumber: null,
@@ -21,6 +23,7 @@ function page(overrides: Partial<StoredPage> = {}): StoredPage {
     refused: false,
     blocks: [],
     savedPoints: [],
+    changedSinceSaving: false,
     ...overrides,
   };
 }
@@ -67,11 +70,74 @@ describe("staleness", () => {
     assert.equal(staleness(nothingToDo, 53, 128), "all-saved");
   });
 
+  test("a page written and then edited is still waiting", () => {
+    // The edit only reaches the database by being confirmed again, so a batch
+    // holding one is not finished, however many points it has already written.
+    const edited = batch({
+      pages: [page({ savedPoints: [116], changedSinceSaving: true })],
+    });
+    assert.equal(staleness(edited, 53, 128), null);
+    assert.equal(pendingCount(edited), 1);
+  });
+
   test("one page still waiting keeps the batch alive", () => {
     const mixed = batch({
       pages: [page({ savedPoints: [116] }), page({ id: "p117.png" })],
     });
     assert.equal(staleness(mixed, 53, 128), null);
+  });
+});
+
+describe("what a restored batch must carry", () => {
+  test("a spread keeps the height of each number and each block", () => {
+    // A block belongs to the last number printed above it. Without the heights
+    // a restored spread could only put everything on its first point, and it
+    // would do it silently, which is the misfiling the whole design avoids.
+    const spread = page({
+      id: "p117-118.png",
+      points: [117, 118],
+      placements: [
+        { number: 117, y: 80 },
+        { number: 118, y: 1219 },
+      ],
+      blocks: [
+        { kind: "vocabulary", content: "some", needsReview: false, top: 64 },
+        {
+          kind: "vocabulary",
+          content: "love, hate",
+          needsReview: false,
+          top: 1240,
+        },
+      ],
+    });
+    assert.deepEqual(
+      spread.placements.map((p) => p.y),
+      [80, 1219],
+    );
+    assert.deepEqual(
+      spread.blocks.map((b) => b.top),
+      [64, 1240],
+    );
+  });
+
+  test("two files called the same thing stay two pages", () => {
+    // The identity used to be the file name, so a second photograph dropped in
+    // under the same name became the same page: one draft for both, and the
+    // rail pointing at the wrong row. The name is still carried, because it is
+    // what the database records as the writer of a block.
+    const first = page({ id: "IMG_0042.jpg", fileName: "IMG_0042.jpg" });
+    const second = page({
+      id: "IMG_0042.jpg (2)",
+      fileName: "IMG_0042.jpg",
+      points: [117],
+    });
+    assert.notEqual(first.id, second.id);
+    assert.equal(first.fileName, second.fileName);
+    assert.equal(
+      new Set([first, second].map((one) => one.id)).size,
+      2,
+      "each uploaded file is its own page",
+    );
   });
 });
 

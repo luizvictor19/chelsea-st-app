@@ -231,6 +231,20 @@ export async function confirmPoint(
 }
 
 /**
+ * The answer to "which of these points already hold content", or why there is
+ * no answer.
+ *
+ * The failure is carried rather than folded into an empty list. An expired
+ * session or a policy that refuses the read is indistinguishable from a book
+ * where nothing has been written yet, and the review acts on the difference:
+ * told the point is empty it confirms without warning, and what another page
+ * wrote is left sitting beside the new rows.
+ */
+export type FilledPoints =
+  | { readonly status: "ok"; readonly numbers: readonly number[] }
+  | { readonly status: "error"; readonly message: string };
+
+/**
  * Which of these points already hold content.
  *
  * The review screen asks before it draws. Without this the batch lives only in
@@ -241,16 +255,19 @@ export async function confirmPoint(
 export async function filledPoints(
   bookId: string,
   numbers: readonly number[],
-): Promise<readonly number[]> {
+): Promise<FilledPoints> {
   if (numbers.length === 0) {
-    return [];
+    return { status: "ok", numbers: [] };
   }
   const supabase = await createClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("points")
     .select("number")
     .eq("book_id", bookId)
     .in("number", [...numbers])
     .not("filled_at", "is", null);
-  return (data ?? []).map((row) => row.number);
+  if (error) {
+    return { status: "error", message: error.message };
+  }
+  return { status: "ok", numbers: (data ?? []).map((row) => row.number) };
 }

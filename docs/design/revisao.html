@@ -1,0 +1,233 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; background: #0f1115; color: #ecedea;
+      font-family: Archivo, "Helvetica Neue", Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #ff5a5f; text-decoration: none; }
+    a:hover { color: #ecedea; }
+    .mono { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; min-height: 980px; display: flex; flex-direction: column; background: #0f1115;">
+
+  <!-- top bar -->
+  <div style="display: flex; align-items: center; justify-content: space-between; gap: 32px; height: 56px; padding: 0 28px; border-bottom: 1px solid #2a2f37; background: #0f1115;">
+    <div style="display: flex; align-items: center; gap: 32px;">
+      <span style="font-weight: 800; letter-spacing: -0.02em; font-size: 15px;">Chelsea&nbsp;St</span>
+      <div style="display: flex; align-items: center; gap: 4px;">
+        <span style="padding: 6px 12px; border-radius: 4px; font-size: 14px; font-weight: 600; background: #161a20; color: #ecedea;">Conteúdo</span>
+        <span style="padding: 6px 12px; border-radius: 4px; font-size: 14px; color: #a2a9b4;">Imagens</span>
+        <span style="padding: 6px 12px; border-radius: 4px; font-size: 14px; color: #a2a9b4;">Aulas</span>
+        <span style="padding: 6px 12px; border-radius: 4px; font-size: 14px; color: #a2a9b4;">Alunos</span>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 14px;">
+      <span class="mono" style="font-size: 11px; color: #767e8b;">professor</span>
+      <div style="width: 26px; height: 26px; border-radius: 50%; background: #2a2f37; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #a2a9b4;">L</div>
+    </div>
+  </div>
+
+  <!-- context bar -->
+  <div style="display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 14px 28px; border-bottom: 1px solid #2a2f37;">
+    <div style="display: flex; align-items: baseline; gap: 12px;">
+      <span class="mono" style="font-size: 11px; color: #767e8b;">02</span>
+      <span style="font-size: 17px; font-weight: 700; letter-spacing: -0.02em;">Book 2</span>
+      <span class="mono" style="font-size: 11px; color: #767e8b;">pontos 53 a 128</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 14px;">
+      <span class="mono" style="font-size: 11px; color: #767e8b;">3 de 76 · 4%</span>
+      <div style="width: 180px; height: 4px; border-radius: 4px; background: #2a2f37; overflow: hidden;">
+        <div style="width: 4%; height: 100%; background: #ff5a5f;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- body: rail + work -->
+  <div style="display: flex; flex-grow: 1; align-items: stretch;">
+
+    <!-- page rail -->
+    <div style="width: 268px; flex-shrink: 0; border-right: 1px solid #2a2f37; display: flex; flex-direction: column;">
+      <div style="padding: 18px 20px 12px; display: flex; flex-direction: column; gap: 10px;">
+        <span class="mono" style="font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: #767e8b;">Este envio</span>
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;">
+          <span style="font-size: 13px; color: #a2a9b4;">5 páginas lidas</span>
+          <span class="mono" style="font-size: 11px; color: #767e8b;">2 gravadas</span>
+        </div>
+        <div style="height: 3px; border-radius: 4px; background: #2a2f37; overflow: hidden;">
+          <div style="width: 40%; height: 100%; background: #ecedea;"></div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 2px; padding: 6px 12px;">
+
+        <div style="display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 4px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ff5a5f" stroke-width="2.5" stroke-linecap="round"><path d="M12 8v5"/><path d="M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
+          <div style="display: flex; flex-direction: column; gap: 1px; flex-grow: 1;">
+            <span class="mono" style="font-size: 11px; color: #ecedea;">nopoint-3</span>
+            <span style="font-size: 11px; color: #ff5a5f;">precisa do ponto</span>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 4px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#767e8b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          <div style="display: flex; flex-direction: column; gap: 1px; flex-grow: 1;">
+            <span class="mono" style="font-size: 11px; color: #767e8b;">p116</span>
+            <span style="font-size: 11px; color: #767e8b;">ponto 116 · gravado</span>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 4px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#767e8b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          <div style="display: flex; flex-direction: column; gap: 1px; flex-grow: 1;">
+            <span class="mono" style="font-size: 11px; color: #767e8b;">p117-118</span>
+            <span style="font-size: 11px; color: #767e8b;">117 e 118 · gravado</span>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 4px; background: #161a20; box-shadow: inset 2px 0 0 #ff5a5f;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ecedea" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="4"/></svg>
+          <div style="display: flex; flex-direction: column; gap: 1px; flex-grow: 1;">
+            <span class="mono" style="font-size: 11px; color: #ecedea; font-weight: 500;">p119-120</span>
+            <span style="font-size: 11px; color: #a2a9b4;">119 e 120 · 1 tabela</span>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 4px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2a2f37" stroke-width="2.5"><circle cx="12" cy="12" r="9"/></svg>
+          <div style="display: flex; flex-direction: column; gap: 1px; flex-grow: 1;">
+            <span class="mono" style="font-size: 11px; color: #a2a9b4;">p121</span>
+            <span style="font-size: 11px; color: #767e8b;">ponto 121</span>
+          </div>
+        </div>
+
+      </div>
+
+      <div style="flex-grow: 1;"></div>
+
+      <div style="padding: 16px 20px; border-top: 1px solid #2a2f37; display: flex; flex-direction: column; gap: 8px;">
+        <span style="font-size: 12px; color: #767e8b; line-height: 1.5;">O envio fica salvo neste computador. Fechar a aba não perde a leitura.</span>
+        <span style="font-size: 13px; color: #ff5a5f; font-weight: 600;">Descartar envio</span>
+      </div>
+    </div>
+
+    <!-- work column -->
+    <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;">
+
+      <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 22px 32px 18px;">
+        <div style="display: flex; flex-direction: column; gap: 5px;">
+          <span class="mono" style="font-size: 11px; color: #767e8b;">p119-120.png</span>
+          <div style="display: flex; align-items: baseline; gap: 10px;">
+            <span style="font-size: 22px; font-weight: 800; letter-spacing: -0.025em;">Pontos 119 e 120</span>
+            <span style="font-size: 14px; color: #a2a9b4;">Lição 23</span>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="padding: 9px 14px; border: 1px solid #2a2f37; border-radius: 4px; font-size: 13px; color: #a2a9b4;">Pular</span>
+          <span style="padding: 9px 18px; background: #ff5a5f; color: #180405; border-radius: 4px; font-size: 13px; font-weight: 700;">Confirmar e gravar</span>
+        </div>
+      </div>
+
+      <div style="padding: 0 32px 28px; display: flex; flex-direction: column; gap: 12px;">
+
+        <!-- needs review block -->
+        <div style="border: 1px solid #ff5a5f; border-radius: 4px; overflow: hidden;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 14px; background: rgba(255,90,95,0.07); border-bottom: 1px solid rgba(255,90,95,0.35);">
+            <span class="mono" style="font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #ff5a5f;">Tabela · achatou, confira</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="mono" style="font-size: 11px; color: #a2a9b4;">Tabela de gramática ▾</span>
+              <span style="width: 1px; height: 12px; background: #2a2f37;"></span>
+              <span class="mono" style="font-size: 11px; color: #767e8b;">+ bloco</span>
+              <span class="mono" style="font-size: 11px; color: #767e8b;">excluir</span>
+            </div>
+          </div>
+          <div style="display: flex; align-items: stretch; gap: 0;">
+            <div style="width: 330px; flex-shrink: 0; padding: 14px; border-right: 1px solid #2a2f37; display: flex; flex-direction: column; gap: 8px;">
+              <span class="mono" style="font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #767e8b;">Recorte original</span>
+              <div style="background: #e8ebf3; border-radius: 2px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;">
+                <div style="display: flex; gap: 10px; font-size: 11px; font-weight: 700; color: #1b3a6b;"><span style="width: 62px;">many</span><span style="width: 104px;">more … than</span><span>the most</span></div>
+                <div style="display: flex; gap: 10px; font-size: 11px; font-weight: 700; color: #1b3a6b;"><span style="width: 62px;">few</span><span style="width: 104px;">fewer … than</span><span>the fewest</span></div>
+                <div style="height: 6px;"></div>
+                <div style="display: flex; gap: 10px; font-size: 11px; font-weight: 700; color: #1b3a6b;"><span style="width: 62px;">much</span><span style="width: 104px;">more … than</span><span>the most</span></div>
+                <div style="display: flex; gap: 10px; font-size: 11px; font-weight: 700; color: #1b3a6b;"><span style="width: 62px;">little</span><span style="width: 104px;">less … than</span><span>the least</span></div>
+              </div>
+              <span style="font-size: 11px; color: #767e8b; line-height: 1.5;">Uma linha por linha, colunas separadas por barra vertical.</span>
+            </div>
+            <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;">
+              <div class="mono" style="padding: 14px; font-size: 12px; line-height: 1.85; color: #ecedea; background: #0f1115; min-height: 120px;">
+                many | more … than | the most<br>few | fewer … than | the fewest<br><br>much | more … than | the most<br>little | less … than | the least
+              </div>
+              <div style="border-top: 1px solid #2a2f37; padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; background: #12151a;">
+                <span class="mono" style="font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #767e8b;">Como a aluna vê</span>
+                <div style="display: flex; flex-direction: column;">
+                  <div style="display: flex; gap: 18px; padding: 5px 0; border-bottom: 1px solid #2a2f37;"><span class="mono" style="width: 60px; color: #a2a9b4; font-size: 12px;">many</span><span style="font-size: 13px;">more … than</span><span style="font-size: 13px; margin-left: auto; color: #a2a9b4;">the most</span></div>
+                  <div style="display: flex; gap: 18px; padding: 5px 0;"><span class="mono" style="width: 60px; color: #a2a9b4; font-size: 12px;">few</span><span style="font-size: 13px;">fewer … than</span><span style="font-size: 13px; margin-left: auto; color: #a2a9b4;">the fewest</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- vocabulary block -->
+        <div style="border: 1px solid #2a2f37; border-radius: 4px; background: #161a20;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 14px; border-bottom: 1px solid #2a2f37;">
+            <span class="mono" style="font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #767e8b;">Vocabulário</span>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span class="mono" style="font-size: 11px; color: #767e8b;">+ bloco</span>
+              <span class="mono" style="font-size: 11px; color: #767e8b;">excluir</span>
+            </div>
+          </div>
+          <div style="padding: 12px 14px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
+            <span class="mono" style="padding: 5px 10px; border: 1px solid #2a2f37; border-radius: 4px; font-size: 12px;">meal</span>
+            <span class="mono" style="padding: 5px 10px; border: 1px solid #2a2f37; border-radius: 4px; font-size: 12px;">breakfast</span>
+            <span class="mono" style="padding: 5px 10px; border: 1px solid #2a2f37; border-radius: 4px; font-size: 12px;">lunch</span>
+            <span class="mono" style="padding: 5px 10px; border: 1px dashed #2a2f37; border-radius: 4px; font-size: 12px; color: #767e8b;">+ termo</span>
+          </div>
+        </div>
+
+        <div style="border: 1px solid #2a2f37; border-radius: 4px; background: #161a20;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 14px; border-bottom: 1px solid #2a2f37;">
+            <span class="mono" style="font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #767e8b;">Vocabulário</span>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span class="mono" style="font-size: 11px; color: #767e8b;">+ bloco</span>
+              <span class="mono" style="font-size: 11px; color: #767e8b;">excluir</span>
+            </div>
+          </div>
+          <div style="padding: 12px 14px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
+            <span class="mono" style="padding: 5px 10px; border: 1px solid #2a2f37; border-radius: 4px; font-size: 12px;">dinner</span>
+            <span class="mono" style="padding: 5px 10px; border: 1px solid #ff5a5f; border-radius: 4px; font-size: 12px;">a day</span>
+            <span class="mono" style="padding: 5px 10px; border: 1px solid #2a2f37; border-radius: 4px; font-size: 12px;">morning</span>
+            <span class="mono" style="padding: 5px 10px; border: 1px solid #2a2f37; border-radius: 4px; font-size: 12px;">evening</span>
+            <span class="mono" style="padding: 5px 10px; border: 1px dashed #2a2f37; border-radius: 4px; font-size: 12px; color: #767e8b;">+ termo</span>
+          </div>
+        </div>
+
+        <!-- explanation block -->
+        <div style="border: 1px solid #2a2f37; border-radius: 4px; background: #161a20;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 14px; border-bottom: 1px solid #2a2f37;">
+            <span class="mono" style="font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #767e8b;">Explicação</span>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span class="mono" style="font-size: 11px; color: #767e8b;">+ bloco</span>
+              <span class="mono" style="font-size: 11px; color: #767e8b;">excluir</span>
+            </div>
+          </div>
+          <div style="padding: 12px 14px; font-size: 13px; line-height: 1.65; color: #ecedea;">
+            “Many” and “much” have the same meaning, but we use “many” with things we can count.
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

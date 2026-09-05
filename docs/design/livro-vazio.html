@@ -1,0 +1,114 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; background: #0f1115; color: #ecedea;
+      font-family: Archivo, "Helvetica Neue", Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #ff5a5f; text-decoration: none; }
+    a:hover { color: #ecedea; }
+    .mono { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; }
+    .step { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center;
+      justify-content: center; font-family: "IBM Plex Mono", monospace; font-size: 11px; flex-shrink: 0; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; min-height: 980px; display: flex; flex-direction: column; background: #0f1115;">
+
+  <div style="display: flex; align-items: center; justify-content: space-between; gap: 32px; height: 56px; padding: 0 28px; border-bottom: 1px solid #2a2f37;">
+    <div style="display: flex; align-items: center; gap: 32px;">
+      <span style="font-weight: 800; letter-spacing: -0.02em; font-size: 15px;">Chelsea&nbsp;St</span>
+      <div style="display: flex; align-items: center; gap: 4px;">
+        <span style="padding: 6px 12px; border-radius: 4px; font-size: 14px; font-weight: 600; background: #161a20;">Conteúdo</span>
+        <span style="padding: 6px 12px; border-radius: 4px; font-size: 14px; color: #a2a9b4;">Imagens</span>
+        <span style="padding: 6px 12px; border-radius: 4px; font-size: 14px; color: #a2a9b4;">Aulas</span>
+        <span style="padding: 6px 12px; border-radius: 4px; font-size: 14px; color: #a2a9b4;">Alunos</span>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 14px;">
+      <span class="mono" style="font-size: 11px; color: #767e8b;">professor</span>
+      <div style="width: 26px; height: 26px; border-radius: 50%; background: #2a2f37; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #a2a9b4;">L</div>
+    </div>
+  </div>
+
+  <div style="padding: 32px 28px 48px; display: flex; flex-direction: column; gap: 28px; max-width: 1160px; width: 100%; margin: 0 auto; box-sizing: border-box;">
+
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <span class="mono" style="font-size: 11px; color: #767e8b;">← Conteúdo</span>
+      <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 40px;">
+        <span style="font-size: 30px; font-weight: 800; letter-spacing: -0.03em;">Book 1</span>
+        <span class="mono" style="font-size: 11px; color: #767e8b;">livro vazio</span>
+      </div>
+    </div>
+
+    <div style="max-width: 720px; display: flex; flex-direction: column; gap: 0;">
+
+      <!-- step 1, active -->
+      <div style="display: flex; gap: 16px;">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 0; padding-top: 2px;">
+          <div class="step" style="background: #ff5a5f; color: #180405; font-weight: 700;">1</div>
+          <div style="width: 1px; flex-grow: 1; background: #2a2f37; margin: 8px 0;"></div>
+        </div>
+        <div style="flex-grow: 1; padding-bottom: 28px; display: flex; flex-direction: column; gap: 12px;">
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <span style="font-size: 17px; font-weight: 700; letter-spacing: -0.02em;">Onde este livro começa e termina</span>
+            <span style="font-size: 13px; color: #a2a9b4; line-height: 1.65; max-width: 560px;">Abra o livro na primeira e na última página e copie os números da margem. Eles não vêm do lote que você vai subir, e não vêm do livro anterior: o livro 5 começa onde o livro 5 começa, mesmo que o 4 ainda não tenha subido.</span>
+          </div>
+          <div style="border: 1px solid #2a2f37; background: #161a20; border-radius: 4px; padding: 18px; display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: flex; align-items: flex-end; gap: 10px;">
+              <div style="display: flex; flex-direction: column; gap: 5px;">
+                <span class="mono" style="font-size: 10px; color: #767e8b;">primeiro</span>
+                <div class="mono" style="width: 92px; padding: 9px 12px; border: 1px solid #ff5a5f; border-radius: 4px; background: #0f1115; font-size: 14px; color: #767e8b;">1</div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 5px;">
+                <span class="mono" style="font-size: 10px; color: #767e8b;">último</span>
+                <div class="mono" style="width: 92px; padding: 9px 12px; border: 1px solid #2a2f37; border-radius: 4px; background: #0f1115; font-size: 14px; color: #767e8b;">52</div>
+              </div>
+              <span style="padding: 10px 18px; background: #ff5a5f; color: #180405; border-radius: 4px; font-size: 13px; font-weight: 700;">Salvar</span>
+            </div>
+            <span style="font-size: 12px; color: #767e8b; line-height: 1.55;">Dá para corrigir depois. Estreitar a faixa só é recusado se algum ponto de fora já tiver conteúdo.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- step 2, waiting -->
+      <div style="display: flex; gap: 16px;">
+        <div style="display: flex; flex-direction: column; align-items: center; padding-top: 2px;">
+          <div class="step" style="border: 1px solid #2a2f37; color: #767e8b;">2</div>
+          <div style="width: 1px; flex-grow: 1; background: #2a2f37; margin: 8px 0;"></div>
+        </div>
+        <div style="flex-grow: 1; padding-bottom: 28px; display: flex; flex-direction: column; gap: 12px; opacity: 0.45;">
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <span style="font-size: 17px; font-weight: 700; letter-spacing: -0.02em; color: #a2a9b4;">Subir as páginas</span>
+            <span style="font-size: 13px; color: #767e8b; line-height: 1.65; max-width: 560px;">Fotografe ou digitalize as páginas do livro. Pode subir em qualquer ordem e em quantos lotes quiser.</span>
+          </div>
+          <div style="border: 1px dashed #2a2f37; border-radius: 4px; padding: 26px 20px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#767e8b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M20 16v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3"/></svg>
+            <span style="font-size: 13px; color: #767e8b;">Defina a faixa acima para liberar o envio</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- step 3, waiting -->
+      <div style="display: flex; gap: 16px;">
+        <div style="display: flex; flex-direction: column; align-items: center; padding-top: 2px;">
+          <div class="step" style="border: 1px solid #2a2f37; color: #767e8b;">3</div>
+        </div>
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 6px; opacity: 0.45;">
+          <span style="font-size: 17px; font-weight: 700; letter-spacing: -0.02em; color: #a2a9b4;">Revisar e gravar</span>
+          <span style="font-size: 13px; color: #767e8b; line-height: 1.65; max-width: 560px;">A leitura acontece neste computador e as páginas não saem daqui. Nada é gravado antes de você confirmar página por página.</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

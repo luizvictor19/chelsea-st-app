@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import type { PageState, ReviewPage } from "@/lib/content/review-navigation";
 import { batchProgress } from "@/lib/content/review-navigation";
 
@@ -39,6 +41,16 @@ export function PageRail({
   onDiscard: () => void;
 }) {
   const progress = batchProgress(pages);
+  /*
+   * Discarding asks first.
+   *
+   * It was one click, directly under the line promising the upload is kept on
+   * this computer, and it emptied the screen and the browser's database at
+   * once. Nothing undoes it: what has not been written is read again or not at
+   * all.
+   */
+  const [confirming, setConfirming] = useState(false);
+  const waiting = progress.total - progress.saved;
 
   return (
     <nav
@@ -126,13 +138,41 @@ export function PageRail({
         <span className="text-faint text-xs leading-relaxed">
           O envio fica salvo neste computador. Fechar a aba não perde a leitura.
         </span>
-        <button
-          type="button"
-          onClick={onDiscard}
-          className="text-accent hover:text-foreground self-start text-sm font-semibold transition-colors"
-        >
-          Descartar envio
-        </button>
+        {confirming ? (
+          <div className="flex flex-col gap-2">
+            <span className="text-muted text-xs leading-relaxed">
+              Descartar apaga esta leitura deste computador
+              {waiting > 0
+                ? `, com ${waiting} ${waiting === 1 ? "página ainda por gravar" : "páginas ainda por gravar"}`
+                : ""}
+              . Não dá para desfazer: só subindo as páginas de novo.
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={onDiscard}
+                className="bg-accent text-accent-foreground rounded-sm px-3 py-1.5 text-xs font-bold transition-opacity hover:opacity-90"
+              >
+                Descartar mesmo assim
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirming(false)}
+                className="border-rule text-muted hover:border-foreground hover:text-foreground rounded-sm border px-3 py-1.5 text-xs transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            className="text-accent hover:text-foreground self-start text-sm font-semibold transition-colors"
+          >
+            Descartar envio
+          </button>
+        )}
       </div>
     </nav>
   );

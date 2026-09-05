@@ -7,6 +7,7 @@ import { loadBook } from "@/lib/content/queries";
 import { ProgressBar } from "../progress-bar";
 import {
   BookWorkbench,
+  InterruptedBatch,
   RangeForm,
   ReviewRegion,
   UploadArea,
@@ -91,12 +92,7 @@ export default async function BookPage({
 
                 <UploadArea />
 
-                {/*
-                 * TODO: the "Envio interrompido" card goes here — an unfinished
-                 * batch offered back with "Retomar revisão" and "Descartar".
-                 * It waits on the IndexedDB store that keeps a read batch on
-                 * this computer, which does not exist yet.
-                 */}
+                <InterruptedBatch />
               </div>
 
               <PointGrid

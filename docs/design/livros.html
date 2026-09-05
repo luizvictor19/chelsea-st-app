@@ -1,0 +1,145 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; background: #0f1115; color: #ecedea;
+      font-family: Archivo, "Helvetica Neue", Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #ff5a5f; text-decoration: none; }
+    a:hover { color: #ecedea; }
+    .mono { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; min-height: 980px; display: flex; flex-direction: column; background: #0f1115;">
+
+  <div style="display: flex; align-items: center; justify-content: space-between; gap: 32px; height: 56px; padding: 0 28px; border-bottom: 1px solid #2a2f37;">
+    <div style="display: flex; align-items: center; gap: 32px;">
+      <span style="font-weight: 800; letter-spacing: -0.02em; font-size: 15px;">Chelsea&nbsp;St</span>
+      <div style="display: flex; align-items: center; gap: 4px;">
+        <span style="padding: 6px 12px; border-radius: 4px; font-size: 14px; font-weight: 600; background: #161a20;">Conteúdo</span>
+        <span style="padding: 6px 12px; border-radius: 4px; font-size: 14px; color: #a2a9b4;">Imagens</span>
+        <span style="padding: 6px 12px; border-radius: 4px; font-size: 14px; color: #a2a9b4;">Aulas</span>
+        <span style="padding: 6px 12px; border-radius: 4px; font-size: 14px; color: #a2a9b4;">Alunos</span>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 14px;">
+      <span class="mono" style="font-size: 11px; color: #767e8b;">professor</span>
+      <div style="width: 26px; height: 26px; border-radius: 50%; background: #2a2f37; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #a2a9b4;">L</div>
+    </div>
+  </div>
+
+  <div style="padding: 40px 28px; display: flex; flex-direction: column; gap: 28px; max-width: 1160px; width: 100%; margin: 0 auto; box-sizing: border-box;">
+
+    <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 40px;">
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <span class="mono" style="font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: #767e8b;">Conteúdo</span>
+        <span style="font-size: 30px; font-weight: 800; letter-spacing: -0.03em;">Os 12 livros</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; width: 320px;">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px;">
+          <span style="font-size: 13px; color: #a2a9b4;">Livros configurados</span>
+          <span class="mono" style="font-size: 11px; color: #767e8b;">1 de 12</span>
+        </div>
+        <div style="height: 4px; border-radius: 4px; background: #2a2f37; overflow: hidden;">
+          <div style="width: 8%; height: 100%; background: #ff5a5f;"></div>
+        </div>
+        <span style="font-size: 11px; color: #767e8b; line-height: 1.5;">A porcentagem do curso só aparece quando os 12 tiverem faixa.</span>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;">
+
+      <div style="border: 1px solid #2a2f37; background: #161a20; border-radius: 4px; padding: 18px; display: flex; flex-direction: column; gap: 14px;">
+        <div style="display: flex; align-items: baseline; gap: 10px;">
+          <span class="mono" style="font-size: 11px; color: #767e8b;">01</span>
+          <span style="font-weight: 700; letter-spacing: -0.02em;">Book 1</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <span class="mono" style="font-size: 11px; color: #767e8b;">sem faixa definida</span>
+          <div style="height: 4px; border-radius: 4px; background: #2a2f37;"></div>
+        </div>
+        <span style="font-size: 12px; color: #ff5a5f; font-weight: 600;">Definir faixa →</span>
+      </div>
+
+      <div style="border: 1px solid #ff5a5f; background: #161a20; border-radius: 4px; padding: 18px; display: flex; flex-direction: column; gap: 14px;">
+        <div style="display: flex; align-items: baseline; gap: 10px;">
+          <span class="mono" style="font-size: 11px; color: #767e8b;">02</span>
+          <span style="font-weight: 700; letter-spacing: -0.02em;">Book 2</span>
+          <span class="mono" style="font-size: 10px; color: #767e8b; margin-left: auto;">53–128</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between;">
+            <span class="mono" style="font-size: 11px; color: #a2a9b4;">3 de 76 · 4%</span>
+            <span class="mono" style="font-size: 11px; color: #767e8b;">faltam 73</span>
+          </div>
+          <div style="height: 4px; border-radius: 4px; background: #2a2f37; overflow: hidden;">
+            <div style="width: 4%; height: 100%; background: #ff5a5f;"></div>
+          </div>
+        </div>
+        <span style="font-size: 12px; color: #a2a9b4;">Parou no ponto <span class="mono" style="color: #ecedea;">121</span></span>
+      </div>
+
+      <div style="border: 1px solid #2a2f37; background: #12151a; border-radius: 4px; padding: 18px; display: flex; flex-direction: column; gap: 14px; opacity: 0.6;">
+        <div style="display: flex; align-items: baseline; gap: 10px;">
+          <span class="mono" style="font-size: 11px; color: #767e8b;">03</span>
+          <span style="font-weight: 700; letter-spacing: -0.02em; color: #a2a9b4;">Book 3</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <span class="mono" style="font-size: 11px; color: #767e8b;">sem faixa definida</span>
+          <div style="height: 4px; border-radius: 4px; background: #2a2f37;"></div>
+        </div>
+        <span style="font-size: 12px; color: #767e8b;">Definir faixa →</span>
+      </div>
+
+      <div style="border: 1px solid #2a2f37; background: #12151a; border-radius: 4px; padding: 18px; display: flex; flex-direction: column; gap: 14px; opacity: 0.6;">
+        <div style="display: flex; align-items: baseline; gap: 10px;">
+          <span class="mono" style="font-size: 11px; color: #767e8b;">04</span>
+          <span style="font-weight: 700; letter-spacing: -0.02em; color: #a2a9b4;">Book 4</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <span class="mono" style="font-size: 11px; color: #767e8b;">sem faixa definida</span>
+          <div style="height: 4px; border-radius: 4px; background: #2a2f37;"></div>
+        </div>
+        <span style="font-size: 12px; color: #767e8b;">Definir faixa →</span>
+      </div>
+
+      <div style="border: 1px solid #2a2f37; background: #12151a; border-radius: 4px; padding: 18px; display: flex; flex-direction: column; gap: 14px; opacity: 0.6;">
+        <div style="display: flex; align-items: baseline; gap: 10px;">
+          <span class="mono" style="font-size: 11px; color: #767e8b;">05</span>
+          <span style="font-weight: 700; letter-spacing: -0.02em; color: #a2a9b4;">Book 5</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <span class="mono" style="font-size: 11px; color: #767e8b;">sem faixa definida</span>
+          <div style="height: 4px; border-radius: 4px; background: #2a2f37;"></div>
+        </div>
+        <span style="font-size: 12px; color: #767e8b;">Definir faixa →</span>
+      </div>
+
+      <div style="border: 1px solid #2a2f37; background: #12151a; border-radius: 4px; padding: 18px; display: flex; flex-direction: column; gap: 14px; opacity: 0.6;">
+        <div style="display: flex; align-items: baseline; gap: 10px;">
+          <span class="mono" style="font-size: 11px; color: #767e8b;">06</span>
+          <span style="font-weight: 700; letter-spacing: -0.02em; color: #a2a9b4;">Book 6</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <span class="mono" style="font-size: 11px; color: #767e8b;">sem faixa definida</span>
+          <div style="height: 4px; border-radius: 4px; background: #2a2f37;"></div>
+        </div>
+        <span style="font-size: 12px; color: #767e8b;">Definir faixa →</span>
+      </div>
+
+    </div>
+
+    <span class="mono" style="font-size: 11px; color: #767e8b;">…e mais 6</span>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
