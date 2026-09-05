@@ -55,6 +55,8 @@ export type ReviewSourcePage = {
   readonly openingPoint: number | null;
   readonly duplicateOf: string | null;
   readonly lessonNumber: number | null;
+  /** Whether that lesson starts here, which the point above it is not in. */
+  readonly opensLesson: boolean;
   readonly disputes: readonly {
     readonly y: number;
     readonly candidates: readonly number[];
@@ -92,6 +94,7 @@ export function fromResolved(
     openingPoint: page.openingPoint,
     duplicateOf: page.duplicateOf,
     lessonNumber: page.lessonNumber,
+    opensLesson: page.opensLesson,
     disputes: page.disputes,
     unsupported: page.extraction.unsupported,
     refused: isRefused(page.extraction),
@@ -128,6 +131,7 @@ export function fromStored(page: StoredPage): ReviewSourcePage {
     openingPoint: page.openingPoint,
     duplicateOf: page.duplicateOf,
     lessonNumber: page.lessonNumber,
+    opensLesson: page.opensLesson,
     disputes: page.disputes,
     unsupported: page.unsupported,
     refused: page.refused,
@@ -162,6 +166,7 @@ export function toStored(
     openingPoint: page.openingPoint,
     duplicateOf: page.duplicateOf,
     lessonNumber: page.lessonNumber,
+    opensLesson: page.opensLesson,
     disputes: page.disputes,
     unsupported: page.unsupported,
     refused: page.refused,
@@ -221,6 +226,62 @@ export function targetsOf(page: ReviewSourcePage): readonly number[] {
     return settledNumbers(page);
   }
   return page.inheritedPoint === null ? [] : [page.inheritedPoint];
+}
+
+/**
+ * Whether this page's lesson stops short of the point it opens in.
+ *
+ * Only when the page starts the lesson itself. Then the header is printed
+ * between the point above and the page's own numbers, and the point above is on
+ * the other side of it. A page that merely carried a lesson in from an earlier
+ * page of the same upload has no boundary on it, and its lesson covers the
+ * point it opens in exactly as it covers its own.
+ *
+ * A page carrying no number of its own is not this case at all: it opens in the
+ * point it inherits, that point is the whole page, and the page's lesson is its
+ * lesson. Written the other way round, this threw away the header for every
+ * continuation page in an upload.
+ */
+function opensAfterItsPoint(
+  page: ReviewSourcePage,
+  pointNumber: number,
+): boolean {
+  return (
+    page.opensLesson &&
+    page.points.length > 0 &&
+    page.openingPoint !== null &&
+    pointNumber === page.openingPoint
+  );
+}
+
+/**
+ * The LESSON header of this page that may speak for one of its points.
+ *
+ * Null does not mean "no lesson". It means this page cannot answer, so the
+ * lessons the book already holds are asked next. Reading the header across a
+ * boundary filed the last point of one lesson under the next — silently,
+ * because a point carries no evidence of which lesson it should have had.
+ */
+export function headerFor(
+  page: ReviewSourcePage,
+  pointNumber: number,
+): number | null {
+  return opensAfterItsPoint(page, pointNumber) ? null : page.lessonNumber;
+}
+
+/**
+ * Whether only the page before can say which lesson this point is in.
+ *
+ * The teacher's answer on this screen is about the lesson this page opens, so
+ * it must not be spent on a point that is in the one before. When this is true
+ * and the book does not already know the point, the page waits for the page
+ * before to be confirmed rather than guessing.
+ */
+export function lessonIsThePageBefores(
+  page: ReviewSourcePage,
+  pointNumber: number,
+): boolean {
+  return opensAfterItsPoint(page, pointNumber);
 }
 
 /** The candidates the batch could not choose between, as one sorted list. */

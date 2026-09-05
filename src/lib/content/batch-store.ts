@@ -58,6 +58,8 @@ export type StoredPage = {
   readonly openingPoint: number | null;
   readonly duplicateOf: string | null;
   readonly lessonNumber: number | null;
+  /** Whether that lesson starts on this page, which the point above it is not in. */
+  readonly opensLesson: boolean;
   readonly disputes: readonly {
     readonly y: number;
     readonly candidates: readonly number[];
@@ -96,9 +98,11 @@ const STORE = "batches";
  * Version 2 added the heights a spread needs to split its blocks; version 3
  * added the file name beside the page's own identity, because the identity
  * stopped being the file name, and the flag that says an edit has not been
- * written yet; version 4 added the point a page opens in, without which a
- * restored batch files everything printed above a page's first number under
- * that number instead of under the page before. A batch written by an older
+ * written yet; version 4 added the point a page opens in and whether the page
+ * starts its own lesson, without which a restored batch files everything
+ * printed above a page's first number under that number instead of under the
+ * page before, and reads a LESSON header as covering a point printed on the
+ * other side of it. A batch written by an older
  * version has none of them, so upgrading drops what is there rather than
  * restoring something that would file blocks under the wrong point, write them
  * under the wrong name, or call an unwritten edit finished.

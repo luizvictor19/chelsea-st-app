@@ -174,6 +174,8 @@ export type ResolvedPage = {
   readonly disputes: readonly { y: number; candidates: readonly number[] }[];
   /** The lesson this page belongs to, inherited when it carries no header. */
   readonly lessonNumber: number | null;
+  /** Whether that lesson starts on this page rather than being carried into it. */
+  readonly opensLesson: boolean;
 };
 
 /**
@@ -222,6 +224,7 @@ export function resolveBatch(
       duplicateOf: page.duplicateOf,
       disputes: page.disputes,
       lessonNumber: lastLesson,
+      opensLesson: extraction.lessonHeaders.length > 0,
     });
   }
 
@@ -238,6 +241,7 @@ export function resolveBatch(
         duplicateOf: null,
         disputes: [],
         lessonNumber: null,
+        opensLesson: false,
       });
     }
   }

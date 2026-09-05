@@ -51,6 +51,8 @@ import { PageRail, type RailPage } from "./page-rail";
 import {
   authoredPoints,
   disputeCandidates,
+  headerFor,
+  lessonIsThePageBefores,
   headingFor,
   summaryFor,
   targetsOf,
@@ -214,9 +216,19 @@ function lessonOf(
   lessons: readonly LessonRange[],
   draft: PageDraft,
 ): number | null {
-  const known = lessonForPage(page.lessonNumber, pointNumber, lessons);
+  const known = lessonForPage(
+    headerFor(page, pointNumber),
+    pointNumber,
+    lessons,
+  );
   if (known !== null) {
     return known;
+  }
+  // The teacher is answering about the lesson this page opens. Spending that
+  // answer on a point that is in the lesson before is the same misfiling the
+  // header was refused for, one step later.
+  if (lessonIsThePageBefores(page, pointNumber)) {
+    return null;
   }
   const typed = Number(draft.typedLesson);
   return draft.typedLesson.trim() !== "" && Number.isInteger(typed) && typed > 0
@@ -237,7 +249,9 @@ function asksForLesson(
   lessons: readonly LessonRange[],
 ): boolean {
   return targets.some(
-    (number) => lessonForPage(page.lessonNumber, number, lessons) === null,
+    (number) =>
+      !lessonIsThePageBefores(page, number) &&
+      lessonForPage(headerFor(page, number), number, lessons) === null,
   );
 }
 
@@ -1144,6 +1158,17 @@ function PageWork({
   const unplaced = draft.continuation
     ? []
     : unplacedBlocks(draft.blocks, placements, page.openingPoint);
+  /*
+   * Points this page writes to whose lesson only the page before can give.
+   *
+   * The teacher's answer on this screen is about the lesson this page opens, so
+   * it is not offered for these, and the page waits instead of guessing.
+   */
+  const lessonPending = targets.filter(
+    (number) =>
+      lessonIsThePageBefores(page, number) &&
+      lessonOf(page, number, lessons, draft) === null,
+  );
   const askingLesson = asksForLesson(page, targets, lessons) && !draft.saved;
   // Nothing is confirmed without both answers. A point written with no lesson
   // is a hole nobody sees until the lesson screen exists.
@@ -1161,6 +1186,7 @@ function PageWork({
     canConfirm(question, draft) &&
     targets.length > 0 &&
     unplaced.length === 0 &&
+    lessonPending.length === 0 &&
     targets.every((number) => lessonOf(page, number, lessons, draft) !== null);
   const writable =
     page.duplicateOf === null && page.unsupported === null && !page.refused;
@@ -1289,6 +1315,17 @@ function PageWork({
 
         {asking && (
           <PointQuestion page={page} draft={draft} onUpdate={onUpdate} />
+        )}
+
+        {lessonPending.length > 0 && writable && !draft.saved && (
+          <p className="border-accent max-w-[80ch] rounded-sm border px-4 py-3.5 text-sm leading-relaxed">
+            {lessonPending.length === 1
+              ? `O ponto ${lessonPending[0]} está`
+              : `Os pontos ${lessonPending.join(", ")} estão`}{" "}
+            na página anterior, do outro lado do cabeçalho desta, e portanto na
+            lição anterior — que ainda não está gravada. Confirme a página
+            anterior primeiro. Nada desta é gravado enquanto isso.
+          </p>
         )}
 
         {unplaced.length > 0 && writable && !draft.saved && (
