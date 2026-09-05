@@ -56,7 +56,10 @@ Postgres, Auth and Storage. Deployed on Vercel.
 
 - Branches: `feat/<scope>`, `fix/<scope>`, `chore/<scope>`, `docs/<scope>`.
 - Conventional Commits: `feat(auth): add magic link sign-in`.
-- One commit per logical unit. Squash merge into `main`.
+- One commit per logical unit.
+- Squash merge a messy branch. A branch deliberately sliced so that every commit
+  is a valid state is merged whole: the slicing is the information, and squashing
+  it would put a broken intermediate state in history as if it had never existed.
 
 ## Verifying
 
