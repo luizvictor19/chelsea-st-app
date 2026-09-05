@@ -15,19 +15,48 @@ import { batchProgress } from "@/lib/content/review-navigation";
 export type RailPage = ReviewPage & {
   /** What the page turned out to be, in the teacher's words. */
   readonly summary: string;
+  /**
+   * The point this page writes to already holds content, from a round before
+   * this one. Not a state of the review — the page is still waiting to be
+   * confirmed — but the one fact that changes what confirming does, and it was
+   * only ever said inside the page, after a click.
+   */
+  readonly alreadyInDatabase: boolean;
 };
 
-const MARK: Record<
-  PageState,
-  { readonly glyph: string; readonly tone: string }
-> = {
-  "needs-answer": { glyph: "!", tone: "text-accent border-accent" },
-  waiting: { glyph: "○", tone: "text-muted border-rule" },
-  saved: { glyph: "✓", tone: "text-faint border-rule" },
-  duplicate: { glyph: "=", tone: "text-faint border-rule" },
-  unsupported: { glyph: "—", tone: "text-faint border-rule" },
-  refused: { glyph: "×", tone: "text-faint border-rule" },
-};
+/**
+ * The mark against a page: one ring, and the fill tells the story.
+ *
+ * Filled and ticked is written by this review. Filled and quiet is written
+ * before it, by a round that is already in the database. Empty is untouched.
+ * A ring drawn inside a ring told none of that apart and only made the mark
+ * busy, so there is one ring now and it is large enough to read beside the
+ * text it belongs to.
+ */
+function markFor(
+  state: PageState,
+  alreadyInDatabase: boolean,
+): { readonly glyph: string; readonly tone: string } {
+  switch (state) {
+    case "saved":
+      return {
+        glyph: "✓",
+        tone: "bg-foreground text-background border-foreground",
+      };
+    case "needs-answer":
+      return { glyph: "!", tone: "text-accent border-accent" };
+    case "duplicate":
+      return { glyph: "=", tone: "text-faint border-rule" };
+    case "unsupported":
+      return { glyph: "—", tone: "text-faint border-rule" };
+    case "refused":
+      return { glyph: "×", tone: "text-faint border-rule" };
+    default:
+      return alreadyInDatabase
+        ? { glyph: "", tone: "bg-rule border-rule" }
+        : { glyph: "", tone: "border-rule" };
+  }
+}
 
 export function PageRail({
   pages,
@@ -89,7 +118,7 @@ export function PageRail({
       <ul className="flex flex-col gap-[2px] px-3 pb-2">
         {pages.map((page) => {
           const focused = page.id === focusedId;
-          const mark = MARK[page.state];
+          const mark = markFor(page.state, page.alreadyInDatabase);
           return (
             <li key={page.id}>
               <button
@@ -104,7 +133,7 @@ export function PageRail({
               >
                 <span
                   aria-hidden
-                  className={`flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded-full border font-mono text-[0.625rem] ${mark.tone}`}
+                  className={`flex h-[1.375rem] w-[1.375rem] flex-shrink-0 items-center justify-center rounded-full border font-mono text-[0.6875rem] ${mark.tone}`}
                 >
                   {mark.glyph}
                 </span>

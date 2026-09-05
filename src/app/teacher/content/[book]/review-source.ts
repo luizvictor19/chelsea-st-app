@@ -261,6 +261,7 @@ export function summaryFor({
   continuation,
   flagged,
   changedSinceSaving = false,
+  alreadyInDatabase = false,
 }: {
   page: ReviewSourcePage;
   state: PageState;
@@ -276,6 +277,14 @@ export function summaryFor({
    * is the half that loses the edit.
    */
   changedSinceSaving?: boolean;
+  /**
+   * The point already holds content from a round before this one.
+   *
+   * Said on the rail because it changes what the button does — confirming
+   * replaces what is there — and it used to be said only inside the page, so
+   * finding it meant clicking every page to look.
+   */
+  alreadyInDatabase?: boolean;
 }): string {
   switch (state) {
     case "duplicate":
@@ -292,6 +301,9 @@ export function summaryFor({
       const short = shortPoints(page, target, continuation);
       if (changedSinceSaving) {
         return `${short} · alteração não gravada`;
+      }
+      if (alreadyInDatabase) {
+        return `${short} · já gravado`;
       }
       if (flagged === 0) {
         return short;

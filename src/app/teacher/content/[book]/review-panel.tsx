@@ -409,9 +409,11 @@ export function ReviewPanel({
         const draft = drafts[page.id] ?? initialDraft(page);
         const state = stateOf(page, draft);
         const target = chosenPoint(questionOf(page), draft);
+        const alreadyInDatabase = draft.alreadyInDatabase && !draft.saved;
         return {
           id: page.id,
           state,
+          alreadyInDatabase,
           summary: summaryFor({
             page,
             state,
@@ -419,6 +421,7 @@ export function ReviewPanel({
             continuation: draft.continuation,
             flagged: draft.blocks.filter((block) => block.needsReview).length,
             changedSinceSaving: changedSinceSaving(draft),
+            alreadyInDatabase,
           }),
         };
       }),
