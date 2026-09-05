@@ -6,7 +6,7 @@ import {
   columnCount,
   parseTable,
   serializeTable,
-  splitCellAtSpace,
+  splitCellAt,
   toggleLineKind,
   type TableBlock,
 } from "./grammar-table.ts";
@@ -164,45 +164,66 @@ describe("round trip", () => {
   });
 });
 
-describe("splitCellAtSpace", () => {
+describe("splitCellAt", () => {
   const flattened = parseTable(FLATTENED)[0][0];
 
-  test("cutting at the chosen space makes two cells", () => {
-    // "many more than the most" cut after the first word.
-    assert.deepEqual(splitCellAtSpace(flattened, 0, 0), {
+  test("cutting at the cursor makes two cells", () => {
+    // "many more than the most", cut where the second column starts.
+    assert.deepEqual(splitCellAt(flattened, 0, "many".length), {
       kind: "row",
       cells: ["many", "more than the most"],
     });
   });
 
-  test("a later space cuts later", () => {
-    assert.deepEqual(splitCellAtSpace(flattened, 0, 2), {
+  test("the space the cursor sits on goes to neither half", () => {
+    assert.deepEqual(splitCellAt({ kind: "row", cells: ["a b"] }, 0, 1), {
       kind: "row",
-      cells: ["many more than", "the most"],
+      cells: ["a", "b"],
+    });
+    assert.deepEqual(splitCellAt({ kind: "row", cells: ["a b"] }, 0, 2), {
+      kind: "row",
+      cells: ["a", "b"],
     });
   });
 
   test("cutting again splits only the cell asked for", () => {
-    const once = splitCellAtSpace(flattened, 0, 0);
-    assert.deepEqual(splitCellAtSpace(once, 1, 1), {
+    const once = splitCellAt({ kind: "row", cells: ["a b c"] }, 0, 1);
+    assert.deepEqual(splitCellAt(once, 1, 1), {
       kind: "row",
-      cells: ["many", "more than", "the most"],
+      cells: ["a", "b", "c"],
     });
   });
 
-  test("a space that is not there changes nothing", () => {
-    assert.deepEqual(splitCellAtSpace(flattened, 0, 9), flattened);
-    assert.deepEqual(splitCellAtSpace(flattened, 0, -1), flattened);
-    assert.deepEqual(splitCellAtSpace(flattened, 4, 0), flattened);
+  test("a cut that would leave a half empty cuts nothing", () => {
+    // Which is what makes Enter at either end of a cell mean "done editing".
+    const row = { kind: "row", cells: ["a b"] } as const;
+    assert.deepEqual(splitCellAt(row, 0, 0), row);
+    assert.deepEqual(splitCellAt(row, 0, 3), row);
+    assert.deepEqual(splitCellAt(row, 0, 99), row);
+    assert.deepEqual(splitCellAt({ kind: "row", cells: [" a"] }, 0, 1), {
+      kind: "row",
+      cells: [" a"],
+    });
+  });
+
+  test("neither half may carry a separator or loose space", () => {
+    assert.deepEqual(splitCellAt({ kind: "row", cells: ["a | b  c"] }, 0, 4), {
+      kind: "row",
+      cells: ["a", "b c"],
+    });
+  });
+
+  test("a cell that is not there changes nothing", () => {
+    assert.deepEqual(splitCellAt(flattened, 4, 2), flattened);
   });
 
   test("a heading is not a row and is left alone", () => {
     const title = { kind: "title", text: "Present simple" } as const;
-    assert.deepEqual(splitCellAtSpace(title, 0, 0), title);
+    assert.deepEqual(splitCellAt(title, 0, 3), title);
   });
 
   test("the cut survives being written and read back", () => {
-    const cut = splitCellAtSpace(flattened, 0, 0);
+    const cut = splitCellAt(flattened, 0, "many".length);
     const block: TableBlock = [[cut]];
     assert.deepEqual(parseTable(serializeTable(block)), block);
   });

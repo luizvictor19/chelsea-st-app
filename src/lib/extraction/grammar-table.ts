@@ -119,18 +119,25 @@ export function columnCount(section: TableSection): number {
   );
 }
 
+/** What a cell may hold: no separator, and no run of blank space. */
+export function cleanCell(text: string): string {
+  // A "|" typed into a cell would split it into two columns behind whoever
+  // typed it, which is the one thing the editor must never do quietly.
+  return text.replace(/\|/g, " ").replace(/\s+/g, " ").trim();
+}
+
 /**
- * Cuts a cell in two at one of the spaces inside it.
+ * Cuts a cell in two at a character offset, which on screen is the cursor.
  *
- * This is how a row the extractor flattened becomes a table again: the teacher
- * points at the space where the next column starts. `spaceIndex` counts the
- * spaces of the cell from zero, which is what the screen has to offer as
- * targets.
+ * This is how a row the extractor could not split becomes a table again: the
+ * teacher puts the cursor where the next column starts and presses Enter. An
+ * offset that would leave either half empty cuts nothing, so pressing Enter at
+ * the end of a cell is not a split but the end of an edit.
  */
-export function splitCellAtSpace(
+export function splitCellAt(
   line: TableLine,
   cellIndex: number,
-  spaceIndex: number,
+  offset: number,
 ): TableLine {
   if (line.kind !== "row") {
     return line;
@@ -139,14 +146,11 @@ export function splitCellAtSpace(
   if (cell === undefined) {
     return line;
   }
-
-  const words = cell.split(/\s+/).filter((word) => word.length > 0);
-  if (spaceIndex < 0 || spaceIndex >= words.length - 1) {
+  const left = cleanCell(cell.slice(0, offset));
+  const right = cleanCell(cell.slice(offset));
+  if (left === "" || right === "") {
     return line;
   }
-
-  const left = words.slice(0, spaceIndex + 1).join(" ");
-  const right = words.slice(spaceIndex + 1).join(" ");
   const cells = [...line.cells];
   cells.splice(cellIndex, 1, left, right);
   return { kind: "row", cells };

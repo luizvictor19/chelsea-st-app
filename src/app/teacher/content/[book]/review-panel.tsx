@@ -28,7 +28,8 @@ import {
   columnCount,
   parseTable,
   serializeTable,
-  splitCellAtSpace,
+  cleanCell,
+  splitCellAt,
   toggleLineKind,
   type TableBlock,
   type TableLine,
@@ -1700,6 +1701,7 @@ function TableGrid({
    * moved, and a column that jumps to another sub-block is worse than none.
    */
   const [widened, setWidened] = useState<Widening | null>(null);
+  const editor = useRef<HTMLInputElement>(null);
 
   function close() {
     setEditing(null);
@@ -1729,9 +1731,7 @@ function TableGrid({
       return;
     }
     const address = editing;
-    // "|" is the column boundary in the stored form, so one typed inside a cell
-    // would split it in two behind the teacher's back.
-    const clean = text.replace(/\|/g, " ").replace(/\s+/g, " ").trim();
+    const clean = cleanCell(text);
     const section = table[address.section];
     const line = section?.[address.line];
 
@@ -1809,9 +1809,64 @@ function TableGrid({
     );
   }
 
-  function field() {
-    return (
+  /** The table with this line replaced, or with it put where it would go. */
+  function placeLine(address: CellAddress, line: TableLine): TableBlock {
+    const section = table[address.section];
+    if (section === undefined) {
+      return [...table, [line]];
+    }
+    if (address.line < section.length) {
+      return replaceLine(table, address.section, address.line, line);
+    }
+    return table.map((existing, index) =>
+      index === address.section ? [...existing, line] : existing,
+    );
+  }
+
+  /*
+   * Cuts the cell being edited in two, where the cursor is.
+   *
+   * The text on screen is what gets cut, not what was stored: the teacher may
+   * have corrected a word on the way to deciding where the column starts, and
+   * the row may not exist yet at all, being typed into "+ linha". A cut that
+   * would leave either half empty is no cut.
+   *
+   * `atSpaceOnly` is what Enter passes. Enter is also how an ordinary
+   * correction ends, and a column boundary always falls on a space: without
+   * this, deleting a letter and pressing Enter would cut the word in two and
+   * call the halves columns. The button carries no such second meaning and cuts
+   * wherever the cursor is.
+   */
+  function splitAtCursor(offset: number, atSpaceOnly: boolean): boolean {
+    if (editing === null) {
+      return false;
+    }
+    if (atSpaceOnly && text[offset] !== " " && text[offset - 1] !== " ") {
+      return false;
+    }
+    const address = editing;
+    const existing = table[address.section]?.[address.line];
+    if (existing !== undefined && existing.kind !== "row") {
+      return false;
+    }
+    const cells = existing === undefined ? [] : [...existing.cells];
+    while (cells.length <= address.cell) {
+      cells.push("");
+    }
+    cells[address.cell] = text;
+    const typed: TableLine = { kind: "row", cells };
+    const split = splitCellAt(typed, address.cell, offset);
+    if (split === typed) {
+      return false;
+    }
+    write(placeLine(address, split));
+    return true;
+  }
+
+  function field(splittable: boolean) {
+    const input = (
       <input
+        ref={editor}
         aria-label="Conteúdo da célula"
         autoFocus
         value={text}
@@ -1820,6 +1875,10 @@ function TableGrid({
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
+            const at = event.currentTarget.selectionStart;
+            if (at !== null && splitAtCursor(at, true)) {
+              return;
+            }
             commit();
           }
           if (event.key === "Escape") {
@@ -1830,11 +1889,42 @@ function TableGrid({
         className="border-accent bg-background rounded-sm border px-2 py-1 font-mono text-xs"
       />
     );
+    if (!splittable) {
+      return input;
+    }
+    return (
+      <span className="flex min-w-0 items-center gap-1.5">
+        {input}
+        <button
+          type="button"
+          /*
+           * Out of the tab order on purpose. Tabbing to it would blur the
+           * field, and a blur is the end of an edit: the button would be
+           * reached with nothing left to cut. The keyboard has Enter, which is
+           * the same cut without leaving the field.
+           */
+          tabIndex={-1}
+          // Without this the press blurs the field, which commits the edit and
+          // unmounts the button before its own click ever lands.
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            const at = editor.current?.selectionStart;
+            if (at !== undefined && at !== null) {
+              splitAtCursor(at, false);
+            }
+          }}
+          title="Parte a célula em duas onde está o cursor (Enter faz o mesmo)"
+          className="border-rule text-faint hover:border-foreground hover:text-foreground rounded-sm border border-dashed px-2 py-1 font-mono text-[11px] transition-colors"
+        >
+          dividir
+        </button>
+      </span>
+    );
   }
 
   function cell(line: TableLine & { kind: "row" }, address: CellAddress) {
     if (sameAddress(editing, address)) {
-      return field();
+      return field(true);
     }
     const value = line.cells[address.cell];
     if (value === undefined) {
@@ -1850,38 +1940,18 @@ function TableGrid({
         </button>
       );
     }
-    // A row of one cell is the flattened case wherever it appears, so its
-    // spaces are offered as boundaries even inside a section that has columns.
-    const alone = line.cells.length === 1;
     return (
       <span className={CHIP}>
-        {alone ? (
-          <SplitWords
-            cell={value}
-            onEdit={() => open(address, value)}
-            onSplit={(space) =>
-              write(
-                replaceLine(
-                  table,
-                  address.section,
-                  address.line,
-                  splitCellAtSpace(line, address.cell, space),
-                ),
-              )
-            }
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={() => open(address, value)}
-            title="Corrigir esta célula"
-            className={`min-w-0 text-left font-mono text-xs break-words ${
-              value === "" ? "text-faint" : ""
-            }`}
-          >
-            {value === "" ? "vazia" : value}
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => open(address, value)}
+          title="Corrigir esta célula, ou parti-la em duas"
+          className={`min-w-0 text-left font-mono text-xs break-words ${
+            value === "" ? "text-faint" : ""
+          }`}
+        >
+          {value === "" ? "vazia" : value}
+        </button>
         <RemoveCell
           label={value === "" ? "Remover a célula vazia" : `Remover ${value}`}
           onClick={() =>
@@ -1935,7 +2005,7 @@ function TableGrid({
                           line: lineIndex,
                           cell: TITLE_CELL,
                         }) ? (
-                          field()
+                          field(false)
                         ) : (
                           <span className={`${CHIP} w-fit border-dashed`}>
                             <button
@@ -2008,85 +2078,21 @@ function TableGrid({
                 + coluna
               </button>
             </div>
-            {typing ? field() : newRow(sectionIndex, section.length)}
+            {typing ? field(true) : newRow(sectionIndex, section.length)}
           </div>
         );
       })}
 
       {table.length === 0 &&
         (sameAddress(editing, { section: 0, line: 0, cell: 0 })
-          ? field()
+          ? field(true)
           : newRow(0, 0))}
 
       <span className="text-faint text-xs leading-relaxed">
-        Cada célula é uma coluna do livro. Clique entre duas palavras para
-        separar as colunas.
+        Cada célula é uma coluna do livro. Clique em uma para corrigi-la; com o
+        cursor onde a próxima coluna começa, Enter parte a célula em duas.
       </span>
     </div>
-  );
-}
-
-/**
- * The words of a full-width line, with its spaces as targets.
- *
- * A line that arrived without any column may be a table the extractor could
- * not split. Clicking the space where the second column starts is how it
- * becomes a table again, without anyone typing a separator.
- */
-function SplitWords({
-  cell,
-  onEdit,
-  onSplit,
-}: {
-  cell: string;
-  onEdit: () => void;
-  onSplit: (space: number) => void;
-}) {
-  const words = cell.split(/\s+/).filter((word) => word.length > 0);
-  if (words.length < 2) {
-    return (
-      <button
-        type="button"
-        onClick={onEdit}
-        title="Corrigir esta célula"
-        className={`min-w-0 text-left font-mono text-xs break-words ${
-          cell === "" ? "text-faint" : ""
-        }`}
-      >
-        {cell === "" ? "vazia" : cell}
-      </button>
-    );
-  }
-  return (
-    // The group is the line: hovering anywhere on it brings the cuts out.
-    <span className="group/line flex flex-wrap items-center">
-      {words.map((word, index) => (
-        <Fragment key={index}>
-          {index > 0 && (
-            <button
-              type="button"
-              onClick={() => onSplit(index - 1)}
-              aria-label={`Separar em duas colunas entre ${words[index - 1]} e ${word}`}
-              title="Separar em duas colunas aqui"
-              className="group/gap flex w-[7px] shrink-0 cursor-pointer items-center justify-center self-stretch outline-none"
-            >
-              <span
-                aria-hidden
-                className="bg-foreground/40 group-hover/gap:bg-accent group-focus-visible/gap:bg-accent h-1 w-px rounded-full opacity-0 transition-all group-hover/gap:h-4 group-hover/gap:rounded-none group-hover/gap:opacity-100 group-hover/line:opacity-100 group-focus-visible/gap:h-4 group-focus-visible/gap:rounded-none group-focus-visible/gap:opacity-100"
-              />
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onEdit}
-            title="Corrigir esta célula"
-            className="font-mono text-xs break-words"
-          >
-            {word}
-          </button>
-        </Fragment>
-      ))}
-    </span>
   );
 }
 
