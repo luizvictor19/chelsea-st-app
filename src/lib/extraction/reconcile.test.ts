@@ -4,6 +4,15 @@ import { describe, test } from "node:test";
 import { MARGIN_GROUP_Y_TOLERANCE } from "./constants.ts";
 import { reconcilePoints, type PageReadings } from "./reconcile.ts";
 
+/**
+ * A range wide enough to hold the numbers these cases invent, not a book's.
+ *
+ * Deliberately open at the floor: several cases below place a stray small
+ * number on a page to prove the sequence rule removes it, and a real book's
+ * floor would remove it first and prove nothing. Where a case is about a book's
+ * own range it says so on the spot. See scripts/smoke-reconciliation.ts for
+ * what a fixed range that pretends to be a book's costs.
+ */
 const RANGE = { first: 1, last: 128 };
 /** Enough crops saw it that the assignment gate lets it through on its own. */
 const CONFIDENT = 3;
@@ -435,5 +444,179 @@ describe("reconcilePoints, across the batch", () => {
       p059: [59],
       continuation: [],
     });
+  });
+});
+
+describe("the point a page opens in", () => {
+  /** Where the page's content begins, before its own first number is printed. */
+  function openingById(result: ReturnType<typeof reconcilePoints>) {
+    return Object.fromEntries(result.pages.map((p) => [p.id, p.openingPoint]));
+  }
+
+  test("a page opens in the last point of the page before it", () => {
+    // What is printed above a page's first margin number was printed under the
+    // last number of the page before, and belongs there. A page that carries
+    // numbers of its own still has that opening, which is why this is not the
+    // same as inheritedPoint.
+    const result = reconcilePoints(
+      [
+        page("first", 0, [
+          [53, 250, CONFIDENT],
+          [54, 1200, CONFIDENT],
+        ]),
+        page("second", 1, [[55, 800, CONFIDENT]]),
+      ],
+      RANGE,
+    );
+    assert.deepEqual(openingById(result), { first: null, second: 54 });
+  });
+
+  test("an unnumbered page opens in the point it inherits", () => {
+    const result = reconcilePoints(
+      [page("numbered", 0, [[53, 250, CONFIDENT]]), page("carried", 1, [])],
+      RANGE,
+    );
+    assert.deepEqual(openingById(result), { numbered: null, carried: 53 });
+    const carried = result.pages.find((p) => p.id === "carried");
+    assert.equal(
+      carried?.inheritedPoint,
+      53,
+      "a page with no number of its own still inherits, exactly as before",
+    );
+  });
+
+  test("the page carrying the book's first point opens in it", () => {
+    // Nothing in the book precedes point 1, so the space above it on its own
+    // page belongs to it. Left null, the first page of a book could never be
+    // confirmed while anything at all was printed above its first number.
+    const result = reconcilePoints(
+      [
+        page("first", 0, [
+          [1, 256, CONFIDENT],
+          [2, 494, CONFIDENT],
+        ]),
+      ],
+      { first: 1, last: 52 },
+    );
+    assert.deepEqual(openingById(result), { first: 1 });
+  });
+
+  test("a page that merely opens an upload has no point above it", () => {
+    // Book 2 starts at 53. A batch beginning at 116 has a point before it, and
+    // this batch is not it, so the question stays a question.
+    const result = reconcilePoints([page("p116", 0, [[116, 663, CONFIDENT]])], {
+      first: 53,
+      last: 128,
+    });
+    assert.deepEqual(openingById(result), { p116: null });
+  });
+
+  test("a numbered page keeps inheritedPoint null", () => {
+    // inheritedPoint answers "which point is this whole page", and a page that
+    // carries numbers is not any one point. Only the opening changes.
+    const result = reconcilePoints(
+      [
+        page("first", 0, [[53, 250, CONFIDENT]]),
+        page("second", 1, [[54, 250, CONFIDENT]]),
+      ],
+      RANGE,
+    );
+    const second = result.pages.find((p) => p.id === "second");
+    assert.equal(second?.inheritedPoint, null);
+    assert.equal(second?.openingPoint, 53);
+  });
+});
+
+describe("what corroborates a reading", () => {
+  test("the printed order corroborates a page nobody read twice", () => {
+    // The first page of book 1: three numbers down the margin, each seen by one
+    // crop only. Nothing else in the batch anchors them — the book starts at 1,
+    // so no floor bounds the first, and no number is placed to bound the last.
+    // What is left is the page itself: three positions, one candidate each,
+    // increasing in the order they are printed, which is how the book is set.
+    const result = reconcilePoints(
+      [
+        page("lesson-1", 0, [
+          [1, 256, ONCE],
+          [2, 494, ONCE],
+          [3, 1208, ONCE],
+        ]),
+      ],
+      { first: 1, last: 52 },
+    );
+    assert.deepEqual(pointsById(result), { "lesson-1": [1, 2, 3] });
+    assert.deepEqual(disputesOf(result, "lesson-1"), []);
+  });
+
+  test("one number on its own is not an order, and still asks", () => {
+    // A single reading no crop confirmed is the shape noise takes. A page with
+    // one position has no printed order to corroborate anything, so nothing
+    // changes for it: it goes to the teacher exactly as before.
+    const result = reconcilePoints([page("p074", 0, [[74, 538, ONCE]])], {
+      first: 53,
+      last: 128,
+    });
+    assert.deepEqual(pointsById(result), { p074: [] });
+    assert.deepEqual(disputesOf(result, "p074"), [[74]]);
+  });
+
+  test("a position still holding two readings is not a chain", () => {
+    // nopoint-1 of book 2 carries no number at all, and the crops returned 58
+    // and 59 a pixel apart. That is one position with two candidates, not two
+    // positions increasing, and the order says nothing about it.
+    const result = reconcilePoints(
+      [
+        page("nopoint-1", 0, [
+          [58, 1102, ONCE],
+          [59, 1103, ONCE],
+        ]),
+      ],
+      { first: 53, last: 128 },
+    );
+    assert.deepEqual(pointsById(result), { "nopoint-1": [] });
+    assert.deepEqual(disputesOf(result, "nopoint-1"), [[58, 59]]);
+  });
+
+  test("a run of three leaves no room for another page to hold the middle", () => {
+    // The page reads 70, 71, 72, each seen once, which is a chain. Another page
+    // reads 71 alone, and three crops saw it. Both cannot be right, and the
+    // printed order settles it against the confident reading: numbers run
+    // consecutively down a page, so a page carrying 70 and 72 carries the 71
+    // between them, and there is no page left for the other one to be.
+    //
+    // Worth pinning because it is the one place this rule outranks agreement.
+    // It does not outrank it by preference — the chain places 70 and 72, which
+    // nothing contests, and the interval rule then finds no room for a 71
+    // anywhere else.
+    const result = reconcilePoints(
+      [
+        page("chain", 0, [
+          [70, 200, ONCE],
+          [71, 600, ONCE],
+          [72, 1000, ONCE],
+        ]),
+        page("rival", 1, [[71, 300, CONFIDENT]]),
+      ],
+      { first: 53, last: 128 },
+    );
+    assert.deepEqual(pointsById(result), { chain: [70, 71, 72], rival: [] });
+  });
+
+  test("readings that fall down the page are not a printed order", () => {
+    // 70 above 60 is not how the book is set. No increasing run exists, so the
+    // monotonicity pass has nothing to delete and both survive as they are —
+    // two positions, one candidate each, going the wrong way. The order says
+    // this page was misread, not that these are its numbers.
+    const result = reconcilePoints(
+      [
+        page("falling", 0, [
+          [70, 200, ONCE],
+          [60, 900, ONCE],
+        ]),
+      ],
+      { first: 53, last: 128 },
+    );
+    assert.deepEqual(pointsById(result), { falling: [] });
+    assert.deepEqual(disputesOf(result, "falling"), [[70], [60]]);
   });
 });

@@ -1,6 +1,10 @@
 import { boxes } from "./boxes.ts";
 import { classify, type ExtractedBlock } from "./classify.ts";
-import { BOX_PAGE_SEGMENTATION, TABLE_HEIGHT } from "./constants.ts";
+import {
+  BOX_PAGE_SEGMENTATION,
+  POINT_LABEL_REACH,
+  TABLE_HEIGHT,
+} from "./constants.ts";
 import { explanationLines, inkLines } from "./explanation-lines.ts";
 import { boxLeft, crop, normalise, resize, shadedMask } from "./image.ts";
 import { findMarkers } from "./markers.ts";
@@ -162,12 +166,16 @@ export type ResolvedPage = {
   readonly placements: readonly Placement[];
   /** Where a page with no number of its own belongs. */
   readonly inheritedPoint: number | null;
+  /** The point in force as the page begins, which owns what is above its first number. */
+  readonly openingPoint: number | null;
   /** The page this is a second scan of. */
   readonly duplicateOf: string | null;
   /** Positions the batch could not settle, for the teacher to choose. */
   readonly disputes: readonly { y: number; candidates: readonly number[] }[];
   /** The lesson this page belongs to, inherited when it carries no header. */
   readonly lessonNumber: number | null;
+  /** Whether that lesson starts on this page rather than being carried into it. */
+  readonly opensLesson: boolean;
 };
 
 /**
@@ -212,9 +220,11 @@ export function resolveBatch(
       points: page.points,
       placements: page.placements,
       inheritedPoint: page.inheritedPoint,
+      openingPoint: page.openingPoint,
       duplicateOf: page.duplicateOf,
       disputes: page.disputes,
       lessonNumber: lastLesson,
+      opensLesson: extraction.lessonHeaders.length > 0,
     });
   }
 
@@ -227,9 +237,11 @@ export function resolveBatch(
         points: [],
         placements: [],
         inheritedPoint: null,
+        openingPoint: null,
         duplicateOf: null,
         disputes: [],
         lessonNumber: null,
+        opensLesson: false,
       });
     }
   }
@@ -257,25 +269,98 @@ export function isRefused(page: ExtractedPage): boolean {
 }
 
 /**
- * Which of a page's numbers a block belongs to.
+ * Which point a block belongs to, or null when the page cannot say.
  *
- * A spread carries two numbers, and the book's rule is that a block belongs to
- * the last number printed above it. Without this a two-page spread would put
- * everything on its first point and leave the second empty.
+ * The book's rule is that a block belongs to the last number printed above it,
+ * and that rule is right about the middle of a page and wrong at both ends.
+ *
+ * At the top of a block, because the margin number is not printed above the
+ * panel it names — it sits beside the panel's first line, up to POINT_LABEL_REACH
+ * pixels inside it. Read literally, "the last number above" gave every one of
+ * those panels to the number before, which on a spread means the whole of the
+ * second point's opening panel filed under the first.
+ *
+ * At the top of a page, because content printed above a page's first number was
+ * printed under the last number of the page before, and belongs there. Falling
+ * back to this page's earliest number filed it under a point it was never
+ * printed beneath.
+ *
+ * Null is an answer, and the caller has to carry it: it means nothing on the
+ * page decides, and the teacher has to. That happens when the page opens the
+ * upload, so there is no point before it, and when a number is missing between
+ * the point the page opens in and the page's own first number — the missing one
+ * was printed somewhere, and a block above the first number may belong to
+ * either. Choosing there is the misfiling this rule exists to stop.
+ *
+ * @param openingPoint the point in force as the page begins, from the batch
  */
 export function pointForBlock(
   placements: readonly Placement[],
   blockTop: number,
+  openingPoint: number | null,
 ): number | null {
-  let chosen: Placement | null = null;
+  // A number printed inside the block's top band names that block. Nearest
+  // first, so two numbers close together cannot be decided by argument order.
+  let label: Placement | null = null;
   for (const placement of placements) {
-    if (placement.y <= blockTop) {
-      chosen = placement;
+    const below = placement.y - blockTop;
+    if (below >= 0 && below < POINT_LABEL_REACH) {
+      if (label === null || placement.y < label.y) {
+        label = placement;
+      }
     }
   }
-  // A block above the first number still belongs to the page, so it falls to the
-  // earliest number rather than to nothing.
-  return (chosen ?? placements[0] ?? null)?.number ?? null;
+  if (label !== null) {
+    return label.number;
+  }
+
+  let above: Placement | null = null;
+  for (const placement of placements) {
+    if (placement.y <= blockTop && (above === null || placement.y > above.y)) {
+      above = placement;
+    }
+  }
+  if (above !== null) {
+    return above.number;
+  }
+
+  // Above every number the page carries.
+  if (openingPoint === null) {
+    return null;
+  }
+  let first: Placement | null = null;
+  for (const placement of placements) {
+    if (first === null || placement.y < first.y) {
+      first = placement;
+    }
+  }
+  // The page opens in its own first number when nothing in the book precedes
+  // it, and then there is no gap to worry about.
+  if (first !== null && first.number !== openingPoint) {
+    // Points run consecutively, so a page whose first number is not the one
+    // after the point it opens in has a number nobody read between the two.
+    if (first.number !== openingPoint + 1) {
+      return null;
+    }
+  }
+  return openingPoint;
+}
+
+/**
+ * The blocks of a page that nothing on it can file.
+ *
+ * Asked before anything is written, because a page holding one of these is a
+ * page with a question outstanding, and confirming it would file that block
+ * under whichever number happened to be nearest. Empty is the ordinary answer.
+ */
+export function unplacedBlocks<Block extends { readonly top: number }>(
+  blocks: readonly Block[],
+  placements: readonly Placement[],
+  openingPoint: number | null,
+): readonly Block[] {
+  return blocks.filter(
+    (block) => pointForBlock(placements, block.top, openingPoint) === null,
+  );
 }
 
 /** The blocks of a page, review-first, as the review screen shows them. */

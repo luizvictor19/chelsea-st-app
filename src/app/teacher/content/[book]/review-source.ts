@@ -6,6 +6,7 @@ import type { PageState } from "../../../../lib/content/review-navigation.ts";
 import type { BlockKind } from "../../../../lib/extraction/classify.ts";
 import {
   isRefused,
+  pointForBlock,
   reviewOrder,
   type ResolvedPage,
 } from "../../../../lib/extraction/pipeline.ts";
@@ -50,8 +51,12 @@ export type ReviewSourcePage = {
   readonly points: readonly number[];
   readonly placements: readonly Placement[];
   readonly inheritedPoint: number | null;
+  /** The point in force as the page begins, which owns what is above its first number. */
+  readonly openingPoint: number | null;
   readonly duplicateOf: string | null;
   readonly lessonNumber: number | null;
+  /** Whether that lesson starts here, which the point above it is not in. */
+  readonly opensLesson: boolean;
   readonly disputes: readonly {
     readonly y: number;
     readonly candidates: readonly number[];
@@ -86,8 +91,10 @@ export function fromResolved(
     points: page.points,
     placements: page.placements,
     inheritedPoint: page.inheritedPoint,
+    openingPoint: page.openingPoint,
     duplicateOf: page.duplicateOf,
     lessonNumber: page.lessonNumber,
+    opensLesson: page.opensLesson,
     disputes: page.disputes,
     unsupported: page.extraction.unsupported,
     refused: isRefused(page.extraction),
@@ -121,8 +128,10 @@ export function fromStored(page: StoredPage): ReviewSourcePage {
     points: page.points,
     placements: page.placements,
     inheritedPoint: page.inheritedPoint,
+    openingPoint: page.openingPoint,
     duplicateOf: page.duplicateOf,
     lessonNumber: page.lessonNumber,
+    opensLesson: page.opensLesson,
     disputes: page.disputes,
     unsupported: page.unsupported,
     refused: page.refused,
@@ -154,8 +163,10 @@ export function toStored(
     // Kept so a restored spread can still split its blocks by height.
     placements: page.placements,
     inheritedPoint: page.inheritedPoint,
+    openingPoint: page.openingPoint,
     duplicateOf: page.duplicateOf,
     lessonNumber: page.lessonNumber,
+    opensLesson: page.opensLesson,
     disputes: page.disputes,
     unsupported: page.unsupported,
     refused: page.refused,
@@ -165,12 +176,112 @@ export function toStored(
   };
 }
 
-/** The points a page will be written to, before the teacher answers anything. */
-export function targetsOf(page: ReviewSourcePage): readonly number[] {
+/**
+ * The point this page opens in, when something printed above its first number
+ * is actually filed there.
+ *
+ * A page that carries numbers still writes outside them: what sits above its
+ * first number was printed under the last number of the page before. Naming
+ * that point matters twice over — the heading would otherwise say one point
+ * while two are written, and the check for "this point already holds content"
+ * would miss the one belonging to the page before and replace its work.
+ */
+function openingTarget(page: ReviewSourcePage): readonly number[] {
+  if (page.openingPoint === null || page.placements.length === 0) {
+    return [];
+  }
+  const writesThere = page.blocks.some(
+    (block) =>
+      pointForBlock(page.placements, block.top, page.openingPoint) ===
+      page.openingPoint,
+  );
+  return writesThere ? [page.openingPoint] : [];
+}
+
+/** Every number the page files a block under, as the batch settled it. */
+function settledNumbers(page: ReviewSourcePage): readonly number[] {
+  return [...new Set([...openingTarget(page), ...page.points])].sort(
+    (a, b) => a - b,
+  );
+}
+
+/**
+ * The points this page is the author of, which are the only ones it may replace.
+ *
+ * Narrower than targetsOf on purpose. A page writes to the point it opens in,
+ * but it did not write that point — the page before did — so confirming this
+ * one adds to it and never clears it. Replacing there would delete the previous
+ * page's work on a point this one only contributed a panel to.
+ */
+export function authoredPoints(page: ReviewSourcePage): readonly number[] {
   if (page.points.length > 0) {
     return page.points;
   }
   return page.inheritedPoint === null ? [] : [page.inheritedPoint];
+}
+
+/** The points a page will be written to, before the teacher answers anything. */
+export function targetsOf(page: ReviewSourcePage): readonly number[] {
+  if (page.points.length > 0) {
+    return settledNumbers(page);
+  }
+  return page.inheritedPoint === null ? [] : [page.inheritedPoint];
+}
+
+/**
+ * Whether this page's lesson stops short of the point it opens in.
+ *
+ * Only when the page starts the lesson itself. Then the header is printed
+ * between the point above and the page's own numbers, and the point above is on
+ * the other side of it. A page that merely carried a lesson in from an earlier
+ * page of the same upload has no boundary on it, and its lesson covers the
+ * point it opens in exactly as it covers its own.
+ *
+ * A page carrying no number of its own is not this case at all: it opens in the
+ * point it inherits, that point is the whole page, and the page's lesson is its
+ * lesson. Written the other way round, this threw away the header for every
+ * continuation page in an upload.
+ */
+function opensAfterItsPoint(
+  page: ReviewSourcePage,
+  pointNumber: number,
+): boolean {
+  return (
+    page.opensLesson &&
+    page.points.length > 0 &&
+    page.openingPoint !== null &&
+    pointNumber === page.openingPoint
+  );
+}
+
+/**
+ * The LESSON header of this page that may speak for one of its points.
+ *
+ * Null does not mean "no lesson". It means this page cannot answer, so the
+ * lessons the book already holds are asked next. Reading the header across a
+ * boundary filed the last point of one lesson under the next — silently,
+ * because a point carries no evidence of which lesson it should have had.
+ */
+export function headerFor(
+  page: ReviewSourcePage,
+  pointNumber: number,
+): number | null {
+  return opensAfterItsPoint(page, pointNumber) ? null : page.lessonNumber;
+}
+
+/**
+ * Whether only the page before can say which lesson this point is in.
+ *
+ * The teacher's answer on this screen is about the lesson this page opens, so
+ * it must not be spent on a point that is in the one before. When this is true
+ * and the book does not already know the point, the page waits for the page
+ * before to be confirmed rather than guessing.
+ */
+export function lessonIsThePageBefores(
+  page: ReviewSourcePage,
+  pointNumber: number,
+): boolean {
+  return opensAfterItsPoint(page, pointNumber);
 }
 
 /** The candidates the batch could not choose between, as one sorted list. */
@@ -197,7 +308,7 @@ export function writtenNumbers(
   if (continuation) {
     return target === null ? [] : [target];
   }
-  const settled = page.points;
+  const settled = settledNumbers(page);
   if (target === null || settled.includes(target)) {
     return settled;
   }

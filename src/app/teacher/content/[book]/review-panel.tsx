@@ -35,7 +35,7 @@ import {
   type TableLine,
   type TableSection,
 } from "@/lib/extraction/grammar-table";
-import { pointForBlock } from "@/lib/extraction/pipeline";
+import { pointForBlock, unplacedBlocks } from "@/lib/extraction/pipeline";
 import type { Placement } from "@/lib/extraction/reconcile";
 import { joinTerms, splitTerms } from "@/lib/extraction/terms";
 
@@ -49,7 +49,10 @@ import type { PageFailure } from "./book-workbench";
 import { CropCanvas } from "./crop-canvas";
 import { PageRail, type RailPage } from "./page-rail";
 import {
+  authoredPoints,
   disputeCandidates,
+  headerFor,
+  lessonIsThePageBefores,
   headingFor,
   summaryFor,
   targetsOf,
@@ -213,9 +216,19 @@ function lessonOf(
   lessons: readonly LessonRange[],
   draft: PageDraft,
 ): number | null {
-  const known = lessonForPage(page.lessonNumber, pointNumber, lessons);
+  const known = lessonForPage(
+    headerFor(page, pointNumber),
+    pointNumber,
+    lessons,
+  );
   if (known !== null) {
     return known;
+  }
+  // The teacher is answering about the lesson this page opens. Spending that
+  // answer on a point that is in the lesson before is the same misfiling the
+  // header was refused for, one step later.
+  if (lessonIsThePageBefores(page, pointNumber)) {
+    return null;
   }
   const typed = Number(draft.typedLesson);
   return draft.typedLesson.trim() !== "" && Number.isInteger(typed) && typed > 0
@@ -236,17 +249,34 @@ function asksForLesson(
   lessons: readonly LessonRange[],
 ): boolean {
   return targets.some(
-    (number) => lessonForPage(page.lessonNumber, number, lessons) === null,
+    (number) =>
+      !lessonIsThePageBefores(page, number) &&
+      lessonForPage(headerFor(page, number), number, lessons) === null,
   );
 }
 
-/** The points this page would write to, as the draft currently stands. */
+/**
+ * The points this page would write to, as the draft currently stands.
+ *
+ * Every one of them, including the point the page opens in. This is what the
+ * lesson question and the confirm button are computed from, so a point left out
+ * here is a point written with a lesson nobody was asked for: measured, that
+ * wrote the page's own number, then failed on the opening point with a message
+ * asking for a lesson the screen was not offering a field for, leaving the page
+ * half written.
+ */
 function targetPoints(page: ReviewSourcePage, draft: PageDraft): number[] {
   if (draft.continuation) {
     const target = chosenPoint(questionOf(page), draft);
     return target === null ? [] : [target];
   }
-  return placementsFor(page, draft).map((placement) => placement.number);
+  const placements = placementsFor(page, draft);
+  const filed = draft.blocks
+    .map((block) => pointForBlock(placements, block.top, page.openingPoint))
+    .filter((number): number is number => number !== null);
+  return [
+    ...new Set([...placements.map((placement) => placement.number), ...filed]),
+  ].sort((a, b) => a - b);
 }
 
 function placementsFor(
@@ -294,7 +324,20 @@ function stateOf(page: ReviewSourcePage, draft: PageDraft): PageState {
   if (draft.saved) {
     return "saved";
   }
-  return asksForPoint(questionOf(page)) ? "needs-answer" : "waiting";
+  if (asksForPoint(questionOf(page))) {
+    return "needs-answer";
+  }
+  // A continuation writes everything to one point and asks nothing of the
+  // heights, so only a page being split by its own numbers can have a block
+  // with nowhere to go.
+  if (
+    !draft.continuation &&
+    unplacedBlocks(draft.blocks, placementsFor(page, draft), page.openingPoint)
+      .length > 0
+  ) {
+    return "needs-answer";
+  }
+  return "waiting";
 }
 
 function storedBlocks(draft: PageDraft) {
@@ -546,7 +589,10 @@ export function ReviewPanel({
         setDrafts((current) => {
           const next = { ...current };
           for (const page of pages) {
-            const targets = targetsOf(page);
+            // What may be replaced, not what is written: the point a page opens
+            // in belongs to the page before, and this flag only ever decides
+            // whether a point is cleared first.
+            const targets = authoredPoints(page);
             const draft = next[page.id];
             if (
               draft !== undefined &&
@@ -680,8 +726,11 @@ export function ReviewPanel({
         needsReview: false,
         crop: null,
         // It belongs where it was inserted, so a spread puts it under the same
-        // number as the block it follows. Nothing before it means the top of
-        // the page, which is the first number.
+        // number as the block it follows. The fallback is unreachable — the
+        // button that calls this sits on a block, so there is always one at
+        // `index` — and it is written as zero deliberately: a block at the very
+        // top of a page is above every number on it, and pointForBlock will say
+        // it belongs to the page before rather than guess.
         top: blocks[index]?.top ?? 0,
       });
       return next;
@@ -826,6 +875,24 @@ export function ReviewPanel({
       return;
     }
 
+    // A block the page cannot file stops the whole page. Writing the rest and
+    // leaving that one behind would lose it silently, and filing it under the
+    // nearest number is the guess this rule exists to refuse.
+    const unplaced = unplacedBlocks(
+      draft.blocks,
+      placements,
+      page.openingPoint,
+    );
+    if (unplaced.length > 0) {
+      update(id, {
+        error:
+          `${unplaced.length === 1 ? "Um bloco" : `${unplaced.length} blocos`} desta` +
+          " página pertencem ao último ponto da página anterior, que não está" +
+          " neste envio. Suba a página anterior junto com esta.",
+      });
+      return;
+    }
+
     const byPoint = new Map<number, BlockDraft[]>();
     // Every number the page carries is written, even when nothing landed under
     // it, so the point still counts as covered.
@@ -833,17 +900,32 @@ export function ReviewPanel({
       byPoint.set(placement.number, []);
     }
     // Every block knows where it sat, including one added by hand and one from
-    // a restored batch, so a spread splits the same way in both.
+    // a restored batch, so a spread splits the same way in both. A block above
+    // every number goes to the point the page opens in, which is not one of the
+    // page's own, so its bucket may not exist yet.
     for (const block of draft.blocks) {
-      const target =
-        pointForBlock(placements, block.top) ?? placements[0].number;
-      byPoint.get(target)?.push(block);
+      const target = pointForBlock(placements, block.top, page.openingPoint);
+      if (target === null) {
+        continue;
+      }
+      const bucket = byPoint.get(target);
+      if (bucket === undefined) {
+        byPoint.set(target, [block]);
+      } else {
+        bucket.push(block);
+      }
     }
 
     const written: number[] = [];
+    const authored = authoredPoints(page);
     for (const [pointNumber, blocks] of byPoint) {
+      // Never the point the page opens in: the page before wrote that one, and
+      // this page only adds a panel to it. Clearing it here would delete work
+      // this page did not do.
       const wholePoint =
-        draft.alreadyInDatabase && !clearedPoints.current.has(pointNumber);
+        draft.alreadyInDatabase &&
+        authored.includes(pointNumber) &&
+        !clearedPoints.current.has(pointNumber);
       const result = await confirmPoint({
         bookId,
         bookPosition,
@@ -1062,6 +1144,31 @@ function PageWork({
   // while a number is being typed into it.
   const asking = asksForPoint(question) && !draft.saved;
   const targets = targetPoints(page, draft);
+  /*
+   * Blocks the page cannot file, which is a question of its own.
+   *
+   * Content printed above a page's first number belongs to the point before,
+   * and when that point is not in this upload — the page opens the batch, or a
+   * number between the two was never read — nothing on the page says where it
+   * goes. The page is held rather than written, because writing the rest and
+   * dropping this is the silent loss, and filing it under the nearest number is
+   * the guess.
+   */
+  const placements = placementsFor(page, draft);
+  const unplaced = draft.continuation
+    ? []
+    : unplacedBlocks(draft.blocks, placements, page.openingPoint);
+  /*
+   * Points this page writes to whose lesson only the page before can give.
+   *
+   * The teacher's answer on this screen is about the lesson this page opens, so
+   * it is not offered for these, and the page waits instead of guessing.
+   */
+  const lessonPending = targets.filter(
+    (number) =>
+      lessonIsThePageBefores(page, number) &&
+      lessonOf(page, number, lessons, draft) === null,
+  );
   const askingLesson = asksForLesson(page, targets, lessons) && !draft.saved;
   // Nothing is confirmed without both answers. A point written with no lesson
   // is a hole nobody sees until the lesson screen exists.
@@ -1078,6 +1185,8 @@ function PageWork({
   const ready =
     canConfirm(question, draft) &&
     targets.length > 0 &&
+    unplaced.length === 0 &&
+    lessonPending.length === 0 &&
     targets.every((number) => lessonOf(page, number, lessons, draft) !== null);
   const writable =
     page.duplicateOf === null && page.unsupported === null && !page.refused;
@@ -1206,6 +1315,32 @@ function PageWork({
 
         {asking && (
           <PointQuestion page={page} draft={draft} onUpdate={onUpdate} />
+        )}
+
+        {lessonPending.length > 0 && writable && !draft.saved && (
+          <p className="border-accent max-w-[80ch] rounded-sm border px-4 py-3.5 text-sm leading-relaxed">
+            {lessonPending.length === 1
+              ? `O ponto ${lessonPending[0]} está`
+              : `Os pontos ${lessonPending.join(", ")} estão`}{" "}
+            na página anterior, do outro lado do cabeçalho desta, e portanto na
+            lição anterior — que ainda não está gravada. Confirme a página
+            anterior primeiro. Nada desta é gravado enquanto isso.
+          </p>
+        )}
+
+        {unplaced.length > 0 && writable && !draft.saved && (
+          <p className="border-accent max-w-[80ch] rounded-sm border px-4 py-3.5 text-sm leading-relaxed">
+            {unplaced.length === 1
+              ? "Um bloco desta página está impresso"
+              : `${unplaced.length} blocos desta página estão impressos`}{" "}
+            acima do primeiro número dela, então pertencem ao último ponto da
+            página anterior — e essa página não está neste envio
+            {page.openingPoint === null
+              ? ", porque esta é a primeira dele"
+              : `, ou o número entre o ponto ${page.openingPoint} e o ${placements[0]?.number} não foi lido`}
+            . Suba a página anterior junto com esta e confirme de novo. Nada
+            desta página é gravado enquanto isso.
+          </p>
         )}
 
         {askingLesson && writable && (

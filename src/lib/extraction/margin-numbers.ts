@@ -31,9 +31,12 @@ export type MarginReading = MarginNumber & {
 /**
  * The full detail of what the margin crops saw, agreement count included.
  *
- * Kept separate from marginNumbers because the count is a diagnostic, not yet a
- * decision: no rule uses it until there is a measurement saying it separates
- * signal from noise.
+ * Kept separate from marginNumbers because the count is not part of reading a
+ * number, it is evidence about the reading. The reconciler uses it as the first
+ * of its four ways to corroborate one, against MARGIN_AGREEMENT, and that
+ * constant carries the measurement over both books that says it separates
+ * signal from noise. Before that measurement existed this comment claimed no
+ * rule used the count, while reconcile.ts was already gating on it.
  */
 export async function marginReadings(
   image: Bitmap,

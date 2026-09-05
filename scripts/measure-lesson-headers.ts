@@ -21,8 +21,10 @@ import { marginReadings } from "../src/lib/extraction/margin-numbers.ts";
 import { findMarkers } from "../src/lib/extraction/markers.ts";
 import { createTesseractReader } from "../src/lib/extraction/ocr-tesseract.ts";
 import type { Bitmap } from "../src/lib/extraction/types.ts";
+import { fixturesOption } from "./books.ts";
 
-const FIXTURES = "fixtures/real";
+/** Which book's pages to read, and why that is never left implicit: books.ts. */
+const FIXTURES = fixturesOption();
 
 function decode(path: string): Bitmap {
   const png = PNG.sync.read(readFileSync(path));
@@ -89,6 +91,10 @@ for (const file of readdirSync(FIXTURES)
       `números ${numbers.map((one) => `${one.value}@${one.y}`).join(" ")}`,
   );
 }
+
+// The worker holds the process open, so the summary printed and nothing
+// exited. Chaining this script after another one simply hung.
+await reader.close();
 
 console.log(
   `\n${pages} pages carry a LESSON header. ${below} of their own point numbers ` +
