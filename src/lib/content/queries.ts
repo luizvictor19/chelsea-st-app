@@ -45,19 +45,29 @@ export type BookSummary = {
   readonly progress: Progress;
   /** The highest point filled so far, which is where the teacher stopped. */
   readonly lastFilledPoint: number | null;
+  /** Every point of the book's range is filled. */
+  readonly complete: boolean;
 };
 
 export type BooksOverview = {
   readonly books: readonly BookSummary[];
   /**
-   * How many of the twelve have a range.
+   * How many books are finished, meaning every point of their range is filled.
    *
-   * Not the share of points filled across the course: that can only be counted
-   * once every book knows its own range, and reporting it earlier gives a
-   * percentage of the one book that happens to be configured.
+   * Not how many have a range. Typing a range takes ten seconds and says
+   * nothing about how much of the course is in the product, which is the only
+   * question this screen is asked.
    */
-  readonly configured: number;
+  readonly complete: number;
   readonly total: number;
+  /**
+   * The share of the whole course, or null while it cannot be counted.
+   *
+   * The denominator is the sum of the twelve ranges, so until every book has
+   * one there is no denominator: a percentage over the books that happen to be
+   * configured describes those books and pretends to describe the course.
+   */
+  readonly course: Progress | null;
 };
 
 export async function listBooks(): Promise<BooksOverview> {
@@ -93,15 +103,33 @@ export async function listBooks(): Promise<BooksOverview> {
       progress: progress(own, book.first_point, book.last_point),
       lastFilledPoint:
         filledNumbers.length === 0 ? null : Math.max(...filledNumbers),
+      complete: own.length > 0 && own.every((point) => point.filled),
     };
   });
 
+  const everyBookHasARange =
+    summaries.length > 0 &&
+    summaries.every(
+      (book) => book.firstPoint !== null && book.lastPoint !== null,
+    );
+  const filled = summaries.reduce((sum, book) => sum + book.progress.filled, 0);
+  const coursePoints = summaries.reduce(
+    (sum, book) => sum + book.progress.total,
+    0,
+  );
+
   return {
     books: summaries,
-    configured: summaries.filter(
-      (book) => book.firstPoint !== null && book.lastPoint !== null,
-    ).length,
+    complete: summaries.filter((book) => book.complete).length,
     total: summaries.length,
+    course: everyBookHasARange
+      ? {
+          filled,
+          total: coursePoints,
+          remaining: Math.max(0, coursePoints - filled),
+          fraction: coursePoints === 0 ? 0 : Math.min(1, filled / coursePoints),
+        }
+      : null,
   };
 }
 

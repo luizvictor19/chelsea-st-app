@@ -101,3 +101,34 @@ describe("a book that does not start at 1", () => {
 function range(from: number, to: number): number[] {
   return Array.from({ length: to - from + 1 }, (_, index) => from + index);
 }
+
+describe("what makes a book complete", () => {
+  test("every point of the range filled, and not merely having a range", () => {
+    // Typing a range takes ten seconds and says nothing about how much of the
+    // course is in the product, which is the only thing the index is asked.
+    const whole = pointsInRange(range(53, 128), 53, 128);
+    assert.equal(
+      whole.every((point) => point.filled),
+      true,
+    );
+
+    const nearly = pointsInRange(range(53, 127), 53, 128);
+    assert.equal(
+      nearly.every((point) => point.filled),
+      false,
+      "one point short is not complete",
+    );
+
+    const configuredOnly = pointsInRange([], 53, 128);
+    assert.equal(
+      configuredOnly.length > 0 && configuredOnly.every((p) => p.filled),
+      false,
+      "a range with nothing in it is not complete",
+    );
+  });
+
+  test("a book with no range is not complete either", () => {
+    const none = pointsInRange([], null, null);
+    assert.equal(none.length > 0 && none.every((p) => p.filled), false);
+  });
+});

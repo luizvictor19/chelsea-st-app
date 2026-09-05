@@ -12,10 +12,10 @@ export const metadata: Metadata = {
 const COURSE_BOOKS = 12;
 
 export default async function ContentIndexPage() {
-  const { books, configured, total } = await listBooks();
+  const { books, complete, total, course } = await listBooks();
 
   const expected = Math.max(total, COURSE_BOOKS);
-  const configuredPercent = Math.round((configured / expected) * 100);
+  const completePercent = Math.round((complete / expected) * 100);
   // The one book to do next: the first still missing its range.
   const nextToConfigure =
     books.find((book) => book.firstPoint === null || book.lastPoint === null)
@@ -35,9 +35,9 @@ export default async function ContentIndexPage() {
 
         <div className="flex flex-col gap-1.5 sm:w-80">
           <div className="flex items-baseline justify-between gap-3">
-            <span className="text-muted text-sm">Livros configurados</span>
+            <span className="text-muted text-sm">Livros completos</span>
             <span className="text-faint font-mono text-xs">
-              {configured} de {expected}
+              {complete} de {expected}
             </span>
           </div>
           <div
@@ -46,12 +46,23 @@ export default async function ContentIndexPage() {
           >
             <div
               className="bg-accent h-full"
-              style={{ width: `${configuredPercent}%` }}
+              style={{ width: `${completePercent}%` }}
             />
           </div>
-          <p className="text-faint text-xs leading-relaxed">
-            A porcentagem do curso só aparece quando os 12 tiverem faixa.
-          </p>
+          {course === null ? (
+            <p className="text-faint text-xs leading-relaxed">
+              A porcentagem do curso só aparece quando os 12 tiverem faixa: até
+              lá não existe denominador.
+            </p>
+          ) : (
+            <p className="text-faint text-xs leading-relaxed">
+              Curso inteiro:{" "}
+              <span className="text-muted font-mono">
+                {course.filled} de {course.total} pontos ·{" "}
+                {Math.round(course.fraction * 100)}%
+              </span>
+            </p>
+          )}
         </div>
       </header>
 
