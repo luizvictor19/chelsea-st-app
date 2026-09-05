@@ -1186,32 +1186,38 @@ function BlockCard({
         </div>
       </div>
 
-      {flagged ? (
+      {/*
+        The crop is a column only when there is a crop. Half the width spent on
+        a sentence saying the image is gone is half the width taken from the
+        grid, which is where the work happens.
+      */}
+      {flagged && block.crop !== null ? (
         <div className="flex flex-col items-stretch lg:flex-row">
           <div className="border-rule flex flex-col gap-2 border-b p-3.5 lg:w-[330px] lg:flex-shrink-0 lg:border-r lg:border-b-0">
             <span className="text-faint font-mono text-[10px] tracking-[0.14em] uppercase">
               Recorte original
             </span>
-            {block.crop === null ? (
-              <p className="text-faint text-xs leading-relaxed">
-                {hasImage
-                  ? "Este bloco foi acrescentado à mão, então não tem recorte."
-                  : "O recorte só existe na sessão que leu a página: as imagens não ficam salvas neste computador. Para vê-lo, suba a página de novo."}
-              </p>
-            ) : (
-              <CropCanvas
-                page={block.crop.page}
-                band={block.crop.band}
-                label="Recorte da caixa original"
-              />
-            )}
+            <CropCanvas
+              page={block.crop.page}
+              band={block.crop.band}
+              label="Recorte da caixa original"
+            />
           </div>
           <div className="flex min-w-0 flex-grow flex-col">
             <BlockBody block={block} onChange={onChange} rows={8} />
           </div>
         </div>
       ) : (
-        <BlockBody block={block} onChange={onChange} rows={3} />
+        <>
+          {flagged && (
+            <p className="border-rule text-faint border-b px-3.5 py-2 text-xs leading-relaxed">
+              {hasImage
+                ? "Este bloco foi acrescentado à mão, então não tem recorte."
+                : "Sem recorte: as imagens não ficam salvas neste computador. Para conferir contra o livro, suba a página de novo."}
+            </p>
+          )}
+          <BlockBody block={block} onChange={onChange} rows={flagged ? 8 : 3} />
+        </>
       )}
     </div>
   );
@@ -1383,7 +1389,7 @@ const TITLE_CELL = -1;
 
 /** The vocabulary chip, which a cell is a kind of. */
 const CHIP =
-  "border-rule bg-background flex items-center gap-1.5 rounded-sm border py-1 pr-1.5 pl-2.5";
+  "border-rule bg-background flex min-w-0 items-center gap-1.5 rounded-sm border py-1 pr-1.5 pl-2.5";
 
 function sameAddress(one: CellAddress | null, other: CellAddress): boolean {
   return (
@@ -1593,7 +1599,9 @@ function TableGrid({
             type="button"
             onClick={() => open(address, value)}
             title="Corrigir esta célula"
-            className={`font-mono text-xs ${value === "" ? "text-faint" : ""}`}
+            className={`min-w-0 text-left font-mono text-xs break-words ${
+              value === "" ? "text-faint" : ""
+            }`}
           >
             {value === "" ? "vazia" : value}
           </button>
@@ -1633,11 +1641,14 @@ function TableGrid({
         });
         return (
           <div key={sectionIndex} className="flex flex-col items-start gap-1.5">
-            <div className="flex items-start gap-1.5">
+            <div className="flex w-full items-start gap-1.5">
               <div
-                className="grid items-center gap-1.5"
+                className="grid min-w-0 flex-1 items-center gap-1.5"
                 style={{
-                  gridTemplateColumns: `repeat(${columns}, max-content) max-content`,
+                  // minmax rather than max-content: a flattened line is as wide
+                  // as the whole box, and a track that refuses to shrink would
+                  // push it out of the card and cut it off on the right.
+                  gridTemplateColumns: `repeat(${columns}, minmax(0, max-content)) max-content`,
                 }}
               >
                 {section.map((line, lineIndex) => (
@@ -1766,14 +1777,16 @@ function SplitWords({
         type="button"
         onClick={onEdit}
         title="Corrigir esta célula"
-        className={`font-mono text-xs ${cell === "" ? "text-faint" : ""}`}
+        className={`min-w-0 text-left font-mono text-xs break-words ${
+          cell === "" ? "text-faint" : ""
+        }`}
       >
         {cell === "" ? "vazia" : cell}
       </button>
     );
   }
   return (
-    <span className="flex items-center">
+    <span className="flex flex-wrap items-center">
       {words.map((word, index) => (
         <Fragment key={index}>
           {index > 0 && (
@@ -1791,7 +1804,7 @@ function SplitWords({
             type="button"
             onClick={onEdit}
             title="Corrigir esta célula"
-            className="font-mono text-xs"
+            className="font-mono text-xs break-words"
           >
             {word}
           </button>
