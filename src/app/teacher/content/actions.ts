@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import type { LessonRange } from "@/lib/content/lesson-range";
 import type { BlockKind } from "@/lib/extraction/classify";
 import { createClient } from "@/lib/supabase/server";
 
@@ -228,6 +229,44 @@ export async function confirmPoint(
 
   refreshBookScreens(point.bookPosition);
   return { status: "ok" };
+}
+
+function asLessonRange(row: {
+  id: string;
+  number: number;
+  first_point: number;
+  last_point: number;
+}): LessonRange {
+  return {
+    id: row.id,
+    number: row.number,
+    firstPoint: row.first_point,
+    lastPoint: row.last_point,
+  };
+}
+
+export type BookLessons =
+  | { readonly status: "ok"; readonly lessons: readonly LessonRange[] }
+  | { readonly status: "error"; readonly message: string };
+
+/**
+ * The lessons this book already has, for a page whose upload holds no header.
+ *
+ * The failure is carried rather than folded into an empty list, for the same
+ * reason as the filled points below: read as "this book has no lessons", a
+ * refused read would send the teacher to answer a question the database could
+ * have answered.
+ */
+export async function bookLessons(bookId: string): Promise<BookLessons> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("lessons_content")
+    .select("id, number, first_point, last_point")
+    .eq("book_id", bookId);
+  if (error) {
+    return { status: "error", message: error.message };
+  }
+  return { status: "ok", lessons: (data ?? []).map(asLessonRange) };
 }
 
 /**
