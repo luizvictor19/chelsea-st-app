@@ -72,6 +72,42 @@ describe("parseTable", () => {
   });
 });
 
+describe("a flagged table with two lines", () => {
+  /*
+   * From p119-120, the comparative table. Two lines, no separator anywhere:
+   * the extractor could not find the column boundaries, so both lines arrived
+   * flattened. The grid showed one line, and a row that is on screen but not
+   * rendered is a row that gets confirmed away.
+   */
+  const TWO_LINES = [
+    "many more ... than the most few fewer ... than the fewest",
+    "much more ... than the most little less ... than the least",
+  ].join("\n");
+
+  test("both lines survive the parse, each as a row of one cell", () => {
+    const block = parseTable(TWO_LINES);
+    assert.equal(block.length, 1);
+    assert.deepEqual(block[0], [
+      {
+        kind: "row",
+        cells: ["many more ... than the most few fewer ... than the fewest"],
+      },
+      {
+        kind: "row",
+        cells: ["much more ... than the most little less ... than the least"],
+      },
+    ]);
+  });
+
+  test("neither line is read as a heading, and neither is dropped", () => {
+    assert.deepEqual(
+      parseTable(TWO_LINES)[0].map((line) => line.kind),
+      ["row", "row"],
+    );
+    assert.equal(serializeTable(parseTable(TWO_LINES)), TWO_LINES);
+  });
+});
+
 describe("round trip", () => {
   const cases: readonly [string, string][] = [
     ["a conjugation with a heading", CONJUGATION],
