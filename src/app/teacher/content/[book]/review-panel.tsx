@@ -1997,7 +1997,9 @@ function TableGrid({
                 }}
               >
                 {section.map((line, lineIndex) => (
-                  <Fragment key={lineIndex}>
+                  // A group with no box of its own, so the cells stay grid
+                  // items and the line still has a hover of its own.
+                  <div key={lineIndex} className="group/line contents">
                     {line.kind === "title" ? (
                       <span style={{ gridColumn: `span ${columns}` }}>
                         {sameAddress(editing, {
@@ -2065,7 +2067,7 @@ function TableGrid({
                         )
                       }
                     />
-                  </Fragment>
+                  </div>
                 ))}
               </div>
               <button
@@ -2131,6 +2133,15 @@ function TitleToggle({
   onToggle: () => void;
 }) {
   const isTitle = line.kind === "title";
+  /*
+   * Only where it is a question. A line with more than one cell is a line of
+   * columns and cannot be a heading, so the button there is a control with
+   * nothing to do sitting beside every row of the table. On the ones it can
+   * answer it waits for the line to be under the cursor.
+   */
+  if (!isTitle && line.cells.length > 1) {
+    return <span aria-hidden />;
+  }
   // A heading with no text is a blank line, which would cut the section in two.
   const possible = isTitle || line.cells.join(" ").trim() !== "";
   return (
@@ -2144,10 +2155,10 @@ function TitleToggle({
           ? "É o título deste sub-bloco. Clique para voltar a ser linha da tabela."
           : "Marcar como título deste sub-bloco"
       }
-      className={`justify-self-start rounded-sm border px-1.5 py-0.5 font-mono text-[10px] tracking-[0.08em] uppercase transition-colors disabled:opacity-40 ${
+      className={`justify-self-start rounded-sm border px-1.5 py-0.5 font-mono text-[10px] tracking-[0.08em] uppercase transition-all disabled:opacity-40 ${
         isTitle
           ? "border-foreground text-foreground"
-          : "border-rule text-faint hover:border-foreground hover:text-foreground"
+          : "border-rule text-faint hover:border-foreground hover:text-foreground opacity-0 group-hover/line:opacity-100 focus-visible:opacity-100"
       }`}
     >
       título
