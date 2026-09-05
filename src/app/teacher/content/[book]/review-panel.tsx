@@ -1747,8 +1747,8 @@ function TableGrid({
           : newRow(0, 0))}
 
       <span className="text-faint text-xs leading-relaxed">
-        Cada célula é uma coluna do livro. Clique em uma para corrigi-la. Em uma
-        linha inteira, o ponto entre duas palavras separa ali as colunas.
+        Cada célula é uma coluna do livro. Clique entre duas palavras para
+        separar as colunas.
       </span>
     </div>
   );
@@ -1786,18 +1786,22 @@ function SplitWords({
     );
   }
   return (
-    <span className="flex flex-wrap items-center">
+    // The group is the line: hovering anywhere on it brings the cuts out.
+    <span className="group/line flex flex-wrap items-center">
       {words.map((word, index) => (
         <Fragment key={index}>
           {index > 0 && (
             <button
               type="button"
               onClick={() => onSplit(index - 1)}
-              aria-label={`Separar em duas colunas depois de ${words[index - 1]}`}
+              aria-label={`Separar em duas colunas entre ${words[index - 1]} e ${word}`}
               title="Separar em duas colunas aqui"
-              className="text-faint hover:text-accent px-[3px] font-mono text-xs transition-colors"
+              className="group/gap flex w-[7px] shrink-0 cursor-pointer items-center justify-center self-stretch outline-none"
             >
-              ·
+              <span
+                aria-hidden
+                className="bg-foreground/40 group-hover/gap:bg-accent group-focus-visible/gap:bg-accent h-1 w-px rounded-full opacity-0 transition-all group-hover/gap:h-4 group-hover/gap:rounded-none group-hover/gap:opacity-100 group-hover/line:opacity-100 group-focus-visible/gap:h-4 group-focus-visible/gap:rounded-none group-focus-visible/gap:opacity-100"
+              />
             </button>
           )}
           <button
