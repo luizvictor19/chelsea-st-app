@@ -52,6 +52,23 @@ const KIND_LABELS: Record<BlockKind, string> = {
   chart_ref: "Referência de chart",
 };
 
+/**
+ * What the header says when the extractor flagged the block.
+ *
+ * Only the table is ever flagged today, and "flattened" is the pipeline's own
+ * word for it: the box was read as one column because no boundary was found.
+ * The label says that instead, because it is what the teacher has to fix. A
+ * second cause would get its own line here rather than a shared "check this".
+ */
+const FLAGGED_LABELS: Record<BlockKind, string> = {
+  vocabulary: "Vocabulário · confira",
+  grammar_table: "Tabela · colunas não identificadas",
+  explanation: "Explicação · confira",
+  dictation: "Ditado · confira",
+  revision_exercise: "Exercício de revisão · confira",
+  chart_ref: "Referência de chart · confira",
+};
+
 type BlockDraft = {
   kind: BlockKind;
   content: string;
@@ -1135,11 +1152,7 @@ function BlockCard({
             flagged ? "text-accent" : "text-faint"
           }`}
         >
-          {flagged && block.kind === "grammar_table"
-            ? "Tabela · achatou, confira"
-            : flagged
-              ? `${KIND_LABELS[block.kind]} · confira`
-              : KIND_LABELS[block.kind]}
+          {flagged ? FLAGGED_LABELS[block.kind] : KIND_LABELS[block.kind]}
         </span>
         <div className="flex items-center gap-2.5">
           <select
