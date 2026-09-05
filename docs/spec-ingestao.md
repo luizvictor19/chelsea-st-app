@@ -236,10 +236,11 @@ servem a um smoke test local que nenhum critério depende. O alvo desse smoke te
 O marcador de onde o professor parou precisa de uma tabela ligando a aula aos pontos cobertos. Não
 entra aqui, entra na F2, mas o campo de referência é `points.id`.
 
-## Fora de escopo
+## Decisões resolvidas
 
-Geração das perguntas, que usa estes alvos como entrada. Exclusão de livro. Edição de ponto fora do
-fluxo de upload.
+O que já foi decidido e implementado, com a medição que decidiu. Nada aqui está pendente: uma seção
+que descreve o que o código faz hoje não é escopo futuro, e ficar sob "Fora de escopo" já fez o
+`psm 6` ser lido como pendência meses depois de estar rodando.
 
 ### Formato da tabela de gramática
 
@@ -319,6 +320,11 @@ exatamente a condição em que um erro de OCR deixa de ser silencioso.
 
 Fica anotado que o `|` solto é filtrável por si, mas isso é outra mudança e pede
 a sua própria medição.
+
+## Fora de escopo
+
+Geração das perguntas, que usa estes alvos como entrada. Exclusão de livro. Edição de ponto fora do
+fluxo de upload.
 
 ### Exercícios de revisão, suporte completo
 
