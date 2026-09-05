@@ -437,3 +437,83 @@ describe("reconcilePoints, across the batch", () => {
     });
   });
 });
+
+describe("the point a page opens in", () => {
+  /** Where the page's content begins, before its own first number is printed. */
+  function openingById(result: ReturnType<typeof reconcilePoints>) {
+    return Object.fromEntries(result.pages.map((p) => [p.id, p.openingPoint]));
+  }
+
+  test("a page opens in the last point of the page before it", () => {
+    // What is printed above a page's first margin number was printed under the
+    // last number of the page before, and belongs there. A page that carries
+    // numbers of its own still has that opening, which is why this is not the
+    // same as inheritedPoint.
+    const result = reconcilePoints(
+      [
+        page("first", 0, [
+          [53, 250, CONFIDENT],
+          [54, 1200, CONFIDENT],
+        ]),
+        page("second", 1, [[55, 800, CONFIDENT]]),
+      ],
+      RANGE,
+    );
+    assert.deepEqual(openingById(result), { first: null, second: 54 });
+  });
+
+  test("an unnumbered page opens in the point it inherits", () => {
+    const result = reconcilePoints(
+      [page("numbered", 0, [[53, 250, CONFIDENT]]), page("carried", 1, [])],
+      RANGE,
+    );
+    assert.deepEqual(openingById(result), { numbered: null, carried: 53 });
+    const carried = result.pages.find((p) => p.id === "carried");
+    assert.equal(
+      carried?.inheritedPoint,
+      53,
+      "a page with no number of its own still inherits, exactly as before",
+    );
+  });
+
+  test("the page carrying the book's first point opens in it", () => {
+    // Nothing in the book precedes point 1, so the space above it on its own
+    // page belongs to it. Left null, the first page of a book could never be
+    // confirmed while anything at all was printed above its first number.
+    const result = reconcilePoints(
+      [
+        page("first", 0, [
+          [1, 256, CONFIDENT],
+          [2, 494, CONFIDENT],
+        ]),
+      ],
+      { first: 1, last: 52 },
+    );
+    assert.deepEqual(openingById(result), { first: 1 });
+  });
+
+  test("a page that merely opens an upload has no point above it", () => {
+    // Book 2 starts at 53. A batch beginning at 116 has a point before it, and
+    // this batch is not it, so the question stays a question.
+    const result = reconcilePoints([page("p116", 0, [[116, 663, CONFIDENT]])], {
+      first: 53,
+      last: 128,
+    });
+    assert.deepEqual(openingById(result), { p116: null });
+  });
+
+  test("a numbered page keeps inheritedPoint null", () => {
+    // inheritedPoint answers "which point is this whole page", and a page that
+    // carries numbers is not any one point. Only the opening changes.
+    const result = reconcilePoints(
+      [
+        page("first", 0, [[53, 250, CONFIDENT]]),
+        page("second", 1, [[54, 250, CONFIDENT]]),
+      ],
+      RANGE,
+    );
+    const second = result.pages.find((p) => p.id === "second");
+    assert.equal(second?.inheritedPoint, null);
+    assert.equal(second?.openingPoint, 53);
+  });
+});

@@ -42,6 +42,20 @@ export type PageResolution = {
    * before it in upload order.
    */
   readonly inheritedPoint: number | null;
+  /**
+   * The point in force as the page begins, before its own first number.
+   *
+   * Not the same question as inheritedPoint, which asks "which point is this
+   * whole page" and is only answerable when the page carries no number. This
+   * one is answerable for every page, and it is what the content printed above
+   * a page's first margin number belongs to: that content was printed under the
+   * last number of the page before, and stays there.
+   *
+   * The page carrying the book's own first point is the exception: nothing in
+   * the book precedes it, so the top of that page is its own. Null everywhere
+   * else that no page precedes it, which is a question and not an answer.
+   */
+  readonly openingPoint: number | null;
   /** The page this one is a second scan of, when it is one. */
   readonly duplicateOf: string | null;
   /** Positions the algorithm could not settle, for the teacher to choose. */
@@ -85,6 +99,7 @@ type Group = {
  * 4. Only then, if a position is still undecided, the crop that saw a number
  *    more often wins. Never as a filter: requiring agreement would discard real
  *    numbers that only one crop found.
+
  *
  * Whatever is still undecided is a question for the teacher. A program that
  * cannot know should ask rather than guess.
@@ -260,6 +275,19 @@ export function reconcilePoints(
     }
   };
 
+  /**
+   * Pages whose own printed order corroborates every number on them.
+   *
+   * Read once, straight after the monotonicity pass and before anything is
+   * assigned, so it describes what the crops actually returned rather than a
+   * state some later cross-page deletion produced. A page qualifies when every
+   * position it holds is down to a single candidate and those candidates
+   * increase in the order they are printed — the order the book is set in.
+   *
+   * The pass above has already done the dangerous half: any reading that cannot
+   * take part in a longest increasing run down the page is gone, so what
+   * survives to be counted here is a page that reads cleanly top to bottom.
+   */
   /**
    * Whether a position may be settled at all.
    *
@@ -616,15 +644,16 @@ export function reconcilePoints(
   }
 
   const order = pageOrder();
-  const inherited = new Map<number, number | null>();
+  // The point in force as each page begins, taken before the page's own numbers
+  // are counted. A page that carries numbers still has one, which is what the
+  // content above its first number belongs to.
+  const opening = new Map<number, number | null>();
   let currentPoint: number | null = null;
   for (const index of order) {
+    opening.set(index, currentPoint);
     const points = byPage[index].points;
     if (points.length > 0) {
       currentPoint = Math.max(...points.map((placement) => placement.number));
-      inherited.set(index, null);
-    } else {
-      inherited.set(index, currentPoint);
     }
   }
 
@@ -635,7 +664,14 @@ export function reconcilePoints(
       .sort((a, b) => a - b),
     placements: [...byPage[index].points].sort((a, b) => a.y - b.y),
     inheritedPoint:
-      byPage[index].points.length > 0 ? null : (inherited.get(index) ?? null),
+      byPage[index].points.length > 0 ? null : (opening.get(index) ?? null),
+    // Nothing precedes the book's own first point, so the space above it on the
+    // page that carries it belongs to that point and to no earlier one.
+    openingPoint:
+      opening.get(index) ??
+      (byPage[index].points.some((placement) => placement.number === first)
+        ? first
+        : null),
     duplicateOf: duplicateOf[index],
     disputes: byPage[index].disputes,
   });

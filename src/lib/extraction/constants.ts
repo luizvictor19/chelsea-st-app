@@ -134,6 +134,20 @@ export const MARGIN_MAX_DIGITS = 4;
  */
 export const MARGIN_GROUP_Y_TOLERANCE = 30;
 
+/**
+ * How far below a block's top the number that names it may be printed.
+ *
+ * The margin number is not printed above the panel it labels. It sits beside
+ * the panel's first line, a little inside it, so "the last number printed above
+ * this block" — read literally — hands the panel to the number before it.
+ *
+ * Measured over both books with scripts/measure-agreement-gate.ts: of 69 numbers
+ * that name a block, 29 in book 1 and 40 in book 2, none sits more than 23px
+ * below that block's top, and the next block up is never closer than 72px. The
+ * cut sits at 47, in the middle of that 49px void, rather than on an edge.
+ */
+export const POINT_LABEL_REACH = 47;
+
 // --- Explanation lines -----------------------------------------------------
 
 /** Below this grey level a pixel counts as ink. */

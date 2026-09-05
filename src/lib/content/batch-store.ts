@@ -48,6 +48,14 @@ export type StoredPage = {
     readonly y: number;
   }[];
   readonly inheritedPoint: number | null;
+  /**
+   * The point in force as the page begins.
+   *
+   * Stored for the same reason the heights are: what was printed above the
+   * page's first number belongs to the last number of the page before, and a
+   * restored batch has no other way to know which point that was.
+   */
+  readonly openingPoint: number | null;
   readonly duplicateOf: string | null;
   readonly lessonNumber: number | null;
   readonly disputes: readonly {
@@ -88,12 +96,14 @@ const STORE = "batches";
  * Version 2 added the heights a spread needs to split its blocks; version 3
  * added the file name beside the page's own identity, because the identity
  * stopped being the file name, and the flag that says an edit has not been
- * written yet. A batch written by an older version has none of them, so
- * upgrading drops what is there rather than restoring something that would file
- * blocks under the wrong point, write them under the wrong name, or call an
- * unwritten edit finished.
+ * written yet; version 4 added the point a page opens in, without which a
+ * restored batch files everything printed above a page's first number under
+ * that number instead of under the page before. A batch written by an older
+ * version has none of them, so upgrading drops what is there rather than
+ * restoring something that would file blocks under the wrong point, write them
+ * under the wrong name, or call an unwritten edit finished.
  */
-const VERSION = 3;
+const VERSION = 4;
 
 /*
  * Shown when another tab is holding the database at its old version.

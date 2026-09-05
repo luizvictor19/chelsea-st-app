@@ -5,6 +5,7 @@ import {
   extractPage,
   isRefused,
   pointForBlock,
+  unplacedBlocks,
   resolveBatch,
   reviewOrder,
 } from "./pipeline.ts";
@@ -257,27 +258,69 @@ describe("a spread splits its content between the numbers it carries", () => {
     { number: 117, y: 210 },
     { number: 118, y: 880 },
   ];
+  /** The point the page opens in, carried from the page uploaded before it. */
+  const OPENING = 116;
 
   test("a block belongs to the last number printed above it", () => {
-    assert.equal(pointForBlock(spread, 300), 117);
-    assert.equal(pointForBlock(spread, 879), 117);
-    assert.equal(pointForBlock(spread, 880), 118);
-    assert.equal(pointForBlock(spread, 1200), 118);
+    assert.equal(pointForBlock(spread, 300, OPENING), 117);
+    assert.equal(pointForBlock(spread, 833, OPENING), 117);
+    assert.equal(pointForBlock(spread, 880, OPENING), 118);
+    assert.equal(pointForBlock(spread, 1200, OPENING), 118);
   });
 
-  test("a block above the first number still belongs to the page", () => {
-    // A heading can sit above the first margin number. Dropping it would lose
-    // content; it goes to the earliest number instead.
-    assert.equal(pointForBlock(spread, 40), 117);
+  test("a number printed inside a panel labels that panel", () => {
+    // The margin number is not printed above the panel it names, it is printed
+    // beside its first line, two to twenty-three pixels below the panel's top.
+    // Measured over both books: 69 such pairs, none further than 23px, and the
+    // next block up never closer than 72px. Reading "the last number above it"
+    // literally handed every one of those panels to the number before.
+    assert.equal(pointForBlock(spread, 858, OPENING), 118);
+    assert.equal(pointForBlock(spread, 879, OPENING), 118);
   });
 
-  test("a page carrying one number keeps everything on it", () => {
-    assert.equal(pointForBlock([{ number: 121, y: 300 }], 40), 121);
-    assert.equal(pointForBlock([{ number: 121, y: 300 }], 900), 121);
+  test("the reach stops inside the measured void", () => {
+    // 46px below the top still labels, 47 and beyond is another block.
+    assert.equal(pointForBlock(spread, 880 - 46, OPENING), 118);
+    assert.equal(pointForBlock(spread, 880 - 47, OPENING), 117);
   });
 
-  test("a page carrying none has no number to give", () => {
-    assert.equal(pointForBlock([], 300), null);
+  test("a block above every number belongs to the point the page opens in", () => {
+    // It was printed under the last number of the page before, and that is
+    // where it belongs. Giving it to this page's earliest number filed it under
+    // a point it was never printed beneath.
+    assert.equal(pointForBlock(spread, 40, OPENING), 116);
+  });
+
+  test("a page carrying one number keeps what is printed under it", () => {
+    assert.equal(pointForBlock([{ number: 121, y: 300 }], 900, 120), 121);
+    assert.equal(pointForBlock([{ number: 121, y: 300 }], 280, 120), 121);
+  });
+
+  test("a page carrying none belongs entirely to the point it opens in", () => {
+    assert.equal(pointForBlock([], 300, 120), 120);
+    assert.equal(pointForBlock([], 300, null), null);
+  });
+
+  test("nothing is chosen when the point above is not known", () => {
+    // The first page of an upload has no page before it, so a block above its
+    // first number has no owner to fall to. A guess here is the misfiling this
+    // rule exists to stop.
+    assert.equal(pointForBlock(spread, 40, null), null);
+  });
+
+  test("the blocks a page cannot file are named, not filed anywhere", () => {
+    // The screen has to know before it writes: a block with no point cannot be
+    // put down, and putting it under the nearest number is the guess.
+    const blocks = [{ top: 40 }, { top: 300 }, { top: 900 }];
+    assert.deepEqual(unplacedBlocks(blocks, spread, OPENING), []);
+    assert.deepEqual(unplacedBlocks(blocks, spread, null), [{ top: 40 }]);
+  });
+
+  test("nothing is chosen when a number is missing between the two", () => {
+    // The page opens in 116 and its first number is 118, so 117 was printed
+    // somewhere and never read. A block above the 118 belongs to 116 or to 117
+    // and nothing on the page says which, so it is a question and not a guess.
+    assert.equal(pointForBlock([{ number: 118, y: 880 }], 40, 116), null);
   });
 });
 

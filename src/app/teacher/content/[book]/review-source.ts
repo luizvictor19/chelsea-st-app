@@ -6,6 +6,7 @@ import type { PageState } from "../../../../lib/content/review-navigation.ts";
 import type { BlockKind } from "../../../../lib/extraction/classify.ts";
 import {
   isRefused,
+  pointForBlock,
   reviewOrder,
   type ResolvedPage,
 } from "../../../../lib/extraction/pipeline.ts";
@@ -50,6 +51,8 @@ export type ReviewSourcePage = {
   readonly points: readonly number[];
   readonly placements: readonly Placement[];
   readonly inheritedPoint: number | null;
+  /** The point in force as the page begins, which owns what is above its first number. */
+  readonly openingPoint: number | null;
   readonly duplicateOf: string | null;
   readonly lessonNumber: number | null;
   readonly disputes: readonly {
@@ -86,6 +89,7 @@ export function fromResolved(
     points: page.points,
     placements: page.placements,
     inheritedPoint: page.inheritedPoint,
+    openingPoint: page.openingPoint,
     duplicateOf: page.duplicateOf,
     lessonNumber: page.lessonNumber,
     disputes: page.disputes,
@@ -121,6 +125,7 @@ export function fromStored(page: StoredPage): ReviewSourcePage {
     points: page.points,
     placements: page.placements,
     inheritedPoint: page.inheritedPoint,
+    openingPoint: page.openingPoint,
     duplicateOf: page.duplicateOf,
     lessonNumber: page.lessonNumber,
     disputes: page.disputes,
@@ -154,6 +159,7 @@ export function toStored(
     // Kept so a restored spread can still split its blocks by height.
     placements: page.placements,
     inheritedPoint: page.inheritedPoint,
+    openingPoint: page.openingPoint,
     duplicateOf: page.duplicateOf,
     lessonNumber: page.lessonNumber,
     disputes: page.disputes,
@@ -165,10 +171,54 @@ export function toStored(
   };
 }
 
+/**
+ * The point this page opens in, when something printed above its first number
+ * is actually filed there.
+ *
+ * A page that carries numbers still writes outside them: what sits above its
+ * first number was printed under the last number of the page before. Naming
+ * that point matters twice over — the heading would otherwise say one point
+ * while two are written, and the check for "this point already holds content"
+ * would miss the one belonging to the page before and replace its work.
+ */
+function openingTarget(page: ReviewSourcePage): readonly number[] {
+  if (page.openingPoint === null || page.placements.length === 0) {
+    return [];
+  }
+  const writesThere = page.blocks.some(
+    (block) =>
+      pointForBlock(page.placements, block.top, page.openingPoint) ===
+      page.openingPoint,
+  );
+  return writesThere ? [page.openingPoint] : [];
+}
+
+/** Every number the page files a block under, as the batch settled it. */
+function settledNumbers(page: ReviewSourcePage): readonly number[] {
+  return [...new Set([...openingTarget(page), ...page.points])].sort(
+    (a, b) => a - b,
+  );
+}
+
+/**
+ * The points this page is the author of, which are the only ones it may replace.
+ *
+ * Narrower than targetsOf on purpose. A page writes to the point it opens in,
+ * but it did not write that point — the page before did — so confirming this
+ * one adds to it and never clears it. Replacing there would delete the previous
+ * page's work on a point this one only contributed a panel to.
+ */
+export function authoredPoints(page: ReviewSourcePage): readonly number[] {
+  if (page.points.length > 0) {
+    return page.points;
+  }
+  return page.inheritedPoint === null ? [] : [page.inheritedPoint];
+}
+
 /** The points a page will be written to, before the teacher answers anything. */
 export function targetsOf(page: ReviewSourcePage): readonly number[] {
   if (page.points.length > 0) {
-    return page.points;
+    return settledNumbers(page);
   }
   return page.inheritedPoint === null ? [] : [page.inheritedPoint];
 }
@@ -197,7 +247,7 @@ export function writtenNumbers(
   if (continuation) {
     return target === null ? [] : [target];
   }
-  const settled = page.points;
+  const settled = settledNumbers(page);
   if (target === null || settled.includes(target)) {
     return settled;
   }
