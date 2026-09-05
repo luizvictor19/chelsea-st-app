@@ -4,6 +4,15 @@ import { describe, test } from "node:test";
 import { MARGIN_GROUP_Y_TOLERANCE } from "./constants.ts";
 import { reconcilePoints, type PageReadings } from "./reconcile.ts";
 
+/**
+ * A range wide enough to hold the numbers these cases invent, not a book's.
+ *
+ * Deliberately open at the floor: several cases below place a stray small
+ * number on a page to prove the sequence rule removes it, and a real book's
+ * floor would remove it first and prove nothing. Where a case is about a book's
+ * own range it says so on the spot. See scripts/smoke-reconciliation.ts for
+ * what a fixed range that pretends to be a book's costs.
+ */
 const RANGE = { first: 1, last: 128 };
 /** Enough crops saw it that the assignment gate lets it through on its own. */
 const CONFIDENT = 3;

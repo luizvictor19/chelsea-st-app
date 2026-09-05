@@ -33,7 +33,19 @@ const manifest = JSON.parse(
   pages_detail: { file: string; points: number[]; duplicate_of?: string }[];
 };
 const truth = new Map(manifest.pages_detail.map((p) => [p.file, p]));
-const RANGE = { first: 1, last: 128 };
+/*
+ * The range of the book these fixtures are from, which is not 1 to 128.
+ *
+ * It read `first: 1` for a long time, and passed. That is worse than failing:
+ * the floor is what throws away a margin reading below the book's first point,
+ * and running book 2 with book 1's floor let every stray small digit through —
+ * the three trips to review this script used to report were a `1` and a `3`
+ * read off pages that carry no number at all. The smoke test was green while
+ * measuring a configuration no book has, which is the shape of false
+ * confidence: the run says the reconciler copes, and it was never asked the
+ * question the product asks it.
+ */
+const RANGE = { first: 53, last: 128 };
 
 function build(order: string[]): PageReadings[] {
   return order.map((file, uploadIndex) => {
