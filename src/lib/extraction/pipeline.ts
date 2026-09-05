@@ -6,6 +6,7 @@ import { boxLeft, crop, normalise, resize, shadedMask } from "./image.ts";
 import { findMarkers } from "./markers.ts";
 import { marginReadings, type MarginReading } from "./margin-numbers.ts";
 import { repairClosingQuotes } from "./quotes.ts";
+import { tableContent } from "./table-layout.ts";
 import { joinTerms, termsFrom } from "./terms.ts";
 import {
   reconcilePoints,
@@ -106,7 +107,7 @@ export async function extractPage(
     boxRegions.push({
       band,
       content: isTable
-        ? read.map((word) => word.text).join(" ")
+        ? tableContent(read, BOX_READ_SCALE)
         : joinTerms(termsFrom(read, BOX_READ_SCALE)),
     });
   }

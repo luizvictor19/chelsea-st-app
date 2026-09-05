@@ -309,3 +309,48 @@ describe("criterion 5: boxes needing a human come first", () => {
     );
   });
 });
+
+describe("a table panel keeps the shape it is printed in", () => {
+  /** A page whose only panel is tall enough to be read as a table. */
+  function tablePage(): Bitmap {
+    const page: MutablePage = blankPage(1100, 1500);
+    shadedBox(page, 121, 200, 400);
+    return toBitmap(page);
+  }
+
+  /**
+   * Answers by size: the margin strip by its whitelist, the enlarged panel crop
+   * by being wider than the page, and the page itself by the rest.
+   */
+  function tableReader(panel: readonly OcrWord[]): OcrReader {
+    return {
+      async read(image: Bitmap, options) {
+        if (options?.allowedCharacters !== undefined) {
+          return [word("57", 10, 300)];
+        }
+        return image.width > 1500 ? panel : [word("text", 120, 700)];
+      },
+    };
+  }
+
+  test("its rows and columns survive, where they used to be welded into a line", () => {
+    // Two rows of two columns, in the enlarged crop's coordinates: the column
+    // gap is past 54px doubled, and the rows a whole word height apart.
+    const panel: readonly OcrWord[] = [
+      { text: "my", x: 20, y: 40, width: 60, height: 30, confidence: 80 },
+      { text: "mine", x: 400, y: 40, width: 120, height: 30, confidence: 80 },
+      { text: "your", x: 20, y: 120, width: 100, height: 30, confidence: 80 },
+      { text: "yours", x: 400, y: 120, width: 140, height: 30, confidence: 80 },
+    ];
+
+    return extractPage("p105", 0, tablePage(), tableReader(panel)).then(
+      (page) => {
+        const table = page.blocks.find(
+          (block) => block.kind === "grammar_table",
+        );
+        assert.notEqual(table, undefined, "the tall panel is read as a table");
+        assert.equal(table?.content, "my | mine\nyour | yours");
+      },
+    );
+  });
+});

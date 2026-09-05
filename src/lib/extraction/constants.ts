@@ -72,6 +72,30 @@ export const TABLE_HEIGHT = 250;
 export const TERM_COLUMN_GAP = 45;
 
 /**
+ * The gap between two words that means a column boundary, inside a table panel.
+ *
+ * The same geometry as the vocabulary panels and the same measurement, made
+ * separately because the population is different: 13 tall panels across the 61
+ * fixtures, 118 gaps between words sitting on the same line. 61 of them are
+ * 39.5px or less and fall inside a cell, 57 are 68.5px or more and fall between
+ * columns, and nothing at all lands in the 29px between. The cut sits in the
+ * middle of that void rather than on an edge.
+ */
+export const TABLE_COLUMN_GAP = 54;
+
+/**
+ * How far off a line's centre a word may sit and still belong to that line, as
+ * a fraction of the median word height in the panel.
+ *
+ * Measured over the same 13 panels: of 211 words, none sits further than 0.39
+ * of a word height from the centre of its line, and the two closest lines are
+ * 0.89 apart. Every value from 0.4 to 0.88 groups these panels identically, so
+ * this is the middle of that void too. Expressed as a fraction because the
+ * panels are read enlarged and a panel's own type size is what sets the scale.
+ */
+export const TABLE_LINE_TOLERANCE = 0.64;
+
+/**
  * Page segmentation for reading an ordinary panel.
  *
  * Measured over the 151 panels: against the automatic mode this changes 3 of
