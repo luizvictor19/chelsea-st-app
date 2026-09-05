@@ -1,100 +1,161 @@
 /**
- * The written form of a grammar table.
+ * The written form of a grammar table, and the model the editor works on.
  *
  * These are the boxes the extractor cannot read: flattening a grid into one
- * line loses the pairing between columns, so a person retypes them. What they
- * type is what the student sees on the shared screen during the lesson, so it
- * needs one shape rather than a hundred and fifty.
+ * line loses the pairing between columns, so a person rebuilds them. What they
+ * rebuild is what the student sees on the shared screen during the lesson.
  *
- * The convention, in three rules:
+ * The stored form is unchanged and stays plain text in blocks.content:
  *
- *   - one line per row of the table
- *   - columns separated by "|"
- *   - a blank line starts a new section, and a line with no "|" is that
- *     section's heading
+ *   - one line per row of the table, columns separated by "|"
+ *   - a blank line starts a new section
+ *   - a line with no "|" is that section's heading
  *
- * For example:
- *
- *   Present continuous (negative)
- *   I | am not speaking
- *   you | are not speaking
- *   he, she, it | is not speaking
- *   we, you, they | are not speaking
- *
- * The pipe rather than a slash, a semicolon or a tab: the slash is the
- * dictation's reading pause and would collide, a semicolon appears inside
- * ordinary text, a tab is invisible in a textarea, and the pipe already looks
- * like the rule between two columns.
- *
- * Deliberately not a spreadsheet. Books group rows under a heading and vary
- * between two and three columns, and anything richer would be one more thing to
- * remember a hundred and fifty times.
+ * A line with no "|" is ambiguous, though: it is a heading in a table that has
+ * columns, and it is a one-column row in a table the extractor flattened
+ * completely. The rule below decides, and the editor lets the teacher overrule
+ * it, because a program guessing this in silence is how a heading becomes a row
+ * of the lesson.
  */
-export type TableRow = readonly string[];
+export type TableLine =
+  | { readonly kind: "title"; readonly text: string }
+  | { readonly kind: "row"; readonly cells: readonly string[] };
 
-export type TableSection = {
-  /** The line above the rows, when the section has one. */
-  readonly heading: string | null;
-  readonly rows: readonly TableRow[];
-};
+/** Lines between two blank lines. */
+export type TableSection = readonly TableLine[];
+
+export type TableBlock = readonly TableSection[];
 
 export const COLUMN_SEPARATOR = "|";
 
-/** An example in the convention, shown where the teacher types. */
-export const GRAMMAR_TABLE_PLACEHOLDER = `Present continuous (negative)
-I | am not speaking
-you | are not speaking
-he, she, it | is not speaking
-we, you, they | are not speaking`;
-
 /**
- * Reads the written form back into sections and rows.
+ * Whether this block has any column at all.
  *
- * Forgiving about spacing, because it is typed by hand: cells are trimmed, and
- * a trailing separator does not invent an empty column at the end of a row.
+ * With no separator anywhere, nothing on the page was ever a heading: the
+ * extractor found a table it could not split, so every line is a row of one
+ * cell running the full width. With a separator somewhere, the format's own
+ * rule applies and a line without one is a heading.
  */
-export function parseGrammarTable(content: string): readonly TableSection[] {
-  const sections: TableSection[] = [];
-  let heading: string | null = null;
-  let rows: TableRow[] = [];
+function hasAnyColumn(content: string): boolean {
+  return content.includes(COLUMN_SEPARATOR);
+}
 
-  const flush = () => {
-    if (heading !== null || rows.length > 0) {
-      sections.push({ heading, rows });
-    }
-    heading = null;
-    rows = [];
-  };
-
-  for (const rawLine of content.split("\n")) {
-    const line = rawLine.trim();
-    if (line === "") {
-      flush();
-      continue;
-    }
-
-    if (!line.includes(COLUMN_SEPARATOR)) {
-      // A line with no column is a heading. One already standing means the
-      // section beneath it has begun, so this starts the next one.
-      if (heading !== null || rows.length > 0) {
-        flush();
-      }
-      heading = line;
-      continue;
-    }
-
-    const cells = line.split(COLUMN_SEPARATOR).map((cell) => cell.trim());
-    while (cells.length > 1 && cells[cells.length - 1] === "") {
-      cells.pop();
-    }
-    rows.push(cells);
+function parseCells(line: string): readonly string[] {
+  const cells = line.split(COLUMN_SEPARATOR).map((cell) => cell.trim());
+  // A trailing separator marks a row of one cell rather than inventing an empty
+  // column at the end. It is what tells "some | " apart from the heading "some".
+  while (cells.length > 1 && cells[cells.length - 1] === "") {
+    cells.pop();
   }
-  flush();
+  return cells;
+}
 
+export function parseTable(content: string): TableBlock {
+  const columned = hasAnyColumn(content);
+  const sections: TableLine[][] = [];
+  let current: TableLine[] = [];
+
+  for (const raw of content.split("\n")) {
+    const line = raw.trim();
+    if (line === "") {
+      if (current.length > 0) {
+        sections.push(current);
+        current = [];
+      }
+      continue;
+    }
+    if (columned && !line.includes(COLUMN_SEPARATOR)) {
+      current.push({ kind: "title", text: line });
+    } else {
+      current.push({ kind: "row", cells: parseCells(line) });
+    }
+  }
+  if (current.length > 0) {
+    sections.push(current);
+  }
   return sections;
 }
 
-/** How many columns the widest row of a section uses. */
+/**
+ * Back to the stored form, so that parsing it again gives the same model.
+ *
+ * A one-cell row is written with a trailing separator whenever the block holds
+ * a column or a heading anywhere, because without it the line would read back
+ * as a heading. A block that is nothing but one-cell rows needs no separator at
+ * all: the rule above already reads every line of it as a row.
+ */
+export function serializeTable(block: TableBlock): string {
+  const needsMarker = block.some((section) =>
+    section.some(
+      (line) =>
+        line.kind === "title" || (line.kind === "row" && line.cells.length > 1),
+    ),
+  );
+
+  return block
+    .map((section) =>
+      section
+        .map((line) => {
+          if (line.kind === "title") {
+            return line.text;
+          }
+          if (line.cells.length > 1) {
+            return line.cells.join(` ${COLUMN_SEPARATOR} `);
+          }
+          const only = line.cells[0] ?? "";
+          return needsMarker ? `${only} ${COLUMN_SEPARATOR}` : only;
+        })
+        .join("\n"),
+    )
+    .join("\n\n");
+}
+
+/** The widest row of a section, which is how many columns the grid draws. */
 export function columnCount(section: TableSection): number {
-  return section.rows.reduce((widest, row) => Math.max(widest, row.length), 0);
+  return section.reduce(
+    (widest, line) =>
+      line.kind === "row" ? Math.max(widest, line.cells.length) : widest,
+    0,
+  );
+}
+
+/**
+ * Cuts a cell in two at one of the spaces inside it.
+ *
+ * This is how a row the extractor flattened becomes a table again: the teacher
+ * points at the space where the next column starts. `spaceIndex` counts the
+ * spaces of the cell from zero, which is what the screen has to offer as
+ * targets.
+ */
+export function splitCellAtSpace(
+  line: TableLine,
+  cellIndex: number,
+  spaceIndex: number,
+): TableLine {
+  if (line.kind !== "row") {
+    return line;
+  }
+  const cell = line.cells[cellIndex];
+  if (cell === undefined) {
+    return line;
+  }
+
+  const words = cell.split(/\s+/).filter((word) => word.length > 0);
+  if (spaceIndex < 0 || spaceIndex >= words.length - 1) {
+    return line;
+  }
+
+  const left = words.slice(0, spaceIndex + 1).join(" ");
+  const right = words.slice(spaceIndex + 1).join(" ");
+  const cells = [...line.cells];
+  cells.splice(cellIndex, 1, left, right);
+  return { kind: "row", cells };
+}
+
+/** Turns a heading into a one-cell row and back, when the rule guessed wrong. */
+export function toggleLineKind(line: TableLine): TableLine {
+  if (line.kind === "title") {
+    return { kind: "row", cells: [line.text] };
+  }
+  return { kind: "title", text: line.cells.join(" ").trim() };
 }
