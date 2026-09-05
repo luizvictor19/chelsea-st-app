@@ -6,6 +6,8 @@ Read this before writing code in this repository.
 
 - File names, folders, identifiers, types, tables, columns and comments: **English**.
 - Portuguese only in user-facing copy: UI strings, emails, teaching content.
+- Reports, questions and explanations addressed to the human: Portuguese.
+  Code, comments, commit messages and documentation stay English.
 - When unsure, ask before deciding.
 
 ## Content and licensing
@@ -45,6 +47,10 @@ Postgres, Auth and Storage. Deployed on Vercel.
 - **The exception.** UI state that can eat the teacher's work without saying so
   — a destructive action behind an unlabelled control, a save that drops an edit
   in silence — goes back in the high column, however small the change looks.
+- **Never report the state of the database from files on disk.** The Supabase
+  MCP server is configured and read-only: query it. A migration file in
+  `supabase/migrations` only proves the file exists. "Not applied" without a
+  query is not a finding, it is a guess.
 
 ## Git
 
