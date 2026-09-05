@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import type { StoredPage } from "@/lib/content/batch-store";
 import {
@@ -16,7 +16,15 @@ import {
   type PageState,
 } from "@/lib/content/review-navigation";
 import type { BlockKind } from "@/lib/extraction/classify";
-import { GRAMMAR_TABLE_PLACEHOLDER } from "@/lib/extraction/grammar-table";
+import {
+  columnCount,
+  parseTable,
+  serializeTable,
+  splitCellAtSpace,
+  toggleLineKind,
+  type TableBlock,
+  type TableLine,
+} from "@/lib/extraction/grammar-table";
 import { pointForBlock } from "@/lib/extraction/pipeline";
 import type { Placement } from "@/lib/extraction/reconcile";
 import { joinTerms, splitTerms } from "@/lib/extraction/terms";
@@ -24,7 +32,6 @@ import { joinTerms, splitTerms } from "@/lib/extraction/terms";
 import { confirmPoint, filledPoints } from "../actions";
 import type { PageFailure } from "./book-workbench";
 import { CropCanvas } from "./crop-canvas";
-import { GrammarTablePreview } from "./grammar-table-preview";
 import { PageRail, type RailPage } from "./page-rail";
 import {
   disputeCandidates,
@@ -1182,14 +1189,6 @@ function BlockCard({
                 label="Recorte da caixa original"
               />
             )}
-            {block.kind === "grammar_table" && (
-              <span className="text-faint text-xs leading-relaxed">
-                Uma linha por linha da tabela, colunas separadas por{" "}
-                <span className="font-mono">|</span>, e linha em branco entre
-                blocos. Uma linha sem <span className="font-mono">|</span> é o
-                título do bloco seguinte.
-              </span>
-            )}
           </div>
           <div className="flex min-w-0 flex-grow flex-col">
             <BlockBody block={block} onChange={onChange} rows={8} />
@@ -1225,27 +1224,23 @@ function BlockBody({
     );
   }
 
-  return (
-    <div className="flex flex-col">
-      <textarea
-        aria-label="Conteúdo do bloco"
-        value={block.content}
-        placeholder={
-          block.kind === "grammar_table" ? GRAMMAR_TABLE_PLACEHOLDER : undefined
-        }
-        rows={rows}
-        onChange={(event) => onChange({ content: event.target.value })}
-        className="bg-background w-full resize-y p-3.5 font-mono text-xs leading-[1.85] outline-none"
+  if (block.kind === "grammar_table") {
+    return (
+      <TableGrid
+        content={block.content}
+        onChange={(content) => onChange({ content })}
       />
-      {block.kind === "grammar_table" && (
-        <div className="border-rule bg-surface flex flex-col gap-1.5 border-t px-3.5 py-2.5">
-          <span className="text-faint font-mono text-[10px] tracking-[0.14em] uppercase">
-            Como a aluna vê
-          </span>
-          <GrammarTablePreview content={block.content} />
-        </div>
-      )}
-    </div>
+    );
+  }
+
+  return (
+    <textarea
+      aria-label="Conteúdo do bloco"
+      value={block.content}
+      rows={rows}
+      onChange={(event) => onChange({ content: event.target.value })}
+      className="bg-background w-full resize-y p-3.5 font-mono text-xs leading-[1.85] outline-none"
+    />
   );
 }
 
@@ -1362,5 +1357,489 @@ function TermChips({
         </button>
       )}
     </div>
+  );
+}
+
+/** Where the cursor sits in the grid; the heading is the cell before the first. */
+type CellAddress = { section: number; line: number; cell: number };
+
+const TITLE_CELL = -1;
+
+/** The vocabulary chip, which a cell is a kind of. */
+const CHIP =
+  "border-rule bg-background flex items-center gap-1.5 rounded-sm border py-1 pr-1.5 pl-2.5";
+
+function sameAddress(one: CellAddress | null, other: CellAddress): boolean {
+  return (
+    one !== null &&
+    one.section === other.section &&
+    one.line === other.line &&
+    one.cell === other.cell
+  );
+}
+
+/** The table with one line replaced, or dropped when the replacement is null. */
+function replaceLine(
+  table: TableBlock,
+  section: number,
+  line: number,
+  replacement: TableLine | null,
+): TableBlock {
+  return table.map((existing, index) =>
+    index === section
+      ? existing.flatMap((current, at) =>
+          at === line ? (replacement === null ? [] : [replacement]) : [current],
+        )
+      : existing,
+  );
+}
+
+/**
+ * The table as a grid of cells, which is the shape it has in the book.
+ *
+ * The stored form keeps a "|" between columns, but editing that as text means
+ * holding the column boundary in your head while reading a line of pipes. Here
+ * the boundary is where the screen already draws it: a cell you click, in a
+ * column that lines up with the cell above it.
+ *
+ * Nothing empty is ever written. A new row is typed before it exists and a new
+ * column only widens the grid on screen, because an empty column is an
+ * invitation to type rather than content, and the stored form has no way to
+ * carry one.
+ */
+function TableGrid({
+  content,
+  onChange,
+}: {
+  content: string;
+  onChange: (content: string) => void;
+}) {
+  const table = useMemo(() => parseTable(content), [content]);
+  const [editing, setEditing] = useState<CellAddress | null>(null);
+  const [text, setText] = useState("");
+  /** Columns the teacher asked for and has not filled yet, per section. */
+  const [widened, setWidened] = useState<Record<number, number>>({});
+
+  function close() {
+    setEditing(null);
+    setText("");
+  }
+
+  function write(next: TableBlock) {
+    close();
+    onChange(serializeTable(next.filter((section) => section.length > 0)));
+  }
+
+  function open(address: CellAddress, value: string) {
+    setEditing(address);
+    setText(value);
+  }
+
+  function commit() {
+    if (editing === null) {
+      return;
+    }
+    const address = editing;
+    // "|" is the column boundary in the stored form, so one typed inside a cell
+    // would split it in two behind the teacher's back.
+    const clean = text.replace(/\|/g, " ").replace(/\s+/g, " ").trim();
+    const section = table[address.section];
+    const line = section?.[address.line];
+
+    if (line === undefined) {
+      // A row typed at the end of its section, which exists only once it has
+      // something in it.
+      if (clean === "") {
+        close();
+        return;
+      }
+      const created: TableLine = { kind: "row", cells: [clean] };
+      write(
+        section === undefined
+          ? [...table, [created]]
+          : table.map((existing, index) =>
+              index === address.section ? [...existing, created] : existing,
+            ),
+      );
+      return;
+    }
+
+    if (address.cell === TITLE_CELL) {
+      // An empty heading is a blank line, and a blank line cuts the section in
+      // two. Clearing one deletes it instead.
+      write(
+        replaceLine(
+          table,
+          address.section,
+          address.line,
+          clean === "" ? null : { kind: "title", text: clean },
+        ),
+      );
+      return;
+    }
+    if (line.kind !== "row") {
+      close();
+      return;
+    }
+    if (clean === "" && address.cell >= line.cells.length) {
+      close();
+      return;
+    }
+    const cells = [...line.cells];
+    while (cells.length <= address.cell) {
+      cells.push("");
+    }
+    cells[address.cell] = clean;
+    write(
+      replaceLine(table, address.section, address.line, { kind: "row", cells }),
+    );
+  }
+
+  function removeCell(section: number, line: number, cell: number) {
+    const existing = table[section]?.[line];
+    if (existing === undefined || existing.kind !== "row") {
+      return;
+    }
+    const cells = existing.cells.filter((_, index) => index !== cell);
+    write(
+      replaceLine(
+        table,
+        section,
+        line,
+        cells.length === 0 ? null : { kind: "row", cells },
+      ),
+    );
+  }
+
+  function field() {
+    return (
+      <input
+        aria-label="Conteúdo da célula"
+        autoFocus
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+          }
+          if (event.key === "Escape") {
+            close();
+          }
+        }}
+        style={{ width: `${Math.max(text.length + 2, 8)}ch` }}
+        className="border-accent bg-background rounded-sm border px-2 py-1 font-mono text-xs"
+      />
+    );
+  }
+
+  function cell(line: TableLine & { kind: "row" }, address: CellAddress) {
+    if (sameAddress(editing, address)) {
+      return field();
+    }
+    const value = line.cells[address.cell];
+    if (value === undefined) {
+      return (
+        <button
+          type="button"
+          onClick={() => open(address, "")}
+          aria-label={`Preencher a coluna ${address.cell + 1} desta linha`}
+          title="Preencher esta coluna"
+          className="border-rule text-faint hover:border-foreground hover:text-foreground rounded-sm border border-dashed px-2.5 py-1 font-mono text-xs transition-colors"
+        >
+          +
+        </button>
+      );
+    }
+    // A row of one cell is the flattened case wherever it appears, so its
+    // spaces are offered as boundaries even inside a section that has columns.
+    const alone = line.cells.length === 1;
+    return (
+      <span className={CHIP}>
+        {alone ? (
+          <SplitWords
+            cell={value}
+            onEdit={() => open(address, value)}
+            onSplit={(space) =>
+              write(
+                replaceLine(
+                  table,
+                  address.section,
+                  address.line,
+                  splitCellAtSpace(line, address.cell, space),
+                ),
+              )
+            }
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => open(address, value)}
+            title="Corrigir esta célula"
+            className={`font-mono text-xs ${value === "" ? "text-faint" : ""}`}
+          >
+            {value === "" ? "vazia" : value}
+          </button>
+        )}
+        <RemoveCell
+          label={value === "" ? "Remover a célula vazia" : `Remover ${value}`}
+          onClick={() =>
+            removeCell(address.section, address.line, address.cell)
+          }
+        />
+      </span>
+    );
+  }
+
+  const newRow = (section: number, at: number) => (
+    <button
+      type="button"
+      onClick={() => open({ section, line: at, cell: 0 }, "")}
+      className="border-rule text-faint hover:border-foreground hover:text-foreground w-fit rounded-sm border border-dashed px-2.5 py-1 font-mono text-xs transition-colors"
+    >
+      + linha
+    </button>
+  );
+
+  return (
+    <div className="flex flex-col gap-3 p-3.5">
+      {table.map((section, sectionIndex) => {
+        const columns = Math.max(
+          1,
+          columnCount(section),
+          widened[sectionIndex] ?? 0,
+        );
+        const typing = sameAddress(editing, {
+          section: sectionIndex,
+          line: section.length,
+          cell: 0,
+        });
+        return (
+          <div key={sectionIndex} className="flex flex-col items-start gap-1.5">
+            <div className="flex items-start gap-1.5">
+              <div
+                className="grid items-center gap-1.5"
+                style={{
+                  gridTemplateColumns: `repeat(${columns}, max-content) max-content`,
+                }}
+              >
+                {section.map((line, lineIndex) => (
+                  <Fragment key={lineIndex}>
+                    {line.kind === "title" ? (
+                      <span style={{ gridColumn: `span ${columns}` }}>
+                        {sameAddress(editing, {
+                          section: sectionIndex,
+                          line: lineIndex,
+                          cell: TITLE_CELL,
+                        }) ? (
+                          field()
+                        ) : (
+                          <span className={`${CHIP} w-fit border-dashed`}>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                open(
+                                  {
+                                    section: sectionIndex,
+                                    line: lineIndex,
+                                    cell: TITLE_CELL,
+                                  },
+                                  line.text,
+                                )
+                              }
+                              title="Corrigir este título"
+                              className="font-mono text-xs font-semibold"
+                            >
+                              {line.text}
+                            </button>
+                            <RemoveCell
+                              label={`Remover o título ${line.text}`}
+                              onClick={() =>
+                                write(
+                                  replaceLine(
+                                    table,
+                                    sectionIndex,
+                                    lineIndex,
+                                    null,
+                                  ),
+                                )
+                              }
+                            />
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      Array.from({ length: columns }, (_, columnIndex) => (
+                        <Fragment key={columnIndex}>
+                          {cell(line, {
+                            section: sectionIndex,
+                            line: lineIndex,
+                            cell: columnIndex,
+                          })}
+                        </Fragment>
+                      ))
+                    )}
+                    <TitleToggle
+                      line={line}
+                      onToggle={() =>
+                        write(
+                          replaceLine(
+                            table,
+                            sectionIndex,
+                            lineIndex,
+                            toggleLineKind(line),
+                          ),
+                        )
+                      }
+                    />
+                  </Fragment>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setWidened((current) => ({
+                    ...current,
+                    [sectionIndex]: columns + 1,
+                  }))
+                }
+                className="border-rule text-faint hover:border-foreground hover:text-foreground rounded-sm border border-dashed px-2.5 py-1 font-mono text-xs transition-colors"
+              >
+                + coluna
+              </button>
+            </div>
+            {typing ? field() : newRow(sectionIndex, section.length)}
+          </div>
+        );
+      })}
+
+      {table.length === 0 &&
+        (sameAddress(editing, { section: 0, line: 0, cell: 0 })
+          ? field()
+          : newRow(0, 0))}
+
+      <span className="text-faint text-xs leading-relaxed">
+        Cada célula é uma coluna do livro. Clique em uma para corrigi-la. Em uma
+        linha inteira, o ponto entre duas palavras separa ali as colunas.
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The words of a full-width line, with its spaces as targets.
+ *
+ * A line that arrived without any column may be a table the extractor could
+ * not split. Clicking the space where the second column starts is how it
+ * becomes a table again, without anyone typing a separator.
+ */
+function SplitWords({
+  cell,
+  onEdit,
+  onSplit,
+}: {
+  cell: string;
+  onEdit: () => void;
+  onSplit: (space: number) => void;
+}) {
+  const words = cell.split(/\s+/).filter((word) => word.length > 0);
+  if (words.length < 2) {
+    return (
+      <button
+        type="button"
+        onClick={onEdit}
+        title="Corrigir esta célula"
+        className={`font-mono text-xs ${cell === "" ? "text-faint" : ""}`}
+      >
+        {cell === "" ? "vazia" : cell}
+      </button>
+    );
+  }
+  return (
+    <span className="flex items-center">
+      {words.map((word, index) => (
+        <Fragment key={index}>
+          {index > 0 && (
+            <button
+              type="button"
+              onClick={() => onSplit(index - 1)}
+              aria-label={`Separar em duas colunas depois de ${words[index - 1]}`}
+              title="Separar em duas colunas aqui"
+              className="text-faint hover:text-accent px-[3px] font-mono text-xs transition-colors"
+            >
+              ·
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onEdit}
+            title="Corrigir esta célula"
+            className="font-mono text-xs"
+          >
+            {word}
+          </button>
+        </Fragment>
+      ))}
+    </span>
+  );
+}
+
+function RemoveCell({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className="text-faint hover:text-accent font-mono text-xs transition-colors"
+    >
+      ×
+    </button>
+  );
+}
+
+/**
+ * Whether this line is the heading of its sub-block.
+ *
+ * The rule that reads the stored form guesses this, and a guess that is wrong
+ * turns a row of the lesson into a heading or the other way round. So the guess
+ * is shown as a state the teacher can see and reverse, never applied in
+ * silence.
+ */
+function TitleToggle({
+  line,
+  onToggle,
+}: {
+  line: TableLine;
+  onToggle: () => void;
+}) {
+  const isTitle = line.kind === "title";
+  // A heading with no text is a blank line, which would cut the section in two.
+  const possible = isTitle || line.cells.join(" ").trim() !== "";
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={!possible}
+      aria-pressed={isTitle}
+      title={
+        isTitle
+          ? "É o título deste sub-bloco. Clique para voltar a ser linha da tabela."
+          : "Marcar como título deste sub-bloco"
+      }
+      className={`justify-self-start rounded-sm border px-1.5 py-0.5 font-mono text-[10px] tracking-[0.08em] uppercase transition-colors disabled:opacity-40 ${
+        isTitle
+          ? "border-foreground text-foreground"
+          : "border-rule text-faint hover:border-foreground hover:text-foreground"
+      }`}
+    >
+      título
+    </button>
   );
 }
