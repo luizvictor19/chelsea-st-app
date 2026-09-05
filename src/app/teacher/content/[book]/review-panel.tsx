@@ -978,11 +978,14 @@ function PageWork({
         {/*
           The heights survive a restore; the image does not. So the split of a
           spread comes back intact and only the crop is missing, which is worth
-          saying exactly where a crop would have been useful.
+          saying exactly where a crop would have been useful — and only there,
+          so a page whose flagged blocks all still have their crop stays quiet.
         */}
-        {!page.hasImage &&
-          !draft.saved &&
-          draft.blocks.some((block) => block.needsReview) && (
+        {!draft.saved &&
+          draft.blocks.some(
+            (block) => block.needsReview && block.crop === null,
+          ) &&
+          !page.hasImage && (
             <p className="border-rule text-muted rounded-sm border border-dashed px-4 py-3 text-sm leading-relaxed">
               A leitura foi retomada sem as imagens. A altura de cada bloco
               ficou salva, então uma página de dois pontos continua dividida
