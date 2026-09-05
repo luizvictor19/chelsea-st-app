@@ -93,8 +93,8 @@ type BlockDraft = {
   /*
    * Stable for as long as the block is on screen, and never stored. Adding or
    * removing a block moves every block after it, and a list keyed by position
-   * would hand the editor state of one block — a cell being typed, a column
-   * asked for — to whichever block slid into its place.
+   * would hand the editor state of one block, a cell being typed or a column
+   * asked for, to whichever block slid into its place.
    */
   id: string;
   kind: BlockKind;
@@ -199,9 +199,9 @@ function questionOf(page: ReviewSourcePage): PageQuestion {
  * alone threw the answer away and wrote the whole spread to the top number;
  * taking the answer alone would have thrown the settled half away instead.
  *
- * With more than one dispute only the answered one can be placed — the screen
- * asks a single question — and the rest of the page falls to the nearest number
- * above it, which is the book's own rule.
+ * With more than one dispute only the answered one can be placed, because the
+ * screen asks a single question, and the rest of the page falls to the nearest
+ * number above it, which is the book's own rule.
  */
 /**
  * The lesson a point of this page will be written to, or null while unknown.
@@ -402,8 +402,9 @@ export function ReviewPanel({
    * A ref, and written the moment the point is cleared rather than through
    * state: two confirmations can overlap, and a second one that read this from
    * a closure or from state that had not been committed yet computed "replace
-   * the whole point" a second time and deleted what the first had just written
-   * — the very loss this exists to prevent. Nothing renders from it.
+   * the whole point" a second time and deleted what the first had just
+   * written, which is the very loss this exists to prevent. Nothing renders
+   * from it.
    */
   const clearedPoints = useRef<ReadonlySet<number>>(new Set());
   function markCleared(pointNumber: number) {
@@ -509,7 +510,7 @@ export function ReviewPanel({
    *
    * Read again after every confirmation: a page that had to ask creates the
    * lesson, and the next page of the same batch would otherwise be asked a
-   * question the database can now answer — and a second answer typed there
+   * question the database can now answer, and a second answer typed there
    * makes a second lesson row overlapping the first.
    */
   const applyLessons = useCallback((result: BookLessons) => {
@@ -726,9 +727,9 @@ export function ReviewPanel({
         needsReview: false,
         crop: null,
         // It belongs where it was inserted, so a spread puts it under the same
-        // number as the block it follows. The fallback is unreachable — the
-        // button that calls this sits on a block, so there is always one at
-        // `index` — and it is written as zero deliberately: a block at the very
+        // number as the block it follows. The fallback is unreachable, since
+        // the button that calls this sits on a block and there is always one at
+        // `index`, and it is written as zero deliberately: a block at the very
         // top of a page is above every number on it, and pointForBlock will say
         // it belongs to the page before rather than guess.
         top: blocks[index]?.top ?? 0,
@@ -1047,7 +1048,7 @@ export function ReviewPanel({
             {failures.map((failure) => (
               <li key={failure.id}>
                 <span className="font-mono text-xs">{failure.id}</span>
-                <span className="text-faint"> — {failure.reason}</span>
+                <span className="text-faint"> · {failure.reason}</span>
               </li>
             ))}
           </ul>
@@ -1148,9 +1149,9 @@ function PageWork({
    * Blocks the page cannot file, which is a question of its own.
    *
    * Content printed above a page's first number belongs to the point before,
-   * and when that point is not in this upload — the page opens the batch, or a
-   * number between the two was never read — nothing on the page says where it
-   * goes. The page is held rather than written, because writing the rest and
+   * and when that point is not in this upload, either because the page opens
+   * the batch or because a number between the two was never read, nothing on
+   * the page says where it goes. The page is held rather than written, because writing the rest and
    * dropping this is the silent loss, and filing it under the nearest number is
    * the guess.
    */
@@ -1297,7 +1298,7 @@ function PageWork({
         {/*
           The heights survive a restore; the image does not. So the split of a
           spread comes back intact and only the crop is missing, which is worth
-          saying exactly where a crop would have been useful — and only there,
+          saying exactly where a crop would have been useful, and only there,
           so a page whose flagged blocks all still have their crop stays quiet.
         */}
         {!draft.saved &&
@@ -1323,7 +1324,7 @@ function PageWork({
               ? `O ponto ${lessonPending[0]} está`
               : `Os pontos ${lessonPending.join(", ")} estão`}{" "}
             na página anterior, do outro lado do cabeçalho desta, e portanto na
-            lição anterior — que ainda não está gravada. Confirme a página
+            lição anterior, que ainda não está gravada. Confirme a página
             anterior primeiro. Nada desta é gravado enquanto isso.
           </p>
         )}
@@ -1334,7 +1335,7 @@ function PageWork({
               ? "Um bloco desta página está impresso"
               : `${unplaced.length} blocos desta página estão impressos`}{" "}
             acima do primeiro número dela, então pertencem ao último ponto da
-            página anterior — e essa página não está neste envio
+            página anterior, e essa página não está neste envio
             {page.openingPoint === null
               ? ", porque esta é a primeira dele"
               : `, ou o número entre o ponto ${page.openingPoint} e o ${placements[0]?.number} não foi lido`}
@@ -1381,7 +1382,7 @@ function PageWork({
  * The third step: nobody knows the lesson, so the teacher is asked.
  *
  * Reached when the upload carries no "LESSON N" header for this page and the
- * book has no lesson recorded that opens at or before its point — the first
+ * book has no lesson recorded that opens at or before its point: the first
  * pages of a book, or a page uploaded before the one that opens its lesson.
  * The alternative was writing the point with no lesson at all, which is what
  * left three points of book 2 unattached and silent.

@@ -6,7 +6,7 @@ import { listWordsWithoutImage } from "@/lib/content/queries";
 import { ProgressBar } from "../progress-bar";
 
 export const metadata: Metadata = {
-  title: "Imagens do vocabulário — Chelsea St",
+  title: "Imagens do vocabulário · Chelsea St",
 };
 
 export default async function VocabularyImagesPage() {

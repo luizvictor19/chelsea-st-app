@@ -3,8 +3,8 @@
  *
  * A lesson opens with a "LESSON N" header printed on a page, and runs until the
  * next header. When the header page is in the upload, the batch settles this on
- * its own. When it is not — and the teacher is promised the pages may be
- * uploaded in any order — the lessons already written answer instead, and if
+ * its own. When it is not, and the teacher is promised the pages may be
+ * uploaded in any order, the lessons already written answer instead, and if
  * they cannot, the screen asks. What is never done is writing a point with no
  * lesson and saying nothing: that is a hole in the data nobody sees until the
  * lesson screen is built, months later.
@@ -106,7 +106,7 @@ export type OrphanAttachment = {
  *
  * The rule above and nothing more. A point above the last lesson recorded has
  * nothing to say where it stops belonging, so it stays an orphan until a lesson
- * arrives above it — an orphan is repairable, and a point attached to the wrong
+ * arrives above it. An orphan is repairable, and a point attached to the wrong
  * lesson never is.
  */
 export function orphansToAttach(
@@ -132,13 +132,13 @@ export type LessonGroup<T> = {
  * The points of a book cut into the lessons they fall in.
  *
  * By the rule the ingestion uses, so the screen shows what the database would
- * answer — a first_point one square off, or a lesson nobody recorded, becomes a
+ * answer: a first_point one square off, or a lesson nobody recorded, becomes a
  * boundary in the wrong place instead of a silence.
  *
  * With one addition that only a drawing may make: a lesson with nothing above
  * it to close it would have all of its own points read as belonging to nobody.
- * The points inside the range it has reached — its first point to the furthest
- * one written to it — are shown under it. Drawing a point where the record
+ * The points inside the range it has reached, from its first point to the
+ * furthest one written to it, are shown under it. Drawing a point where the record
  * already puts it costs nothing; deciding where to write one on the same
  * reasoning is what the rule above refuses, so the screen may show a lesson
  * that the review would still ask about.

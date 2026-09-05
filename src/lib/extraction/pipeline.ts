@@ -275,8 +275,8 @@ export function isRefused(page: ExtractedPage): boolean {
  * and that rule is right about the middle of a page and wrong at both ends.
  *
  * At the top of a block, because the margin number is not printed above the
- * panel it names — it sits beside the panel's first line, up to POINT_LABEL_REACH
- * pixels inside it. Read literally, "the last number above" gave every one of
+ * panel it names. It sits beside the panel's first line, up to
+ * POINT_LABEL_REACH pixels inside it. Read literally, "the last number above" gave every one of
  * those panels to the number before, which on a spread means the whole of the
  * second point's opening panel filed under the first.
  *
@@ -288,7 +288,7 @@ export function isRefused(page: ExtractedPage): boolean {
  * Null is an answer, and the caller has to carry it: it means nothing on the
  * page decides, and the teacher has to. That happens when the page opens the
  * upload, so there is no point before it, and when a number is missing between
- * the point the page opens in and the page's own first number — the missing one
+ * the point the page opens in and the page's own first number. The missing one
  * was printed somewhere, and a block above the first number may belong to
  * either. Choosing there is the misfiling this rule exists to stop.
  *

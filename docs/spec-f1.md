@@ -1,4 +1,4 @@
-# F1 — Entrar e ver a próxima aula
+# F1 · Entrar e ver a próxima aula
 
 Spec de implementação. Escrita para ser executada com a skill `implement-spec`.
 

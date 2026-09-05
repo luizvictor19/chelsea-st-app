@@ -290,7 +290,8 @@ export function reconcilePoints(
    * assigned, so it describes what the crops actually returned rather than a
    * state some later cross-page deletion produced. A page qualifies when every
    * position it holds is down to a single candidate and those candidates
-   * increase in the order they are printed — the order the book is set in.
+   * increase in the order they are printed, which is the order the book is set
+   * in.
    *
    * The pass above has already done the dangerous half: any reading that cannot
    * take part in a longest increasing run down the page is gone, so what
@@ -333,7 +334,7 @@ export function reconcilePoints(
     // numbers were each seen by one crop and which had no anchor anywhere.
     //
     // Both readings have to hold: as the crops returned it, and still now. The
-    // first is what the rule is about, and only ever narrows — a page that
+    // first is what the rule is about, and only ever narrows: a page that
     // arrived with a position holding two candidates never earns it. The second
     // is what stops a chain being spent after it has been broken: a value taken
     // by another page is deleted here too, and the position it leaves empty

@@ -153,8 +153,8 @@ export const MARGIN_GROUP_Y_TOLERANCE = 30;
  * What the measurement did change is what happens to the refusals. In book 2
  * they fall on four different pages, three of which carry another number that
  * was corroborated, so the page settles anyway. In book 1 all three fall on one
- * page — the first, the only one carrying three points — and that page had
- * nothing left to bootstrap from. Hence MARGIN_CHAIN_MINIMUM below.
+ * page, the first of the book and the only one carrying three points, and that
+ * page had nothing left to bootstrap from. Hence MARGIN_CHAIN_MINIMUM below.
  */
 export const MARGIN_AGREEMENT = 2;
 
@@ -171,7 +171,7 @@ export const MARGIN_AGREEMENT = 2;
  * anything, and a lone reading no crop confirmed is exactly the shape noise
  * takes: 29 of the 31 noise readings measured in book 2 were seen once. At two
  * this fires on one page in the 31 of book 1 and none of the 61 of book 2, and
- * admits no noise in either — every noise reading inside a book's own range
+ * admits no noise in either. Every noise reading inside a book's own range
  * either shares a position with a real number or holds two candidates, and
  * neither is a chain.
  */
@@ -182,7 +182,7 @@ export const MARGIN_CHAIN_MINIMUM = 2;
  *
  * The margin number is not printed above the panel it labels. It sits beside
  * the panel's first line, a little inside it, so "the last number printed above
- * this block" — read literally — hands the panel to the number before it.
+ * this block", read literally, hands the panel to the number before it.
  *
  * Measured over both books with scripts/measure-agreement-gate.ts: of 69 numbers
  * that name a block, 29 in book 1 and 40 in book 2, none sits more than 23px

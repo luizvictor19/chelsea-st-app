@@ -5,7 +5,7 @@ import { listBooks } from "@/lib/content/queries";
 import { BookCard } from "./book-card";
 
 export const metadata: Metadata = {
-  title: "Conteúdo — Chelsea St",
+  title: "Conteúdo · Chelsea St",
 };
 
 /** The course is twelve books, whether or not the database holds them yet. */

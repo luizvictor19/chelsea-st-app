@@ -218,7 +218,7 @@ describe("lessonForPage", () => {
   test("nor when nothing recorded says where the lesson stops", () => {
     // Lesson 23 not written yet: 116 may be in 22 or in a lesson between them
     // that nobody has uploaded. Uploading the whole book at once never reaches
-    // here — every header is in the batch and the first step answers.
+    // here, because every header is in the batch and the first step answers.
     assert.equal(lessonForPage(null, 116, STORED.slice(0, 1)), null);
   });
 });
@@ -294,7 +294,7 @@ describe("groupByLesson", () => {
   test("an overlapping range does not swallow the lesson after it", () => {
     // Lesson 22 widened past where 23 opens, which is what the old rule
     // produced. The furthest opening wins, so 23 keeps its own points instead
-    // of being drawn inside 22 — and 125, which only 22 claims to have reached,
+    // of being drawn inside 22, and 125, which only 22 claims to have reached,
     // comes back under 22. The overlap is shown as the mess it is rather than
     // tidied away, which is the reason the ruler names lessons at all.
     const overlapping: readonly LessonRange[] = [
