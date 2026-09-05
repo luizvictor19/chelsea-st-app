@@ -70,14 +70,16 @@ const KIND_LABELS: Record<BlockKind, string> = {
 /**
  * What the header says when the extractor flagged the block.
  *
- * Only the table is ever flagged today, and "flattened" is the pipeline's own
- * word for it: the box was read as one column because no boundary was found.
- * The label says that instead, because it is what the teacher has to fix. A
- * second cause would get its own line here rather than a shared "check this".
+ * Only the table is ever flagged today, and the flag is the height of the box,
+ * not anything about what came out of it. Since the columns started arriving
+ * measured, saying they were not identified claims a failure that usually did
+ * not happen. It asks for the teacher's eye instead, which is what the flag has
+ * always meant: the table is the block that gets it wrong most often. A second
+ * cause would get its own line here rather than a shared "check this".
  */
 const FLAGGED_LABELS: Record<BlockKind, string> = {
   vocabulary: "Vocabulário · confira",
-  grammar_table: "Tabela · colunas não identificadas",
+  grammar_table: "Tabela · confira as colunas",
   explanation: "Explicação · confira",
   dictation: "Ditado · confira",
   revision_exercise: "Exercício de revisão · confira",
