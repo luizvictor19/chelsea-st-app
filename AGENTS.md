@@ -32,6 +32,20 @@ Postgres, Auth and Storage. Deployed on Vercel.
 - A bug fix starts with a failing test.
 - Never commit, push or deploy unless asked.
 
+## Where rigor goes
+
+- **High, where a mistake stays hidden.** Extraction, reconciliation,
+  migrations, RLS, anything written to the database, and any convention about
+  the shape of stored data. No threshold enters here without being measured
+  against the real fixtures first, and the measurement is recorded next to the
+  constant it justifies.
+- **Low, where the screen shows the mistake at once.** Layout, spacing, colour
+  and screen copy. The gate and one look at the page catch these, so decide and
+  move on.
+- **The exception.** UI state that can eat the teacher's work without saying so
+  — a destructive action behind an unlabelled control, a save that drops an edit
+  in silence — goes back in the high column, however small the change looks.
+
 ## Git
 
 - Branches: `feat/<scope>`, `fix/<scope>`, `chore/<scope>`, `docs/<scope>`.
@@ -44,5 +58,6 @@ Postgres, Auth and Storage. Deployed on Vercel.
 npx prettier --check .
 npm run lint
 npx tsc --noEmit
+npm test
 npm run build
 ```
