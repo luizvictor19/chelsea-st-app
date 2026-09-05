@@ -1100,7 +1100,7 @@ function PageWork({
                 {deduced && (
                   <span
                     className="text-faint"
-                    title="Nenhuma página deste envio carrega o cabeçalho LESSON. Esta é a última lição gravada que começa em ou antes deste ponto."
+                    title="Nenhuma página deste envio carrega o cabeçalho LESSON. Esta é a lição gravada que começa em ou antes deste ponto, e a lição seguinte já gravada é o que diz onde ela termina."
                   >
                     {" "}
                     · deduzida do livro
@@ -1264,8 +1264,8 @@ function LessonQuestion({
       </p>
       <p className="text-muted text-sm leading-relaxed">
         {targets.length > 1
-          ? `Nenhuma página deste envio carrega o cabeçalho LESSON, e o livro ainda não tem lição gravada que comece em ou antes dos pontos ${targets.join(" e ")}. O número está no cabeçalho da página do livro.`
-          : `Nenhuma página deste envio carrega o cabeçalho LESSON, e o livro ainda não tem lição gravada que comece em ou antes do ponto ${targets[0]}. O número está no cabeçalho da página do livro.`}
+          ? `Nenhuma página deste envio carrega o cabeçalho LESSON, e as lições já gravadas não dizem em qual caem os pontos ${targets.join(" e ")}. O número está no cabeçalho da página do livro.`
+          : `Nenhuma página deste envio carrega o cabeçalho LESSON, e as lições já gravadas não dizem em qual cai o ponto ${targets[0]}. O número está no cabeçalho da página do livro.`}
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <input

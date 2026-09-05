@@ -54,7 +54,10 @@ export function PointGrid({
       <div className="flex flex-col">
         {groups.map((group, index) => (
           <div
-            key={group.lesson ?? `sem-licao-${index}`}
+            // The first point of the group: a lesson can label two groups when
+            // its recorded range overlaps the next one's, and its number would
+            // then be the same key twice.
+            key={group.points[0]?.number ?? index}
             className={`flex items-start gap-3 py-2 ${
               index === 0 ? "" : "border-rule border-t"
             }`}

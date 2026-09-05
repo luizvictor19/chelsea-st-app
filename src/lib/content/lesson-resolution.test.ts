@@ -154,10 +154,27 @@ describe("lessonForPoint", () => {
   test("a point above the last lesson recorded is nobody's to answer for", () => {
     // Nothing says where lesson 23 stops, so 125 may be in it or in a lesson
     // that has not been uploaded. The screen asks instead of guessing, which is
-    // the rule the orphan sweep already used.
+    // the rule the orphan sweep uses too.
     assert.equal(lessonForPoint(125, lessons), null);
-    assert.equal(lessonForPoint(119, lessons), null);
     assert.equal(lessonForPage(null, 125, lessons), null);
+  });
+
+  test("a point that is a lesson's own first point is never a guess", () => {
+    // 119 is where lesson 23 opens. Nothing above it is needed to know that,
+    // and refusing it would send the teacher to answer what the record states.
+    assert.equal(lessonForPoint(119, lessons)?.number, 23);
+    assert.equal(lessonForPoint(114, [lessons[0]])?.number, 22);
+  });
+
+  test("a lesson with a hole above it closes nothing", () => {
+    // Lessons 22 and 40 recorded, nothing between: point 200 has seventeen
+    // lessons it might be in. The same silence as a point above the last one.
+    const apart: readonly LessonRange[] = [
+      { id: "l22", number: 22, firstPoint: 114, lastPoint: 118 },
+      { id: "l40", number: 40, firstPoint: 300, lastPoint: 300 },
+    ];
+    assert.equal(lessonForPoint(200, apart), null);
+    assert.equal(lessonForPoint(300, apart)?.number, 40);
   });
 
   test("a point past the recorded end still belongs to that lesson", () => {
@@ -229,7 +246,12 @@ describe("orphansToAttach", () => {
     // to a lesson nobody has uploaded. Nobody is looking at this row, so it
     // waits: an orphan can still be repaired, a wrong attachment cannot.
     assert.deepEqual(orphansToAttach(lessons, [122, 300]), []);
-    assert.deepEqual(orphansToAttach(lessons, [119]), []);
+  });
+
+  test("an orphan sitting where a lesson opens is attached to it", () => {
+    assert.deepEqual(orphansToAttach(lessons, [119]), [
+      { point: 119, lessonId: "l23" },
+    ]);
   });
 
   test("an orphan before every lesson is left alone", () => {
@@ -256,6 +278,29 @@ describe("groupByLesson", () => {
         [null, [113]],
         [22, [114, 115]],
         [23, [119, 120]],
+      ],
+    );
+  });
+
+  test("an overlapping range does not swallow the lesson after it", () => {
+    // Lesson 22 widened past where 23 opens, which is what the old rule
+    // produced. The furthest opening wins, so 23 keeps its own points instead
+    // of being drawn inside 22 — and 125, which only 22 claims to have reached,
+    // comes back under 22. The overlap is shown as the mess it is rather than
+    // tidied away, which is the reason the ruler names lessons at all.
+    const overlapping: readonly LessonRange[] = [
+      { id: "l22", number: 22, firstPoint: 114, lastPoint: 125 },
+      { id: "l23", number: 23, firstPoint: 119, lastPoint: 121 },
+    ];
+    assert.deepEqual(
+      groupByLesson(
+        [114, 119, 120, 125].map((number) => ({ number })),
+        overlapping,
+      ).map((group) => [group.lesson, group.points.map((one) => one.number)]),
+      [
+        [22, [114]],
+        [23, [119, 120]],
+        [22, [125]],
       ],
     );
   });

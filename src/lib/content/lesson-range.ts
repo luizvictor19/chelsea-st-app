@@ -26,29 +26,47 @@ export type LessonRange = {
 };
 
 /**
- * The lesson a point falls in: the last one that opens at or before it, when
- * another recorded lesson opens after it.
+ * The lesson a point falls in, when the record says so and not otherwise.
  *
- * Both halves are needed and neither uses last_point. The lesson that opens
- * before says which one it is; a lesson opening after is what says this one has
- * ended, and without it nothing recorded tells where the point stops belonging.
- * With only lesson 22 written, point 125 could be in it or in a lesson nobody
- * has uploaded, so this says nothing and the screen asks — the same answer the
- * orphan sweep has always given, and now the same rule.
+ * Three ways to be sure, and none of them reads last_point, which is how far
+ * the uploads have reached and not where the lesson ends:
+ *
+ *   - the point is the lesson's own first point, which is not a deduction;
+ *   - or the lesson that opens at or before it is closed by the lesson after it
+ *     by number, so what lies between the two openings is this lesson and can
+ *     be nothing else;
+ *   - otherwise nothing recorded says where the point stops belonging, and the
+ *     answer is no answer: the screen asks, which is the third step.
+ *
+ * Closing by number rather than by position is what shuts the door on both
+ * sides. With only lesson 22 written, point 125 could be in it or in a lesson
+ * nobody uploaded; with 22 and 40 written and nothing between, point 200 has
+ * seventeen lessons it might belong to. Both are the same silence and both are
+ * refused. Uploading in order never meets either: lesson 23 arrives before
+ * anyone asks about a point above lesson 22.
  */
 export function lessonForPoint(
   point: number,
   lessons: readonly LessonRange[],
 ): LessonRange | null {
   let found: LessonRange | null = null;
-  let closed = false;
   for (const lesson of lessons) {
-    if (lesson.firstPoint > point) {
-      closed = true;
-    } else if (found === null || lesson.firstPoint > found.firstPoint) {
+    if (lesson.firstPoint === point) {
+      return lesson;
+    }
+    if (
+      lesson.firstPoint < point &&
+      (found === null || lesson.firstPoint > found.firstPoint)
+    ) {
       found = lesson;
     }
   }
+  if (found === null) {
+    return null;
+  }
+  const closed = lessons.some(
+    (lesson) => lesson.number === (found as LessonRange).number + 1,
+  );
   return closed ? found : null;
 }
 
@@ -117,11 +135,13 @@ export type LessonGroup<T> = {
  * answer — a first_point one square off, or a lesson nobody recorded, becomes a
  * boundary in the wrong place instead of a silence.
  *
- * With one addition that only a drawing may make: the last lesson recorded has
- * nothing above it to close it, so its own points would all read as belonging
- * to nobody. The points it has actually been written to, up to its last_point,
- * are shown under it. Drawing where a point already is costs nothing; deciding
- * where to write one on the same reasoning is what the rule above refuses.
+ * With one addition that only a drawing may make: a lesson with nothing above
+ * it to close it would have all of its own points read as belonging to nobody.
+ * The points inside the range it has reached — its first point to the furthest
+ * one written to it — are shown under it. Drawing a point where the record
+ * already puts it costs nothing; deciding where to write one on the same
+ * reasoning is what the rule above refuses, so the screen may show a lesson
+ * that the review would still ask about.
  */
 export function groupByLesson<T extends { readonly number: number }>(
   points: readonly T[],
@@ -130,10 +150,22 @@ export function groupByLesson<T extends { readonly number: number }>(
   const groups: LessonGroup<T>[] = [];
   let current: { lesson: number | null; points: T[] } | null = null;
 
+  /*
+   * The furthest lesson whose recorded reach covers the point. Furthest and not
+   * the first found: ranges overlap whenever an older write widened one past
+   * where the next begins, and the first in the list would then swallow the
+   * lesson after it and take its points off the ruler.
+   */
   const reached = (point: number): LessonRange | null =>
-    lessons.find(
-      (lesson) => lesson.firstPoint <= point && point <= lesson.lastPoint,
-    ) ?? null;
+    lessons.reduce<LessonRange | null>(
+      (furthest, lesson) =>
+        lesson.firstPoint <= point &&
+        point <= lesson.lastPoint &&
+        (furthest === null || lesson.firstPoint > furthest.firstPoint)
+          ? lesson
+          : furthest,
+      null,
+    );
 
   for (const point of [...points].sort((a, b) => a.number - b.number)) {
     const lesson =
