@@ -43,12 +43,24 @@ export type BookSummary = {
   readonly firstPoint: number | null;
   readonly lastPoint: number | null;
   readonly progress: Progress;
+  /** The highest point filled so far, which is where the teacher stopped. */
+  readonly lastFilledPoint: number | null;
 };
 
-export async function listBooks(): Promise<{
+export type BooksOverview = {
   readonly books: readonly BookSummary[];
-  readonly overall: Progress;
-}> {
+  /**
+   * How many of the twelve have a range.
+   *
+   * Not the share of points filled across the course: that can only be counted
+   * once every book knows its own range, and reporting it earlier gives a
+   * percentage of the one book that happens to be configured.
+   */
+  readonly configured: number;
+  readonly total: number;
+};
+
+export async function listBooks(): Promise<BooksOverview> {
   const { supabase } = await requireTeacher();
 
   const { data: books } = await supabase
@@ -67,30 +79,29 @@ export async function listBooks(): Promise<{
     byBook.set(point.book_id, list);
   }
 
-  const summaries = (books ?? []).map((book) => ({
-    id: book.id,
-    position: book.position,
-    title: book.title,
-    firstPoint: book.first_point,
-    lastPoint: book.last_point,
-    progress: progress(
-      byBook.get(book.id) ?? [],
-      book.first_point,
-      book.last_point,
-    ),
-  }));
-
-  const filled = summaries.reduce((sum, book) => sum + book.progress.filled, 0);
-  const total = summaries.reduce((sum, book) => sum + book.progress.total, 0);
+  const summaries = (books ?? []).map((book) => {
+    const own = byBook.get(book.id) ?? [];
+    const filledNumbers = own
+      .filter((point) => point.filled)
+      .map((point) => point.number);
+    return {
+      id: book.id,
+      position: book.position,
+      title: book.title,
+      firstPoint: book.first_point,
+      lastPoint: book.last_point,
+      progress: progress(own, book.first_point, book.last_point),
+      lastFilledPoint:
+        filledNumbers.length === 0 ? null : Math.max(...filledNumbers),
+    };
+  });
 
   return {
     books: summaries,
-    overall: {
-      filled,
-      total,
-      remaining: Math.max(0, total - filled),
-      fraction: total === 0 ? 0 : Math.min(1, filled / total),
-    },
+    configured: summaries.filter(
+      (book) => book.firstPoint !== null && book.lastPoint !== null,
+    ).length,
+    total: summaries.length,
   };
 }
 
@@ -103,6 +114,9 @@ export type BookDetail = {
   readonly points: readonly { number: number; filled: boolean }[];
   readonly gaps: readonly Gap[];
   readonly progress: Progress;
+  /** Where the teacher stopped, and the lesson that point belongs to. */
+  readonly lastFilledPoint: number | null;
+  readonly lastFilledLesson: number | null;
 };
 
 export async function loadBook(position: number): Promise<BookDetail | null> {
@@ -120,13 +134,13 @@ export async function loadBook(position: number): Promise<BookDetail | null> {
 
   const { data: rows } = await supabase
     .from("points")
-    .select("number, filled_at")
+    .select("number, filled_at, lessons_content(number)")
     .eq("book_id", book.id)
     .order("number");
 
-  const filledNumbers = (rows ?? [])
-    .filter((row) => row.filled_at !== null)
-    .map((row) => row.number);
+  const filledRows = (rows ?? []).filter((row) => row.filled_at !== null);
+  const filledNumbers = filledRows.map((row) => row.number);
+  const furthest = filledRows.at(-1) ?? null;
   const points = pointsInRange(
     filledNumbers,
     book.first_point,
@@ -142,6 +156,8 @@ export async function loadBook(position: number): Promise<BookDetail | null> {
     points,
     gaps: gaps(points),
     progress: progress(points, book.first_point, book.last_point),
+    lastFilledPoint: furthest?.number ?? null,
+    lastFilledLesson: furthest?.lessons_content?.number ?? null,
   };
 }
 

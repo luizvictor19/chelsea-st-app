@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 };
 
 export default async function ContentIndexPage() {
-  const { books, overall } = await listBooks();
+  const { books, configured, total } = await listBooks();
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-3xl flex-col gap-8 p-6 py-12">
@@ -19,7 +19,16 @@ export default async function ContentIndexPage() {
           Conteúdo
         </p>
         <h1 className="text-3xl font-extrabold tracking-tight">Os 12 livros</h1>
-        <ProgressBar progress={overall} label="Curso inteiro" emphasis />
+        <ProgressBar
+          progress={{
+            filled: configured,
+            total,
+            remaining: total - configured,
+            fraction: total === 0 ? 0 : configured / total,
+          }}
+          label="Livros configurados"
+          emphasis
+        />
         <Link
           href="/teacher/content/images"
           className="text-accent hover:text-foreground text-sm font-semibold transition-colors"
