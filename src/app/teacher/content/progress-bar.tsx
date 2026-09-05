@@ -12,15 +12,17 @@ export function ProgressBar({
 }) {
   const percent = Math.round(progress.fraction * 100);
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-baseline justify-between gap-4">
-        <span className={emphasis ? "font-semibold" : "text-muted text-sm"}>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <span
+          className={emphasis ? "text-sm font-semibold" : "text-muted text-sm"}
+        >
           {label}
         </span>
         <span className="text-faint font-mono text-xs">
           {progress.total === 0
             ? "não configurado"
-            : `${progress.filled} de ${progress.total} preenchidos · ${Math.round(progress.fraction * 100)}% · faltam ${progress.remaining}`}
+            : `${progress.filled} de ${progress.total} · ${percent}% · faltam ${progress.remaining}`}
         </span>
       </div>
       <div
@@ -29,7 +31,7 @@ export function ProgressBar({
         aria-valuemin={0}
         aria-valuemax={progress.total}
         aria-label={label}
-        className="bg-rule h-2 w-full overflow-hidden rounded-sm"
+        className="bg-rule h-1 w-full overflow-hidden rounded-full"
       >
         <div
           className={emphasis ? "bg-accent h-full" : "bg-foreground h-full"}

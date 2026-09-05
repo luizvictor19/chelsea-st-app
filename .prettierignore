@@ -1,2 +1,7 @@
 # Extraction fixtures and their measurement output live outside the repository.
 /fixtures/
+
+# Design canvas exports. They carry <x-dc> and <helmet> tags that belong to the
+# canvas format rather than to the app, and reformatting risks disturbing them.
+# They are read as reference, never built.
+/docs/design/

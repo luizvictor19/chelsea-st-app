@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 
 import {
   extractPage,
@@ -29,18 +29,59 @@ type Phase =
     }
   | { readonly kind: "failed"; readonly message: string };
 
+type Book = {
+  readonly id: string;
+  readonly position: number;
+  readonly title: string;
+  readonly firstPoint: number | null;
+  readonly lastPoint: number | null;
+};
+
+/**
+ * The range form, the dropzone and the review panel are one machine sharing one
+ * state, but the screen puts them in three different places: the form and the
+ * dropzone sit in the left column, the review takes the full width underneath,
+ * and on a book with no range yet the form is the body of step one. So the
+ * state lives here and the parts below read it, leaving the layout to the page.
+ */
+type Workbench = {
+  readonly book: Book;
+  readonly floor: string;
+  readonly setFloor: (value: string) => void;
+  readonly ceiling: string;
+  readonly setCeiling: (value: string) => void;
+  readonly saving: boolean;
+  readonly rangeError: string | null;
+  readonly saveRange: () => void;
+  readonly phase: Phase;
+  readonly readFiles: (files: readonly File[]) => void;
+  readonly endReview: () => void;
+};
+
+const WorkbenchContext = createContext<Workbench | null>(null);
+
+function useWorkbench(): Workbench {
+  const value = useContext(WorkbenchContext);
+  if (value === null) {
+    throw new Error("A workbench part was rendered outside <BookWorkbench>.");
+  }
+  return value;
+}
+
 export function BookWorkbench({
   bookId,
   bookPosition,
   bookTitle,
   firstPoint,
   lastPoint,
+  children,
 }: {
   bookId: string;
   bookPosition: number;
   bookTitle: string;
   firstPoint: number | null;
   lastPoint: number | null;
+  children: ReactNode;
 }) {
   const [floor, setFloor] = useState(
     firstPoint === null ? "" : String(firstPoint),
@@ -48,8 +89,8 @@ export function BookWorkbench({
   const [ceiling, setCeiling] = useState(
     lastPoint === null ? "" : String(lastPoint),
   );
-  const [savingCeiling, setSavingCeiling] = useState(false);
-  const [ceilingError, setCeilingError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [rangeError, setRangeError] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
 
   async function saveRange() {
@@ -61,23 +102,23 @@ export function BookWorkbench({
       !Number.isInteger(to) ||
       to < 1
     ) {
-      setCeilingError("Os dois números são inteiros maiores que zero.");
+      setRangeError("Os dois números são inteiros maiores que zero.");
       return;
     }
     if (to < from) {
-      setCeilingError("O último ponto não pode ser menor que o primeiro.");
+      setRangeError("O último ponto não pode ser menor que o primeiro.");
       return;
     }
-    setSavingCeiling(true);
-    setCeilingError(null);
+    setSaving(true);
+    setRangeError(null);
     const result = await configureBook(bookId, bookPosition, from, to);
-    setSavingCeiling(false);
+    setSaving(false);
     if (result.status === "error") {
-      setCeilingError(result.message);
+      setRangeError(result.message);
     }
   }
 
-  async function readFiles(files: FileList) {
+  async function readFiles(files: readonly File[]) {
     if (firstPoint === null || lastPoint === null) {
       setPhase({
         kind: "failed",
@@ -129,114 +170,217 @@ export function BookWorkbench({
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <section
-        aria-label="Faixa de pontos do livro"
-        className="border-rule bg-surface flex flex-col gap-3 rounded-sm border p-5"
-      >
-        <h2 className="font-bold tracking-tight">
-          Primeiro e último ponto do livro
-        </h2>
-        <p className="text-muted text-sm">
-          Os dois vêm do próprio livro, lidos na primeira e na última página.
-          Não do lote que você está subindo, e não do livro anterior: o livro 5
-          começa onde o livro 5 começa, mesmo que o 4 ainda não tenha subido.
-        </p>
-        <p className="text-muted text-sm">
-          Juntos eles são o piso e o teto que validam a leitura da margem. Uma
-          leitura fora deles é ruído.
-        </p>
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1">
-            <span className="text-faint font-mono text-xs">primeiro</span>
-            <input
-              aria-label="Primeiro ponto"
-              inputMode="numeric"
-              value={floor}
-              onChange={(event) => setFloor(event.target.value)}
-              className="border-rule bg-background w-28 rounded-sm border px-3 py-2 font-mono"
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-faint font-mono text-xs">último</span>
-            <input
-              aria-label="Último ponto"
-              inputMode="numeric"
-              value={ceiling}
-              onChange={(event) => setCeiling(event.target.value)}
-              className="border-rule bg-background w-28 rounded-sm border px-3 py-2 font-mono"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={saveRange}
-            disabled={savingCeiling}
-            className="border-rule hover:border-foreground hover:bg-background disabled:hover:border-rule rounded-sm border px-4 py-2 font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {savingCeiling ? "Salvando..." : "Salvar"}
-          </button>
-        </div>
-        {ceilingError !== null && (
-          <p role="alert" className="text-accent text-sm">
-            {ceilingError}
-          </p>
-        )}
-      </section>
+    <WorkbenchContext.Provider
+      value={{
+        book: {
+          id: bookId,
+          position: bookPosition,
+          title: bookTitle,
+          firstPoint,
+          lastPoint,
+        },
+        floor,
+        setFloor,
+        ceiling,
+        setCeiling,
+        saving,
+        rangeError,
+        saveRange: () => void saveRange(),
+        phase,
+        readFiles: (files) => void readFiles(files),
+        endReview: () => setPhase({ kind: "idle" }),
+      }}
+    >
+      {children}
+    </WorkbenchContext.Provider>
+  );
+}
 
+const NUMBER_FIELD =
+  "border-rule bg-background w-[5.75rem] rounded-sm border px-3 py-2 font-mono text-sm";
+
+/**
+ * The two numbers and Salvar, without a heading: the empty book puts this in
+ * step one and the configured book in the "Faixa do livro" card, and each
+ * writes its own words around it.
+ */
+export function RangeForm({ emphasis = false }: { emphasis?: boolean }) {
+  const {
+    floor,
+    setFloor,
+    ceiling,
+    setCeiling,
+    saving,
+    rangeError,
+    saveRange,
+  } = useWorkbench();
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-end gap-2.5">
+        <label className="flex flex-col gap-1.5">
+          <span className="text-faint font-mono text-[0.625rem]">primeiro</span>
+          <input
+            aria-label="Primeiro ponto"
+            inputMode="numeric"
+            value={floor}
+            onChange={(event) => setFloor(event.target.value)}
+            className={NUMBER_FIELD}
+          />
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-faint font-mono text-[0.625rem]">último</span>
+          <input
+            aria-label="Último ponto"
+            inputMode="numeric"
+            value={ceiling}
+            onChange={(event) => setCeiling(event.target.value)}
+            className={NUMBER_FIELD}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={saveRange}
+          disabled={saving}
+          className={
+            emphasis
+              ? "bg-accent text-accent-foreground rounded-sm px-4 py-2.5 text-sm font-bold transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              : "border-rule hover:border-foreground disabled:hover:border-rule rounded-sm border px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+          }
+        >
+          {saving ? "Salvando..." : "Salvar"}
+        </button>
+      </div>
+      {rangeError !== null && (
+        <p role="alert" className="text-accent text-sm">
+          {rangeError}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function UploadIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M12 16V4" />
+      <path d="m7 9 5-5 5 5" />
+      <path d="M20 16v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3" />
+    </svg>
+  );
+}
+
+/** The dropzone, which is also the file picker, plus how the reading is going. */
+export function UploadArea() {
+  const { phase, readFiles } = useWorkbench();
+  const [dragging, setDragging] = useState(false);
+
+  if (phase.kind === "reading") {
+    return (
       <section
         aria-label="Subir páginas"
         className="border-rule bg-surface flex flex-col gap-3 rounded-sm border p-5"
       >
-        <h2 className="font-bold tracking-tight">Subir páginas</h2>
         <p className="text-muted text-sm">
-          Pode subir na ordem que quiser: os números da margem dão a ordem. Nada
-          é gravado antes de você confirmar.
+          Lendo {phase.done} de {phase.total}. Em WASM isso leva alguns segundos
+          por página.
         </p>
+        <div
+          role="progressbar"
+          aria-valuenow={phase.done}
+          aria-valuemin={0}
+          aria-valuemax={phase.total}
+          aria-label="Leitura das páginas"
+          className="bg-rule h-1 w-full overflow-hidden rounded-sm"
+        >
+          <div
+            className="bg-accent h-full"
+            style={{ width: `${(phase.done / phase.total) * 100}%` }}
+          />
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section aria-label="Subir páginas" className="flex flex-col gap-3">
+      <label
+        onDragOver={(event) => {
+          event.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragging(false);
+          const dropped = [...event.dataTransfer.files];
+          if (dropped.length > 0) {
+            readFiles(dropped);
+          }
+        }}
+        className={`focus-within:border-accent flex cursor-pointer flex-col items-center gap-2.5 rounded-sm border border-dashed px-5 py-7 text-center transition-colors ${
+          dragging ? "border-accent bg-surface" : "border-rule"
+        }`}
+      >
+        <UploadIcon className="text-faint" />
+        <span className="font-semibold">Arraste as páginas aqui</span>
+        <span className="text-faint max-w-[24rem] text-xs leading-relaxed">
+          A ordem não importa para página numerada: os números da margem dão a
+          ordem. Página sem número herda da anterior no envio, e o navegador
+          ordena por nome.
+        </span>
+        <span className="text-accent mt-0.5 font-mono text-xs">
+          escolher arquivos
+        </span>
         <input
           type="file"
           accept="image/*"
           multiple
           aria-label="Páginas do livro"
           onChange={(event) => {
-            if (event.target.files !== null && event.target.files.length > 0) {
-              void readFiles(event.target.files);
+            const chosen = [...(event.target.files ?? [])];
+            if (chosen.length > 0) {
+              readFiles(chosen);
             }
           }}
-          className="text-sm"
+          className="sr-only"
         />
+      </label>
 
-        {phase.kind === "reading" && (
-          <div className="flex flex-col gap-1">
-            <p className="text-muted text-sm">
-              Lendo {phase.done} de {phase.total}. Em WASM isso leva alguns
-              segundos por página.
-            </p>
-            <div className="bg-rule h-2 w-full overflow-hidden rounded-sm">
-              <div
-                className="bg-accent h-full"
-                style={{ width: `${(phase.done / phase.total) * 100}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {phase.kind === "failed" && (
-          <p role="alert" className="text-accent text-sm">
-            {phase.message}
-          </p>
-        )}
-      </section>
-
-      {phase.kind === "reviewing" && (
-        <ReviewPanel
-          bookId={bookId}
-          bookPosition={bookPosition}
-          bookTitle={bookTitle}
-          pages={phase.pages}
-          failures={phase.failures}
-          onDone={() => setPhase({ kind: "idle" })}
-        />
+      {phase.kind === "failed" && (
+        <p role="alert" className="text-accent text-sm">
+          {phase.message}
+        </p>
       )}
-    </div>
+    </section>
+  );
+}
+
+/** The review, which takes the whole width once a batch has been read. */
+export function ReviewRegion() {
+  const { book, phase, endReview } = useWorkbench();
+  if (phase.kind !== "reviewing") {
+    return null;
+  }
+  return (
+    <ReviewPanel
+      bookId={book.id}
+      bookPosition={book.position}
+      bookTitle={book.title}
+      pages={phase.pages}
+      failures={phase.failures}
+      onDone={endReview}
+    />
   );
 }
