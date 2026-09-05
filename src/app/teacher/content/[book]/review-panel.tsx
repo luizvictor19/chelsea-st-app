@@ -24,6 +24,7 @@ import {
   toggleLineKind,
   type TableBlock,
   type TableLine,
+  type TableSection,
 } from "@/lib/extraction/grammar-table";
 import { pointForBlock } from "@/lib/extraction/pipeline";
 import type { Placement } from "@/lib/extraction/reconcile";
@@ -70,6 +71,13 @@ const FLAGGED_LABELS: Record<BlockKind, string> = {
 };
 
 type BlockDraft = {
+  /*
+   * Stable for as long as the block is on screen, and never stored. Adding or
+   * removing a block moves every block after it, and a list keyed by position
+   * would hand the editor state of one block — a cell being typed, a column
+   * asked for — to whichever block slid into its place.
+   */
+  id: string;
   kind: BlockKind;
   content: string;
   needsReview: boolean;
@@ -111,12 +119,23 @@ function changedSinceSaving(draft: PageDraft): boolean {
   return !draft.saved && draft.savedPoints.length > 0;
 }
 
+/*
+ * Blocks added by hand need an id that no extracted block can collide with,
+ * and one that stays put while the list around it moves.
+ */
+let addedBlocks = 0;
+function nextAddedBlockId(pageId: string): string {
+  addedBlocks += 1;
+  return `${pageId}#added-${addedBlocks}`;
+}
+
 function initialDraft(page: ReviewSourcePage): PageDraft {
   return {
     pointNumber: page.points[0] ?? null,
     continuation: page.points.length === 0 && page.disputes.length === 0,
     typedPoint: "",
-    blocks: page.blocks.map((block) => ({
+    blocks: page.blocks.map((block, index) => ({
+      id: `${page.id}#${index}`,
       kind: block.kind,
       content: block.content,
       needsReview: block.needsReview,
@@ -520,6 +539,7 @@ export function ReviewPanel({
     editBlocks(id, (blocks) => {
       const next = [...blocks];
       next.splice(index + 1, 0, {
+        id: nextAddedBlockId(id),
         kind: "explanation",
         content: "",
         needsReview: false,
@@ -1001,7 +1021,7 @@ function PageWork({
         {writable && (
           <ul className="flex flex-col gap-3">
             {draft.blocks.map((block, index) => (
-              <li key={index}>
+              <li key={block.id}>
                 <BlockCard
                   block={block}
                   hasImage={page.hasImage}
@@ -1382,6 +1402,14 @@ function TermChips({
   );
 }
 
+/** A column asked for on screen that the stored form has nothing to hold yet. */
+type Widening = { section: number; columns: number };
+
+/** How many columns a section draws: its widest row, or the one asked for. */
+function widthOf(section: TableSection | undefined, asked = 0): number {
+  return Math.max(1, section === undefined ? 0 : columnCount(section), asked);
+}
+
 /** Where the cursor sits in the grid; the heading is the cell before the first. */
 type CellAddress = { section: number; line: number; cell: number };
 
@@ -1439,17 +1467,30 @@ function TableGrid({
   const table = useMemo(() => parseTable(content), [content]);
   const [editing, setEditing] = useState<CellAddress | null>(null);
   const [text, setText] = useState("");
-  /** Columns the teacher asked for and has not filled yet, per section. */
-  const [widened, setWidened] = useState<Record<number, number>>({});
+  /*
+   * A column the teacher asked for and has not filled in yet. There is one at
+   * a time and it is held by position, so it is dropped as soon as a write
+   * changes how many sections there are: the section it belonged to may have
+   * moved, and a column that jumps to another sub-block is worse than none.
+   */
+  const [widened, setWidened] = useState<Widening | null>(null);
 
   function close() {
     setEditing(null);
     setText("");
   }
 
-  function write(next: TableBlock) {
+  function write(next: TableBlock, widen: Widening | null = null) {
     close();
-    onChange(serializeTable(next.filter((section) => section.length > 0)));
+    const sections = next.filter((section) => section.length > 0);
+    setWidened((current) =>
+      widen !== null
+        ? widen
+        : sections.length === table.length
+          ? current
+          : null,
+    );
+    onChange(serializeTable(sections));
   }
 
   function open(address: CellAddress, value: string) {
@@ -1512,8 +1553,17 @@ function TableGrid({
       cells.push("");
     }
     cells[address.cell] = clean;
+    /*
+     * An emptied last cell leaves nothing behind in the stored form: no line
+     * carries a trailing empty column. The boundary the teacher made stays on
+     * screen anyway, so clearing a cell to retype it does not collapse the row
+     * back into the flattened line this editor exists to undo.
+     */
     write(
       replaceLine(table, address.section, address.line, { kind: "row", cells }),
+      clean === ""
+        ? { section: address.section, columns: widthOf(section) }
+        : null,
     );
   }
 
@@ -1629,10 +1679,9 @@ function TableGrid({
   return (
     <div className="flex flex-col gap-3 p-3.5">
       {table.map((section, sectionIndex) => {
-        const columns = Math.max(
-          1,
-          columnCount(section),
-          widened[sectionIndex] ?? 0,
+        const columns = widthOf(
+          section,
+          widened?.section === sectionIndex ? widened.columns : 0,
         );
         const typing = sameAddress(editing, {
           section: sectionIndex,
@@ -1726,10 +1775,7 @@ function TableGrid({
               <button
                 type="button"
                 onClick={() =>
-                  setWidened((current) => ({
-                    ...current,
-                    [sectionIndex]: columns + 1,
-                  }))
+                  setWidened({ section: sectionIndex, columns: columns + 1 })
                 }
                 className="border-rule text-faint hover:border-foreground hover:text-foreground rounded-sm border border-dashed px-2.5 py-1 font-mono text-xs transition-colors"
               >

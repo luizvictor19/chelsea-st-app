@@ -142,6 +142,16 @@ describe("round trip", () => {
     assert.deepEqual(parseTable(text), block);
   });
 
+  test("an emptied last cell is not stored, so the column is not either", () => {
+    // The screen keeps the boundary visible after a cell is cleared, because
+    // this is what the stored form does with it: nothing carries a trailing
+    // empty column, and reading it back gives a row of one cell.
+    const block: TableBlock = [[{ kind: "row", cells: ["He", ""] }]];
+    assert.deepEqual(parseTable(serializeTable(block)), [
+      [{ kind: "row", cells: ["He"] }],
+    ]);
+  });
+
   test("a block of one-cell rows needs no separator at all", () => {
     const block: TableBlock = [
       [
