@@ -4,10 +4,11 @@ Read this before writing code in this repository.
 
 ## Language
 
-- File names, folders, identifiers, types, tables, columns and comments: **English**.
-- Portuguese only in user-facing copy: UI strings, emails, teaching content.
-- Reports, questions and explanations addressed to the human: Portuguese.
-  Code, comments, commit messages and documentation stay English.
+- English where the text lives among code: identifiers, comments, commit
+  messages. There it is not a choice, it is the neighbourhood.
+- Portuguese where the text is for a person to read: README, the specs under
+  docs/, and every string the teacher or the student sees. Their job is to be
+  read, and the reader is Brazilian.
 - When unsure, ask before deciding.
 
 ## Content and licensing
