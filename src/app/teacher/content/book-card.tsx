@@ -19,19 +19,23 @@ export function BookCard({
   next?: boolean;
 }) {
   const hasRange = book.firstPoint !== null && book.lastPoint !== null;
-  const hasContent = book.progress.filled > 0;
   const quiet = !hasRange && !next;
 
   return (
     <Link
       href={`/teacher/content/${book.position}`}
+      /*
+       * The accent outline is the focus ring and nothing else. It used to also
+       * mark a book that had content, which put three different meanings on one
+       * colour: has content, is the next thing to do, and is where the keyboard
+       * is. Reading the index meant working out which. A book with content
+       * already says so with a filled bar and a range, so the outline is free
+       * to mean only focus, and hover lifts by a neutral border.
+       */
       className={[
         "flex h-full w-full flex-col gap-3.5 rounded-sm border p-5 transition-colors",
-        hasContent
-          ? "border-accent bg-surface"
-          : quiet
-            ? "border-rule bg-background hover:border-accent hover:bg-surface"
-            : "border-rule bg-surface hover:border-accent",
+        "border-rule hover:border-foreground",
+        quiet ? "bg-background hover:bg-surface" : "bg-surface",
       ].join(" ")}
     >
       <div className="flex items-baseline gap-2.5">
@@ -43,6 +47,16 @@ export function BookCard({
         >
           {book.title}
         </span>
+        {next && (
+          /*
+           * The next book to set up is marked by a word as well as by the
+           * accent call to action below, so the one thing the screen is asking
+           * for does not depend on noticing a colour.
+           */
+          <span className="border-rule text-faint rounded-sm border px-1.5 py-0.5 font-mono text-[10px] tracking-[0.12em] uppercase">
+            próximo
+          </span>
+        )}
         {hasRange ? (
           <span className="text-faint ml-auto font-mono text-xs">
             {book.firstPoint}–{book.lastPoint}

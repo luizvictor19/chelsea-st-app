@@ -1,13 +1,16 @@
-import type { StoredBlock, StoredPage } from "@/lib/content/batch-store";
-import type { PageState } from "@/lib/content/review-navigation";
-import type { BlockKind } from "@/lib/extraction/classify";
+import type {
+  StoredBlock,
+  StoredPage,
+} from "../../../../lib/content/batch-store.ts";
+import type { PageState } from "../../../../lib/content/review-navigation.ts";
+import type { BlockKind } from "../../../../lib/extraction/classify.ts";
 import {
   isRefused,
   reviewOrder,
   type ResolvedPage,
-} from "@/lib/extraction/pipeline";
-import type { Placement } from "@/lib/extraction/reconcile";
-import type { Band, Bitmap } from "@/lib/extraction/types";
+} from "../../../../lib/extraction/pipeline.ts";
+import type { Placement } from "../../../../lib/extraction/reconcile.ts";
+import type { Band, Bitmap } from "../../../../lib/extraction/types.ts";
 
 /**
  * The batch as the review screen works on it.
@@ -178,6 +181,29 @@ export function disputeCandidates(page: ReviewSourcePage): readonly number[] {
 }
 
 /** The page's title in the work column. */
+/**
+ * The numbers a page will actually be written to.
+ *
+ * Not `page.points`, which holds only what the batch settled by itself. A page
+ * can carry one settled number and one the teacher answered, and the answer is
+ * written too; reading the heading off `page.points` named only one of them and
+ * then, for a spread, named the wrong one.
+ */
+export function writtenNumbers(
+  page: ReviewSourcePage,
+  target: number | null,
+  continuation: boolean,
+): readonly number[] {
+  if (continuation) {
+    return target === null ? [] : [target];
+  }
+  const settled = page.points;
+  if (target === null || settled.includes(target)) {
+    return settled;
+  }
+  return [...settled, target].sort((a, b) => a - b);
+}
+
 export function headingFor(
   page: ReviewSourcePage,
   target: number | null,
@@ -200,10 +226,11 @@ export function headingFor(
   if (continuation) {
     return `Continuação do ponto ${target}`;
   }
-  if (page.points.length > 1) {
-    return `Pontos ${page.points.join(" e ")}`;
+  const numbers = writtenNumbers(page, target, continuation);
+  if (numbers.length > 1) {
+    return `Pontos ${numbers.join(" e ")}`;
   }
-  return `Ponto ${target}`;
+  return `Ponto ${numbers[0] ?? target}`;
 }
 
 /** The same, short enough for the rail. */
@@ -218,10 +245,12 @@ function shortPoints(
   if (continuation) {
     return `continuação do ponto ${target}`;
   }
-  if (page.points.length > 1) {
-    return page.points.join(" e ");
+  // The same numbers the heading names, so the rail and the page agree.
+  const numbers = writtenNumbers(page, target, continuation);
+  if (numbers.length > 1) {
+    return numbers.join(" e ");
   }
-  return `ponto ${target}`;
+  return `ponto ${numbers[0] ?? target}`;
 }
 
 /** What the rail says a page turned out to be. */
