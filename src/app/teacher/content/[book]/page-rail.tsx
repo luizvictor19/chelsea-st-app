@@ -58,7 +58,7 @@ export function PageRail({
       className="border-rule flex w-full flex-shrink-0 flex-col border-b md:w-[268px] md:border-r md:border-b-0"
     >
       <div className="flex flex-col gap-2 px-5 pt-4 pb-3">
-        <span className="text-faint font-mono text-[10px] tracking-[0.16em] uppercase">
+        <span className="text-faint font-mono text-[0.625rem] tracking-[0.16em] uppercase">
           Este envio
         </span>
         <div className="flex items-baseline justify-between gap-2">
@@ -66,7 +66,7 @@ export function PageRail({
             {pages.length}{" "}
             {pages.length === 1 ? "página lida" : "páginas lidas"}
           </span>
-          <span className="text-faint font-mono text-[11px]">
+          <span className="text-faint font-mono text-[0.6875rem]">
             {progress.saved} gravadas
           </span>
         </div>
@@ -104,20 +104,20 @@ export function PageRail({
               >
                 <span
                   aria-hidden
-                  className={`flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded-full border font-mono text-[10px] ${mark.tone}`}
+                  className={`flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded-full border font-mono text-[0.625rem] ${mark.tone}`}
                 >
                   {mark.glyph}
                 </span>
                 <span className="flex min-w-0 flex-col gap-[1px]">
                   <span
-                    className={`truncate font-mono text-[11px] ${
+                    className={`truncate font-mono text-[0.6875rem] ${
                       focused ? "text-foreground" : "text-muted"
                     }`}
                   >
                     {page.id.replace(/\.[a-z]+$/i, "")}
                   </span>
                   <span
-                    className={`truncate text-[11px] ${
+                    className={`truncate text-[0.6875rem] ${
                       page.state === "needs-answer"
                         ? "text-accent"
                         : "text-faint"

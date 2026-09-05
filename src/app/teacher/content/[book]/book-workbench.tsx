@@ -676,7 +676,7 @@ export function InterruptedBatch() {
         aria-label="Envio interrompido"
         className="border-accent flex flex-col gap-2 rounded-sm border px-4.5 py-4"
       >
-        <span className="text-accent font-mono text-[10px] tracking-[0.14em] uppercase">
+        <span className="text-accent font-mono text-[0.625rem] tracking-[0.14em] uppercase">
           Substituir o envio interrompido?
         </span>
         <p className="text-muted text-sm leading-relaxed">
@@ -712,7 +712,7 @@ export function InterruptedBatch() {
       aria-label="Envio interrompido"
       className="border-accent flex flex-col gap-2 rounded-sm border px-4.5 py-4"
     >
-      <span className="text-accent font-mono text-[10px] tracking-[0.14em] uppercase">
+      <span className="text-accent font-mono text-[0.625rem] tracking-[0.14em] uppercase">
         Envio interrompido
       </span>
       <p className="text-muted text-sm leading-relaxed">

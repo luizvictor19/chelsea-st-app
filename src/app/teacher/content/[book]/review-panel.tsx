@@ -887,12 +887,14 @@ export function ReviewPanel({
     >
       <div className="border-rule flex flex-wrap items-center justify-between gap-4 border-b px-5 py-3.5">
         <div className="flex flex-wrap items-baseline gap-3">
-          <span className="text-faint font-mono text-[11px]">
+          <span className="text-faint font-mono text-[0.6875rem]">
             {String(bookPosition).padStart(2, "0")}
           </span>
-          <h2 className="text-[17px] font-bold tracking-tight">{bookTitle}</h2>
+          <h2 className="text-[1.0625rem] font-bold tracking-tight">
+            {bookTitle}
+          </h2>
           {firstPoint !== null && lastPoint !== null && (
-            <span className="text-faint font-mono text-[11px]">
+            <span className="text-faint font-mono text-[0.6875rem]">
               pontos {firstPoint} a {lastPoint}
             </span>
           )}
@@ -900,7 +902,7 @@ export function ReviewPanel({
         {/* Hidden while the count is unknown: a bar reading zero is a claim. */}
         {bookPoints.length > 0 && filledError === null && (
           <div className="flex items-center gap-3.5">
-            <span className="text-faint font-mono text-[11px]">
+            <span className="text-faint font-mono text-[0.6875rem]">
               {filledInBook.size} de {bookPoints.length} ·{" "}
               {Math.round((filledInBook.size / bookPoints.length) * 100)}%
             </span>
@@ -925,7 +927,7 @@ export function ReviewPanel({
 
       {lessonsError !== null && (
         <div className="border-rule border-b px-5 py-3">
-          <p className="text-accent font-mono text-[10px] tracking-[0.14em] uppercase">
+          <p className="text-accent font-mono text-[0.625rem] tracking-[0.14em] uppercase">
             Não deu para ler as lições deste livro
           </p>
           <p role="alert" className="text-muted mt-1.5 text-sm leading-relaxed">
@@ -939,7 +941,7 @@ export function ReviewPanel({
 
       {filledError !== null && (
         <div className="border-rule border-b px-5 py-3">
-          <p className="text-accent font-mono text-[10px] tracking-[0.14em] uppercase">
+          <p className="text-accent font-mono text-[0.625rem] tracking-[0.14em] uppercase">
             Não deu para conferir o que já está gravado
           </p>
           <p role="alert" className="text-muted mt-1.5 text-sm leading-relaxed">
@@ -953,7 +955,7 @@ export function ReviewPanel({
 
       {failures.length > 0 && (
         <div className="border-rule border-b px-5 py-3">
-          <p className="text-accent font-mono text-[10px] tracking-[0.14em] uppercase">
+          <p className="text-accent font-mono text-[0.625rem] tracking-[0.14em] uppercase">
             Não foi possível ler
           </p>
           <ul className="text-muted mt-1.5 flex flex-col gap-1 text-sm">
@@ -1004,7 +1006,7 @@ export function ReviewPanel({
 function FinishedReview({ onDiscard }: { onDiscard: () => void }) {
   return (
     <div className="flex flex-col items-start gap-3 px-8 py-10">
-      <span className="text-faint font-mono text-[10px] tracking-[0.14em] uppercase">
+      <span className="text-faint font-mono text-[0.625rem] tracking-[0.14em] uppercase">
         Envio revisado
       </span>
       <p className="max-w-[34rem] text-sm leading-relaxed">
@@ -1081,10 +1083,12 @@ function PageWork({
     <article className="flex min-w-0 flex-col">
       <header className="flex flex-wrap items-start justify-between gap-5 px-6 pt-5 pb-4">
         <div className="flex flex-col gap-1.5">
-          <span className="text-faint font-mono text-[11px]">{page.id}</span>
+          <span className="text-faint font-mono text-[0.6875rem]">
+            {page.id}
+          </span>
           <div className="flex flex-wrap items-baseline gap-2.5">
             <h3
-              className={`text-[22px] font-extrabold tracking-tight ${
+              className={`text-[1.375rem] font-extrabold tracking-tight ${
                 target === null && writable ? "text-accent" : ""
               }`}
             >
@@ -1115,7 +1119,7 @@ function PageWork({
               title={
                 canSkip ? undefined : "Não há outra página esperando revisão"
               }
-              className="border-rule text-muted hover:border-foreground hover:text-foreground disabled:hover:border-rule disabled:hover:text-muted rounded-sm border px-3.5 py-2 text-[13px] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              className="border-rule text-muted hover:border-foreground hover:text-foreground disabled:hover:border-rule disabled:hover:text-muted rounded-sm border px-3.5 py-2 text-[0.8125rem] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
               Pular
             </button>
@@ -1131,7 +1135,7 @@ function PageWork({
                     ? "Diga primeiro a que lição esta página pertence"
                     : "Diga primeiro qual é o ponto desta página"
               }
-              className="bg-accent text-accent-foreground rounded-sm px-4.5 py-2 text-[13px] font-bold transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:opacity-50"
+              className="bg-accent text-accent-foreground rounded-sm px-4.5 py-2 text-[0.8125rem] font-bold transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:opacity-50"
             >
               {/*
                 A page that was written and then edited says so and offers to
@@ -1160,7 +1164,7 @@ function PageWork({
             className="border-accent text-muted max-w-[80ch] rounded-sm border px-4 py-3 text-sm leading-relaxed"
             role="note"
           >
-            <span className="text-accent font-mono text-[10px] tracking-[0.14em] uppercase">
+            <span className="text-accent font-mono text-[0.625rem] tracking-[0.14em] uppercase">
               Já gravado{" "}
             </span>
             Este ponto já tem conteúdo. Confirmar aqui apaga tudo o que ele tem,
@@ -1255,7 +1259,7 @@ function LessonQuestion({
 }) {
   return (
     <div className="border-accent flex flex-col gap-3 rounded-sm border p-4">
-      <p className="text-accent font-mono text-[10px] tracking-[0.14em] uppercase">
+      <p className="text-accent font-mono text-[0.625rem] tracking-[0.14em] uppercase">
         A que lição esta página pertence?
       </p>
       <p className="text-muted text-sm leading-relaxed">
@@ -1308,7 +1312,7 @@ function PointQuestion({
 
   return (
     <div className="border-accent flex flex-col gap-3 rounded-sm border p-4">
-      <p className="text-accent font-mono text-[10px] tracking-[0.14em] uppercase">
+      <p className="text-accent font-mono text-[0.625rem] tracking-[0.14em] uppercase">
         Qual é o ponto desta página?
       </p>
       <p className="text-muted text-sm leading-relaxed">
@@ -1400,7 +1404,7 @@ function BlockCard({
         }`}
       >
         <span
-          className={`font-mono text-[10px] tracking-[0.14em] uppercase ${
+          className={`font-mono text-[0.625rem] tracking-[0.14em] uppercase ${
             flagged ? "text-accent" : "text-faint"
           }`}
         >
@@ -1413,7 +1417,7 @@ function BlockCard({
             onChange={(event) =>
               onChange({ kind: event.target.value as BlockKind })
             }
-            className="border-rule bg-background rounded-sm border px-1.5 py-1 font-mono text-[11px]"
+            className="border-rule bg-background rounded-sm border px-1.5 py-1 font-mono text-[0.6875rem]"
           >
             {Object.entries(KIND_LABELS).map(([value, label]) => (
               <option key={value} value={value}>
@@ -1443,7 +1447,7 @@ function BlockCard({
       {flagged && block.crop !== null ? (
         <div className="flex flex-col items-stretch lg:flex-row">
           <div className="border-rule flex flex-col gap-2 border-b p-3.5 lg:w-[330px] lg:flex-shrink-0 lg:border-r lg:border-b-0">
-            <span className="text-faint font-mono text-[10px] tracking-[0.14em] uppercase">
+            <span className="text-faint font-mono text-[0.625rem] tracking-[0.14em] uppercase">
               Recorte original
             </span>
             <CropCanvas
@@ -1955,7 +1959,7 @@ function TableGrid({
             }
           }}
           title="Parte a célula em duas onde está o cursor (Enter faz o mesmo)"
-          className="border-rule text-faint hover:border-foreground hover:text-foreground rounded-sm border border-dashed px-2 py-1 font-mono text-[11px] transition-colors"
+          className="border-rule text-faint hover:border-foreground hover:text-foreground rounded-sm border border-dashed px-2 py-1 font-mono text-[0.6875rem] transition-colors"
         >
           dividir
         </button>
@@ -2011,7 +2015,7 @@ function TableGrid({
    * add to and come up when the block is under the cursor.
    */
   const ADD_CONTROL =
-    "text-faint hover:text-foreground font-mono text-[11px] opacity-0 transition-opacity group-hover/grid:opacity-100 focus-visible:opacity-100";
+    "text-faint hover:text-foreground font-mono text-[0.6875rem] opacity-0 transition-opacity group-hover/grid:opacity-100 focus-visible:opacity-100";
 
   const newRow = (section: number, at: number) => (
     <button
@@ -2208,7 +2212,7 @@ function TitleToggle({
           ? "É o título deste sub-bloco. Clique para voltar a ser linha da tabela."
           : "Marcar como título deste sub-bloco"
       }
-      className={`justify-self-start rounded-sm border px-1.5 py-0.5 font-mono text-[10px] tracking-[0.08em] uppercase transition-all disabled:opacity-40 ${
+      className={`justify-self-start rounded-sm border px-1.5 py-0.5 font-mono text-[0.625rem] tracking-[0.08em] uppercase transition-all disabled:opacity-40 ${
         isTitle
           ? "border-foreground text-foreground"
           : "border-rule text-faint hover:border-foreground hover:text-foreground opacity-0 group-hover/line:opacity-100 focus-visible:opacity-100"

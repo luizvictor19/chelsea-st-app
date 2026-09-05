@@ -53,7 +53,7 @@ export function BookCard({
            * accent call to action below, so the one thing the screen is asking
            * for does not depend on noticing a colour.
            */
-          <span className="border-rule text-faint rounded-sm border px-1.5 py-0.5 font-mono text-[10px] tracking-[0.12em] uppercase">
+          <span className="border-rule text-faint rounded-sm border px-1.5 py-0.5 font-mono text-[0.625rem] tracking-[0.12em] uppercase">
             próximo
           </span>
         )}

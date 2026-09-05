@@ -42,7 +42,7 @@ export function TeacherNav({ initial }: { readonly initial: string }) {
         <div className="flex min-w-0 items-center gap-4 sm:gap-8">
           <Link
             href="/teacher"
-            className="text-foreground shrink-0 text-[15px] font-extrabold tracking-[-0.02em] whitespace-nowrap"
+            className="text-foreground shrink-0 text-[0.9375rem] font-extrabold tracking-[-0.02em] whitespace-nowrap"
           >
             Chelsea St
           </Link>
@@ -78,12 +78,12 @@ export function TeacherNav({ initial }: { readonly initial: string }) {
         </div>
 
         <div className="flex shrink-0 items-center gap-3.5">
-          <span className="text-faint hidden font-mono text-[11px] sm:inline">
+          <span className="text-faint hidden font-mono text-[0.6875rem] sm:inline">
             professor
           </span>
           <span
             aria-hidden="true"
-            className="bg-rule text-muted flex size-[26px] items-center justify-center rounded-full text-[11px] font-bold"
+            className="bg-rule text-muted flex size-[26px] items-center justify-center rounded-full text-[0.6875rem] font-bold"
           >
             {initial}
           </span>
