@@ -1,8 +1,16 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import type { StoredPage } from "@/lib/content/batch-store";
+import { lessonForPage, type LessonRange } from "@/lib/content/lesson-range";
 import {
   asksForPoint,
   canConfirm,
@@ -30,7 +38,12 @@ import { pointForBlock } from "@/lib/extraction/pipeline";
 import type { Placement } from "@/lib/extraction/reconcile";
 import { joinTerms, splitTerms } from "@/lib/extraction/terms";
 
-import { confirmPoint, filledPoints } from "../actions";
+import {
+  bookLessons,
+  confirmPoint,
+  filledPoints,
+  type BookLessons,
+} from "../actions";
 import type { PageFailure } from "./book-workbench";
 import { CropCanvas } from "./crop-canvas";
 import { PageRail, type RailPage } from "./page-rail";
@@ -99,6 +112,12 @@ type PageDraft = {
   continuation: boolean;
   /** Typed by the teacher when neither of the two above is known. */
   typedPoint: string;
+  /*
+   * The lesson, when neither the upload nor the database knows it. Held on the
+   * draft rather than in the input, so an answer given before the point number
+   * survives the question closing and opening again.
+   */
+  typedLesson: string;
   blocks: BlockDraft[];
   /** What is on the screen is what is in the database. Any edit ends it. */
   saved: boolean;
@@ -134,6 +153,7 @@ function initialDraft(page: ReviewSourcePage): PageDraft {
     pointNumber: page.points[0] ?? null,
     continuation: page.points.length === 0 && page.disputes.length === 0,
     typedPoint: "",
+    typedLesson: "",
     blocks: page.blocks.map((block, index) => ({
       id: `${page.id}#${index}`,
       kind: block.kind,
@@ -177,6 +197,55 @@ function questionOf(page: ReviewSourcePage): PageQuestion {
  * asks a single question — and the rest of the page falls to the nearest number
  * above it, which is the book's own rule.
  */
+/**
+ * The lesson a point of this page will be written to, or null while unknown.
+ *
+ * Three steps in order, and the teacher only after the other two: the header
+ * the upload found on this page or an earlier one of the same upload, then the
+ * lessons the book already has, then the answer given on screen.
+ */
+function lessonOf(
+  page: ReviewSourcePage,
+  pointNumber: number,
+  lessons: readonly LessonRange[],
+  draft: PageDraft,
+): number | null {
+  const known = lessonForPage(page.lessonNumber, pointNumber, lessons);
+  if (known !== null) {
+    return known;
+  }
+  const typed = Number(draft.typedLesson);
+  return draft.typedLesson.trim() !== "" && Number.isInteger(typed) && typed > 0
+    ? typed
+    : null;
+}
+
+/**
+ * True while the lesson of some point of this page is nobody's to know.
+ *
+ * Read without the teacher's answer, exactly as the point question is: derived
+ * from the answer, the question would close on the first keystroke and the
+ * number could never be finished.
+ */
+function asksForLesson(
+  page: ReviewSourcePage,
+  targets: readonly number[],
+  lessons: readonly LessonRange[],
+): boolean {
+  return targets.some(
+    (number) => lessonForPage(page.lessonNumber, number, lessons) === null,
+  );
+}
+
+/** The points this page would write to, as the draft currently stands. */
+function targetPoints(page: ReviewSourcePage, draft: PageDraft): number[] {
+  if (draft.continuation) {
+    const target = chosenPoint(questionOf(page), draft);
+    return target === null ? [] : [target];
+  }
+  return placementsFor(page, draft).map((placement) => placement.number);
+}
+
 function placementsFor(
   page: ReviewSourcePage,
   draft: PageDraft,
@@ -306,6 +375,15 @@ export function ReviewPanel({
   const [savingId, setSavingId] = useState<string | null>(null);
   /** Why the screen cannot say what is already written, when it cannot. */
   const [filledError, setFilledError] = useState<string | null>(null);
+  /*
+   * The lessons the book already has. Second of the three steps that settle a
+   * page's lesson: the upload's own header, then these, then the teacher. A
+   * read that fails leaves this empty, which sends the question to the teacher
+   * rather than writing a point with no lesson.
+   */
+  const [lessons, setLessons] = useState<readonly LessonRange[]>([]);
+  /** Why the screen has to ask about lessons the book could have answered. */
+  const [lessonsError, setLessonsError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, PageDraft>>(() =>
     Object.fromEntries(pages.map((page) => [page.id, initialDraft(page)])),
   );
@@ -376,6 +454,57 @@ export function ReviewPanel({
       (_, index) => firstPoint + index,
     );
   }, [firstPoint, lastPoint]);
+
+  /*
+   * Which lessons this book has, for the pages whose upload carries no header.
+   *
+   * Read again after every confirmation: a page that had to ask creates the
+   * lesson, and the next page of the same batch would otherwise be asked a
+   * question the database can now answer — and a second answer typed there
+   * makes a second lesson row overlapping the first.
+   */
+  const applyLessons = useCallback((result: BookLessons) => {
+    if (result.status === "error") {
+      // Left unsaid, this reads as "the book has no lessons" and every page of
+      // the batch asks for one, with nothing on screen saying why.
+      setLessonsError(result.message);
+      return;
+    }
+    setLessonsError(null);
+    setLessons(result.lessons);
+  }, []);
+
+  const refreshLessons = useCallback(
+    () =>
+      bookLessons(bookId)
+        .then(applyLessons)
+        .catch((error: unknown) =>
+          setLessonsError(
+            error instanceof Error ? error.message : String(error),
+          ),
+        ),
+    [bookId, applyLessons],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void bookLessons(bookId)
+      .then((result) => {
+        if (!cancelled) {
+          applyLessons(result);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setLessonsError(
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bookId, applyLessons]);
 
   // What the database already holds. Asked once, after mount, so a reload shows
   // where the teacher stopped instead of offering to write it all again.
@@ -621,6 +750,8 @@ export function ReviewPanel({
     setSavingId(id);
     try {
       await write(page, draft);
+      // A confirmation may have created the lesson this page had to ask about.
+      await refreshLessons();
     } finally {
       const rest = new Set(saving.current);
       rest.delete(id);
@@ -630,6 +761,8 @@ export function ReviewPanel({
   }
 
   async function write(page: ReviewSourcePage, draft: PageDraft) {
+    const lessonFor = (pointNumber: number) =>
+      lessonOf(page, pointNumber, lessons, draft);
     const id = page.id;
     const asConfirmed = (block: BlockDraft) => ({
       kind: block.kind,
@@ -655,7 +788,7 @@ export function ReviewPanel({
         bookId,
         bookPosition,
         pointNumber: target,
-        lessonNumber: page.lessonNumber,
+        lessonNumber: lessonFor(target),
         // The file name, not this page's identity: source_page is deliberately
         // the name of the upload, and the identity is unique to this batch.
         sourcePage: page.fileName,
@@ -709,7 +842,7 @@ export function ReviewPanel({
         bookId,
         bookPosition,
         pointNumber,
-        lessonNumber: page.lessonNumber,
+        lessonNumber: lessonFor(pointNumber),
         // The file name, not this page's identity. See the continuation branch.
         sourcePage: page.fileName,
         replaceWholePoint: wholePoint,
@@ -787,6 +920,20 @@ export function ReviewPanel({
         )}
       </div>
 
+      {lessonsError !== null && (
+        <div className="border-rule border-b px-5 py-3">
+          <p className="text-accent font-mono text-[10px] tracking-[0.14em] uppercase">
+            Não deu para ler as lições deste livro
+          </p>
+          <p role="alert" className="text-muted mt-1.5 text-sm leading-relaxed">
+            O banco não respondeu quais lições este livro já tem ({lessonsError}
+            ). Nada é gravado sem lição, então as páginas cujo envio não traz o
+            cabeçalho LESSON vão perguntar, mesmo as que o banco saberia
+            responder. Recarregue a página, ou entre de novo.
+          </p>
+        </div>
+      )}
+
       {filledError !== null && (
         <div className="border-rule border-b px-5 py-3">
           <p className="text-accent font-mono text-[10px] tracking-[0.14em] uppercase">
@@ -832,6 +979,7 @@ export function ReviewPanel({
               key={focused.id}
               page={focused}
               draft={draft}
+              lessons={lessons}
               saving={savingId === focused.id}
               canSkip={skipTo !== null}
               onSkip={() => leave(focused.id)}
@@ -877,6 +1025,7 @@ const HEADER_ACTION =
 function PageWork({
   page,
   draft,
+  lessons,
   saving,
   canSkip,
   onSkip,
@@ -888,6 +1037,7 @@ function PageWork({
 }: {
   page: ReviewSourcePage;
   draft: PageDraft;
+  lessons: readonly LessonRange[];
   /** A confirmation for this page is in flight. */
   saving: boolean;
   canSkip: boolean;
@@ -903,7 +1053,24 @@ function PageWork({
   // Derived from the page, never from the answer: the question has to stay put
   // while a number is being typed into it.
   const asking = asksForPoint(question) && !draft.saved;
-  const ready = canConfirm(question, draft);
+  const targets = targetPoints(page, draft);
+  const askingLesson = asksForLesson(page, targets, lessons) && !draft.saved;
+  // Nothing is confirmed without both answers. A point written with no lesson
+  // is a hole nobody sees until the lesson screen exists.
+  /* Whatever settled it, including the answer just given. */
+  const shownLesson =
+    targets.length > 0 ? lessonOf(page, targets[0], lessons, draft) : null;
+  /*
+   * Said out loud when the lesson came from the book rather than from this
+   * upload. It is the last lesson recorded as opening at or before this point,
+   * which is a deduction and not something printed on the page, so it is shown
+   * where the teacher is already looking instead of being applied quietly.
+   */
+  const deduced = shownLesson !== null && page.lessonNumber === null;
+  const ready =
+    canConfirm(question, draft) &&
+    targets.length > 0 &&
+    targets.every((number) => lessonOf(page, number, lessons, draft) !== null);
   const writable =
     page.duplicateOf === null && page.unsupported === null && !page.refused;
 
@@ -920,9 +1087,18 @@ function PageWork({
             >
               {headingFor(page, target, draft.continuation)}
             </h3>
-            {page.lessonNumber !== null && (
+            {shownLesson !== null && (
               <span className="text-muted text-sm">
-                Lição {page.lessonNumber}
+                Lição {shownLesson}
+                {deduced && (
+                  <span
+                    className="text-faint"
+                    title="Nenhuma página deste envio carrega o cabeçalho LESSON. Esta é a última lição gravada que começa em ou antes deste ponto."
+                  >
+                    {" "}
+                    · deduzida do livro
+                  </span>
+                )}
               </span>
             )}
           </div>
@@ -946,7 +1122,11 @@ function PageWork({
               disabled={draft.saved || saving || !ready}
               aria-busy={saving}
               title={
-                ready ? undefined : "Diga primeiro qual é o ponto desta página"
+                ready
+                  ? undefined
+                  : askingLesson
+                    ? "Diga primeiro a que lição esta página pertence"
+                    : "Diga primeiro qual é o ponto desta página"
               }
               className="bg-accent text-accent-foreground rounded-sm px-4.5 py-2 text-[13px] font-bold transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:opacity-50"
             >
@@ -1018,6 +1198,10 @@ function PageWork({
           <PointQuestion page={page} draft={draft} onUpdate={onUpdate} />
         )}
 
+        {askingLesson && writable && (
+          <LessonQuestion targets={targets} draft={draft} onUpdate={onUpdate} />
+        )}
+
         {writable && (
           <ul className="flex flex-col gap-3">
             {draft.blocks.map((block, index) => (
@@ -1045,6 +1229,48 @@ function PageWork({
         )}
       </div>
     </article>
+  );
+}
+
+/**
+ * The third step: nobody knows the lesson, so the teacher is asked.
+ *
+ * Reached when the upload carries no "LESSON N" header for this page and the
+ * book has no lesson recorded that opens at or before its point — the first
+ * pages of a book, or a page uploaded before the one that opens its lesson.
+ * The alternative was writing the point with no lesson at all, which is what
+ * left three points of book 2 unattached and silent.
+ */
+function LessonQuestion({
+  targets,
+  draft,
+  onUpdate,
+}: {
+  targets: readonly number[];
+  draft: PageDraft;
+  onUpdate: (change: Partial<PageDraft>) => void;
+}) {
+  return (
+    <div className="border-accent flex flex-col gap-3 rounded-sm border p-4">
+      <p className="text-accent font-mono text-[10px] tracking-[0.14em] uppercase">
+        A que lição esta página pertence?
+      </p>
+      <p className="text-muted text-sm leading-relaxed">
+        {targets.length > 1
+          ? `Nenhuma página deste envio carrega o cabeçalho LESSON, e o livro ainda não tem lição gravada que comece em ou antes dos pontos ${targets.join(" e ")}. O número está no cabeçalho da página do livro.`
+          : `Nenhuma página deste envio carrega o cabeçalho LESSON, e o livro ainda não tem lição gravada que comece em ou antes do ponto ${targets[0]}. O número está no cabeçalho da página do livro.`}
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          aria-label="Número da lição desta página"
+          inputMode="numeric"
+          placeholder="lição"
+          value={draft.typedLesson}
+          onChange={(event) => onUpdate({ typedLesson: event.target.value })}
+          className="border-rule bg-surface w-24 rounded-sm border px-2 py-1 font-mono text-sm"
+        />
+      </div>
+    </div>
   );
 }
 
