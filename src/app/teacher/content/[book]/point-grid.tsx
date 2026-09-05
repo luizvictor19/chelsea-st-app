@@ -1,24 +1,31 @@
+import { groupByLesson, type LessonRange } from "@/lib/content/lesson-range";
 import type { Gap } from "@/lib/content/progress";
+import type { BookPoint } from "@/lib/content/queries";
 
 /**
- * Every point of the book at once, so the shape of what is done and what is
- * missing can be read in a glance. The holes are called out inside this card
- * rather than in a banner of their own: a gap is a fact about the sequence, and
- * the sequence is right here.
+ * Every point of the book at once, cut into the lessons they belong to, so the
+ * shape of what is done and what is missing can be read in a glance. The holes
+ * are called out inside this card rather than in a banner of their own: a gap
+ * is a fact about the sequence, and the sequence is right here.
  *
  * The squares are laid on a fixed-width grid rather than a wrapping row, so the
  * columns line up down the card and point 9 is exactly as wide as point 128.
  * That uniformity is what carries the meaning: a solid square against an
- * outlined one needs no legend. Only the gap marker gets one, and only when the
- * book actually has a gap.
+ * outlined one needs no legend.
+ *
+ * A lesson gets a row of its own rather than a mark inside a continuous run.
+ * The ruler wraps, so a group that began in the middle of a line would put its
+ * label where nobody could tell which squares it named.
  */
 export function PointGrid({
   points,
+  lessons,
   gaps,
   lastFilledPoint,
   lastFilledLesson,
 }: {
-  points: readonly { number: number; filled: boolean }[];
+  points: readonly BookPoint[];
+  lessons: readonly LessonRange[];
   gaps: readonly Gap[];
   lastFilledPoint: number | null;
   lastFilledLesson: number | null;
@@ -30,6 +37,13 @@ export function PointGrid({
     }
   }
 
+  const groups = groupByLesson(points, lessons);
+  // Written, and belonging to no lesson: invisible until now, and the reason
+  // this card names the lessons at all.
+  const orphans = points.filter(
+    (point) => point.filled && point.lesson === null,
+  );
+
   return (
     <section
       aria-label="Pontos"
@@ -37,25 +51,54 @@ export function PointGrid({
     >
       <h2 className="font-bold tracking-tight">Pontos</h2>
 
-      <ol className="grid grid-cols-[repeat(auto-fill,2rem)] gap-1">
-        {points.map((point) => {
-          const gapped = inGap.has(point.number);
-          const state = point.filled
-            ? "bg-foreground text-background border-foreground"
-            : gapped
-              ? "border-accent text-accent"
-              : "border-rule text-faint";
-          return (
-            <li
-              key={point.number}
-              title={point.filled ? "cheio" : gapped ? "buraco" : "vazio"}
-              className={`flex h-8 items-center justify-center rounded-[0.1875rem] border font-mono text-[0.6875rem] tabular-nums ${state}`}
+      <div className="flex flex-col">
+        {groups.map((group, index) => (
+          <div
+            key={group.lesson ?? `sem-licao-${index}`}
+            className={`flex items-start gap-3 py-2 ${
+              index === 0 ? "" : "border-rule border-t"
+            }`}
+          >
+            <span
+              className={`w-[4.5rem] flex-shrink-0 pt-2 font-mono text-[0.625rem] tracking-[0.14em] uppercase ${
+                group.lesson === null ? "text-accent" : "text-faint"
+              }`}
             >
-              {point.number}
-            </li>
-          );
-        })}
-      </ol>
+              {group.lesson === null ? "sem lição" : `Lição ${group.lesson}`}
+            </span>
+            <ol className="grid min-w-0 flex-1 grid-cols-[repeat(auto-fill,2rem)] gap-1">
+              {group.points.map((point) => {
+                const orphan = point.filled && point.lesson === null;
+                const gapped = inGap.has(point.number);
+                const state = orphan
+                  ? "bg-accent text-accent-foreground border-accent"
+                  : point.filled
+                    ? "bg-foreground text-background border-foreground"
+                    : gapped
+                      ? "border-accent text-accent"
+                      : "border-rule text-faint";
+                return (
+                  <li
+                    key={point.number}
+                    title={
+                      orphan
+                        ? "preenchido, sem lição"
+                        : point.filled
+                          ? `cheio, lição ${String(point.lesson)}`
+                          : gapped
+                            ? "buraco"
+                            : "vazio"
+                    }
+                    className={`flex h-8 items-center justify-center rounded-[0.1875rem] border font-mono text-[0.6875rem] tabular-nums ${state}`}
+                  >
+                    {point.number}
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        ))}
+      </div>
 
       <div className="border-rule flex flex-col gap-1 border-t pt-3">
         {lastFilledPoint === null ? (
@@ -69,6 +112,27 @@ export function PointGrid({
               : `, lição ${String(lastFilledLesson)}.`}
           </p>
         )}
+
+        {orphans.length > 0 && (
+          <div className="text-accent flex flex-col gap-1 text-xs leading-relaxed">
+            <span className="flex items-center gap-1.5">
+              <span
+                aria-hidden
+                className="bg-accent border-accent h-2.5 w-2.5 rounded-[0.125rem] border"
+              />
+              <span className="font-mono text-[0.625rem]">sem lição</span>
+            </span>
+            <p>
+              Gravado sem lição:{" "}
+              <span className="font-mono">
+                {orphans.map((point) => point.number).join(", ")}
+              </span>
+              . A lição nasce quando uma página dela é confirmada, e estes
+              pontos entram nela sozinhos assim que isso acontecer.
+            </p>
+          </div>
+        )}
+
         {gaps.length === 0 ? (
           <p className="text-faint text-xs leading-relaxed">
             Sem buraco na sequência até aqui.
@@ -76,8 +140,8 @@ export function PointGrid({
         ) : (
           <div className="text-accent flex flex-col gap-1 text-xs leading-relaxed">
             {/*
-             * The only legend the card keeps. Filled against empty explains
-             * itself; a square that is empty yet already surrounded does not.
+             * A square that is empty yet already surrounded does not explain
+             * itself; filled against empty does.
              */}
             <span className="flex items-center gap-1.5">
               <span

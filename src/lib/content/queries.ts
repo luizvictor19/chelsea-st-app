@@ -2,11 +2,13 @@ import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
 
+import type { LessonRange } from "./lesson-range";
 import {
   gaps,
   pointsInRange,
   progress,
   type Gap,
+  type PointProgress,
   type Progress,
 } from "./progress";
 
@@ -139,12 +141,19 @@ export type BookDetail = {
   readonly title: string;
   readonly firstPoint: number | null;
   readonly lastPoint: number | null;
-  readonly points: readonly { number: number; filled: boolean }[];
+  readonly points: readonly BookPoint[];
+  /** The lessons this book has, which is what cuts the points into groups. */
+  readonly lessons: readonly LessonRange[];
   readonly gaps: readonly Gap[];
   readonly progress: Progress;
   /** Where the teacher stopped, and the lesson that point belongs to. */
   readonly lastFilledPoint: number | null;
   readonly lastFilledLesson: number | null;
+};
+
+/** A point of the book, and the lesson it is recorded under, if any. */
+export type BookPoint = PointProgress & {
+  readonly lesson: number | null;
 };
 
 export async function loadBook(position: number): Promise<BookDetail | null> {
@@ -169,11 +178,28 @@ export async function loadBook(position: number): Promise<BookDetail | null> {
   const filledRows = (rows ?? []).filter((row) => row.filled_at !== null);
   const filledNumbers = filledRows.map((row) => row.number);
   const furthest = filledRows.at(-1) ?? null;
+  const lessonOf = new Map(
+    (rows ?? []).map((row) => [
+      row.number,
+      row.lessons_content?.number ?? null,
+    ]),
+  );
+  // The lesson a point carries is its own, not one deduced: a filled point with
+  // none is the thing the screen has to show.
   const points = pointsInRange(
     filledNumbers,
     book.first_point,
     book.last_point,
-  );
+  ).map((point) => ({
+    ...point,
+    lesson: lessonOf.get(point.number) ?? null,
+  }));
+
+  const { data: lessonRows } = await supabase
+    .from("lessons_content")
+    .select("id, number, first_point, last_point")
+    .eq("book_id", book.id)
+    .order("first_point");
 
   return {
     id: book.id,
@@ -182,6 +208,12 @@ export async function loadBook(position: number): Promise<BookDetail | null> {
     firstPoint: book.first_point,
     lastPoint: book.last_point,
     points,
+    lessons: (lessonRows ?? []).map((row) => ({
+      id: row.id,
+      number: row.number,
+      firstPoint: row.first_point,
+      lastPoint: row.last_point,
+    })),
     gaps: gaps(points),
     progress: progress(points, book.first_point, book.last_point),
     lastFilledPoint: furthest?.number ?? null,

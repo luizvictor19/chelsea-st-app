@@ -107,3 +107,36 @@ export function orphansToAttach(
       return lesson === null ? [] : [{ point, lessonId: lesson.id }];
     });
 }
+
+/** A run of points that belong to the same lesson, in book order. */
+export type LessonGroup<T> = {
+  /** Null for the points before any recorded lesson opens. */
+  readonly lesson: number | null;
+  readonly points: readonly T[];
+};
+
+/**
+ * The points of a book cut into the lessons they fall in.
+ *
+ * By the same rule the ingestion uses, so the screen shows what the database
+ * would answer: a point belongs to the last lesson that opens at or before it.
+ * Which is the point of drawing it — a first_point one square off, or a lesson
+ * nobody recorded, is a boundary in the wrong place instead of a silence.
+ */
+export function groupByLesson<T extends { readonly number: number }>(
+  points: readonly T[],
+  lessons: readonly LessonRange[],
+): readonly LessonGroup<T>[] {
+  const groups: LessonGroup<T>[] = [];
+  let current: { lesson: number | null; points: T[] } | null = null;
+
+  for (const point of [...points].sort((a, b) => a.number - b.number)) {
+    const lesson = lessonForPoint(point.number, lessons)?.number ?? null;
+    if (current === null || current.lesson !== lesson) {
+      current = { lesson, points: [] };
+      groups.push(current);
+    }
+    current.points.push(point);
+  }
+  return groups;
+}

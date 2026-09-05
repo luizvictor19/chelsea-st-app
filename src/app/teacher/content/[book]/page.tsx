@@ -97,6 +97,7 @@ export default async function BookPage({
 
               <PointGrid
                 points={book.points}
+                lessons={book.lessons}
                 gaps={book.gaps}
                 lastFilledPoint={book.lastFilledPoint}
                 lastFilledLesson={book.lastFilledLesson}

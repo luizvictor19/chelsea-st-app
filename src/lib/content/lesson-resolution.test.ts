@@ -11,6 +11,7 @@ import {
 } from "../extraction/testing/synthetic-page.ts";
 import type { Bitmap, OcrReader, OcrWord } from "../extraction/types.ts";
 import {
+  groupByLesson,
   lessonForPage,
   lessonForPoint,
   orphansToAttach,
@@ -216,5 +217,35 @@ describe("orphansToAttach", () => {
     assert.deepEqual(orphansToAttach(lessons, [100]), []);
     assert.deepEqual(orphansToAttach([], [116]), []);
     assert.deepEqual(orphansToAttach(lessons, []), []);
+  });
+});
+
+describe("groupByLesson", () => {
+  const lessons: readonly LessonRange[] = [
+    { id: "l22", number: 22, firstPoint: 114, lastPoint: 118 },
+    { id: "l23", number: 23, firstPoint: 119, lastPoint: 121 },
+  ];
+  const points = [113, 114, 115, 119, 120].map((number) => ({ number }));
+
+  test("the points are cut where a lesson opens", () => {
+    assert.deepEqual(
+      groupByLesson(points, lessons).map((group) => [
+        group.lesson,
+        group.points.map((point) => point.number),
+      ]),
+      [
+        [null, [113]],
+        [22, [114, 115]],
+        [23, [119, 120]],
+      ],
+    );
+  });
+
+  test("with no lesson recorded, the whole book is one run with no number", () => {
+    assert.deepEqual(
+      groupByLesson(points, []).map((group) => group.lesson),
+      [null],
+    );
+    assert.deepEqual(groupByLesson([], lessons), []);
   });
 });
