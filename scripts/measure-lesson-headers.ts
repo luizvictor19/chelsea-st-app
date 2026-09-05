@@ -92,6 +92,10 @@ for (const file of readdirSync(FIXTURES)
   );
 }
 
+// The worker holds the process open, so the summary printed and nothing
+// exited. Chaining this script after another one simply hung.
+await reader.close();
+
 console.log(
   `\n${pages} pages carry a LESSON header. ${below} of their own point numbers ` +
     `are printed above it; the smallest gap between the header and the first ` +

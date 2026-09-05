@@ -153,6 +153,10 @@ for (const file of files) {
   }
 }
 
+// The worker holds the process open, so the summary printed and nothing
+// exited. Chaining this script after another one simply hung.
+await reader.close();
+
 const within = gaps.filter((gap) => gap < TABLE_COLUMN_GAP);
 const between = gaps.filter((gap) => gap >= TABLE_COLUMN_GAP);
 console.log(`\n${panels} table panels, ${rules} rule tokens dropped`);
