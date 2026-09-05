@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import type { LessonRange } from "@/lib/content/lesson-range";
+import { orphansToAttach, type LessonRange } from "@/lib/content/lesson-range";
 import type { BlockKind } from "@/lib/extraction/classify";
 import { createClient } from "@/lib/supabase/server";
 
@@ -98,6 +98,17 @@ export async function configureBook(
 export async function confirmPoint(
   point: ConfirmedPoint,
 ): Promise<ActionResult> {
+  // Refused before a single row is written, rather than written with a hole in
+  // it. A point with no lesson is invisible to the lesson screen and nothing
+  // goes back for it on its own, so this is the last place that can still say
+  // no. The review screen asks the teacher long before it gets here.
+  if (point.lessonNumber === null) {
+    return {
+      status: "error",
+      message: `Diga a qual lição o ponto ${point.pointNumber} pertence antes de gravar.`,
+    };
+  }
+
   const supabase = await createClient();
 
   const { data: row, error: lookupError } = await supabase
@@ -114,6 +125,67 @@ export async function confirmPoint(
     return {
       status: "error",
       message: `O ponto ${point.pointNumber} não existe neste livro. Confira o último ponto do livro.`,
+    };
+  }
+
+  /*
+   * The lesson is settled before a single block is written.
+   *
+   * It is created the first time one of its points is confirmed, and its range
+   * widens as the rest arrive, backwards as well as forwards: the page that
+   * carries the header may be the last one uploaded. Every failure here returns
+   * rather than falling through, because the alternative is blocks written
+   * under a point whose lesson never got recorded, which is the hole this whole
+   * change exists to close.
+   */
+  const { data: existingLesson, error: lessonLookupError } = await supabase
+    .from("lessons_content")
+    .select("id, first_point, last_point")
+    .eq("book_id", point.bookId)
+    .eq("number", point.lessonNumber)
+    .maybeSingle();
+  if (lessonLookupError) {
+    return { status: "error", message: lessonLookupError.message };
+  }
+
+  let lessonId = existingLesson?.id ?? null;
+  if (existingLesson === null) {
+    const { data: created, error: lessonError } = await supabase
+      .from("lessons_content")
+      .insert({
+        book_id: point.bookId,
+        number: point.lessonNumber,
+        first_point: point.pointNumber,
+        last_point: point.pointNumber,
+      })
+      .select("id")
+      .maybeSingle();
+    if (lessonError) {
+      return { status: "error", message: lessonError.message };
+    }
+    lessonId = created?.id ?? null;
+  } else if (
+    point.pointNumber < existingLesson.first_point ||
+    point.pointNumber > existingLesson.last_point
+  ) {
+    // first_point is load-bearing now: it is the boundary every other point of
+    // the book is resolved against. A widen that failed in silence would leave
+    // the points before it answering with the lesson before it, forever.
+    const { error: widenError } = await supabase
+      .from("lessons_content")
+      .update({
+        first_point: Math.min(existingLesson.first_point, point.pointNumber),
+        last_point: Math.max(existingLesson.last_point, point.pointNumber),
+      })
+      .eq("id", existingLesson.id);
+    if (widenError) {
+      return { status: "error", message: widenError.message };
+    }
+  }
+  if (lessonId === null) {
+    return {
+      status: "error",
+      message: `Não foi possível gravar a lição ${point.lessonNumber}. Nada deste ponto foi gravado.`,
     };
   }
 
@@ -156,53 +228,14 @@ export async function confirmPoint(
     }
   }
 
-  if (point.lessonNumber !== null) {
-    // The lesson is created the first time one of its points is confirmed, and
-    // its range widens as the rest arrive. Only linking, as this did before,
-    // left lessons_content permanently empty: nothing else creates a lesson.
-    const { data: existing } = await supabase
-      .from("lessons_content")
-      .select("id, first_point, last_point")
-      .eq("book_id", point.bookId)
-      .eq("number", point.lessonNumber)
-      .maybeSingle();
-
-    let lessonId = existing?.id ?? null;
-    if (existing === null) {
-      const { data: created, error: lessonError } = await supabase
-        .from("lessons_content")
-        .insert({
-          book_id: point.bookId,
-          number: point.lessonNumber,
-          first_point: point.pointNumber,
-          last_point: point.pointNumber,
-        })
-        .select("id")
-        .maybeSingle();
-      if (lessonError) {
-        return { status: "error", message: lessonError.message };
-      }
-      lessonId = created?.id ?? null;
-    } else if (
-      point.pointNumber < existing.first_point ||
-      point.pointNumber > existing.last_point
-    ) {
-      await supabase
-        .from("lessons_content")
-        .update({
-          first_point: Math.min(existing.first_point, point.pointNumber),
-          last_point: Math.max(existing.last_point, point.pointNumber),
-        })
-        .eq("id", existing.id);
-    }
-
-    if (lessonId !== null) {
-      await supabase
-        .from("points")
-        .update({ lesson_content_id: lessonId })
-        .eq("id", row.id);
-    }
+  const { error: linkError } = await supabase
+    .from("points")
+    .update({ lesson_content_id: lessonId })
+    .eq("id", row.id);
+  if (linkError) {
+    return { status: "error", message: linkError.message };
   }
+  await attachOrphanPoints(supabase, point.bookId);
 
   // A word belongs to the first point that introduces it, so an existing row is
   // left alone rather than moved to whichever page was uploaded last.
@@ -229,6 +262,63 @@ export async function confirmPoint(
 
   refreshBookScreens(point.bookPosition);
   return { status: "ok" };
+}
+
+type Client = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Attaches the points that were written before their lesson existed.
+ *
+ * A page may be uploaded before the page that carries its "LESSON N" header,
+ * and until that header is written there is no lesson row to point at. Those
+ * points are written anyway, with the lesson the teacher gave, and the lesson
+ * row appears later; this is what goes back for them. Run after every lesson is
+ * created or widened, which is the only moment the answer can change.
+ *
+ * Only points that hold content are touched. An empty point with no lesson is
+ * nothing to repair, and claiming it would guess at a lesson nobody has read.
+ */
+async function attachOrphanPoints(
+  supabase: Client,
+  bookId: string,
+): Promise<void> {
+  const { data: lessons } = await supabase
+    .from("lessons_content")
+    .select("id, number, first_point, last_point")
+    .eq("book_id", bookId);
+  const { data: orphans } = await supabase
+    .from("points")
+    .select("number")
+    .eq("book_id", bookId)
+    .is("lesson_content_id", null)
+    .not("filled_at", "is", null);
+
+  if (lessons === null || orphans === null || orphans.length === 0) {
+    return;
+  }
+
+  const byLesson = new Map<string, number[]>();
+  for (const attachment of orphansToAttach(
+    lessons.map(asLessonRange),
+    orphans.map((orphan) => orphan.number),
+  )) {
+    byLesson.set(attachment.lessonId, [
+      ...(byLesson.get(attachment.lessonId) ?? []),
+      attachment.point,
+    ]);
+  }
+
+  for (const [lessonId, numbers] of byLesson) {
+    await supabase
+      .from("points")
+      .update({ lesson_content_id: lessonId })
+      .eq("book_id", bookId)
+      .in("number", numbers)
+      // Still orphans: between the read above and this write another
+      // confirmation may have attached one of them from a header it read on
+      // the page itself, which is a better answer than this one.
+      .is("lesson_content_id", null);
+  }
 }
 
 function asLessonRange(row: {
