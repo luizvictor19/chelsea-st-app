@@ -41,8 +41,8 @@
 /*
  * The base every size is measured from.
  *
- * The teacher's screens are read for long stretches — a page of the book
- * against a panel of blocks — and at the browser's 16px everything on them
+ * The teacher's screens are read for long stretches, a page of the book
+ * against a panel of blocks, and at the browser's 16px everything on them
  * sat a size below comfortable. Raised here rather than size by size so the
  * relations hold: every type size and every space in the product is in rem,
  * including the mono labels, so all of it moves together and nothing has to be

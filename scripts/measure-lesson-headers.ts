@@ -5,7 +5,7 @@
  * The header decides which lesson a page opens, and it is read for the whole
  * image. Whether that is right depends on where it is printed: a header below
  * one of the page's own numbers would mean that number belongs to the lesson
- * before it, and first_point — the key every other point is resolved against —
+ * before it, and first_point, the key every other point is resolved against,
  * would be one point too low. This is what answers that, and the answer is
  * recorded in docs/spec-ingestao.md. The pages live outside the repository, so
  * this is a local tool and never runs in CI.

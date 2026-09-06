@@ -8,7 +8,7 @@ import { DailyChallenge } from "./daily-challenge";
 import { NextLessonCard } from "./next-lesson-card";
 
 export const metadata: Metadata = {
-  title: "Minha aula — Chelsea St",
+  title: "Minha aula · Chelsea St",
 };
 
 /**

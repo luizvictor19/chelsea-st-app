@@ -530,7 +530,7 @@ describe("the point a page opens in", () => {
 describe("what corroborates a reading", () => {
   test("the printed order corroborates a page nobody read twice", () => {
     // The first page of book 1: three numbers down the margin, each seen by one
-    // crop only. Nothing else in the batch anchors them — the book starts at 1,
+    // crop only. Nothing else in the batch anchors them: the book starts at 1,
     // so no floor bounds the first, and no number is placed to bound the last.
     // What is left is the page itself: three positions, one candidate each,
     // increasing in the order they are printed, which is how the book is set.
@@ -585,7 +585,7 @@ describe("what corroborates a reading", () => {
     // between them, and there is no page left for the other one to be.
     //
     // Worth pinning because it is the one place this rule outranks agreement.
-    // It does not outrank it by preference — the chain places 70 and 72, which
+    // It does not outrank it by preference. The chain places 70 and 72, which
     // nothing contests, and the interval rule then finds no room for a 71
     // anywhere else.
     const result = reconcilePoints(
@@ -604,7 +604,7 @@ describe("what corroborates a reading", () => {
 
   test("readings that fall down the page are not a printed order", () => {
     // 70 above 60 is not how the book is set. No increasing run exists, so the
-    // monotonicity pass has nothing to delete and both survive as they are —
+    // monotonicity pass has nothing to delete and both survive as they are:
     // two positions, one candidate each, going the wrong way. The order says
     // this page was misread, not that these are its numbers.
     const result = reconcilePoints(

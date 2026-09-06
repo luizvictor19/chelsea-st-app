@@ -3,9 +3,9 @@
  *
  * TERM_COLUMN_GAP is what stops `a day` becoming two terms and `flower plant`
  * staying one, and the constant cites a measurement that had no tool behind it.
- * This is that tool. It reads the ordinary panels — the ones under TABLE_HEIGHT,
- * which the pipeline reads with the fixed segmentation and trusts without
- * review — and prints the two populations the cut has to sit between: the space
+ * This is that tool. It reads the ordinary panels, the ones under TABLE_HEIGHT
+ * that the pipeline reads with the fixed segmentation and trusts without
+ * review, and prints the two populations the cut has to sit between: the space
  * inside a term, and the column that ends one.
  *
  * A book is named on the command line because the panels of one book are not

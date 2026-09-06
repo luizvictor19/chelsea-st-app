@@ -74,7 +74,7 @@ export type StoredPage = {
    * database.
    *
    * Kept, because without it a restore reads "it has saved points" as "it is
-   * finished" and the edit becomes unreachable a second time — which is the
+   * finished" and the edit becomes unreachable a second time, which is the
    * whole reason the flag exists on the screen.
    */
   readonly changedSinceSaving: boolean;
@@ -145,8 +145,8 @@ function open(): Promise<IDBDatabase> {
  * Runs one request and settles when its transaction does.
  *
  * On the transaction, not on the request: a put can succeed and the commit
- * still fail — quota exceeded on a batch of sixty pages is the real case — and
- * resolving on the request would report that as stored when nothing was. The
+ * still fail, with quota exceeded on a batch of sixty pages as the real case,
+ * and resolving on the request would report that as stored when nothing was. The
  * request's own result is held until the commit confirms it.
  */
 async function withStore<T>(

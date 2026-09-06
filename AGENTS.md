@@ -1,13 +1,14 @@
-# Chelsea St platform — working agreements
+# Chelsea St platform · working agreements
 
 Read this before writing code in this repository.
 
 ## Language
 
-- File names, folders, identifiers, types, tables, columns and comments: **English**.
-- Portuguese only in user-facing copy: UI strings, emails, teaching content.
-- Reports, questions and explanations addressed to the human: Portuguese.
-  Code, comments, commit messages and documentation stay English.
+- English where the text lives among code: identifiers, comments, commit
+  messages. There it is not a choice, it is the neighbourhood.
+- Portuguese where the text is for a person to read: README, the specs under
+  docs/, and every string the teacher or the student sees. Their job is to be
+  read, and the reader is Brazilian.
 - When unsure, ask before deciding.
 
 ## Content and licensing
@@ -45,8 +46,8 @@ Postgres, Auth and Storage. Deployed on Vercel.
   and screen copy. The gate and one look at the page catch these, so decide and
   move on.
 - **The exception.** UI state that can eat the teacher's work without saying so
-  — a destructive action behind an unlabelled control, a save that drops an edit
-  in silence — goes back in the high column, however small the change looks.
+  goes back in the high column, however small the change looks: a destructive
+  action behind an unlabelled control, a save that drops an edit in silence.
 - **Never report the state of the database from files on disk.** The Supabase
   MCP server is configured and read-only: query it. A migration file in
   `supabase/migrations` only proves the file exists. "Not applied" without a

@@ -161,7 +161,7 @@ export function AudioRecorder() {
         <dd className="break-all">{chosenType ?? "padrão do navegador"}</dd>
         <dt>Tamanho</dt>
         <dd>
-          {blobSize === null ? "—" : `${(blobSize / 1024).toFixed(1)} KB`}
+          {blobSize === null ? "·" : `${(blobSize / 1024).toFixed(1)} KB`}
         </dd>
       </dl>
     </div>

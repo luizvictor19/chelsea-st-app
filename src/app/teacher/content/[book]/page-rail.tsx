@@ -17,8 +17,8 @@ export type RailPage = ReviewPage & {
   readonly summary: string;
   /**
    * The point this page writes to already holds content, from a round before
-   * this one. Not a state of the review — the page is still waiting to be
-   * confirmed — but the one fact that changes what confirming does, and it was
+   * this one. Not a state of the review, since the page is still waiting to be
+   * confirmed, but the one fact that changes what confirming does, and it was
    * only ever said inside the page, after a click.
    */
   readonly alreadyInDatabase: boolean;
@@ -48,7 +48,7 @@ function markFor(
     case "duplicate":
       return { glyph: "=", tone: "text-faint border-rule" };
     case "unsupported":
-      return { glyph: "—", tone: "text-faint border-rule" };
+      return { glyph: "·", tone: "text-faint border-rule" };
     case "refused":
       return { glyph: "×", tone: "text-faint border-rule" };
     default:

@@ -107,9 +107,9 @@ type Workbench = {
  *
  * The file name was the identity, and two photographs dropped in together are
  * often called the same thing: they became one page, one draft, and editing
- * either edited both. The name is kept as the name — it is what the database
- * records as the writer — and the second one to arrive is told apart on screen
- * by the count after it.
+ * either edited both. The name is kept as the name, because it is what the
+ * database records as the writer, and the second one to arrive is told apart
+ * on screen by the count after it.
  */
 function uniqueIds(files: readonly File[]): readonly string[] {
   const taken = new Set<string>();

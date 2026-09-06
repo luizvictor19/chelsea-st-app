@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { requireTeacher } from "@/lib/content/queries";
 
 export const metadata: Metadata = {
-  title: "Professor — Chelsea St",
+  title: "Professor · Chelsea St",
 };
 
 /** Placeholder for this phase. The real teacher area is its own phase. */

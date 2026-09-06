@@ -303,8 +303,8 @@ ocupar coluna própria, não por tamanho, e `the fewest` deixa de virar `the` e
 
 O cabeçalho `LESSON N` vale para a imagem inteira, e uma página carrega até dois pontos. Se ele
 estivesse impresso abaixo do primeiro número da própria página, esse ponto pertenceria à lição
-anterior e o `first_point` gravado ficaria um ponto baixo demais — o que importa porque `first_point`
-é a chave contra a qual todo outro ponto é resolvido.
+anterior e o `first_point` gravado ficaria um ponto baixo demais. Isso importa porque
+`first_point` é a chave contra a qual todo outro ponto é resolvido.
 
 Medido com `scripts/measure-lesson-headers.ts` nas 15 páginas das 61 fixtures que carregam
 cabeçalho: **em nenhuma delas um número da própria página está acima do cabeçalho**. O cabeçalho fica
@@ -318,8 +318,8 @@ não uma folha dupla com uma página em cada metade. Uma foto de folha dupla nã
 extrator de qualquer forma, que lê a coluna de margem à esquerda de uma página só.
 
 Fica anotado que a medição vale para o livro 2. Um livro em que uma lição comece no meio da página
-mudaria a resposta, e aí o corte seria pela vertical — cabeçalho contra o `y` de cada número — e não
-pela horizontal.
+mudaria a resposta, e aí o corte seria pela vertical, cabeçalho contra o `y` de cada número, e
+não pela horizontal.
 
 ### Modo de segmentação na leitura das caixas
 
@@ -351,7 +351,7 @@ exatamente a condição em que um erro de OCR deixa de ser silencioso.
 Fica anotado que o `|` solto é filtrável por si, mas isso é outra mudança e pede
 a sua própria medição.
 
-### Portão de agreement, medido — e a contradição que ele carrega
+### Portão de agreement, medido, e a contradição que ele carrega
 
 `reconcilePoints` só fixa uma leitura de margem se algo a corrobora, e a primeira das três
 maneiras é `agreement >= 2`: dois dos três recortes de margem viram o mesmo número
@@ -376,8 +376,8 @@ ao mesmo tempo. Esta seção é a medição que faltava, feita com
 **O dígito único não é o problema.** O portão separa sinal de ruído no livro 1 tão bem quanto no
 livro 2, e recusa a mesma fatia de verdadeiros nos dois. O que muda é a **concentração**. No livro
 2 as quatro recusas caem em quatro páginas diferentes, e em três delas o outro número da página
-foi corroborado, então a regra (c) do `mayAssign` — "continua a sequência crescente ao lado de um
-número já fixado na mesma página" — resolve as duas. No livro 1 as três recusas caem todas na
+foi corroborado, então a regra (c) do `mayAssign` resolve as duas: "continua a sequência
+crescente ao lado de um número já fixado na mesma página". No livro 1 as três recusas caem todas na
 **mesma página**: a primeira do livro, a única com três pontos, `1@256 2@494 3@1208`, cada um visto
 por um recorte só. Sem irmão corroborado, sem piso (o primeiro ponto do livro é 1, então
 `boundedBelow` nunca liga) e sem teto, nada arranca, e a página inteira vai para a professora.
@@ -395,8 +395,8 @@ lida uma vez só, logo depois dessa passagem e antes de qualquer atribuição, p
 recortes devolveram e não um estado que uma remoção entre páginas produziu depois.
 
 O mínimo de dois é o que segura. Uma página de um número só não tem ordem impressa para corroborar
-nada, e leitura solta com agreement 1 é justamente o formato do ruído — 29 das 31 leituras de ruído
-do livro 2 têm agreement 1. Medido depois da mudança: dispara em uma das 31 páginas do livro 1,
+nada, e leitura solta com agreement 1 é justamente o formato do ruído: 29 das 31 leituras de
+ruído do livro 2 têm agreement 1. Medido depois da mudança: dispara em uma das 31 páginas do livro 1,
 levando o lote de 48 para 51 dos 52 pontos, e em nenhuma das 61 do livro 2, que continua em 76 de
 76 sem nenhuma pergunta. Admite zero ruído nos dois. O único ruído dentro da faixa no livro 1 é um
 `1` lido na mesma altura do `11` verdadeiro, que vira candidato rival no mesmo grupo e morre na
@@ -408,8 +408,8 @@ legítima, e continua sendo.
 
 ### Folga das constantes de painel, livro 1 contra livro 2
 
-Todos os limiares de painel foram medidos no livro 2. O livro 1 tem densidade diferente — chega a
-três pontos numa página — então a folga de cada um foi medida de novo, com
+Todos os limiares de painel foram medidos no livro 2. O livro 1 tem densidade diferente, chegando
+a três pontos numa página, então a folga de cada um foi medida de novo, com
 `scripts/measure-agreement-gate.ts` e `scripts/measure-term-columns.ts`. Nenhum corte precisa
 mudar. Dois encolheram o bastante para valer nota.
 
@@ -429,7 +429,7 @@ Os dois que encolheram:
   continua no meio de um vazio, mas a folga é um terço da que foi medida.
 - **`TERM_COLUMN_GAP`.** O menor vão entre termos cai de 75px para 51px, contra um corte de 45:
   6px de folga, contra 30px no livro 2. É a constante mais apertada das cinco, e a que erra em
-  silêncio — dois termos colados viram uma entrada só em `vocabulary_items`.
+  silêncio: dois termos colados viram uma entrada só em `vocabulary_items`.
 
 Os números do livro 2 aqui foram medidos com o tesseract.js do projeto, e não com a baseline do
 CLI que a `constants.ts` cita; as duas populações caem no mesmo lugar, com contagens próximas mas
@@ -452,22 +452,22 @@ livro 1, e 11 blocos em 11 páginas no livro 2.
 vai para `placements[0]`, que é o primeiro número desta: 29 blocos em 14 das 30 páginas medíveis do
 livro 1, 51 blocos em 27 das 61 do livro 2.
 
-Isto não é hipótese: dos 22 blocos já gravados do livro 2, três estão no ponto errado —
+Isto não é hipótese. Dos 22 blocos já gravados do livro 2, três estão no ponto errado:
 `begin, end, last, how long` está no 114 e é do 115, `cheap, expensive, Rolls Royce` e `the fewest`
 estão no 116 e são do 115, `whose` está no 117 e é do 118. Conferido nas imagens.
 
 **Implementado**, nas duas metades. Um número impresso dentro da faixa `POINT_LABEL_REACH` a
 partir do topo de um bloco rotula esse bloco; o corte é 47, no meio do vazio medido de 49px, e a
 medição está ao lado da constante. E um bloco acima de todos os números da página cai no ponto em
-que a página abre, que a reconciliação passou a calcular como `openingPoint` — o ponto em vigor
+que a página abre, que a reconciliação passou a calcular como `openingPoint`: o ponto em vigor
 quando a página começa, tirado antes de contar os números da própria página. Não é o mesmo que
 `inheritedPoint`, que só responde por uma página sem número nenhum, e que continua valendo
 exatamente o que valia.
 
 `pointForBlock` passou a poder devolver `null`, e quem chama carrega isso: significa que nada na
 página decide. Acontece quando a página abre o envio, e quando falta um número entre o ponto de
-abertura e o primeiro número da página — o que faltou foi impresso em algum lugar, e um bloco acima
-do primeiro número pode ser dele ou do anterior. A tela segura a página, diz por quê e não grava
+abertura e o primeiro número da página. O que faltou foi impresso em algum lugar, e um bloco
+acima do primeiro número pode ser dele ou do anterior. A tela segura a página, diz por quê e não grava
 nada dela. Na `6 7` do livro 1, cujo `6` nenhum recorte leu, é exatamente o que acontece.
 
 Com uma exceção que não é dúvida nenhuma: a página que carrega o **primeiro ponto do livro** abre
@@ -477,16 +477,16 @@ número, e a mensagem mandaria subir uma página anterior que não existe.
 
 Duas consequências que vieram junto. O cabeçalho, o trilho e a pergunta de lição nomeiam agora
 todos os pontos que a página grava, e não só os números que ela carrega, senão a página diria
-"Ponto 116" enquanto grava 115 e 116 — e, pior, gravaria o 115 com uma lição que ninguém foi
+"Ponto 116" enquanto grava 115 e 116. Pior: gravaria o 115 com uma lição que ninguém foi
 perguntado sobre.
 
 E o que pode ser **substituído** ficou mais estreito do que o que é gravado. `authoredPoints` são os
 pontos que a página assina: os números dela, ou o ponto que ela herda. O ponto de abertura não é
-um deles — quem o escreveu foi a página anterior — então confirmar esta página acrescenta lá e
-nunca limpa. Sem essa distinção, uma página que grava no ponto da anterior apagaria o trabalho
+um deles, porque quem o escreveu foi a página anterior, então confirmar esta página acrescenta
+lá e nunca limpa. Sem essa distinção, uma página que grava no ponto da anterior apagaria o trabalho
 dela.
 
-O cabeçalho `LESSON` da página também deixou de responder pelo ponto de abertura — mas só onde há
+O cabeçalho `LESSON` da página também deixou de responder pelo ponto de abertura, mas só onde há
 de fato uma fronteira. Só quando a página **abre** a lição: aí o cabeçalho está impresso entre o
 ponto de cima e os números da página, e o ponto de cima está do outro lado dele. Uma página que
 apenas herdou a lição de outra página do mesmo envio não tem fronteira nenhuma, e a lição dela vale
@@ -494,11 +494,11 @@ para o ponto de abertura como vale para os próprios. E uma página sem número 
 caso: ela abre no ponto que herda, esse ponto é a página inteira, e a lição dela é a lição dele.
 
 Onde a fronteira existe, a resposta digitada pela professora também não vale para o ponto de
-abertura — ela está respondendo sobre a lição que esta página abre. A página espera a anterior ser
+abertura: ela está respondendo sobre a lição que esta página abre. A página espera a anterior ser
 confirmada e diz isso.
 
 Medido antes e depois com `scripts/dump-block-points.ts`, sobre as fixtures dos dois livros: 61
-blocos mudaram de ponto no livro 1 e 62 no livro 2, e todos eles são de um destes três tipos — 22
+blocos mudaram de ponto no livro 1 e 62 no livro 2, e todos eles são de um destes três tipos: 22
 painéis cujo número está impresso dentro deles, 91 blocos acima do primeiro número da página, e 10
 blocos da primeira página do livro 1, que o portão não resolvia. Nenhum movimento de outra
 natureza, nenhuma duplicata mudou de lado, e `inheritedPoint` não mudou em nenhuma página dos dois

@@ -1,7 +1,7 @@
 /**
  * Writes down which point each block of each page is filed under.
  *
- * The rule that decides it — `pointForBlock` — is content attribution: a block
+ * The rule that decides it, `pointForBlock`, is content attribution: a block
  * filed under the wrong point is wrong on the screen the student reads, and it
  * is wrong silently. So when that rule changes, "the tests pass" is not enough.
  * This dumps the answer for every block of a book's pages, and two dumps taken

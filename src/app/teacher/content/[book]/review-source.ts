@@ -19,7 +19,7 @@ import type { Band, Bitmap } from "../../../../lib/extraction/types.ts";
  * Two things become one shape here: a batch just read, which still holds the
  * page images, and the same batch read back from the browser's database, which
  * does not. The screen should not care which one it is looking at, except in
- * the single place where it cannot be anything but honest — a flagged table has
+ * the single place where it cannot be anything but honest: a flagged table has
  * no crop beside it once the pages are gone.
  */
 export type ReviewCrop = {
@@ -182,7 +182,7 @@ export function toStored(
  *
  * A page that carries numbers still writes outside them: what sits above its
  * first number was printed under the last number of the page before. Naming
- * that point matters twice over — the heading would otherwise say one point
+ * that point matters twice over. The heading would otherwise say one point
  * while two are written, and the check for "this point already holds content"
  * would miss the one belonging to the page before and replace its work.
  */
@@ -209,7 +209,7 @@ function settledNumbers(page: ReviewSourcePage): readonly number[] {
  * The points this page is the author of, which are the only ones it may replace.
  *
  * Narrower than targetsOf on purpose. A page writes to the point it opens in,
- * but it did not write that point — the page before did — so confirming this
+ * but it did not write that point, the page before did, so confirming this
  * one adds to it and never clears it. Replacing there would delete the previous
  * page's work on a point this one only contributed a panel to.
  */
@@ -259,7 +259,7 @@ function opensAfterItsPoint(
  *
  * Null does not mean "no lesson". It means this page cannot answer, so the
  * lessons the book already holds are asked next. Reading the header across a
- * boundary filed the last point of one lesson under the next — silently,
+ * boundary filed the last point of one lesson under the next, and silently,
  * because a point carries no evidence of which lesson it should have had.
  */
 export function headerFor(
@@ -391,8 +391,8 @@ export function summaryFor({
   /**
    * The point already holds content from a round before this one.
    *
-   * Said on the rail because it changes what the button does — confirming
-   * replaces what is there — and it used to be said only inside the page, so
+   * Said on the rail because it changes what the button does: confirming
+   * replaces what is there. It used to be said only inside the page, so
    * finding it meant clicking every page to look.
    */
   alreadyInDatabase?: boolean;

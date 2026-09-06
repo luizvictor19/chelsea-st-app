@@ -13,8 +13,8 @@ import type { OcrWord } from "./types.ts";
  * The engine returns words, not a table: read in order and joined with spaces,
  * a conjugation grid becomes one line of prose with the columns welded to each
  * other and the rows welded end to end. Both boundaries are in the geometry the
- * engine already returns, and this is where they are read back out — the same
- * move as the vocabulary panels, where the column is what separates a term from
+ * engine already returns, and this is where they are read back out. It is the
+ * same move as the vocabulary panels, where the column is what separates a term from
  * the next, not the space between two words.
  *
  * What comes out is the stored form of a grammar table, so the review screen
@@ -61,7 +61,8 @@ export function tableContent(words: readonly OcrWord[], scale = 1): string {
     /*
      * Every cell through the same cleaning the editor uses. The rule is read as
      * a whole token often enough to be dropped above, but it also fuses to the
-     * glyph beside it — "do|", "|-" — and a "|" left anywhere inside a cell is
+     * glyph beside it, as in "do|" and "|-", and a "|" left anywhere inside a
+     * cell is
      * read back as a column boundary of ours, which splits the cell and shifts
      * every column after it.
      */

@@ -59,7 +59,7 @@ export function BookCard({
         )}
         {hasRange ? (
           <span className="text-faint ml-auto font-mono text-xs">
-            {book.firstPoint}–{book.lastPoint}
+            {book.firstPoint}-{book.lastPoint}
           </span>
         ) : null}
       </div>

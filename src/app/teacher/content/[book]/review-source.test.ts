@@ -144,8 +144,8 @@ describe("writtenNumbers", () => {
   });
 
   test("a page with no number of its own keeps the lesson the upload gave it", () => {
-    // A continuation page opens in the point it inherits — the two are the same
-    // number — so a rule written as "the header does not speak for the opening
+    // A continuation page opens in the point it inherits, and the two are the
+    // same number, so a rule written as "the header does not speak for the opening
     // point" threw away the header for the whole page, and every continuation
     // in an upload started asking for a lesson the batch had already answered.
     const carried = page({
