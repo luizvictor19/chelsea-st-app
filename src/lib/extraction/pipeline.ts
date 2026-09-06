@@ -334,9 +334,17 @@ export function pointForBlock(
     return null;
   }
   // A number can only have gone missing between a point printed on an earlier
-  // page and this page's first. Where nothing in the book precedes the page it
-  // opens in its own first number, and there is no gap to look for: asking this
-  // of that page is what made the first page of a book unconfirmable.
+  // page and this page's first. Where nothing in the book precedes the page, it
+  // opens in its own first number and there is no gap to look for.
+  //
+  // Not a fix for anything that was misfiling: written against the merged
+  // field, this page skipped the gap check anyway, because there the number it
+  // opens in and its own first number are one and the same and the check
+  // compared them to each other. The point of saying it this way is that the
+  // reason is now on the page instead of arriving by coincidence, and it still
+  // holds when the coincidence does not: a first page whose lowest number was
+  // misread as something above `first + 1` used to be held with a message
+  // asking for a previous page, and is now filed under the book's first point.
   if (opening.precedingPoint === null) {
     return opening.openingPoint;
   }

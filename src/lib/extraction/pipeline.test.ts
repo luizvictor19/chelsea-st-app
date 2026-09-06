@@ -351,8 +351,6 @@ describe("a spread splits its content between the numbers it carries", () => {
   test("the top of the book's first page belongs to the book's first point", () => {
     // Nothing in the book precedes point 1, so nothing can have gone missing
     // above it and there is no earlier page for the block to have come from.
-    // Asked of the merged field, this page held every block above its first
-    // number and could not be confirmed at all.
     assert.equal(
       pointForBlock([{ number: 1, y: 300 }], 40, opensTheBook(1)),
       1,
@@ -360,6 +358,19 @@ describe("a spread splits its content between the numbers it carries", () => {
     assert.deepEqual(
       unplacedBlocks([{ top: 40 }], [{ number: 1, y: 300 }], opensTheBook(1)),
       [],
+    );
+  });
+
+  test("and still does when its own lowest number was misread", () => {
+    // The case the merged field could not express, and the only behaviour this
+    // split changes. Asked as "is my first number the one after the point above
+    // me", a page whose lowest number came back as 3 answered no and was held
+    // with a message asking for a previous page. Asked as "is there a page
+    // above me at all", it answers no, and the top of the book's first page is
+    // the book's first point whatever its other numbers were read as.
+    assert.equal(
+      pointForBlock([{ number: 3, y: 300 }], 40, opensTheBook(1)),
+      1,
     );
   });
 
