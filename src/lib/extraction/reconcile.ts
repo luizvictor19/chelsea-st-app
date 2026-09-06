@@ -31,7 +31,47 @@ export type Placement = {
   readonly y: number;
 };
 
-export type PageResolution = {
+/**
+ * What lies above a page, as two questions rather than one number.
+ *
+ * They were one field, `openingPoint`, and it answered both at once by holding
+ * whichever number happened to be right. That works everywhere except on the
+ * page carrying the book's own first point, and there it silently answered the
+ * wrong one of the two.
+ *
+ * Every shape that carries a page across a boundary carries this pair, so no
+ * caller has to remember which reading its own question needs: it picks the
+ * field whose name is its question.
+ */
+export type PageOpening = {
+  /**
+   * The last point of the page before this one, null when none precedes it.
+   *
+   * The one to ask when the question is about what lies on the other side of
+   * this page's top edge: a lesson header printed here, a number that may have
+   * gone missing above the page's first. Null is the whole answer for the page
+   * that opens the book. There is no earlier page, so no point of an earlier
+   * one, and nothing for either question to reach back to.
+   */
+  readonly precedingPoint: number | null;
+  /**
+   * The point that owns what is printed above this page's first number.
+   *
+   * The one to ask when the question is about filing a block. Usually the same
+   * number as precedingPoint, because content above a page's first number was
+   * printed under the last number of the page before. They part on the page
+   * carrying the book's own first point: nothing in the book precedes it, so
+   * the top of that page is its own, and this is that point while
+   * precedingPoint is null.
+   *
+   * Not the same question as inheritedPoint either, which asks "which point is
+   * this whole page" and is only answerable when the page carries no number.
+   * This one is answerable for every page.
+   */
+  readonly openingPoint: number | null;
+};
+
+export type PageResolution = PageOpening & {
   readonly id: string;
   /** Numbers this page carries, ascending. Empty when it carries none. */
   readonly points: readonly number[];
@@ -46,20 +86,6 @@ export type PageResolution = {
    * before it in upload order.
    */
   readonly inheritedPoint: number | null;
-  /**
-   * The point in force as the page begins, before its own first number.
-   *
-   * Not the same question as inheritedPoint, which asks "which point is this
-   * whole page" and is only answerable when the page carries no number. This
-   * one is answerable for every page, and it is what the content printed above
-   * a page's first margin number belongs to: that content was printed under the
-   * last number of the page before, and stays there.
-   *
-   * The page carrying the book's own first point is the exception: nothing in
-   * the book precedes it, so the top of that page is its own. Null everywhere
-   * else that no page precedes it, which is a question and not an answer.
-   */
-  readonly openingPoint: number | null;
   /** The page this one is a second scan of, when it is one. */
   readonly duplicateOf: string | null;
   /** Positions the algorithm could not settle, for the teacher to choose. */
@@ -688,18 +714,22 @@ export function reconcilePoints(
   }
 
   const order = pageOrder();
-  // The point in force as each page begins, taken before the page's own numbers
-  // are counted. A page that carries numbers still has one, which is what the
-  // content above its first number belongs to.
-  const opening = new Map<number, number | null>();
+  // The last point of the page before each page, taken before that page's own
+  // numbers are counted. A page that carries numbers still has one, and this is
+  // the strict half of the pair: null here means nothing precedes the page, and
+  // says nothing about what owns the top of it.
+  const preceding = new Map<number, number | null>();
   let currentPoint: number | null = null;
   for (const index of order) {
-    opening.set(index, currentPoint);
+    preceding.set(index, currentPoint);
     const points = byPage[index].points;
     if (points.length > 0) {
       currentPoint = Math.max(...points.map((placement) => placement.number));
     }
   }
+
+  const precedingPointOf = (index: number): number | null =>
+    preceding.get(index) ?? null;
 
   const resolutionFor = (index: number): PageResolution => ({
     id: pages[index].id,
@@ -708,11 +738,14 @@ export function reconcilePoints(
       .sort((a, b) => a - b),
     placements: [...byPage[index].points].sort((a, b) => a.y - b.y),
     inheritedPoint:
-      byPage[index].points.length > 0 ? null : (opening.get(index) ?? null),
+      byPage[index].points.length > 0 ? null : precedingPointOf(index),
+    precedingPoint: precedingPointOf(index),
     // Nothing precedes the book's own first point, so the space above it on the
-    // page that carries it belongs to that point and to no earlier one.
+    // page that carries it belongs to that point and to no earlier one. The
+    // only place the two questions give different answers, and the reason they
+    // are two fields.
     openingPoint:
-      opening.get(index) ??
+      precedingPointOf(index) ??
       (byPage[index].points.some((placement) => placement.number === first)
         ? first
         : null),

@@ -497,12 +497,31 @@ Onde a fronteira existe, a resposta digitada pela professora também não vale p
 abertura: ela está respondendo sobre a lição que esta página abre. A página espera a anterior ser
 confirmada e diz isso.
 
-Medido antes e depois com `scripts/dump-block-points.ts`, sobre as fixtures dos dois livros: 61
+Medido antes e depois com `scripts/dump-block-points.ts`, sobre as fixtures dos dois livros, para a
+mudança de arquivamento descrita acima e só para ela: 61
 blocos mudaram de ponto no livro 1 e 62 no livro 2, e todos eles são de um destes três tipos: 22
 painéis cujo número está impresso dentro deles, 91 blocos acima do primeiro número da página, e 10
 blocos da primeira página do livro 1, que o portão não resolvia. Nenhum movimento de outra
 natureza, nenhuma duplicata mudou de lado, e `inheritedPoint` não mudou em nenhuma página dos dois
 livros.
+
+#### As duas perguntas que o `openingPoint` respondia de uma vez
+
+E a fronteira precisa de uma página do outro lado dela. Aqui o `openingPoint` estava respondendo
+duas perguntas diferentes com o mesmo número, e na primeira página de um livro elas divergem: quem
+é dono do que está impresso acima do primeiro número dela é o próprio ponto 1, mas o que vem antes
+da página é nada. Lida como "o ponto acima está na página anterior", a primeira página do livro 1
+segurava o próprio ponto 1 à espera de uma lição anterior à 1, e mandava subir uma página que não
+existe. A reconciliação agora devolve as duas separadas, `precedingPoint` e `openingPoint`, e cada
+consumidor escolhe pelo nome a pergunta que está fazendo em vez de lembrar da distinção: quem
+arquiva bloco lê `openingPoint`, quem pergunta o que há do outro lado do topo da página lê
+`precedingPoint`.
+
+Medido com `scripts/dump-block-points.ts` sobre as fixtures dos dois livros antes e depois desta
+separação: 361 blocos, nenhum mudou de ponto. Ela não move arquivamento nenhum, só destrava a
+pergunta de lição. A única diferença de comportamento é fora das fixtures: uma primeira página de
+livro cujo número mais baixo tivesse sido lido como `first + 2` ou mais era segurada pela checagem
+de lacuna, e agora cai no primeiro ponto do livro, porque acima dele não há o que faltar.
 
 ### Exercícios de revisão, suporte completo
 

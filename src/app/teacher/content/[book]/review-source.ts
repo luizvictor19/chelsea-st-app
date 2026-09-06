@@ -10,7 +10,10 @@ import {
   reviewOrder,
   type ResolvedPage,
 } from "../../../../lib/extraction/pipeline.ts";
-import type { Placement } from "../../../../lib/extraction/reconcile.ts";
+import type {
+  PageOpening,
+  Placement,
+} from "../../../../lib/extraction/reconcile.ts";
 import type { Band, Bitmap } from "../../../../lib/extraction/types.ts";
 
 /**
@@ -37,7 +40,7 @@ export type ReviewBlock = {
   readonly top: number;
 };
 
-export type ReviewSourcePage = {
+export type ReviewSourcePage = PageOpening & {
   /**
    * The page's identity in this batch, unique per uploaded file.
    *
@@ -51,8 +54,6 @@ export type ReviewSourcePage = {
   readonly points: readonly number[];
   readonly placements: readonly Placement[];
   readonly inheritedPoint: number | null;
-  /** The point in force as the page begins, which owns what is above its first number. */
-  readonly openingPoint: number | null;
   readonly duplicateOf: string | null;
   readonly lessonNumber: number | null;
   /** Whether that lesson starts here, which the point above it is not in. */
@@ -91,6 +92,7 @@ export function fromResolved(
     points: page.points,
     placements: page.placements,
     inheritedPoint: page.inheritedPoint,
+    precedingPoint: page.precedingPoint,
     openingPoint: page.openingPoint,
     duplicateOf: page.duplicateOf,
     lessonNumber: page.lessonNumber,
@@ -128,6 +130,7 @@ export function fromStored(page: StoredPage): ReviewSourcePage {
     points: page.points,
     placements: page.placements,
     inheritedPoint: page.inheritedPoint,
+    precedingPoint: page.precedingPoint,
     openingPoint: page.openingPoint,
     duplicateOf: page.duplicateOf,
     lessonNumber: page.lessonNumber,
@@ -163,6 +166,7 @@ export function toStored(
     // Kept so a restored spread can still split its blocks by height.
     placements: page.placements,
     inheritedPoint: page.inheritedPoint,
+    precedingPoint: page.precedingPoint,
     openingPoint: page.openingPoint,
     duplicateOf: page.duplicateOf,
     lessonNumber: page.lessonNumber,
@@ -192,8 +196,7 @@ function openingTarget(page: ReviewSourcePage): readonly number[] {
   }
   const writesThere = page.blocks.some(
     (block) =>
-      pointForBlock(page.placements, block.top, page.openingPoint) ===
-      page.openingPoint,
+      pointForBlock(page.placements, block.top, page) === page.openingPoint,
   );
   return writesThere ? [page.openingPoint] : [];
 }
@@ -241,6 +244,13 @@ export function targetsOf(page: ReviewSourcePage): readonly number[] {
  * point it inherits, that point is the whole page, and the page's lesson is its
  * lesson. Written the other way round, this threw away the header for every
  * continuation page in an upload.
+ *
+ * And the boundary needs a page on the other side of it, which is why this
+ * reads precedingPoint and not openingPoint. On the page carrying the book's
+ * own first point the two differ: nothing precedes it, so the header at its top
+ * has nothing above it and covers the point it opens in like any other. Read
+ * off openingPoint, the first page of book 1 held its own point 1 back for a
+ * lesson before lesson 1, and asked for a page that does not exist.
  */
 function opensAfterItsPoint(
   page: ReviewSourcePage,
@@ -249,8 +259,8 @@ function opensAfterItsPoint(
   return (
     page.opensLesson &&
     page.points.length > 0 &&
-    page.openingPoint !== null &&
-    pointNumber === page.openingPoint
+    page.precedingPoint !== null &&
+    pointNumber === page.precedingPoint
   );
 }
 
@@ -275,7 +285,9 @@ export function headerFor(
  * The teacher's answer on this screen is about the lesson this page opens, so
  * it must not be spent on a point that is in the one before. When this is true
  * and the book does not already know the point, the page waits for the page
- * before to be confirmed rather than guessing.
+ * before to be confirmed rather than guessing. False whenever there is no page
+ * before, which the screen relies on: it says "confirm the previous page" and
+ * writes nothing until that happens.
  */
 export function lessonIsThePageBefores(
   page: ReviewSourcePage,

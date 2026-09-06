@@ -272,7 +272,7 @@ function targetPoints(page: ReviewSourcePage, draft: PageDraft): number[] {
   }
   const placements = placementsFor(page, draft);
   const filed = draft.blocks
-    .map((block) => pointForBlock(placements, block.top, page.openingPoint))
+    .map((block) => pointForBlock(placements, block.top, page))
     .filter((number): number is number => number !== null);
   return [
     ...new Set([...placements.map((placement) => placement.number), ...filed]),
@@ -332,8 +332,7 @@ function stateOf(page: ReviewSourcePage, draft: PageDraft): PageState {
   // with nowhere to go.
   if (
     !draft.continuation &&
-    unplacedBlocks(draft.blocks, placementsFor(page, draft), page.openingPoint)
-      .length > 0
+    unplacedBlocks(draft.blocks, placementsFor(page, draft), page).length > 0
   ) {
     return "needs-answer";
   }
@@ -879,11 +878,7 @@ export function ReviewPanel({
     // A block the page cannot file stops the whole page. Writing the rest and
     // leaving that one behind would lose it silently, and filing it under the
     // nearest number is the guess this rule exists to refuse.
-    const unplaced = unplacedBlocks(
-      draft.blocks,
-      placements,
-      page.openingPoint,
-    );
+    const unplaced = unplacedBlocks(draft.blocks, placements, page);
     if (unplaced.length > 0) {
       update(id, {
         error:
@@ -902,10 +897,12 @@ export function ReviewPanel({
     }
     // Every block knows where it sat, including one added by hand and one from
     // a restored batch, so a spread splits the same way in both. A block above
-    // every number goes to the point the page opens in, which is not one of the
-    // page's own, so its bucket may not exist yet.
+    // every number goes to the point the page opens in, which is usually not
+    // one of the page's own, so its bucket may not exist yet. On the page
+    // carrying the book's first point it is one of them, and the bucket is
+    // already there.
     for (const block of draft.blocks) {
-      const target = pointForBlock(placements, block.top, page.openingPoint);
+      const target = pointForBlock(placements, block.top, page);
       if (target === null) {
         continue;
       }
@@ -1158,7 +1155,7 @@ function PageWork({
   const placements = placementsFor(page, draft);
   const unplaced = draft.continuation
     ? []
-    : unplacedBlocks(draft.blocks, placements, page.openingPoint);
+    : unplacedBlocks(draft.blocks, placements, page);
   /*
    * Points this page writes to whose lesson only the page before can give.
    *
@@ -1336,9 +1333,9 @@ function PageWork({
               : `${unplaced.length} blocos desta página estão impressos`}{" "}
             acima do primeiro número dela, então pertencem ao último ponto da
             página anterior, e essa página não está neste envio
-            {page.openingPoint === null
+            {page.precedingPoint === null
               ? ", porque esta é a primeira dele"
-              : `, ou o número entre o ponto ${page.openingPoint} e o ${placements[0]?.number} não foi lido`}
+              : `, ou o número entre o ponto ${page.precedingPoint} e o ${placements[0]?.number} não foi lido`}
             . Suba a página anterior junto com esta e confirme de novo. Nada
             desta página é gravado enquanto isso.
           </p>

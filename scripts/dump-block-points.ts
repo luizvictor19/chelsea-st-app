@@ -83,6 +83,7 @@ const dump = resolveBatch(extractions, RANGE).map((page) => ({
   points: page.points,
   placements: page.placements,
   inheritedPoint: page.inheritedPoint,
+  precedingPoint: page.precedingPoint,
   openingPoint: page.openingPoint,
   duplicateOf: page.duplicateOf,
   needsAnswer: page.disputes.length > 0,
@@ -94,7 +95,7 @@ const dump = resolveBatch(extractions, RANGE).map((page) => ({
     kind: block.kind,
     top: block.band.top,
     content: block.content.slice(0, 60),
-    point: pointForBlock(page.placements, block.band.top, page.openingPoint),
+    point: pointForBlock(page.placements, block.band.top, page),
   })),
 }));
 
