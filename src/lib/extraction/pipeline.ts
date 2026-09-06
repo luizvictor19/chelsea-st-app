@@ -14,6 +14,7 @@ import { tableContent } from "./table-layout.ts";
 import { joinTerms, termsFrom } from "./terms.ts";
 import {
   reconcilePoints,
+  type PageOpening,
   type PageReadings,
   type Placement,
   type PointRange,
@@ -158,7 +159,7 @@ export async function extractPage(
   };
 }
 
-export type ResolvedPage = {
+export type ResolvedPage = PageOpening & {
   readonly extraction: ExtractedPage;
   /** Numbers settled for this page, ascending. */
   readonly points: readonly number[];
@@ -166,8 +167,6 @@ export type ResolvedPage = {
   readonly placements: readonly Placement[];
   /** Where a page with no number of its own belongs. */
   readonly inheritedPoint: number | null;
-  /** The point in force as the page begins, which owns what is above its first number. */
-  readonly openingPoint: number | null;
   /** The page this is a second scan of. */
   readonly duplicateOf: string | null;
   /** Positions the batch could not settle, for the teacher to choose. */
@@ -220,6 +219,7 @@ export function resolveBatch(
       points: page.points,
       placements: page.placements,
       inheritedPoint: page.inheritedPoint,
+      precedingPoint: page.precedingPoint,
       openingPoint: page.openingPoint,
       duplicateOf: page.duplicateOf,
       disputes: page.disputes,
@@ -237,6 +237,7 @@ export function resolveBatch(
         points: [],
         placements: [],
         inheritedPoint: null,
+        precedingPoint: null,
         openingPoint: null,
         duplicateOf: null,
         disputes: [],
@@ -287,17 +288,21 @@ export function isRefused(page: ExtractedPage): boolean {
  *
  * Null is an answer, and the caller has to carry it: it means nothing on the
  * page decides, and the teacher has to. That happens when the page opens the
- * upload, so there is no point before it, and when a number is missing between
- * the point the page opens in and the page's own first number. The missing one
- * was printed somewhere, and a block above the first number may belong to
- * either. Choosing there is the misfiling this rule exists to stop.
+ * upload without carrying the book's own first point, so there is no point
+ * before it, and when a number is missing between the preceding point and the
+ * page's own first number. The missing one was printed somewhere, and a block
+ * above the first number may belong to either. Choosing there is the misfiling
+ * this rule exists to stop.
  *
- * @param openingPoint the point in force as the page begins, from the batch
+ * @param opening what lies above the page, from the batch. Both halves are
+ * read here and they are read for different things: openingPoint is the answer
+ * this returns, precedingPoint decides whether a number can have gone missing
+ * above the page's first.
  */
 export function pointForBlock(
   placements: readonly Placement[],
   blockTop: number,
-  openingPoint: number | null,
+  opening: PageOpening,
 ): number | null {
   // A number printed inside the block's top band names that block. Nearest
   // first, so two numbers close together cannot be decided by argument order.
@@ -325,8 +330,15 @@ export function pointForBlock(
   }
 
   // Above every number the page carries.
-  if (openingPoint === null) {
+  if (opening.openingPoint === null) {
     return null;
+  }
+  // A number can only have gone missing between a point printed on an earlier
+  // page and this page's first. Where nothing in the book precedes the page it
+  // opens in its own first number, and there is no gap to look for: asking this
+  // of that page is what made the first page of a book unconfirmable.
+  if (opening.precedingPoint === null) {
+    return opening.openingPoint;
   }
   let first: Placement | null = null;
   for (const placement of placements) {
@@ -334,16 +346,18 @@ export function pointForBlock(
       first = placement;
     }
   }
-  // The page opens in its own first number when nothing in the book precedes
-  // it, and then there is no gap to worry about.
-  if (first !== null && first.number !== openingPoint) {
-    // Points run consecutively, so a page whose first number is not the one
-    // after the point it opens in has a number nobody read between the two.
-    if (first.number !== openingPoint + 1) {
-      return null;
-    }
+  // Points run consecutively, so a page whose first number is not the one after
+  // the preceding point has a number nobody read between the two. Equal to it
+  // rather than after it is the same page's number read twice, with nothing
+  // between them to be missing.
+  if (
+    first !== null &&
+    first.number !== opening.precedingPoint &&
+    first.number !== opening.precedingPoint + 1
+  ) {
+    return null;
   }
-  return openingPoint;
+  return opening.openingPoint;
 }
 
 /**
@@ -356,10 +370,10 @@ export function pointForBlock(
 export function unplacedBlocks<Block extends { readonly top: number }>(
   blocks: readonly Block[],
   placements: readonly Placement[],
-  openingPoint: number | null,
+  opening: PageOpening,
 ): readonly Block[] {
   return blocks.filter(
-    (block) => pointForBlock(placements, block.top, openingPoint) === null,
+    (block) => pointForBlock(placements, block.top, opening) === null,
   );
 }
 

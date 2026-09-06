@@ -49,12 +49,16 @@ export type StoredPage = {
   }[];
   readonly inheritedPoint: number | null;
   /**
-   * The point in force as the page begins.
+   * What lies above the page, both halves of it.
    *
    * Stored for the same reason the heights are: what was printed above the
    * page's first number belongs to the last number of the page before, and a
-   * restored batch has no other way to know which point that was.
+   * restored batch has no other way to know which point that was. Both halves,
+   * because storing only the merged one left a restored first page of a book
+   * unable to tell "the point above is mine" from "the point above is the page
+   * before's", which is the distinction the two fields exist for.
    */
+  readonly precedingPoint: number | null;
   readonly openingPoint: number | null;
   readonly duplicateOf: string | null;
   readonly lessonNumber: number | null;
@@ -102,12 +106,14 @@ const STORE = "batches";
  * starts its own lesson, without which a restored batch files everything
  * printed above a page's first number under that number instead of under the
  * page before, and reads a LESSON header as covering a point printed on the
- * other side of it. A batch written by an older
+ * other side of it; version 5 split that point into the two questions it was
+ * answering at once, so a restored page knows whether anything precedes it at
+ * all. A batch written by an older
  * version has none of them, so upgrading drops what is there rather than
  * restoring something that would file blocks under the wrong point, write them
  * under the wrong name, or call an unwritten edit finished.
  */
-const VERSION = 4;
+const VERSION = 5;
 
 /*
  * Shown when another tab is holding the database at its old version.

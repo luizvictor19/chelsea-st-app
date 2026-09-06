@@ -5,6 +5,7 @@ import {
   authoredPoints,
   headerFor,
   headingFor,
+  lessonIsThePageBefores,
   targetsOf,
   writtenNumbers,
   type ReviewSourcePage,
@@ -18,6 +19,7 @@ function page(overrides: Partial<ReviewSourcePage> = {}): ReviewSourcePage {
     points: [117],
     placements: [{ number: 117, y: 80 }],
     inheritedPoint: null,
+    precedingPoint: null,
     openingPoint: null,
     opensLesson: false,
     duplicateOf: null,
@@ -68,6 +70,7 @@ describe("writtenNumbers", () => {
     const opening = page({
       points: [116],
       placements: [{ number: 116, y: 663 }],
+      precedingPoint: 115,
       openingPoint: 115,
       blocks: [
         {
@@ -94,6 +97,7 @@ describe("writtenNumbers", () => {
       fileName: "p116.png",
       points: [116],
       placements: [{ number: 116, y: 663 }],
+      precedingPoint: 115,
       openingPoint: 115,
       blocks: [
         {
@@ -128,6 +132,7 @@ describe("writtenNumbers", () => {
     const tidy = page({
       points: [117],
       placements: [{ number: 117, y: 80 }],
+      precedingPoint: 116,
       openingPoint: 116,
       blocks: [
         {
@@ -152,6 +157,7 @@ describe("writtenNumbers", () => {
       points: [],
       placements: [],
       inheritedPoint: 118,
+      precedingPoint: 118,
       openingPoint: 118,
       lessonNumber: 22,
       opensLesson: false,
@@ -167,6 +173,7 @@ describe("writtenNumbers", () => {
     const inside = page({
       points: [116],
       placements: [{ number: 116, y: 663 }],
+      precedingPoint: 115,
       openingPoint: 115,
       lessonNumber: 22,
       opensLesson: false,
@@ -186,6 +193,7 @@ describe("writtenNumbers", () => {
         { number: 8, y: 270 },
         { number: 9, y: 948 },
       ],
+      precedingPoint: 7,
       openingPoint: 7,
       lessonNumber: 2,
       opensLesson: true,
@@ -193,6 +201,30 @@ describe("writtenNumbers", () => {
     assert.equal(headerFor(opens, 8), 2);
     assert.equal(headerFor(opens, 9), 2);
     assert.equal(headerFor(opens, 7), null, "point 7 is the lesson before");
+  });
+
+  test("a page opening the book's own first point has no lesson before it", () => {
+    // The first page of book 1: LESSON 1 printed at the top, then 1, 2 and 3.
+    // Nothing in the book precedes point 1, so there is no page on the other
+    // side of that header and no earlier lesson for it to belong to. Read as
+    // "the point this page opens in is the page before's", the screen held the
+    // page and asked for a previous page that does not exist.
+    const first = page({
+      points: [1, 2, 3],
+      placements: [
+        { number: 1, y: 300 },
+        { number: 2, y: 700 },
+        { number: 3, y: 1100 },
+      ],
+      // The whole of the difference: the page carries point 1 and nothing in
+      // the book comes before it.
+      precedingPoint: null,
+      openingPoint: 1,
+      lessonNumber: 1,
+      opensLesson: true,
+    });
+    assert.equal(lessonIsThePageBefores(first, 1), false);
+    assert.equal(headerFor(first, 1), 1);
   });
 
   test("unanswered stays a state of its own", () => {

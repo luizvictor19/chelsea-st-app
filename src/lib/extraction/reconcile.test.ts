@@ -453,6 +453,13 @@ describe("the point a page opens in", () => {
     return Object.fromEntries(result.pages.map((p) => [p.id, p.openingPoint]));
   }
 
+  /** The last point of the page before, which is the other question. */
+  function precedingById(result: ReturnType<typeof reconcilePoints>) {
+    return Object.fromEntries(
+      result.pages.map((p) => [p.id, p.precedingPoint]),
+    );
+  }
+
   test("a page opens in the last point of the page before it", () => {
     // What is printed above a page's first margin number was printed under the
     // last number of the page before, and belongs there. A page that carries
@@ -501,6 +508,25 @@ describe("the point a page opens in", () => {
     assert.deepEqual(openingById(result), { first: 1 });
   });
 
+  test("the book's first page still has nothing before it", () => {
+    // The two questions part here and nowhere else. What owns the top of the
+    // page is point 1; what came before the page is nothing at all. Answered
+    // with one number, the second question read as "point 1 is on an earlier
+    // page", and the screen asked for a page that does not exist.
+    const result = reconcilePoints(
+      [
+        page("first", 0, [
+          [1, 256, CONFIDENT],
+          [2, 494, CONFIDENT],
+        ]),
+        page("second", 1, [[3, 250, CONFIDENT]]),
+      ],
+      { first: 1, last: 52 },
+    );
+    assert.deepEqual(precedingById(result), { first: null, second: 2 });
+    assert.deepEqual(openingById(result), { first: 1, second: 2 });
+  });
+
   test("a page that merely opens an upload has no point above it", () => {
     // Book 2 starts at 53. A batch beginning at 116 has a point before it, and
     // this batch is not it, so the question stays a question.
@@ -509,6 +535,7 @@ describe("the point a page opens in", () => {
       last: 128,
     });
     assert.deepEqual(openingById(result), { p116: null });
+    assert.deepEqual(precedingById(result), { p116: null });
   });
 
   test("a numbered page keeps inheritedPoint null", () => {

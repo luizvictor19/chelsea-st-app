@@ -267,8 +267,23 @@ describe("a spread splits its content between the numbers it carries", () => {
     { number: 117, y: 210 },
     { number: 118, y: 880 },
   ];
-  /** The point the page opens in, carried from the page uploaded before it. */
-  const OPENING = 116;
+  /** A page preceded by another, which ended at `point`. */
+  const after = (point: number) => ({
+    precedingPoint: point,
+    openingPoint: point,
+  });
+  /**
+   * A page with nothing before it in the book, carrying the book's first point.
+   *
+   * The one place the two halves differ: the top of the page is its own.
+   */
+  const opensTheBook = (firstPoint: number) => ({
+    precedingPoint: null,
+    openingPoint: firstPoint,
+  });
+  /** A page that opens the upload somewhere in the middle of the book. */
+  const OPENS_THE_UPLOAD = { precedingPoint: null, openingPoint: null };
+  const OPENING = after(116);
 
   test("a block belongs to the last number printed above it", () => {
     assert.equal(pointForBlock(spread, 300, OPENING), 117);
@@ -301,20 +316,26 @@ describe("a spread splits its content between the numbers it carries", () => {
   });
 
   test("a page carrying one number keeps what is printed under it", () => {
-    assert.equal(pointForBlock([{ number: 121, y: 300 }], 900, 120), 121);
-    assert.equal(pointForBlock([{ number: 121, y: 300 }], 280, 120), 121);
+    assert.equal(
+      pointForBlock([{ number: 121, y: 300 }], 900, after(120)),
+      121,
+    );
+    assert.equal(
+      pointForBlock([{ number: 121, y: 300 }], 280, after(120)),
+      121,
+    );
   });
 
   test("a page carrying none belongs entirely to the point it opens in", () => {
-    assert.equal(pointForBlock([], 300, 120), 120);
-    assert.equal(pointForBlock([], 300, null), null);
+    assert.equal(pointForBlock([], 300, after(120)), 120);
+    assert.equal(pointForBlock([], 300, OPENS_THE_UPLOAD), null);
   });
 
   test("nothing is chosen when the point above is not known", () => {
     // The first page of an upload has no page before it, so a block above its
     // first number has no owner to fall to. A guess here is the misfiling this
     // rule exists to stop.
-    assert.equal(pointForBlock(spread, 40, null), null);
+    assert.equal(pointForBlock(spread, 40, OPENS_THE_UPLOAD), null);
   });
 
   test("the blocks a page cannot file are named, not filed anywhere", () => {
@@ -322,14 +343,34 @@ describe("a spread splits its content between the numbers it carries", () => {
     // put down, and putting it under the nearest number is the guess.
     const blocks = [{ top: 40 }, { top: 300 }, { top: 900 }];
     assert.deepEqual(unplacedBlocks(blocks, spread, OPENING), []);
-    assert.deepEqual(unplacedBlocks(blocks, spread, null), [{ top: 40 }]);
+    assert.deepEqual(unplacedBlocks(blocks, spread, OPENS_THE_UPLOAD), [
+      { top: 40 },
+    ]);
+  });
+
+  test("the top of the book's first page belongs to the book's first point", () => {
+    // Nothing in the book precedes point 1, so nothing can have gone missing
+    // above it and there is no earlier page for the block to have come from.
+    // Asked of the merged field, this page held every block above its first
+    // number and could not be confirmed at all.
+    assert.equal(
+      pointForBlock([{ number: 1, y: 300 }], 40, opensTheBook(1)),
+      1,
+    );
+    assert.deepEqual(
+      unplacedBlocks([{ top: 40 }], [{ number: 1, y: 300 }], opensTheBook(1)),
+      [],
+    );
   });
 
   test("nothing is chosen when a number is missing between the two", () => {
     // The page opens in 116 and its first number is 118, so 117 was printed
     // somewhere and never read. A block above the 118 belongs to 116 or to 117
     // and nothing on the page says which, so it is a question and not a guess.
-    assert.equal(pointForBlock([{ number: 118, y: 880 }], 40, 116), null);
+    assert.equal(
+      pointForBlock([{ number: 118, y: 880 }], 40, after(116)),
+      null,
+    );
   });
 });
 

@@ -16,6 +16,7 @@ function page(overrides: Partial<StoredPage> = {}): StoredPage {
     points: [116],
     placements: [{ number: 116, y: 80 }],
     inheritedPoint: null,
+    precedingPoint: null,
     openingPoint: null,
     opensLesson: false,
     duplicateOf: null,
