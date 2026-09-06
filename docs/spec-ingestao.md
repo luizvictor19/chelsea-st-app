@@ -497,7 +497,8 @@ Onde a fronteira existe, a resposta digitada pela professora também não vale p
 abertura: ela está respondendo sobre a lição que esta página abre. A página espera a anterior ser
 confirmada e diz isso.
 
-Medido antes e depois com `scripts/dump-block-points.ts`, sobre as fixtures dos dois livros: 61
+Medido antes e depois com `scripts/dump-block-points.ts`, sobre as fixtures dos dois livros, para a
+mudança de arquivamento descrita acima e só para ela: 61
 blocos mudaram de ponto no livro 1 e 62 no livro 2, e todos eles são de um destes três tipos: 22
 painéis cujo número está impresso dentro deles, 91 blocos acima do primeiro número da página, e 10
 blocos da primeira página do livro 1, que o portão não resolvia. Nenhum movimento de outra
