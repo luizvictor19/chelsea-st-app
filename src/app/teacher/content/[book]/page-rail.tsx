@@ -48,7 +48,7 @@ function markFor(
     case "duplicate":
       return { glyph: "=", tone: "text-faint border-rule" };
     case "unsupported":
-      return { glyph: "—", tone: "text-faint border-rule" };
+      return { glyph: "·", tone: "text-faint border-rule" };
     case "refused":
       return { glyph: "×", tone: "text-faint border-rule" };
     default:
