@@ -28,6 +28,21 @@ export type ExtractedBlock = {
 export type ReadRegion = {
   readonly band: Band;
   readonly content: string;
+  /**
+   * Whether the panel is a grid, which only the reader can say.
+   *
+   * It is set from the number of printed lines the panel holds, which lives in
+   * the words and is gone by the time there is content. See `printedLines`.
+   */
+  readonly isGrid?: boolean;
+  /**
+   * Whether the reader took something out of the content.
+   *
+   * Today that is a pronunciation removed from a vocabulary term. The evidence
+   * is gone by definition, so nothing downstream could find it again, and a
+   * panel that was changed on the way in is a panel the teacher should see.
+   */
+  readonly amended?: boolean;
 };
 
 export type ClassifyInput = {
@@ -114,14 +129,36 @@ export function classify(input: ClassifyInput): ClassifyResult {
   const spoken = input.lines.filter(unoccupied);
 
   for (const box of input.boxes) {
-    const isTable = box.band.bottom - box.band.top > TABLE_HEIGHT;
+    /*
+     * A panel of more than one printed line is a grid: a conjugation table, a
+     * comparison, a word paired with its written form. Flattened into a list of
+     * terms it loses the pairing and welds words from different lines together,
+     * so it is handed to the teacher rather than trusted.
+     *
+     * Measured over both books before the rule was written: of the 18 panels
+     * carrying more than one line, all 18 are grids, and there is not one
+     * vocabulary panel that ran out of width and wrapped in 92 pages. See
+     * scripts/measure-column-alignment.ts, which prints every one of them with
+     * its lines.
+     *
+     * The error it can make is the cheap one. A future book with a vocabulary
+     * list that wraps would arrive flagged without needing to be, and that
+     * costs one look at a panel that turns out to be fine. The error it
+     * replaces is the expensive one: a grid read as a list welds its rows
+     * together silently, and point 36 of book 1 reached the database holding a
+     * term that read "question comma semi-colon mark 5 . ?".
+     *
+     * The height is kept as a second way in, not because a case is known where
+     * it fires alone, but because it is what chooses how the panel is read one
+     * stage earlier, and the two answers must not disagree about what a table
+     * is.
+     */
+    const isTable =
+      (box.isGrid ?? false) || box.band.bottom - box.band.top > TABLE_HEIGHT;
     blocks.push({
-      // A tall box is a conjugation table or comparison grid. Flattened into one
-      // line it loses the column pairing, so it is handed to the teacher rather
-      // than trusted.
       kind: isTable ? "grammar_table" : "vocabulary",
       content: box.content,
-      needsReview: isTable,
+      needsReview: isTable || (box.amended ?? false),
       band: box.band,
     });
   }

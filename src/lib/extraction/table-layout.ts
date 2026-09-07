@@ -28,55 +28,36 @@ import type { OcrWord } from "./types.ts";
  * @param words as the engine returned them, in the enlarged crop's coordinates
  * @param scale how much the crop was enlarged before reading
  */
+/**
+ * How many printed lines of text a panel holds.
+ *
+ * This is the grid signal. It is counted with the same grouping and the same
+ * furniture rule `tableContent` uses, so a panel called a grid here is cut into
+ * exactly these lines when it is read as one.
+ *
+ * Lines and not height, which is what the pipeline used to ask. A line count
+ * does not move with the normalisation width or with the body size the printer
+ * chose, and a height does: the punctuation grid of book 1 is three lines and
+ * 187px, under a threshold measured on book 2's conjugation panels, so it went
+ * down the vocabulary path and had its rows welded into one list of terms.
+ */
+export function printedLines(words: readonly OcrWord[], scale = 1): number {
+  const placed = placedWords(words, scale);
+  return placed.length === 0
+    ? 0
+    : groupLines(placed, toleranceOf(placed)).length;
+}
+
 export function tableContent(words: readonly OcrWord[], scale = 1): string {
-  const read = words
-    .map((word) => ({
-      text: word.text.trim(),
-      left: word.x / scale,
-      right: (word.x + word.width) / scale,
-      middle: (word.y + word.height / 2) / scale,
-      height: word.height / scale,
-    }))
-    .filter((word) => word.text !== "");
-
-  /*
-   * How tall a line of type is in this panel, from the panel's own text.
-   *
-   * The stems are left out of it, since they are the thing being measured
-   * against it, and the tall ones would drag the yardstick up towards
-   * themselves. The panel and not the line, because a stem can be alone on its
-   * line with nothing beside it to compare against, which is how the "I" of
-   * p060 is printed.
-   */
-  const body = median(
-    read.filter((word) => !isStem(word.text)).map((word) => word.height),
-  );
-
-  const placed = read
-    // A stem the height of the type is the pronoun "I", which this face draws
-    // with no serif and no crossbar. Dropped with the furniture, as it was,
-    // "I am" reached the teacher as "am" and nothing on the screen said a word
-    // had gone. See TABLE_STEM_HEIGHT for the two populations.
-    .map((word) =>
-      isStem(word.text) && word.height <= body * TABLE_STEM_HEIGHT
-        ? { ...word, text: "I" }
-        : word,
-    )
-    // What is left of them is the panel's own furniture: the bracket holding a
-    // group of subjects together and the rule closing the box. "|" is the
-    // column boundary of the stored form, so either would come back as a
-    // boundary of ours, in the middle of a cell.
-    .filter((word) => !isStem(word.text));
+  const placed = placedWords(words, scale);
 
   if (placed.length === 0) {
     return "";
   }
 
-  const tolerance =
-    median(placed.map((word) => word.height)) * TABLE_LINE_TOLERANCE;
   const rows: TableLine[] = [];
 
-  for (const line of groupLines(placed, tolerance)) {
+  for (const line of groupLines(placed, toleranceOf(placed))) {
     const ordered = [...line].sort((a, b) => a.left - b.left);
     const cells: string[][] = [[ordered[0].text]];
     let previousRight = ordered[0].right;
@@ -110,6 +91,59 @@ export function tableContent(words: readonly OcrWord[], scale = 1): string {
 /** A token that is nothing but a bare vertical stem, whatever drew it. */
 function isStem(text: string): boolean {
   return /^\|+$/.test(text);
+}
+
+/** How far off a line's centre a word may sit and still be on that line. */
+function toleranceOf(placed: readonly Placed[]): number {
+  return median(placed.map((word) => word.height)) * TABLE_LINE_TOLERANCE;
+}
+
+/**
+ * The panel's words in page coordinates, with the furniture out and the stems
+ * that are letters read as letters.
+ *
+ * Shared by the two questions asked of a panel, how many lines it has and what
+ * its grid holds, so the second cannot disagree with the first about what a
+ * line is.
+ *
+ * The body height the stems are judged against leaves the stems out, since they
+ * are the thing being measured, and the tall ones would drag the yardstick up
+ * towards themselves. It is the panel's and not the line's, because a stem can
+ * be alone on its line with nothing beside it to compare against, which is how
+ * the "I" of p060 is printed. See TABLE_STEM_HEIGHT.
+ */
+function placedWords(
+  words: readonly OcrWord[],
+  scale: number,
+): readonly Placed[] {
+  const read = words
+    .map((word) => ({
+      text: word.text.trim(),
+      left: word.x / scale,
+      right: (word.x + word.width) / scale,
+      middle: (word.y + word.height / 2) / scale,
+      height: word.height / scale,
+    }))
+    .filter((word) => word.text !== "");
+  const body = median(
+    read.filter((word) => !isStem(word.text)).map((word) => word.height),
+  );
+  return (
+    read
+      // A stem the height of the type is the pronoun "I", which this face draws
+      // with no serif and no crossbar. Dropped with the furniture, as it was,
+      // "I am" reached the teacher as "am" and nothing said a word had gone.
+      .map((word) =>
+        isStem(word.text) && word.height <= body * TABLE_STEM_HEIGHT
+          ? { ...word, text: "I" }
+          : word,
+      )
+      // What is left of them is the panel's own furniture: the bracket holding
+      // a group of subjects together and the rule closing the box. "|" is the
+      // column boundary of the stored form, so either would come back as a
+      // boundary of ours, in the middle of a cell.
+      .filter((word) => !isStem(word.text))
+  );
 }
 
 type Placed = {

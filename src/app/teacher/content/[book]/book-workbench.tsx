@@ -18,6 +18,7 @@ import {
   type StoredBatch,
   type StoredPage,
 } from "@/lib/content/batch-store";
+import { EXTRACTION_VERSION } from "@/lib/extraction/constants";
 import { extractPage, resolveBatch } from "@/lib/extraction/pipeline";
 import {
   createTesseractReader,
@@ -50,6 +51,14 @@ type Batch = {
   readonly readAt: string;
   readonly firstPoint: number;
   readonly lastPoint: number;
+  /**
+   * The extraction that read these pages.
+   *
+   * Undefined for a batch stored before the stamp existed, and it stays
+   * undefined: a reading is stamped by what read it, and filling the gap in
+   * here would make it claim an extraction it never went through.
+   */
+  readonly extractionVersion: number | undefined;
   readonly pages: readonly ReviewSourcePage[];
   readonly failures: readonly PageFailure[];
 };
@@ -179,7 +188,7 @@ export function BookWorkbench({
         }
         setInterrupted({
           batch,
-          reason: staleness(batch, firstPoint, lastPoint),
+          reason: staleness(batch, firstPoint, lastPoint, EXTRACTION_VERSION),
         });
       })
       .catch(() => {
@@ -283,6 +292,7 @@ export function BookWorkbench({
           readAt: new Date().toISOString(),
           firstPoint,
           lastPoint,
+          extractionVersion: EXTRACTION_VERSION,
           pages,
           failures,
         },
@@ -348,6 +358,10 @@ export function BookWorkbench({
         readAt: stored.readAt,
         firstPoint: stored.firstPoint,
         lastPoint: stored.lastPoint,
+        // Whatever read it, including nothing. Defaulting here would write the
+        // guess back to the database on the next save, which is the one thing
+        // this field exists to refuse.
+        extractionVersion: stored.extractionVersion,
         pages: stored.pages.map(fromStored),
         failures: [],
       },
@@ -375,6 +389,10 @@ export function BookWorkbench({
       firstPoint: batch.firstPoint,
       lastPoint: batch.lastPoint,
       readAt: batch.readAt,
+      // The batch's own stamp, not the constant. A resumed batch was read by
+      // whatever read it, and re-stamping it here would make a reading claim an
+      // extraction it never went through.
+      extractionVersion: batch.extractionVersion,
       pages,
     }).catch(() => {
       // The review carries on unkept rather than stopping over storage.
@@ -634,6 +652,8 @@ function whenRead(iso: string): string {
 }
 
 const STALE_REASON: Record<StaleReason, string> = {
+  "extraction-changed":
+    "Esta leitura é anterior a uma mudança na extração, então os blocos dela não são os que a leitura de agora daria. Subir as páginas de novo leva segundos.",
   "range-changed":
     "A faixa do livro mudou depois desta leitura, então os números dela não valem mais.",
   "all-saved": "Tudo o que este envio tinha para gravar já foi gravado.",

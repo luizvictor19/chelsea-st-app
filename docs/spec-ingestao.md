@@ -66,8 +66,13 @@ Consequências:
    `books.last_point`, que mata leituras coladas como `1091` na página do ponto 109.
 7. **Ler as caixas** com Tesseract, uma por vez.
 8. **Ler as explicações** pela geometria das linhas descrita na tabela acima.
-9. **Marcar para revisão** toda caixa com mais de 250px de altura. São tabelas de conjugação e
-   grades de comparação, e o achatamento em uma linha perde o pareamento das colunas.
+9. **Marcar para revisão** toda caixa com mais de uma linha de texto impressa. São tabelas de
+   conjugação, grades de comparação e pares de palavra com forma escrita, e o achatamento em uma
+   lista de termos perde o pareamento das colunas e solda palavras de linhas diferentes. Medido
+   sobre os dois livros: dos 18 painéis de mais de uma linha, os 18 são grade, e não existe um
+   painel de vocabulário que quebrou linha em 92 páginas. A altura continua marcando também, e
+   continua sendo o que escolhe como o painel é lido, mas não é mais o sinal: número de linhas não
+   se move com a normalização nem com o corpo da fonte, e altura se move.
 10. **Desviar as páginas de exercício de revisão.** Uma página cujo texto casa com
     `Revision Exercise \d+ \(Lessons \d+ . \d+\)` é um segundo tipo de página, não uma página de
     lição, e o pipeline acima a destrói: 61% a 73% dela é sombreada, então o detector devolve uma
@@ -426,9 +431,24 @@ mudar. Dois encolheram o bastante para valer nota.
 
 Os que encolheram:
 
-- **`TABLE_HEIGHT`.** O livro 1 tem painéis de vocabulário de várias linhas que o livro 2 não tem,
-  e eles chegam a 187px. O vazio entre painel normal e tabela cai de 207px para 80px. O corte
-  continua no meio de um vazio, mas a folga é um terço da que foi medida.
+- **`TABLE_HEIGHT`.** Esta nota registrava uma causa falsa e fica aqui corrigida em vez de
+  apagada. Ela dizia que o livro 1 tem painéis de vocabulário de várias linhas que o livro 2 não
+  tem, e que eles chegam a 187px, encolhendo o vazio de 207px para 80px. Medido depois, com
+  `scripts/measure-column-alignment.ts`: o livro 1 tem **um** painel de várias linhas abaixo do
+  corte, ele é o painel de pontuação do ponto 36, e ele nunca foi vocabulário. Dos 18 painéis de
+  mais de uma linha dos dois livros, os 18 são grade, e não existe um único painel de vocabulário
+  que quebrou linha em 92 páginas. Tirando esse painel da população de "normais", o livro 1 vai
+  até 50px e o livro 2 até 58px, e o vazio até a primeira tabela volta a ser de 129px.
+
+  O que a constante ainda faz, depois que a grade passou a se reconhecer por número de linhas: ela
+  escolhe **como o painel é lido**, um estágio antes de ser classificado. Painel alto vai na
+  segmentação automática e é lido duas vezes, unido por posição; painel curto vai no
+  `BOX_PAGE_SEGMENTATION` e é lido uma vez. Essas duas leituras foram medidas contra a altura e
+  não contra o número de linhas, então a altura continua sendo o que as escolhe. Como regra de
+  classificação ela virou um segundo caminho que, nestas fixtures, nunca dispara sozinho: os 17
+  painéis acima do corte têm todos mais de uma linha. Não tirei, e não proponho tirar enquanto ela
+  for o que escolhe a leitura.
+
 - **`TERM_COLUMN_GAP`.** O menor vão entre termos cai de 75px para 51px, contra um corte de 45:
   6px de folga, contra 30px no livro 2. É a constante mais apertada das cinco, e a que erra em
   silêncio: dois termos colados viram uma entrada só em `vocabulary_items`.

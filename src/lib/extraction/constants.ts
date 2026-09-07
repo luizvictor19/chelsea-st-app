@@ -25,6 +25,25 @@
  *   reported as an empty page.
  */
 
+/**
+ * Which reading of a page this code produces.
+ *
+ * Not a threshold, and not compared against anything the book contains. It is
+ * stamped on a batch kept in the browser so that a later session can tell
+ * whether the blocks it is about to offer back are the blocks this extraction
+ * would produce. A batch keeps its range for the same reason, and the range
+ * only answers half of it: the range can be untouched, every page still
+ * waiting, and the reading still be one nobody would take today.
+ *
+ * Bump it whenever a change alters what `extractPage` returns for the same
+ * image: a threshold, a segmentation mode, a rule about which block a word
+ * belongs to, the shape of a block's content. Not for a comment, a test, or
+ * anything downstream of the extraction, which a stored batch has already been
+ * through. A bump costs the teacher one re-upload of a batch they had not
+ * finished, and not bumping costs them a reading that is quietly wrong.
+ */
+export const EXTRACTION_VERSION = 1;
+
 /** Normalisation width. Below this the margin digits stop resolving. */
 export const TARGET_WIDTH = 1100;
 
