@@ -103,6 +103,22 @@ export type StoredBatch = {
   readonly firstPoint: number;
   readonly lastPoint: number;
   readonly readAt: string;
+  /**
+   * Which extraction read these pages.
+   *
+   * The range was already carried for this reason, and it only answers half of
+   * it: a batch can be read against the range still in force and still be a
+   * reading nobody would take today, because the code that produced it has
+   * changed since. Nothing else in the batch says so, so the resume card
+   * offered it back as though it were fresh.
+   *
+   * Optional, and a batch without it is stale. One was written before this
+   * field existed, by something, and there is no way to know what. Offering it
+   * back on the grounds that it does not disagree is the guess this exists to
+   * refuse. Optional rather than a database version bump for the same reason:
+   * a bump would delete it silently, and the point is to say so.
+   */
+  readonly extractionVersion?: number;
   readonly pages: readonly StoredPage[];
 };
 
@@ -221,21 +237,35 @@ export async function discardBatch(bookId: string): Promise<void> {
   await withStore("readwrite", (store) => store.delete(bookId));
 }
 
-export type StaleReason = "range-changed" | "all-saved";
+export type StaleReason = "extraction-changed" | "range-changed" | "all-saved";
 
 /**
  * Why a stored batch should not simply be reopened.
  *
- * A batch read against one range may hold numbers that are now outside the
- * book, so it is not trustworthy after the range moves. And a batch whose every
+ * A batch read by an earlier extraction holds blocks this one would not
+ * produce, and no field of the batch itself disagrees with anything: the range
+ * can be untouched and every page still waiting. And a batch read against one
+ * range may hold numbers that are now outside the book. And a batch whose every
  * page is written has nothing left to do, so offering to resume it would invite
  * writing it all a second time.
+ *
+ * The extraction is asked first. Both of the first two are mended by uploading
+ * again, but a reading made by other code is suspect whatever range it was made
+ * against, so it is the truer thing to say.
+ *
+ * @param currentExtraction EXTRACTION_VERSION as it stands now. Passed in
+ *   rather than imported so this file keeps knowing nothing about the
+ *   extraction, which is what lets it be tested without one.
  */
 export function staleness(
   batch: StoredBatch,
   currentFirst: number | null,
   currentLast: number | null,
+  currentExtraction: number,
 ): StaleReason | null {
+  if (batch.extractionVersion !== currentExtraction) {
+    return "extraction-changed";
+  }
   if (batch.firstPoint !== currentFirst || batch.lastPoint !== currentLast) {
     return "range-changed";
   }

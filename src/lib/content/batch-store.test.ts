@@ -39,6 +39,7 @@ function batch(overrides: Partial<StoredBatch> = {}): StoredBatch {
     firstPoint: 53,
     lastPoint: 128,
     readAt: "2026-09-05T10:00:00.000Z",
+    extractionVersion: 1,
     pages: [page()],
     ...overrides,
   };
@@ -46,21 +47,21 @@ function batch(overrides: Partial<StoredBatch> = {}): StoredBatch {
 
 describe("staleness", () => {
   test("a batch read against the current range is usable", () => {
-    assert.equal(staleness(batch(), 53, 128), null);
+    assert.equal(staleness(batch(), 53, 128, 1), null);
   });
 
   test("a batch read against another range is not", () => {
     // The batch may hold numbers that are now outside the book, and the review
     // would offer to write them.
-    assert.equal(staleness(batch(), 40, 128), "range-changed");
-    assert.equal(staleness(batch(), 53, 200), "range-changed");
-    assert.equal(staleness(batch(), null, null), "range-changed");
+    assert.equal(staleness(batch(), 40, 128, 1), "range-changed");
+    assert.equal(staleness(batch(), 53, 200, 1), "range-changed");
+    assert.equal(staleness(batch(), null, null, 1), "range-changed");
   });
 
   test("a batch whose every page is written has nothing left", () => {
     // Resuming it would invite writing the whole thing a second time.
     const done = batch({ pages: [page({ savedPoints: [116] })] });
-    assert.equal(staleness(done, 53, 128), "all-saved");
+    assert.equal(staleness(done, 53, 128, 1), "all-saved");
   });
 
   test("pages that were never going to be written do not keep a batch alive", () => {
@@ -71,7 +72,7 @@ describe("staleness", () => {
         page({ id: "photo.jpg", refused: true }),
       ],
     });
-    assert.equal(staleness(nothingToDo, 53, 128), "all-saved");
+    assert.equal(staleness(nothingToDo, 53, 128, 1), "all-saved");
   });
 
   test("a page written and then edited is still waiting", () => {
@@ -80,7 +81,7 @@ describe("staleness", () => {
     const edited = batch({
       pages: [page({ savedPoints: [116], changedSinceSaving: true })],
     });
-    assert.equal(staleness(edited, 53, 128), null);
+    assert.equal(staleness(edited, 53, 128, 1), null);
     assert.equal(pendingCount(edited), 1);
   });
 
@@ -88,7 +89,7 @@ describe("staleness", () => {
     const mixed = batch({
       pages: [page({ savedPoints: [116] }), page({ id: "p117.png" })],
     });
-    assert.equal(staleness(mixed, 53, 128), null);
+    assert.equal(staleness(mixed, 53, 128, 1), null);
   });
 });
 
@@ -160,5 +161,50 @@ describe("pendingCount", () => {
 
   test("an empty batch has nothing pending", () => {
     assert.equal(pendingCount(batch({ pages: [] })), 0);
+  });
+});
+
+describe("staleness against the extraction that read the batch", () => {
+  test("a batch read by the extraction now running is usable", () => {
+    assert.equal(staleness(batch({ extractionVersion: 4 }), 53, 128, 4), null);
+  });
+
+  test("a batch read by an earlier extraction is not", () => {
+    // The pages were read by code that has since changed, so the blocks on the
+    // screen are not the blocks this extraction would produce. Nothing else in
+    // the batch says so: the range can be untouched and every page still
+    // waiting, and the resume card offered it as though it were fresh.
+    assert.equal(
+      staleness(batch({ extractionVersion: 3 }), 53, 128, 4),
+      "extraction-changed",
+    );
+  });
+
+  test("a batch read by a later extraction is not either", () => {
+    // Going backwards happens too, on a branch or a rollback, and the reading
+    // is just as much not this one's.
+    assert.equal(
+      staleness(batch({ extractionVersion: 5 }), 53, 128, 4),
+      "extraction-changed",
+    );
+  });
+
+  test("a batch stored before the stamp existed is not", () => {
+    // It was read by something, and there is no way to know what. Offering it
+    // back on the grounds that it does not disagree is the guess this exists to
+    // refuse.
+    const { extractionVersion, ...unstamped } = batch();
+    void extractionVersion;
+    assert.equal(staleness(unstamped, 53, 128, 4), "extraction-changed");
+  });
+
+  test("the extraction is asked before the range", () => {
+    // Both are true and both are mended by uploading again, but the reading
+    // being out of date is the deeper of the two: a batch read by another
+    // extraction is suspect whatever range it was read against.
+    assert.equal(
+      staleness(batch({ extractionVersion: 3 }), 40, 128, 4),
+      "extraction-changed",
+    );
   });
 });
