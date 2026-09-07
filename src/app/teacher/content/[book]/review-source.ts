@@ -376,7 +376,7 @@ export function isSavedOnOpening(page: ReviewSourcePage): boolean {
 }
 
 /**
- * Whether the points this page writes may hold somebody else's work.
+ * Whether one point this page writes to may hold somebody else's work.
  *
  * The note it drives says that confirming will empty the point, including
  * whatever another page put there, and it is worth saying: two pages can write
@@ -384,14 +384,23 @@ export function isSavedOnOpening(page: ReviewSourcePage): boolean {
  * panel.
  *
  * It is not worth saying about a page's own work. A page that has already
- * written these points in this batch knows it wrote them, and telling it that
- * the content might be somebody else's is both false and frightening, over
- * content the teacher put there five minutes ago. Restored batches are where
+ * written this point in this batch knows whose content is there, and telling
+ * it the content might be somebody else's is both false and frightening, over
+ * something the teacher put there five minutes ago. Restored batches are where
  * this bit: `savedPoints` comes back with the page and nothing was consulting
  * it.
+ *
+ * Per point, and that is the whole of it. A page can write to two and get one
+ * of them written before the other errors, and then it has one point of its
+ * own and one that may well be a second scan's. Asked of the page instead of
+ * the point, the half it did not write was covered by the half it did, and the
+ * warning that exists for exactly that case never appeared.
  */
-export function mayHoldAnotherPagesWork(page: ReviewSourcePage): boolean {
-  return page.savedPoints.length === 0;
+export function mayHoldAnotherPagesWork(
+  page: ReviewSourcePage,
+  pointNumber: number,
+): boolean {
+  return !page.savedPoints.includes(pointNumber);
 }
 
 /**
@@ -406,6 +415,8 @@ export type WrittenShape = {
     readonly kind: BlockKind;
     readonly content: string;
     readonly top: number;
+    /** Written with the block, so a change to it is a change to be kept. */
+    readonly needsReview: boolean;
   }[];
   readonly pointNumber: number | null;
   readonly continuation: boolean;
@@ -439,7 +450,8 @@ export function writesTheSame(a: WrittenShape, b: WrittenShape): boolean {
       return (
         block.kind === other.kind &&
         block.content === other.content &&
-        block.top === other.top
+        block.top === other.top &&
+        block.needsReview === other.needsReview
       );
     });
   const sameStarts =

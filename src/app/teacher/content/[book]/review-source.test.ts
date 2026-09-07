@@ -484,7 +484,14 @@ describe("a page that was answered and written, across a reload", () => {
      * to it a second time.
      */
     const wrote = {
-      blocks: [{ kind: "vocabulary" as const, content: "on, under", top: 65 }],
+      blocks: [
+        {
+          kind: "vocabulary" as const,
+          content: "on, under",
+          top: 65,
+          needsReview: false,
+        },
+      ],
       pointNumber: 7,
       continuation: false,
       typedPoint: "",
@@ -500,7 +507,14 @@ describe("a page that was answered and written, across a reload", () => {
 
   test("a real edit is an edit", () => {
     const wrote = {
-      blocks: [{ kind: "vocabulary" as const, content: "on, under", top: 65 }],
+      blocks: [
+        {
+          kind: "vocabulary" as const,
+          content: "on, under",
+          top: 65,
+          needsReview: false,
+        },
+      ],
       pointNumber: 7,
       continuation: false,
       typedPoint: "",
@@ -525,7 +539,10 @@ describe("a page that was answered and written, across a reload", () => {
   test("this batch's own writing is not somebody else's", () => {
     // The note exists for a point another upload filled. A page that knows it
     // wrote those points must not be warned about its own work.
-    assert.equal(mayHoldAnotherPagesWork(reopened), false);
-    assert.equal(mayHoldAnotherPagesWork(page()), true);
+    assert.equal(mayHoldAnotherPagesWork(reopened, 6), false);
+    assert.equal(mayHoldAnotherPagesWork(page(), 6), true);
+    // Point by point: a page that wrote 5 and 6 and stopped there says nothing
+    // about who filled 8, which is the case the note exists for.
+    assert.equal(mayHoldAnotherPagesWork(reopened, 8), true);
   });
 });

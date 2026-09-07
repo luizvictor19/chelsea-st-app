@@ -624,13 +624,14 @@ export function ReviewPanel({
             if (
               draft !== undefined &&
               !draft.saved &&
-              // Never over this batch's own writing. The note says the content
-              // may be another page's, and a page that has already written
-              // these points knows whose it is.
-              mayHoldAnotherPagesWork(page) &&
-              draft.savedPoints.length === 0 &&
               targets.length > 0 &&
-              targets.every((number) => done.has(number))
+              // Never over this batch's own writing, point by point. The note
+              // says the content may be another page's, and a point this page
+              // has already written is one whose content it knows.
+              targets.every(
+                (number) =>
+                  done.has(number) && mayHoldAnotherPagesWork(page, number),
+              )
             ) {
               next[page.id] = { ...draft, alreadyInDatabase: true };
             }
