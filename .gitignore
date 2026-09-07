@@ -64,7 +64,15 @@ __pycache__/
 #
 # Anchored to the root: unanchored, this matched any directory called fixtures
 # anywhere in the tree, which silently swallowed source files under one.
-/fixtures/
+#
+# No trailing slash, which is the difference between ignoring the pages and
+# ignoring the name. A trailing slash matches directories only, and a symlink
+# is a blob: working in a git worktree, where the pages are reached by linking
+# this name at the real directory, the link itself was not ignored and went
+# into a commit, carrying an absolute path out of one machine and leaving a
+# dangling link in every clone. Without the slash the name is ignored whatever
+# is behind it.
+/fixtures
 
 # Claude Code local state
 .claude/settings.local.json

@@ -301,3 +301,63 @@ describe("a character the book cannot print", () => {
     assert.equal(result.blocks[0].needsReview, true);
   });
 });
+
+describe("a panel of more than one line", () => {
+  test("is a grid, whatever its height", () => {
+    // The punctuation panel of point 36, three lines and 187px, under a
+    // threshold measured on book 2's conjugation panels. Read as a list of
+    // terms it welded words from different lines together and reached the
+    // database holding "question comma semi-colon mark 5 . ?".
+    const result = supported(
+      classify(
+        input({
+          boxes: [
+            {
+              band: { top: 688, bottom: 875 },
+              content: "question mark | ? | full stop | .",
+              isGrid: true,
+            },
+          ],
+        }),
+      ),
+    );
+    assert.equal(result.blocks[0].kind, "grammar_table");
+    assert.equal(result.blocks[0].needsReview, true);
+  });
+
+  test("a panel of one line is still vocabulary and still trusted", () => {
+    const result = supported(
+      classify(
+        input({
+          boxes: [
+            {
+              band: { top: 100, bottom: 160 },
+              content: "on, under, in",
+              isGrid: false,
+            },
+          ],
+        }),
+      ),
+    );
+    assert.equal(result.blocks[0].kind, "vocabulary");
+    assert.equal(result.blocks[0].needsReview, false);
+  });
+
+  test("height still says table on its own", () => {
+    // Kept as a second way in, so the reading stage and this one cannot
+    // disagree about what a table is.
+    const result = supported(
+      classify(
+        input({
+          boxes: [
+            {
+              band: { top: 100, bottom: 100 + TABLE_HEIGHT + 1 },
+              content: "flattened grid",
+            },
+          ],
+        }),
+      ),
+    );
+    assert.equal(result.blocks[0].kind, "grammar_table");
+  });
+});

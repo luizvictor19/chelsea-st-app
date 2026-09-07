@@ -14,7 +14,7 @@ import { marginReadings, type MarginReading } from "./margin-numbers.ts";
 import { repairPrintedI } from "./printed-i.ts";
 import { mergeReads } from "./second-read.ts";
 import { repairClosingQuotes } from "./quotes.ts";
-import { tableContent } from "./table-layout.ts";
+import { printedLines, tableContent } from "./table-layout.ts";
 import { joinTerms, termsFrom } from "./terms.ts";
 import {
   reconcilePoints,
@@ -108,7 +108,7 @@ export async function extractPage(
     // A tall panel is a table, goes to the teacher anyway, and reads worse
     // under the fixed segmentation. An ordinary one is a list of terms laid out
     // in columns, and is read with the mode that does not drop a single letter.
-    const isTable = band.bottom - band.top > TABLE_HEIGHT;
+    const isTall = band.bottom - band.top > TABLE_HEIGHT;
     /*
      * Read, then parted where the engine welded two printed words into one.
      * Before the two readers below rather than inside either, because both are
@@ -121,7 +121,7 @@ export async function extractPage(
      */
     const once = await reader.read(
       enlarged,
-      isTable ? undefined : { pageSegmentation: BOX_PAGE_SEGMENTATION },
+      isTall ? undefined : { pageSegmentation: BOX_PAGE_SEGMENTATION },
     );
     /*
      * A tall panel is read a second time and the two are merged by position.
@@ -132,7 +132,7 @@ export async function extractPage(
      * nothing. An ordinary panel is read once, as it always was: it has no such
      * failure and a second read there has not been measured.
      */
-    const seen = isTable
+    const seen = isTall
       ? mergeReads(
           once,
           await reader.read(enlarged, {
@@ -141,15 +141,27 @@ export async function extractPage(
         )
       : once;
     const read = splitFusedWords(enlarged, seen, BOX_READ_SCALE);
+    /*
+     * A panel of more than one printed line is a grid, whatever its height.
+     * Height is what chose the reading above, because that is where it was
+     * measured; what the panel turns out to be is a question about its lines.
+     */
+    const isGrid = isTall || printedLines(read, BOX_READ_SCALE) > 1;
+    if (isGrid) {
+      // A grid keeps the stems exactly as they came. The same "|" arrives
+      // there from the printed bracket, which has words to its right too, so
+      // context cannot separate them and `tableContent` separates them by
+      // height instead.
+      boxRegions.push({
+        band,
+        content: tableContent(read, BOX_READ_SCALE),
+        isGrid: true,
+      });
+      continue;
+    }
     boxRegions.push({
       band,
-      content: isTable
-        ? // A tall panel keeps the stems exactly as they came. The same "|"
-          // arrives there from the printed bracket, which has words to its
-          // right too, so context cannot separate them and `tableContent`
-          // separates them by height instead.
-          tableContent(read, BOX_READ_SCALE)
-        : joinTerms(termsFrom(repairPrintedI(read), BOX_READ_SCALE)),
+      content: joinTerms(termsFrom(repairPrintedI(read), BOX_READ_SCALE)),
     });
   }
 
