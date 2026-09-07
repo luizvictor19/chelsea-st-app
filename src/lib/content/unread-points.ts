@@ -128,27 +128,20 @@ export function answeredNumbers(
  *     not begin on this page. Then it begins on one that is not in the upload,
  *     or the page before was read wrong. Either way the answer is another page.
  *
- * Null when nothing is wrong, which is the ordinary case.
+ * Always a cause, never null: this is asked only about a page that already has
+ * a block it cannot file, and the caller has that count. Answering "no cause"
+ * would be a third thing to test for at every call and it could never happen.
  */
 export type UnplacedCause =
   | { readonly kind: "no-page-before" }
   | { readonly kind: "unread-numbers"; readonly numbers: readonly number[] }
   | { readonly kind: "elsewhere"; readonly numbers: readonly number[] };
 
-/**
- * @param unplaced how many blocks the page cannot file. Passed in rather than
- *   recomputed, because `pointForBlock` owns that answer and a second copy of
- *   the rule here is a second thing to keep in step.
- */
 export function unplacedCause(
   opening: PageOpening,
   placements: readonly Placement[],
   starts: readonly PointStart[],
-  unplaced: number,
-): UnplacedCause | null {
-  if (unplaced === 0) {
-    return null;
-  }
+): UnplacedCause {
   if (opening.precedingPoint === null) {
     return { kind: "no-page-before" };
   }

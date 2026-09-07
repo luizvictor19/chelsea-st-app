@@ -164,13 +164,9 @@ describe("the answer as pointForBlock reads it", () => {
 });
 
 describe("unplacedCause", () => {
-  test("nothing is wrong when every block is filed", () => {
-    assert.equal(unplacedCause(OPENING, PLACEMENTS, [], 0), null);
-  });
-
   test("a page nothing precedes needs the page before it", () => {
     assert.deepEqual(
-      unplacedCause({ precedingPoint: null, openingPoint: null }, [], [], 3),
+      unplacedCause({ precedingPoint: null, openingPoint: null }, [], []),
       { kind: "no-page-before" },
     );
   });
@@ -178,7 +174,7 @@ describe("unplacedCause", () => {
   test("with the page before in hand, the number is the one nobody read", () => {
     // The message this replaces led with "upload the previous page" on exactly
     // this page, whose previous page is where the point above it came from.
-    assert.deepEqual(unplacedCause(OPENING, PLACEMENTS, [], 6), {
+    assert.deepEqual(unplacedCause(OPENING, PLACEMENTS, []), {
       kind: "unread-numbers",
       numbers: [6],
     });
@@ -186,19 +182,16 @@ describe("unplacedCause", () => {
 
   test("answered numbers drop out of the question", () => {
     assert.deepEqual(
-      unplacedCause(
-        { precedingPoint: 4, openingPoint: 4 },
-        PLACEMENTS,
-        [{ number: 5, top: 320 }],
-        1,
-      ),
+      unplacedCause({ precedingPoint: 4, openingPoint: 4 }, PLACEMENTS, [
+        { number: 5, top: 320 },
+      ]),
       { kind: "unread-numbers", numbers: [6] },
     );
   });
 
   test('answering "not here" for all of them points at another page', () => {
     assert.deepEqual(
-      unplacedCause(OPENING, PLACEMENTS, [{ number: 6, top: null }], 6),
+      unplacedCause(OPENING, PLACEMENTS, [{ number: 6, top: null }]),
       { kind: "elsewhere", numbers: [6] },
     );
   });
@@ -207,7 +200,7 @@ describe("unplacedCause", () => {
     // Nothing on the page can name one, so it says the only thing it knows
     // rather than blaming a number that is not missing.
     assert.deepEqual(
-      unplacedCause({ precedingPoint: 6, openingPoint: 6 }, PLACEMENTS, [], 1),
+      unplacedCause({ precedingPoint: 6, openingPoint: 6 }, PLACEMENTS, []),
       { kind: "no-page-before" },
     );
   });

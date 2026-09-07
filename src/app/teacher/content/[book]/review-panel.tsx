@@ -31,6 +31,7 @@ import {
   type TableSection,
 } from "@/lib/extraction/grammar-table";
 import { pointForBlock, unplacedBlocks } from "@/lib/extraction/pipeline";
+import { unplacedCause, type UnplacedCause } from "@/lib/content/unread-points";
 import type { Placement } from "@/lib/extraction/reconcile";
 import { joinTerms, splitTerms } from "@/lib/extraction/terms";
 
@@ -874,10 +875,10 @@ export function ReviewPanel({
     const unplaced = unplacedBlocks(draft.blocks, placements, page);
     if (unplaced.length > 0) {
       update(id, {
-        error:
-          `${unplaced.length === 1 ? "Um bloco" : `${unplaced.length} blocos`} desta` +
-          " página pertencem ao último ponto da página anterior, que não está" +
-          " neste envio. Suba a página anterior junto com esta.",
+        error: unplacedMessage(
+          unplacedCause(page, placements, []),
+          unplaced.length,
+        ),
       });
       return;
     }
@@ -1098,6 +1099,48 @@ function FinishedReview({ onDiscard }: { onDiscard: () => void }) {
       </button>
     </div>
   );
+}
+
+/**
+ * What the screen says about blocks it cannot file, one cause at a time.
+ *
+ * It used to say two in one sentence and lead with the wrong one. Every page
+ * holding an unfiled block was told the previous page was not in the upload,
+ * including the pages whose previous page is exactly where their preceding
+ * point came from, and the teacher was sent to upload something already there.
+ * `unplacedCause` decides which of the causes the page actually has; this only
+ * writes it down.
+ */
+function unplacedMessage(cause: UnplacedCause, unplaced: number): string {
+  const blocks =
+    unplaced === 1
+      ? "Um bloco desta página está impresso"
+      : `${unplaced} blocos desta página estão impressos`;
+  switch (cause.kind) {
+    case "unread-numbers":
+      return (
+        `${blocks} acima do primeiro número dela. Entre o ponto anterior e esse` +
+        ` número o livro imprime ${cause.numbers.length === 1 ? "o ponto" : "os pontos"}` +
+        ` ${cause.numbers.join(", ")}, que a leitura da margem não pegou, então` +
+        " esses blocos podem ser dele ou do ponto anterior. Nada desta página é" +
+        " gravado enquanto isso."
+      );
+    case "elsewhere":
+      return (
+        `${blocks} acima do primeiro número dela, e ${cause.numbers.length === 1 ? "o ponto" : "os pontos"}` +
+        ` ${cause.numbers.join(", ")} não ${cause.numbers.length === 1 ? "começa" : "começam"} nesta` +
+        " página. Então a página que abre esse ponto não está neste envio, ou os" +
+        " números da página anterior foram lidos errado. Suba a página que falta" +
+        " junto com esta. Nada desta página é gravado enquanto isso."
+      );
+    default:
+      return (
+        `${blocks} acima do primeiro número dela, então pertencem ao último ponto` +
+        " da página anterior, e não há página anterior neste envio. Suba a página" +
+        " anterior junto com esta e confirme de novo. Nada desta página é gravado" +
+        " enquanto isso."
+      );
+  }
 }
 
 const HEADER_ACTION =
@@ -1321,16 +1364,10 @@ function PageWork({
 
         {unplaced.length > 0 && writable && !draft.saved && (
           <p className="border-accent max-w-[80ch] rounded-sm border px-4 py-3.5 text-sm leading-relaxed">
-            {unplaced.length === 1
-              ? "Um bloco desta página está impresso"
-              : `${unplaced.length} blocos desta página estão impressos`}{" "}
-            acima do primeiro número dela, então pertencem ao último ponto da
-            página anterior, e essa página não está neste envio
-            {page.precedingPoint === null
-              ? ", porque esta é a primeira dele"
-              : `, ou o número entre o ponto ${page.precedingPoint} e o ${placements[0]?.number} não foi lido`}
-            . Suba a página anterior junto com esta e confirme de novo. Nada
-            desta página é gravado enquanto isso.
+            {unplacedMessage(
+              unplacedCause(page, placements, []),
+              unplaced.length,
+            )}
           </p>
         )}
 
