@@ -1601,6 +1601,25 @@ function UnreadPointQuestion({
 
   const all = [...numbers].sort((a, b) => a - b);
 
+  /*
+   * Where each block sits on the printed page, counted from the top.
+   *
+   * Not its position in `draft.blocks`, which is review order: a flagged block
+   * is pulled to the front there, so the first card in the list is often not
+   * the first thing printed. The teacher is answering against the book, so the
+   * number has to be the one they can count down the page.
+   *
+   * It is what tells two identical lines apart. A page can carry the same chart
+   * reference twice at different heights, and the list then showed
+   * "REFERÊNCIA DE CHART See Chart 1" twice with nothing to choose between
+   * them, on a page where one of the two is the right answer.
+   */
+  const positionOnPage = new Map(
+    [...draft.blocks]
+      .sort((a, b) => a.top - b.top)
+      .map((block, at) => [block.id, at + 1]),
+  );
+
   return (
     <div className="border-accent flex flex-col gap-4 rounded-sm border p-4">
       <p className="text-accent font-mono text-[0.625rem] tracking-[0.14em] uppercase">
@@ -1612,8 +1631,8 @@ function UnreadPointQuestion({
         Esta página tem blocos impressos acima do primeiro número que a leitura
         pegou. Entre o ponto {page.precedingPoint} e o {firstNumber}, o livro
         imprime {all.length === 1 ? "o ponto" : "os pontos"} {all.join(", ")},
-        que a margem não deu. Clique no bloco onde cada um começa. Nada é
-        gravado antes disso.
+        que a margem não deu. Clique no bloco onde cada um começa. O número é a
+        ordem em que o bloco aparece na página. Nada é gravado antes disso.
       </p>
       {all.map((value) => {
         const chosen = answered(value);
@@ -1637,16 +1656,21 @@ function UnreadPointQuestion({
                       key={block.id}
                       type="button"
                       onClick={() => answer(value, block.top)}
-                      className={`rounded-sm border px-3 py-2 text-left text-[0.8125rem] transition-colors ${
+                      className={`flex items-baseline gap-2.5 rounded-sm border px-3 py-2 text-left text-[0.8125rem] transition-colors ${
                         picked
                           ? "bg-accent text-accent-foreground border-accent"
                           : "border-rule hover:border-foreground hover:bg-surface"
                       }`}
                     >
-                      <span className="font-mono text-[0.625rem] uppercase opacity-70">
-                        {KIND_LABELS[block.kind]}
-                      </span>{" "}
-                      {block.content.slice(0, 90) || "(vazio)"}
+                      <span className="w-4 flex-shrink-0 text-right font-mono text-[0.6875rem] tabular-nums opacity-70">
+                        {positionOnPage.get(block.id)}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="font-mono text-[0.625rem] uppercase opacity-70">
+                          {KIND_LABELS[block.kind]}
+                        </span>{" "}
+                        {block.content.slice(0, 90) || "(vazio)"}
+                      </span>
                     </button>
                   );
                 })}
@@ -1658,12 +1682,13 @@ function UnreadPointQuestion({
               <button
                 type="button"
                 onClick={() => answer(value, null)}
-                className={`rounded-sm border px-3 py-2 text-left text-[0.8125rem] transition-colors ${
+                className={`flex items-baseline gap-2.5 rounded-sm border px-3 py-2 text-left text-[0.8125rem] transition-colors ${
                   chosen !== null && chosen.top === null
                     ? "bg-accent text-accent-foreground border-accent"
                     : "border-rule hover:border-foreground hover:bg-surface"
                 }`}
               >
+                <span aria-hidden className="w-4 flex-shrink-0" />
                 Esse ponto não começa nesta página
               </button>
             </div>
