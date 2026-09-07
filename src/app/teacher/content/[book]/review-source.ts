@@ -15,6 +15,10 @@ import type {
   Placement,
 } from "../../../../lib/extraction/reconcile.ts";
 import type { Band, Bitmap } from "../../../../lib/extraction/types.ts";
+import {
+  asksForPoint,
+  type PageQuestion,
+} from "../../../../lib/content/point-question.ts";
 
 /**
  * The batch as the review screen works on it.
@@ -294,6 +298,43 @@ export function lessonIsThePageBefores(
   pointNumber: number,
 ): boolean {
   return opensAfterItsPoint(page, pointNumber);
+}
+
+/**
+ * Whether this page is the teacher's to work on at all.
+ *
+ * A second scan, a kind the pipeline refuses, and an image that is not a page
+ * of this book are all the same answer to every question the screen asks: no.
+ * Written out at each place that asks, the three drifted apart, and a duplicate
+ * ended up told "nothing of it will be written" and asked which point it was on
+ * the same screen. `stateOf` says which of the three it is, because the rail
+ * names them differently; everything else only needs this.
+ */
+export function isWritable(page: ReviewSourcePage): boolean {
+  return (
+    page.duplicateOf === null && page.unsupported === null && !page.refused
+  );
+}
+
+/** The page's side of the point question, which does not change while typing. */
+export function questionOf(page: ReviewSourcePage): PageQuestion {
+  return {
+    points: page.points,
+    inheritedPoint: page.inheritedPoint,
+    disputeCandidates: disputeCandidates(page),
+  };
+}
+
+/**
+ * Whether the screen puts the point question to the teacher.
+ *
+ * Three things in order, and the first is the one that was missing: a page
+ * nobody may write is asked nothing, however little its margin said. Then a
+ * page already written, which has had its answer. Only then the question
+ * itself, which is about the page and never about what has been typed into it.
+ */
+export function asksThePoint(page: ReviewSourcePage, saved: boolean): boolean {
+  return isWritable(page) && !saved && asksForPoint(questionOf(page));
 }
 
 /** The candidates the batch could not choose between, as one sorted list. */

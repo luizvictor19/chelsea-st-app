@@ -11,12 +11,7 @@ import {
 
 import type { StoredPage } from "@/lib/content/batch-store";
 import { lessonForPage, type LessonRange } from "@/lib/content/lesson-range";
-import {
-  asksForPoint,
-  canConfirm,
-  chosenPoint,
-  type PageQuestion,
-} from "@/lib/content/point-question";
+import { canConfirm, chosenPoint } from "@/lib/content/point-question";
 import {
   initialFocus,
   nextAfter,
@@ -49,11 +44,14 @@ import type { PageFailure } from "./book-workbench";
 import { CropCanvas } from "./crop-canvas";
 import { PageRail, type RailPage } from "./page-rail";
 import {
+  asksThePoint,
   authoredPoints,
   disputeCandidates,
   headerFor,
+  isWritable,
   lessonIsThePageBefores,
   headingFor,
+  questionOf,
   summaryFor,
   targetsOf,
   toStored,
@@ -174,15 +172,6 @@ function initialDraft(page: ReviewSourcePage): PageDraft {
     savedPoints: page.savedPoints,
     alreadyInDatabase: false,
     error: null,
-  };
-}
-
-/** The page's side of the question, which does not change while typing. */
-function questionOf(page: ReviewSourcePage): PageQuestion {
-  return {
-    points: page.points,
-    inheritedPoint: page.inheritedPoint,
-    disputeCandidates: disputeCandidates(page),
   };
 }
 
@@ -324,7 +313,11 @@ function stateOf(page: ReviewSourcePage, draft: PageDraft): PageState {
   if (draft.saved) {
     return "saved";
   }
-  if (asksForPoint(questionOf(page))) {
+  // The same question the page itself puts, so the rail and the page cannot
+  // disagree about whether one is being asked. Redundant here, since the three
+  // branches above have already turned away everything asksThePoint refuses,
+  // and written this way so it stays true if they ever move.
+  if (asksThePoint(page, draft.saved)) {
     return "needs-answer";
   }
   // A continuation writes everything to one point and asks nothing of the
@@ -1139,8 +1132,9 @@ function PageWork({
   const question = questionOf(page);
   const target = chosenPoint(question, draft);
   // Derived from the page, never from the answer: the question has to stay put
-  // while a number is being typed into it.
-  const asking = asksForPoint(question) && !draft.saved;
+  // while a number is being typed into it. And never put to a page nobody may
+  // write, which is the same page that is being told nothing of it is kept.
+  const asking = asksThePoint(page, draft.saved);
   const targets = targetPoints(page, draft);
   /*
    * Blocks the page cannot file, which is a question of its own.
@@ -1186,8 +1180,7 @@ function PageWork({
     unplaced.length === 0 &&
     lessonPending.length === 0 &&
     targets.every((number) => lessonOf(page, number, lessons, draft) !== null);
-  const writable =
-    page.duplicateOf === null && page.unsupported === null && !page.refused;
+  const writable = isWritable(page);
 
   return (
     <article className="flex min-w-0 flex-col">

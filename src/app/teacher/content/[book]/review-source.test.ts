@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  asksThePoint,
   authoredPoints,
   headerFor,
   headingFor,
+  isWritable,
   lessonIsThePageBefores,
   targetsOf,
   writtenNumbers,
@@ -238,5 +240,41 @@ describe("writtenNumbers", () => {
       headingFor(unresolved, null, false),
       "Número do ponto não resolvido",
     );
+  });
+});
+
+describe("what the screen may ask of a page", () => {
+  /** A page with nothing on it to say which point it is. */
+  const unanswered = { points: [], placements: [], inheritedPoint: null };
+
+  test("a second scan is not asked which point it is", () => {
+    // The bug this pins: the page said "nothing of it will be written" and
+    // then, directly under that, asked which point it was. Only one of the two
+    // can be true, and it is the first: a re-upload is not the teacher's to
+    // answer, whatever its numbers did or did not say.
+    const second = page({ ...unanswered, duplicateOf: "p116.png" });
+    assert.equal(asksThePoint(second, false), false);
+    assert.equal(isWritable(second), false);
+  });
+
+  test("a refused image and a kind we do not read are not asked either", () => {
+    const photo = page({ ...unanswered, refused: true });
+    const exercise = page({ ...unanswered, unsupported: "revision_exercise" });
+    assert.equal(asksThePoint(photo, false), false);
+    assert.equal(asksThePoint(exercise, false), false);
+  });
+
+  test("an ordinary page with nothing to go on is still asked", () => {
+    // The question has to survive the precedence, or the pages that really need
+    // it stop being asked and are written to whatever number came nearest.
+    assert.equal(asksThePoint(page(unanswered), false), true);
+  });
+
+  test("a page already written is not asked again", () => {
+    assert.equal(asksThePoint(page(unanswered), true), false);
+  });
+
+  test("a page whose number the batch settled is not asked at all", () => {
+    assert.equal(asksThePoint(page(), false), false);
   });
 });
