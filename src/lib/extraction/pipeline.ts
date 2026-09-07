@@ -10,6 +10,7 @@ import { splitFusedWords } from "./fused-words.ts";
 import { boxLeft, crop, normalise, resize, shadedMask } from "./image.ts";
 import { findMarkers } from "./markers.ts";
 import { marginReadings, type MarginReading } from "./margin-numbers.ts";
+import { repairPrintedI } from "./printed-i.ts";
 import { repairClosingQuotes } from "./quotes.ts";
 import { tableContent } from "./table-layout.ts";
 import { joinTerms, termsFrom } from "./terms.ts";
@@ -127,12 +128,26 @@ export async function extractPage(
     boxRegions.push({
       band,
       content: isTable
-        ? tableContent(read, BOX_READ_SCALE)
-        : joinTerms(termsFrom(read, BOX_READ_SCALE)),
+        ? // A tall panel keeps the stems exactly as they came. The same "|"
+          // arrives there from the printed bracket, which has words to its
+          // right too, so context cannot separate them and `tableContent`
+          // separates them by height instead.
+          tableContent(read, BOX_READ_SCALE)
+        : joinTerms(termsFrom(repairPrintedI(read), BOX_READ_SCALE)),
     });
   }
 
-  const asRegion = (band: Band) => ({ band, content: textInBand(words, band) });
+  /*
+   * The stems the page prints for "I", read back before the lines are cut out
+   * of the page.
+   *
+   * Only for the text that becomes a block. `pageText`, `tokens` and the
+   * markers above stay on the engine's own reading, because they answer
+   * questions about what kind of page this is, and a rule about one character
+   * has no business moving the slash ratio or a heading's regex.
+   */
+  const prose = repairPrintedI(words);
+  const asRegion = (band: Band) => ({ band, content: textInBand(prose, band) });
   const lines = inkLines(page).map(asRegion);
   const explanations = explanationLines(page).map(asRegion);
 
