@@ -28,6 +28,16 @@
  * these panels currently go through actually uses. Measuring against a
  * different one would describe a path they do not take.
  *
+ * Two things the first run of this showed, which the reader should know before
+ * trusting a number here. The first line is a poor reference: these panels
+ * routinely print a heading as their first line, one centred column, and then
+ * every row of a perfectly square grid is measured against it and reports a
+ * large distance. And a line whose columns the engine merged, because a gap
+ * fell under TERM_COLUMN_GAP, has no start where the line below has one. Both
+ * push a grid towards the wrapped-vocabulary end. The per-panel dump below
+ * prints every column start so that this is visible rather than buried in the
+ * pooled figure.
+ *
  * Reports both books, and reports them apart. Book 1 decides, because book 1 is
  * where the hard case lives; book 2 is there so a cut is not chosen against one
  * book alone.
@@ -46,9 +56,12 @@ import {
   BOX_PAGE_SEGMENTATION,
   TABLE_HEIGHT,
   TABLE_LINE_TOLERANCE,
+  TABLE_SECOND_PAGE_SEGMENTATION,
+  TABLE_STEM_HEIGHT,
   TERM_COLUMN_GAP,
 } from "../src/lib/extraction/constants.ts";
 import { splitFusedWords } from "../src/lib/extraction/fused-words.ts";
+import { mergeReads } from "../src/lib/extraction/second-read.ts";
 import {
   boxLeft,
   crop,
@@ -129,6 +142,30 @@ function median(values: readonly number[]): number {
 
 const middleOf = (word: OcrWord) => word.y + word.height / 2;
 
+/** A token that is nothing but a bare vertical stem, whatever drew it. */
+const isStem = (word: OcrWord) => /^\|+$/.test(word.text.trim());
+
+/**
+ * The panel without the bracket that groups its subjects and the rule that
+ * closes it, the way `table-layout` drops them before grouping anything.
+ *
+ * Kept, a bracket is one token as tall as the group it holds, so it lifts the
+ * median word height that sets the line tolerance, and it puts a column start
+ * at the panel's left edge on whichever line it lands on. Both push a grid
+ * towards looking like a panel that wrapped, which is the population the
+ * candidate rule has to keep.
+ */
+function withoutFurniture(words: readonly OcrWord[]): readonly OcrWord[] {
+  const body = words.filter((word) => !isStem(word));
+  if (body.length === 0) {
+    return words;
+  }
+  const height = median(body.map((word) => word.height));
+  return words.filter(
+    (word) => !isStem(word) || word.height <= height * TABLE_STEM_HEIGHT,
+  );
+}
+
 /** The words grouped into the lines they are printed on, as table-layout does. */
 function groupLines(
   words: readonly OcrWord[],
@@ -169,6 +206,31 @@ function columnStarts(line: readonly OcrWord[], scale: number): number[] {
   return starts;
 }
 
+/**
+ * The widest gap in a sorted run, said in words.
+ *
+ * Says there is none rather than pointing at one: with fewer than two values,
+ * or with every value equal, there is no gap, and a report that named one
+ * anyway would be inventing the void it exists to look for.
+ */
+function widestGap(sorted: readonly number[]): string {
+  let widest = 0;
+  let at = 0;
+  for (let index = 1; index < sorted.length; index += 1) {
+    const gap = sorted[index] - sorted[index - 1];
+    if (gap > widest) {
+      widest = gap;
+      at = index;
+    }
+  }
+  if (at === 0) {
+    return sorted.length < 2
+      ? "nada a comparar: menos de dois painéis"
+      : "nenhum vazio: todos os painéis dão o mesmo número";
+  }
+  return `maior vazio: ${widest.toFixed(1)}px, entre ${sorted[at - 1].toFixed(1)} e ${sorted[at].toFixed(1)}`;
+}
+
 const reader = createTesseractReader({ encode });
 const panels: Panel[] = [];
 
@@ -189,16 +251,27 @@ for (const [book, root] of [
         region.width * SCALE,
         region.height * SCALE,
       );
-      // Read exactly as the pipeline reads it: the fixed mode for an ordinary
-      // panel, the automatic one for a tall panel.
-      const read = splitFusedWords(
+      // Read exactly as the pipeline reads it, which for a tall panel is
+      // twice: the automatic mode returns no token at all for some two-letter
+      // subjects, and those are columns. Read once, a conjugation panel is
+      // measured on a reading the pipeline never produces.
+      const once = await reader.read(
         enlarged,
-        await reader.read(
-          enlarged,
-          tall ? undefined : { pageSegmentation: BOX_PAGE_SEGMENTATION },
+        tall ? undefined : { pageSegmentation: BOX_PAGE_SEGMENTATION },
+      );
+      const seen = tall
+        ? mergeReads(
+            once,
+            await reader.read(enlarged, {
+              pageSegmentation: TABLE_SECOND_PAGE_SEGMENTATION,
+            }),
+          )
+        : once;
+      const read = withoutFurniture(
+        splitFusedWords(enlarged, seen, SCALE).filter(
+          (word) => word.text.trim() !== "",
         ),
-        SCALE,
-      ).filter((word) => word.text.trim() !== "");
+      );
       if (read.length === 0) {
         continue;
       }
@@ -285,32 +358,8 @@ for (const book of ["livro 1", "livro 2"] as const) {
   const of = panels.filter((panel) => panel.book === book);
   const sorted = [...of].map((panel) => panel.worst).sort((a, b) => a - b);
   console.log(`  ${book}: ${sorted.map((one) => one.toFixed(1)).join(" ")}`);
-  let widest = 0;
-  let at = 0;
-  for (let index = 1; index < sorted.length; index += 1) {
-    const gap = sorted[index] - sorted[index - 1];
-    if (gap > widest) {
-      widest = gap;
-      at = index;
-    }
-  }
-  if (sorted.length > 1) {
-    console.log(
-      `    maior vazio: ${widest.toFixed(1)}px, entre ${sorted[at - 1].toFixed(1)} e ${sorted[at].toFixed(1)}`,
-    );
-  }
-}
-const all = panels.map((panel) => panel.worst).sort((a, b) => a - b);
-let widest = 0;
-let at = 0;
-for (let index = 1; index < all.length; index += 1) {
-  const gap = all[index] - all[index - 1];
-  if (gap > widest) {
-    widest = gap;
-    at = index;
-  }
+  console.log(`    ${widestGap(sorted)}`);
 }
 console.log(
-  `\n  os dois juntos: maior vazio ${widest.toFixed(1)}px, entre ` +
-    `${all[at - 1]?.toFixed(1)} e ${all[at]?.toFixed(1)}`,
+  `\n  os dois juntos: ${widestGap(panels.map((panel) => panel.worst).sort((a, b) => a - b))}`,
 );
