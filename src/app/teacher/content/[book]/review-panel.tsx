@@ -33,6 +33,7 @@ import {
 } from "@/lib/extraction/grammar-table";
 import { pointForBlock, unplacedBlocks } from "@/lib/extraction/pipeline";
 import {
+  mayStartAt,
   startPlacements,
   unplacedCause,
   unreadNumbers,
@@ -1136,6 +1137,23 @@ function FinishedReview({ onDiscard }: { onDiscard: () => void }) {
 }
 
 /**
+ * The number printed highest on the page, which is the one a gap sits under.
+ *
+ * The lowest y and not index 0, and taken from the placements the page is
+ * working with rather than from `page.placements`: on a page whose only number
+ * came out of a dispute the teacher answered, `page.placements` is empty and
+ * the sentence rendered "Entre o ponto 5 e o , o livro imprime".
+ */
+function firstNumberOf(placements: readonly Placement[]): number | null {
+  if (placements.length === 0) {
+    return null;
+  }
+  return placements.reduce((lowest, placement) =>
+    placement.y < lowest.y ? placement : lowest,
+  ).number;
+}
+
+/**
  * What the screen says about blocks it cannot file, one cause at a time.
  *
  * It used to say two in one sentence and lead with the wrong one. Every page
@@ -1167,12 +1185,24 @@ function unplacedMessage(cause: UnplacedCause, unplaced: number): string {
         " números da página anterior foram lidos errado. Suba a página que falta" +
         " junto com esta. Nada desta página é gravado enquanto isso."
       );
-    default:
+    case "no-page-before":
       return (
         `${blocks} acima do primeiro número dela, então pertencem ao último ponto` +
         " da página anterior, e não há página anterior neste envio. Suba a página" +
         " anterior junto com esta e confirme de novo. Nada desta página é gravado" +
         " enquanto isso."
+      );
+    default:
+      /*
+       * Nothing on the page names a cause, so this names none. There is a page
+       * before it, which is where its preceding point came from, so the one
+       * thing that must not be said here is that the previous page is missing.
+       */
+      return (
+        `${blocks} acima do primeiro número dela, e os números desta página e da` +
+        " anterior não fecham: nada na página diz a que ponto esses blocos" +
+        " pertencem. Confira o número no alto da página contra a anterior. Nada" +
+        " desta página é gravado enquanto isso."
       );
   }
 }
@@ -1405,31 +1435,34 @@ function PageWork({
           </p>
         )}
 
-        {unplaced.length > 0 && writable && !draft.saved && (
-          <>
-            {/*
+        {(unplaced.length > 0 || missing.length > 0) &&
+          writable &&
+          !draft.saved && (
+            <>
+              {/*
               The message and the question are not alternatives. A page whose
               missing number the teacher said begins elsewhere still needs to
               be told why it is held, and it still has to show the answer that
               held it: rendered as an either/or, choosing "não começa nesta
               página" made the question disappear and the answer unreachable.
             */}
-            {unreadCause.kind !== "unread-numbers" && (
-              <p className="border-accent max-w-[80ch] rounded-sm border px-4 py-3.5 text-sm leading-relaxed">
-                {unplacedMessage(unreadCause, unplaced.length)}
-              </p>
-            )}
-            {missing.length > 0 && (
-              <UnreadPointQuestion
-                page={page}
-                draft={draft}
-                numbers={missing}
-                candidates={unplacedBlocks(draft.blocks, settled, page)}
-                onUpdate={onUpdate}
-              />
-            )}
-          </>
-        )}
+              {unplaced.length > 0 && unreadCause.kind !== "unread-numbers" && (
+                <p className="border-accent max-w-[80ch] rounded-sm border px-4 py-3.5 text-sm leading-relaxed">
+                  {unplacedMessage(unreadCause, unplaced.length)}
+                </p>
+              )}
+              {missing.length > 0 && (
+                <UnreadPointQuestion
+                  page={page}
+                  draft={draft}
+                  numbers={missing}
+                  firstNumber={firstNumberOf(settled)}
+                  candidates={unplacedBlocks(draft.blocks, settled, page)}
+                  onUpdate={onUpdate}
+                />
+              )}
+            </>
+          )}
 
         {askingLesson && writable && (
           <LessonQuestion targets={targets} draft={draft} onUpdate={onUpdate} />
@@ -1533,6 +1566,7 @@ function UnreadPointQuestion({
   page,
   draft,
   numbers,
+  firstNumber,
   candidates,
   onUpdate,
 }: {
@@ -1540,6 +1574,8 @@ function UnreadPointQuestion({
   draft: PageDraft;
   /** Every number the book prints above this page's first, answered or not. */
   numbers: readonly number[];
+  /** The number those gaps sit under, for the sentence that explains them. */
+  firstNumber: number | null;
   /**
    * The blocks one of those numbers could start at.
    *
@@ -1563,14 +1599,6 @@ function UnreadPointQuestion({
     });
   }
 
-  /** No block above the one a smaller number was already placed at. */
-  function floorFor(value: number): number {
-    const below = draft.pointStarts
-      .filter((start) => start.number < value && start.top !== null)
-      .map((start) => start.top as number);
-    return below.length === 0 ? -1 : Math.max(...below);
-  }
-
   const all = [...numbers].sort((a, b) => a - b);
 
   return (
@@ -1582,21 +1610,26 @@ function UnreadPointQuestion({
       </p>
       <p className="text-muted max-w-[80ch] text-sm leading-relaxed">
         Esta página tem blocos impressos acima do primeiro número que a leitura
-        pegou. Entre o ponto {page.precedingPoint} e o{" "}
-        {page.placements[0]?.number}, o livro imprime{" "}
-        {all.length === 1 ? "o ponto" : "os pontos"} {all.join(", ")}, que a
-        margem não deu. Clique no bloco onde cada um começa. Nada é gravado
-        antes disso.
+        pegou. Entre o ponto {page.precedingPoint} e o {firstNumber}, o livro
+        imprime {all.length === 1 ? "o ponto" : "os pontos"} {all.join(", ")},
+        que a margem não deu. Clique no bloco onde cada um começa. Nada é
+        gravado antes disso.
       </p>
       {all.map((value) => {
         const chosen = answered(value);
-        const floor = floorFor(value);
         return (
           <div key={value} className="flex flex-col gap-2">
             <p className="text-sm font-bold">Ponto {value} começa em</p>
             <div className="flex flex-col gap-1.5">
               {candidates
-                .filter((block) => block.top > floor)
+                // The numbers run down the page in order, so a block above one
+                // already chosen for a smaller number, or below one chosen for
+                // a bigger, would describe a page that cannot exist. Guarded
+                // only downwards, the same wrong answer was still reachable by
+                // answering the bigger number first.
+                .filter((block) =>
+                  mayStartAt(value, block.top, draft.pointStarts),
+                )
                 .map((block) => {
                   const picked = chosen !== null && chosen.top === block.top;
                   return (

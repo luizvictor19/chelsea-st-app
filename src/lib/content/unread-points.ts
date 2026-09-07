@@ -101,6 +101,42 @@ export function startPlacements(
     .map((start) => ({ number: start.number, y: start.top }));
 }
 
+/**
+ * Whether one missing number may begin at a given block, given the rest.
+ *
+ * The numbers run down the margin in increasing order, which is how the book is
+ * printed and not a guess about it. So an answer that puts a bigger number
+ * above a smaller one, or two numbers at the same block, describes a page that
+ * cannot exist.
+ *
+ * It has to be checked both ways round, and only one way was. Guarding a number
+ * against the ones already placed below it leaves the whole thing reachable by
+ * answering in the other order: place 6 at the first block, then 5 at the
+ * second, and the placements are 6 above 5. Nothing downstream catches it,
+ * because a page whose numbers descend is not a page with a hole in it.
+ * `pointForBlock` files every block happily, `unplacedBlocks` finds none,
+ * the page confirms, and the heading reads "Pontos 5, 6 e 7" while the two
+ * points are written to each other's blocks. That is the silent misfiling this
+ * question exists to prevent, arrived at from the other side.
+ *
+ * A number's own answer never rules out the block it is on: the block the
+ * teacher chose has to stay visible, or the answer cannot be seen or changed.
+ * An answer of "it does not start on this page" placed nothing, so it says
+ * nothing about where anything else sits.
+ */
+export function mayStartAt(
+  value: number,
+  top: number,
+  starts: readonly PointStart[],
+): boolean {
+  return starts.every((start) => {
+    if (start.top === null || start.number === value) {
+      return true;
+    }
+    return start.number < value ? top > start.top : top < start.top;
+  });
+}
+
 /** The numbers an answer actually placed, which are the ones the page writes. */
 export function answeredNumbers(
   starts: readonly PointStart[],
@@ -111,7 +147,7 @@ export function answeredNumbers(
 /**
  * Why the blocks above a page's first number cannot be filed.
  *
- * Three causes, and the point of naming them apart is that only one of them is
+ * Four causes, and the point of naming them apart is that only one of them is
  * ever true at a time. The screen used to offer two of them in a single
  * sentence and lead with the wrong one: it told the teacher to upload the
  * previous page whenever a block could not be filed, on a page whose previous
@@ -120,13 +156,21 @@ export function answeredNumbers(
  *
  *   - `no-page-before`: nothing in the book precedes this page. The point above
  *     it is genuinely somewhere else, and only the page carrying it can say.
+ *   - `unexplained`: a page before it, no gap between the two, and a block that
+ *     still cannot be filed. Nothing on the page names a cause, so this one
+ *     names none either. It used to be folded into `no-page-before`, which made
+ *     the screen say "there is no previous page in this upload" about a page
+ *     whose previous page is where its preceding point came from: the same
+ *     false instruction this whole cause exists to have stopped giving.
  *   - `unread-numbers`: the page before is here, and the book's own order says
  *     a number stands between it and this page's first. Nobody read it, so it
  *     is printed on this page with nothing naming it. This one is a question,
  *     not a message.
- *   - `elsewhere`: the same, after the teacher answered that the number does
- *     not begin on this page. Then it begins on one that is not in the upload,
- *     or the page before was read wrong. Either way the answer is another page.
+ *   - `elsewhere`: the same, after the teacher answered that a number does not
+ *     begin on this page. Then it begins on one that is not in the upload, or
+ *     the page before was read wrong. Either way the answer is another page.
+ *     It carries only the numbers actually answered that way: naming one the
+ *     teacher had just placed on this page told them it was somewhere else.
  *
  * Always a cause, never null: this is asked only about a page that already has
  * a block it cannot file, and the caller has that count. Answering "no cause"
@@ -134,6 +178,7 @@ export function answeredNumbers(
  */
 export type UnplacedCause =
   | { readonly kind: "no-page-before" }
+  | { readonly kind: "unexplained" }
   | { readonly kind: "unread-numbers"; readonly numbers: readonly number[] }
   | { readonly kind: "elsewhere"; readonly numbers: readonly number[] };
 
@@ -149,10 +194,16 @@ export function unplacedCause(
   if (missing.length === 0) {
     // The page before is here and the numbers leave no gap, yet something is
     // still unfiled. Nothing on the page can name a cause, so none is invented.
-    return { kind: "no-page-before" };
+    return { kind: "unexplained" };
   }
   const pending = pendingNumbers(missing, starts);
-  return pending.length > 0
-    ? { kind: "unread-numbers", numbers: pending }
-    : { kind: "elsewhere", numbers: missing };
+  if (pending.length > 0) {
+    return { kind: "unread-numbers", numbers: pending };
+  }
+  return {
+    kind: "elsewhere",
+    numbers: missing.filter((number) =>
+      starts.some((start) => start.number === number && start.top === null),
+    ),
+  };
 }

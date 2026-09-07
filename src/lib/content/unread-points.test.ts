@@ -5,6 +5,7 @@ import { pointForBlock } from "../extraction/pipeline.ts";
 import type { Placement } from "../extraction/reconcile.ts";
 import {
   answeredNumbers,
+  mayStartAt,
   pendingNumbers,
   startPlacements,
   unplacedCause,
@@ -197,11 +198,71 @@ describe("unplacedCause", () => {
   });
 
   test("no gap and a page before it: no cause is invented", () => {
-    // Nothing on the page can name one, so it says the only thing it knows
-    // rather than blaming a number that is not missing.
+    // Not "no-page-before". There is a page before, that is where the preceding
+    // point came from, and saying otherwise is the false instruction this cause
+    // exists to have stopped giving.
     assert.deepEqual(
       unplacedCause({ precedingPoint: 6, openingPoint: 6 }, PLACEMENTS, []),
-      { kind: "no-page-before" },
+      { kind: "unexplained" },
     );
+  });
+
+  test('"elsewhere" names only the numbers answered that way', () => {
+    // Naming one the teacher had just placed on this page told them it was
+    // somewhere else, in the same sentence that held the page for it.
+    assert.deepEqual(
+      unplacedCause({ precedingPoint: 4, openingPoint: 4 }, PLACEMENTS, [
+        { number: 5, top: null },
+        { number: 6, top: 839 },
+      ]),
+      { kind: "elsewhere", numbers: [5] },
+    );
+  });
+});
+
+describe("mayStartAt", () => {
+  test("anything goes while nothing else is placed", () => {
+    for (const top of TOPS) {
+      assert.equal(mayStartAt(6, top, []), true);
+    }
+  });
+
+  test("a bigger number cannot start above a smaller one", () => {
+    // The bug this exists to stop. Answering 6 first at the top block and 5
+    // after it at a lower one left placements the page could file with no gap
+    // and no complaint: pointForBlock returned 6, 5, 5, 5, 5, 5, 7, 7, and the
+    // page wrote its two points the wrong way round with a heading that read
+    // "Pontos 5, 6 e 7".
+    const starts = [{ number: 5, top: 320 }];
+    assert.equal(mayStartAt(6, 65, starts), false);
+    assert.equal(mayStartAt(6, 320, starts), false);
+    assert.equal(mayStartAt(6, 405, starts), true);
+  });
+
+  test("a smaller number cannot start below a bigger one", () => {
+    // The same order, answered in the other sequence. Only guarding one way
+    // round left the whole bug reachable by answering 6 before 5.
+    const starts = [{ number: 6, top: 320 }];
+    assert.equal(mayStartAt(5, 405, starts), false);
+    assert.equal(mayStartAt(5, 320, starts), false);
+    assert.equal(mayStartAt(5, 65, starts), true);
+  });
+
+  test("two points never start at the same block", () => {
+    assert.equal(mayStartAt(5, 320, [{ number: 6, top: 320 }]), false);
+    assert.equal(mayStartAt(7, 320, [{ number: 6, top: 320 }]), false);
+  });
+
+  test('a number answered "not on this page" constrains nothing', () => {
+    // It placed nothing, so it says nothing about where anything else sits.
+    const starts = [{ number: 5, top: null }];
+    assert.equal(mayStartAt(6, 65, starts), true);
+  });
+
+  test("its own answer does not rule out the block it is on", () => {
+    // Otherwise the block the teacher just chose would vanish from the list
+    // and the answer could not be seen, let alone changed.
+    const starts = [{ number: 6, top: 320 }];
+    assert.equal(mayStartAt(6, 320, starts), true);
   });
 });
