@@ -4,6 +4,7 @@ import {
   BOX_PAGE_SEGMENTATION,
   POINT_LABEL_REACH,
   TABLE_HEIGHT,
+  TABLE_SECOND_PAGE_SEGMENTATION,
 } from "./constants.ts";
 import { explanationLines, inkLines } from "./explanation-lines.ts";
 import { splitFusedWords } from "./fused-words.ts";
@@ -11,6 +12,7 @@ import { boxLeft, crop, normalise, resize, shadedMask } from "./image.ts";
 import { findMarkers } from "./markers.ts";
 import { marginReadings, type MarginReading } from "./margin-numbers.ts";
 import { repairPrintedI } from "./printed-i.ts";
+import { mergeReads } from "./second-read.ts";
 import { repairClosingQuotes } from "./quotes.ts";
 import { tableContent } from "./table-layout.ts";
 import { joinTerms, termsFrom } from "./terms.ts";
@@ -117,14 +119,28 @@ export async function extractPage(
      * where it was measured and nowhere else: the prose lines and the
      * explanations come off the full-page read, which has not been measured.
      */
-    const read = splitFusedWords(
+    const once = await reader.read(
       enlarged,
-      await reader.read(
-        enlarged,
-        isTable ? undefined : { pageSegmentation: BOX_PAGE_SEGMENTATION },
-      ),
-      BOX_READ_SCALE,
+      isTable ? undefined : { pageSegmentation: BOX_PAGE_SEGMENTATION },
     );
+    /*
+     * A tall panel is read a second time and the two are merged by position.
+     * Its subjects are two-letter words alone in a field of white, and the
+     * automatic segmentation returns no token at all for some of them on some
+     * pages: no filter can recover a word the engine never reported. See
+     * TABLE_SECOND_PAGE_SEGMENTATION for what the second mode costs, which is
+     * nothing. An ordinary panel is read once, as it always was: it has no such
+     * failure and a second read there has not been measured.
+     */
+    const seen = isTable
+      ? mergeReads(
+          once,
+          await reader.read(enlarged, {
+            pageSegmentation: TABLE_SECOND_PAGE_SEGMENTATION,
+          }),
+        )
+      : once;
+    const read = splitFusedWords(enlarged, seen, BOX_READ_SCALE);
     boxRegions.push({
       band,
       content: isTable

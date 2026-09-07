@@ -138,6 +138,36 @@ export const TABLE_STEM_HEIGHT = 1.75;
  */
 export const BOX_PAGE_SEGMENTATION = 6;
 
+/**
+ * A second page segmentation to read a tall panel with, unioned with the first.
+ *
+ * A conjugation panel is a column of two-letter words in a field of white, and
+ * the automatic segmentation sometimes decides there is nothing there: on p056
+ * of book 2 it keeps you, she, you and they and returns no token at all for he,
+ * it and we. On p059, the same book and the same face, it reads every one. It
+ * is per page and not per word, so no filter can mend it and the only thing
+ * left is to ask the engine again, differently.
+ *
+ * Measured with scripts/measure-table-second-pass.ts over the 17 tall panels of
+ * both books, merging the two readings by position. Three modes were tried and
+ * both halves of the trade counted, the pronouns recovered and everything else
+ * the second read dragged in with them:
+ *
+ *   psm  6: 27 pronouns recovered, 3 other tokens added, all of them "|"
+ *   psm 11: 24 pronouns recovered, 0 other tokens added
+ *   psm  4: 24 pronouns recovered, 3 other tokens added, "><" and two "|"
+ *
+ * 11 is the one that costs nothing. The three pronouns 6 finds beyond it are
+ * not free: they come with three stems that the panel then has to judge, and a
+ * panel is the one block where a stray "|" is read back as a column boundary of
+ * ours. Sparse text is also what a column of two-letter words in white actually
+ * is, so the mode is not only the cheapest, it is the true description.
+ *
+ * On the panel this was found on, p056, it recovers exactly he, it and we, and
+ * on p059, which was already right, it adds nothing at all.
+ */
+export const TABLE_SECOND_PAGE_SEGMENTATION = 11;
+
 // --- Margin numbers --------------------------------------------------------
 
 /**
