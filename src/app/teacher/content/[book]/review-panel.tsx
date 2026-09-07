@@ -81,6 +81,23 @@ const KIND_LABELS: Record<BlockKind, string> = {
 };
 
 /**
+ * The kinds whose whole content is one short reference, drawn as a single row.
+ *
+ * "See Chart 1" and "Revision Exercise 1" are facts of three words, and each was
+ * given the card a vocabulary panel gets: a header, and a text area three rows
+ * tall holding one line. On a page carrying four of them that is most of the
+ * screen spent on the part nobody edits.
+ *
+ * A third reference kind joins this set and needs nothing else. There is one
+ * compact row serving all of them, so adding the kind here is the whole change:
+ * do not open a second path for it.
+ */
+const REFERENCE_KINDS: ReadonlySet<BlockKind> = new Set<BlockKind>([
+  "chart_ref",
+  "revision_exercise",
+]);
+
+/**
  * What the header says when the extractor flagged the block.
  *
  * There are two causes now and they are worth different words. A table is
@@ -1822,17 +1839,16 @@ function BlockCard({
   const flagged = block.needsReview;
 
   /*
-   * A chart reference is a fact of three words, and it was given the card a
-   * vocabulary panel gets: a header, and a text area three rows tall with one
-   * line in it. On a page carrying four of them that is most of the screen
-   * spent on the part nobody edits.
+   * A reference block is one short line, and it was given the card a vocabulary
+   * panel gets. See REFERENCE_KINDS for which kinds those are and for where a
+   * new one goes.
    *
    * Only while there is nothing to warn about. The kind is the teacher's to
-   * change, so any block can become a chart reference carrying anything, and a
-   * flagged one keeps the full card: the line naming what is wrong with it, and
-   * the crop beside it, are worth more than the height they cost.
+   * change, so any block can become a reference carrying anything, and a flagged
+   * one keeps the full card: the line naming what is wrong with it, and the crop
+   * beside it, are worth more than the height they cost.
    */
-  if (block.kind === "chart_ref" && !flagged) {
+  if (REFERENCE_KINDS.has(block.kind) && !flagged) {
     return (
       <div className="border-rule bg-surface flex flex-wrap items-center gap-2.5 rounded-sm border px-3.5 py-2">
         {/*
