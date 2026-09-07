@@ -9,6 +9,11 @@ import type { BookSummary } from "@/lib/content/queries";
  * teacher has to come here to do. Only the books that are neither configured
  * nor the next one in line are quietened, and even those keep full contrast on
  * their own text.
+ *
+ * A finished book keeps the weight of the others, bar and count included. Two
+ * things change: the "faltam 0", which has nothing to say, and the status line
+ * under it, which stops reporting where the teacher stopped and says the book
+ * is done instead.
  */
 export function BookCard({
   book,
@@ -76,7 +81,13 @@ export function BookCard({
       )}
 
       {hasRange ? (
-        book.lastFilledPoint === null ? (
+        /*
+         * The tick carries the meaning with the word, so "done" does not rest
+         * on noticing the accent beside it.
+         */
+        book.complete ? (
+          <span className="text-accent text-xs font-semibold">✓ completo</span>
+        ) : book.lastFilledPoint === null ? (
           <span className="text-faint text-xs">Nenhum ponto preenchido</span>
         ) : (
           <span className="text-muted text-xs">
@@ -105,9 +116,11 @@ function BookProgress({ book }: { book: BookSummary }) {
         <span className="text-muted font-mono text-xs">
           {book.progress.filled} de {book.progress.total} · {percent}%
         </span>
-        <span className="text-faint font-mono text-xs">
-          faltam {book.progress.remaining}
-        </span>
+        {book.progress.remaining > 0 && (
+          <span className="text-faint font-mono text-xs">
+            faltam {book.progress.remaining}
+          </span>
+        )}
       </div>
       <Bar percent={percent} />
     </div>

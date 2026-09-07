@@ -1,6 +1,8 @@
-import type {
-  StoredBlock,
-  StoredPage,
+import {
+  pendingPages,
+  type StoredBatch,
+  type StoredBlock,
+  type StoredPage,
 } from "../../../../lib/content/batch-store.ts";
 import type { PageState } from "../../../../lib/content/review-navigation.ts";
 import type { BlockKind } from "../../../../lib/extraction/classify.ts";
@@ -695,4 +697,36 @@ export function termsOf(
   return blocks
     .filter((block) => block.kind === "vocabulary")
     .flatMap((block) => splitTerms(block.content));
+}
+
+/**
+ * Whether the batch has nothing left that would change the database.
+ *
+ * A batch is offered back as an interrupted upload, with resuming as the thing
+ * to do. That is only true while some page still targets a point that is empty.
+ * When every page still to be written targets points that already hold content,
+ * confirming them would change nothing, and resuming would hand the teacher a
+ * review with no crop beside a table, which is worse than dropping the page on
+ * the dropzone again.
+ *
+ * The filled points are the ones the book screen already read for its grid, not
+ * a second question to the database.
+ *
+ * A batch with no pending page at all is not this case: `staleness` calls that
+ * one "all-saved" and it never reaches here.
+ */
+export function everyPendingPageIsAlreadyWritten(
+  batch: StoredBatch,
+  filled: ReadonlySet<number>,
+): boolean {
+  const pending = pendingPages(batch);
+  if (pending.length === 0) {
+    return false;
+  }
+  return pending.every((page) => {
+    const targets = targetsOf(fromStored(page));
+    // A page that targets nothing has no point to compare against, and saying
+    // "already written" of it would be a claim about work nobody can place.
+    return targets.length > 0 && targets.every((point) => filled.has(point));
+  });
 }

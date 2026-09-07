@@ -29,6 +29,7 @@ import { configureBook } from "../actions";
 import { bitmapToCanvas, fileToBitmap } from "./browser-bitmap";
 import { ReviewPanel } from "./review-panel";
 import {
+  everyPendingPageIsAlreadyWritten,
   fromResolved,
   fromStored,
   type ReviewSourcePage,
@@ -81,6 +82,15 @@ type Book = {
   readonly title: string;
   readonly firstPoint: number | null;
   readonly lastPoint: number | null;
+  /**
+   * The points that already hold content.
+   *
+   * Read by the book screen for its grid and handed down, rather than asked of
+   * the database a second time. The resume card needs it to tell an upload with
+   * work left in it from one whose pages would all write over points that are
+   * already written.
+   */
+  readonly filledPoints: ReadonlySet<number>;
 };
 
 /**
@@ -148,6 +158,7 @@ export function BookWorkbench({
   bookTitle,
   firstPoint,
   lastPoint,
+  filledPoints,
   children,
 }: {
   bookId: string;
@@ -155,6 +166,7 @@ export function BookWorkbench({
   bookTitle: string;
   firstPoint: number | null;
   lastPoint: number | null;
+  filledPoints: readonly number[];
   children: ReactNode;
 }) {
   const [floor, setFloor] = useState(
@@ -405,6 +417,7 @@ export function BookWorkbench({
         book: {
           id: bookId,
           position: bookPosition,
+          filledPoints: new Set(filledPoints),
           title: bookTitle,
           firstPoint,
           lastPoint,
@@ -669,6 +682,7 @@ const STALE_REASON: Record<StaleReason, string> = {
  */
 export function InterruptedBatch() {
   const {
+    book,
     interrupted,
     phase,
     resumeBatch,
@@ -727,24 +741,45 @@ export function InterruptedBatch() {
     );
   }
 
+  /*
+   * An upload is only interrupted while confirming one of its pages would still
+   * change something. When every page left points at a point that already holds
+   * content, "ENVIO INTERROMPIDO" and a Retomar button are false in spirit: the
+   * work is done, and resuming would give a review with no crop beside a table,
+   * which is worse than dropping the page on the dropzone again. So the card
+   * says what it is, a reading kept on this computer, and offers the one action
+   * that means anything.
+   */
+  const nothingLeft =
+    reason === null &&
+    everyPendingPageIsAlreadyWritten(batch, book.filledPoints);
+
   return (
     <section
-      aria-label="Envio interrompido"
-      className="border-accent flex flex-col gap-2 rounded-sm border px-4.5 py-4"
+      aria-label={nothingLeft ? "Leitura guardada" : "Envio interrompido"}
+      className={`flex flex-col gap-2 rounded-sm border px-4.5 py-4 ${
+        nothingLeft ? "border-rule" : "border-accent"
+      }`}
     >
-      <span className="text-accent font-mono text-[0.625rem] tracking-[0.14em] uppercase">
-        Envio interrompido
+      <span
+        className={`font-mono text-[0.625rem] tracking-[0.14em] uppercase ${
+          nothingLeft ? "text-faint" : "text-accent"
+        }`}
+      >
+        {nothingLeft ? "Leitura guardada" : "Envio interrompido"}
       </span>
       <p className="text-muted text-sm leading-relaxed">
         {batch.pages.length}{" "}
         {batch.pages.length === 1 ? "página lida" : "páginas lidas"} em{" "}
         {whenRead(batch.readAt)}
-        {reason === null
-          ? `, ${pending} ainda por gravar. A leitura ficou salva neste computador, mas as imagens não: uma tabela volta sem o recorte ao lado.`
-          : `. ${STALE_REASON[reason]}`}
+        {nothingLeft
+          ? ". Todas apontam para pontos que já têm conteúdo."
+          : reason === null
+            ? `, ${pending} ainda por gravar. A leitura ficou salva neste computador, mas as imagens não: uma tabela volta sem o recorte ao lado.`
+            : `. ${STALE_REASON[reason]}`}
       </p>
       <div className="mt-0.5 flex flex-wrap gap-2">
-        {reason === null && (
+        {reason === null && !nothingLeft && (
           <button
             type="button"
             onClick={resumeBatch}

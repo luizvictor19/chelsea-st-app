@@ -19,10 +19,15 @@ export function ProgressBar({
         >
           {label}
         </span>
+        {/*
+          The count and the percentage always; what is left only while there is
+          something left. "faltam 0" is the bar saying nothing twice.
+        */}
         <span className="text-faint font-mono text-xs">
           {progress.total === 0
             ? "não configurado"
-            : `${progress.filled} de ${progress.total} · ${percent}% · faltam ${progress.remaining}`}
+            : `${progress.filled} de ${progress.total} · ${percent}%` +
+              (progress.remaining > 0 ? ` · faltam ${progress.remaining}` : "")}
         </span>
       </div>
       <div

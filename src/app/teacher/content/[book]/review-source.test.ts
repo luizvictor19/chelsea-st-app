@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   asksThePoint,
+  everyPendingPageIsAlreadyWritten,
   fromStored,
   toStored,
   authoredPoints,
@@ -561,6 +562,64 @@ describe("a page that was answered and written, across a reload", () => {
         { kind: "vocabulary", content: "a day, what colour?" },
       ]),
       ["Mr", "Mrs", "Jack", "Anna", "a day", "what colour?"],
+    );
+  });
+
+  test("a batch whose every waiting page is already written has nothing left", () => {
+    // The resume card offers "Retomar revisão" as the thing to do, and that is
+    // only honest while confirming some page would still change something.
+    const stored = (
+      one: ReviewSourcePage,
+      savedPoints: readonly number[] = [],
+    ) =>
+      toStored(one, {
+        blocks: [],
+        savedPoints,
+        changedSinceSaving: false,
+        pointStarts: [],
+      });
+    const batch = (pages: readonly ReturnType<typeof stored>[]) => ({
+      bookId: "b",
+      bookPosition: 1,
+      firstPoint: 1,
+      lastPoint: 52,
+      readAt: "2026-09-07T20:44:00.000Z",
+      pages,
+    });
+
+    const waiting = stored(page({ id: "a", points: [6] }));
+    const alsoWaiting = stored(page({ id: "b", points: [8] }));
+
+    // Both waiting pages point at points that already hold content.
+    assert.equal(
+      everyPendingPageIsAlreadyWritten(
+        batch([waiting, alsoWaiting]),
+        new Set([6, 8]),
+      ),
+      true,
+    );
+    // One of them still has an empty point to fill, so there is work.
+    assert.equal(
+      everyPendingPageIsAlreadyWritten(
+        batch([waiting, alsoWaiting]),
+        new Set([6]),
+      ),
+      false,
+    );
+    // A page already written is not waiting, so it does not speak either way:
+    // point 8 stays empty and the answer is still true, because the only page
+    // still waiting is the one whose point is filled.
+    assert.equal(
+      everyPendingPageIsAlreadyWritten(
+        batch([waiting, stored(page({ id: "b", points: [8] }), [8])]),
+        new Set([6]),
+      ),
+      true,
+    );
+    // No waiting page at all is "all-saved", which this must not claim.
+    assert.equal(
+      everyPendingPageIsAlreadyWritten(batch([]), new Set([6])),
+      false,
     );
   });
 });

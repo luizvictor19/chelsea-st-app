@@ -21,12 +21,15 @@ export function PointGrid({
   points,
   lessons,
   gaps,
+  complete,
   lastFilledPoint,
   lastFilledLesson,
 }: {
   points: readonly BookPoint[];
   lessons: readonly LessonRange[];
   gaps: readonly Gap[];
+  /** Every point is filled, which silences the two lines under the grid. */
+  complete: boolean;
   lastFilledPoint: number | null;
   lastFilledLesson: number | null;
 }) {
@@ -104,7 +107,16 @@ export function PointGrid({
       </div>
 
       <div className="border-rule flex flex-col gap-1 border-t pt-3">
-        {lastFilledPoint === null ? (
+        {/*
+          Where the teacher stopped is a question about work still to come. A
+          finished book raises it no longer, and says it is done in its place.
+          The accent separates that line from the grey the other status lines
+          use, and the tick carries the meaning with the word, so it does not
+          rest on noticing the colour.
+        */}
+        {complete ? (
+          <p className="text-accent text-sm font-semibold">✓ completo</p>
+        ) : lastFilledPoint === null ? (
           <p className="text-muted text-sm">Nenhum ponto preenchido ainda.</p>
         ) : (
           <p className="text-muted text-sm">
@@ -136,7 +148,12 @@ export function PointGrid({
           </div>
         )}
 
-        {gaps.length === 0 ? (
+        {/*
+            "até aqui" is the whole of this line: it reports on the stretch
+            already covered, and a finished book has no stretch left for a hole
+            to appear in. A hole that does exist is still named below.
+          */}
+        {complete ? null : gaps.length === 0 ? (
           <p className="text-faint text-xs leading-relaxed">
             Sem buraco na sequência até aqui.
           </p>

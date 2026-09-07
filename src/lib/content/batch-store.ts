@@ -297,7 +297,12 @@ function isPending(page: StoredPage): boolean {
   );
 }
 
+/** The pages of the batch still waiting, for the resume card. */
+export function pendingPages(batch: StoredBatch): readonly StoredPage[] {
+  return batch.pages.filter(isPending);
+}
+
 /** How many pages of the batch are still waiting, for the resume card. */
 export function pendingCount(batch: StoredBatch): number {
-  return batch.pages.filter(isPending).length;
+  return pendingPages(batch).length;
 }
