@@ -422,6 +422,7 @@ mudar. Dois encolheram o bastante para valer nota.
 | `TABLE_COLUMN_GAP` 54      | dentro até 17,5px, entre desde 201,5px     | dentro até 39,5px, entre desde 68,5px       |
 | `TABLE_LINE_TOLERANCE` .64 | 74 palavras a até 0,35, linhas a 1,72      | 211 palavras a até 0,39, linhas a 0,89      |
 | `FUSED_WORD_GAP` 6         | dentro até 5px, entre desde 8px            | dentro até 4,5px, entre desde **7,5px**     |
+| `TABLE_STEM_HEIGHT` 1,75   | 2 hastes, letras até 0,96, sem colchete    | 6 hastes, letras até 0,96, colchetes 2,57+  |
 
 Os que encolheram:
 
@@ -436,6 +437,25 @@ Os que encolheram:
   livro 1, e o menor vão entre palavras é 7,5px no livro 2. O corte em 6 fica dentro dele, mas
   contra os 49px de vazio do `POINT_LABEL_REACH` é a mais apertada de todas. Rodar a ferramenta
   antes de ingerir o livro 3 não é zelo, é a condição para confiar nela.
+
+O mais novo:
+
+- **`TABLE_STEM_HEIGHT`.** Dentro de um painel alto o `|` chega de três coisas: o pronome "I",
+  que esta fonte desenha como haste sem serifa; o colchete que agrupa os sujeitos; e a régua que
+  fecha a caixa. O `tableContent` descartava as três, o que conserta as duas últimas e apaga a
+  primeira sem deixar marca: "I am" virava "am". Aqui o contexto não separa, ao contrário da prosa
+  e dos painéis comuns, porque o colchete também tem palavra à direita. A altura separa, com
+  `scripts/measure-pipe-tokens.ts` atrás dela, medida contra a mediana das palavras do próprio
+  painel e não contra a linha, porque no p060 o "I" está sozinho na linha dele. São 8 hastes nos
+  dois livros: seis letras entre 0,80 e 0,96 e dois colchetes em 2,57 e 3,27. O vazio de 1,61 é o
+  mais largo de todos os desta tabela, e as duas imagens foram abertas e conferidas.
+
+Fora da tabela porque não é limiar: `TABLE_SECOND_PAGE_SEGMENTATION` 11 é o segundo modo de
+segmentação com que um painel alto é relido, unido ao primeiro por posição. Medido com
+`scripts/measure-table-second-pass.ts` nos 17 painéis altos: o psm 6 recupera 27 pronomes e traz
+3 "|" junto, o psm 4 recupera 24 e traz 3, o psm 11 recupera 24 e não traz nada. No p056, onde
+faltavam he, it e we, recupera exatamente os três; no p059, que já estava certo, não acrescenta
+nada.
 
 Os números do livro 2 aqui foram medidos com o tesseract.js do projeto, e não com a baseline do
 CLI que a `constants.ts` cita; as duas populações caem no mesmo lugar, com contagens próximas mas

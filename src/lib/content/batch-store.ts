@@ -1,4 +1,5 @@
 import type { BlockKind } from "@/lib/extraction/classify";
+import type { PointStart } from "./unread-points";
 
 /**
  * The reading of an upload, kept on the teacher's machine.
@@ -70,6 +71,16 @@ export type StoredPage = {
   }[];
   readonly unsupported: "revision_exercise" | null;
   readonly refused: boolean;
+  /**
+   * Where the teacher said a point the margin reader missed begins.
+   *
+   * Stored because it is an answer and not a derivation: nothing on the page
+   * can produce it again. Without it a reload puts the same question back on a
+   * page that was already answered, and the blocks it placed go back to being
+   * unfiled, which is the one state that blocks a page from being written at
+   * all.
+   */
+  readonly pointStarts: readonly PointStart[];
   readonly blocks: readonly StoredBlock[];
   /** Points already written from this page, so a reload knows what is done. */
   readonly savedPoints: readonly number[];
@@ -108,12 +119,14 @@ const STORE = "batches";
  * page before, and reads a LESSON header as covering a point printed on the
  * other side of it; version 5 split that point into the two questions it was
  * answering at once, so a restored page knows whether anything precedes it at
- * all. A batch written by an older
+ * all; version 6 added the teacher's answer to where a point the margin reader
+ * missed begins, which nothing on the page can derive again and which a page
+ * cannot be written without. A batch written by an older
  * version has none of them, so upgrading drops what is there rather than
  * restoring something that would file blocks under the wrong point, write them
  * under the wrong name, or call an unwritten edit finished.
  */
-const VERSION = 5;
+const VERSION = 6;
 
 /*
  * Shown when another tab is holding the database at its old version.

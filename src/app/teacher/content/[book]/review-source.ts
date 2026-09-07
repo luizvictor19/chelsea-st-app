@@ -15,6 +15,14 @@ import type {
   Placement,
 } from "../../../../lib/extraction/reconcile.ts";
 import type { Band, Bitmap } from "../../../../lib/extraction/types.ts";
+import {
+  asksForPoint,
+  type PageQuestion,
+} from "../../../../lib/content/point-question.ts";
+import {
+  startPlacements,
+  type PointStart,
+} from "../../../../lib/content/unread-points.ts";
 
 /**
  * The batch as the review screen works on it.
@@ -64,6 +72,14 @@ export type ReviewSourcePage = PageOpening & {
   }[];
   readonly unsupported: "revision_exercise" | null;
   readonly refused: boolean;
+  /**
+   * Where the teacher said a point the margin reader missed begins.
+   *
+   * Empty on a batch just read: it is an answer, and nobody has been asked yet.
+   * A restored batch brings back whatever was answered before the reload, which
+   * is what keeps an answered page answered.
+   */
+  readonly pointStarts: readonly PointStart[];
   readonly blocks: readonly ReviewBlock[];
   /** Points already written from this page, so a resumed batch knows. */
   readonly savedPoints: readonly number[];
@@ -100,6 +116,8 @@ export function fromResolved(
     disputes: page.disputes,
     unsupported: page.extraction.unsupported,
     refused: isRefused(page.extraction),
+    // Nobody has been asked yet.
+    pointStarts: [],
     blocks: reviewOrder(page.extraction.blocks).map((block) => ({
       kind: block.kind,
       content: block.content,
@@ -138,6 +156,7 @@ export function fromStored(page: StoredPage): ReviewSourcePage {
     disputes: page.disputes,
     unsupported: page.unsupported,
     refused: page.refused,
+    pointStarts: page.pointStarts,
     blocks: page.blocks.map((block) => ({
       kind: block.kind,
       content: block.content,
@@ -151,12 +170,22 @@ export function fromStored(page: StoredPage): ReviewSourcePage {
   };
 }
 
-/** The page as it goes into the browser's database, images left behind. */
+/**
+ * The page as it goes into the browser's database, images left behind.
+ *
+ * The draft's side of it arrives as one object rather than as a row of
+ * positional arguments. There are four of them now and three are a list or a
+ * flag, which is exactly the shape where swapping two costs nothing at the
+ * compiler and everything at the teacher's next reload.
+ */
 export function toStored(
   page: ReviewSourcePage,
-  blocks: readonly StoredBlock[],
-  savedPoints: readonly number[],
-  changedSinceSaving: boolean,
+  draft: {
+    readonly blocks: readonly StoredBlock[];
+    readonly savedPoints: readonly number[];
+    readonly changedSinceSaving: boolean;
+    readonly pointStarts: readonly PointStart[];
+  },
 ): StoredPage {
   return {
     id: page.id,
@@ -174,9 +203,10 @@ export function toStored(
     disputes: page.disputes,
     unsupported: page.unsupported,
     refused: page.refused,
-    blocks,
-    savedPoints,
-    changedSinceSaving,
+    pointStarts: draft.pointStarts,
+    blocks: draft.blocks,
+    savedPoints: draft.savedPoints,
+    changedSinceSaving: draft.changedSinceSaving,
   };
 }
 
@@ -190,22 +220,42 @@ export function toStored(
  * while two are written, and the check for "this point already holds content"
  * would miss the one belonging to the page before and replace its work.
  */
-function openingTarget(page: ReviewSourcePage): readonly number[] {
-  if (page.openingPoint === null || page.placements.length === 0) {
+function openingTarget(
+  page: ReviewSourcePage,
+  placements: readonly Placement[],
+): readonly number[] {
+  if (page.openingPoint === null || placements.length === 0) {
     return [];
   }
   const writesThere = page.blocks.some(
-    (block) =>
-      pointForBlock(page.placements, block.top, page) === page.openingPoint,
+    (block) => pointForBlock(placements, block.top, page) === page.openingPoint,
   );
   return writesThere ? [page.openingPoint] : [];
 }
 
-/** Every number the page files a block under, as the batch settled it. */
-function settledNumbers(page: ReviewSourcePage): readonly number[] {
-  return [...new Set([...openingTarget(page), ...page.points])].sort(
-    (a, b) => a - b,
+/**
+ * Every number the page files a block under.
+ *
+ * The answers to a point the margin reader missed are placements like any
+ * other, and they are counted here: a page that carries only a 7 and was told
+ * point 6 begins at its second block writes 5, 6 and 7, and a heading naming
+ * only the 7 would be describing a different page than the one being written.
+ */
+function settledNumbers(
+  page: ReviewSourcePage,
+  starts: readonly PointStart[] = page.pointStarts,
+): readonly number[] {
+  const answered = startPlacements(starts);
+  const placements = [...page.placements, ...answered].sort(
+    (a, b) => a.y - b.y,
   );
+  return [
+    ...new Set([
+      ...openingTarget(page, placements),
+      ...page.points,
+      ...answered.map((placement) => placement.number),
+    ]),
+  ].sort((a, b) => a - b);
 }
 
 /**
@@ -296,6 +346,43 @@ export function lessonIsThePageBefores(
   return opensAfterItsPoint(page, pointNumber);
 }
 
+/**
+ * Whether this page is the teacher's to work on at all.
+ *
+ * A second scan, a kind the pipeline refuses, and an image that is not a page
+ * of this book are all the same answer to every question the screen asks: no.
+ * Written out at each place that asks, the three drifted apart, and a duplicate
+ * ended up told "nothing of it will be written" and asked which point it was on
+ * the same screen. `stateOf` says which of the three it is, because the rail
+ * names them differently; everything else only needs this.
+ */
+export function isWritable(page: ReviewSourcePage): boolean {
+  return (
+    page.duplicateOf === null && page.unsupported === null && !page.refused
+  );
+}
+
+/** The page's side of the point question, which does not change while typing. */
+export function questionOf(page: ReviewSourcePage): PageQuestion {
+  return {
+    points: page.points,
+    inheritedPoint: page.inheritedPoint,
+    disputeCandidates: disputeCandidates(page),
+  };
+}
+
+/**
+ * Whether the screen puts the point question to the teacher.
+ *
+ * Three things in order, and the first is the one that was missing: a page
+ * nobody may write is asked nothing, however little its margin said. Then a
+ * page already written, which has had its answer. Only then the question
+ * itself, which is about the page and never about what has been typed into it.
+ */
+export function asksThePoint(page: ReviewSourcePage, saved: boolean): boolean {
+  return isWritable(page) && !saved && asksForPoint(questionOf(page));
+}
+
 /** The candidates the batch could not choose between, as one sorted list. */
 export function disputeCandidates(page: ReviewSourcePage): readonly number[] {
   return [
@@ -316,11 +403,12 @@ export function writtenNumbers(
   page: ReviewSourcePage,
   target: number | null,
   continuation: boolean,
+  starts: readonly PointStart[] = page.pointStarts,
 ): readonly number[] {
   if (continuation) {
     return target === null ? [] : [target];
   }
-  const settled = settledNumbers(page);
+  const settled = settledNumbers(page, starts);
   if (target === null || settled.includes(target)) {
     return settled;
   }
@@ -331,6 +419,7 @@ export function headingFor(
   page: ReviewSourcePage,
   target: number | null,
   continuation: boolean,
+  starts: readonly PointStart[] = page.pointStarts,
 ): string {
   if (page.unsupported !== null) {
     return "Exercício de revisão, ainda não suportado";
@@ -349,11 +438,25 @@ export function headingFor(
   if (continuation) {
     return `Continuação do ponto ${target}`;
   }
-  const numbers = writtenNumbers(page, target, continuation);
+  const numbers = writtenNumbers(page, target, continuation, starts);
   if (numbers.length > 1) {
-    return `Pontos ${numbers.join(" e ")}`;
+    return `Pontos ${listOf(numbers)}`;
   }
   return `Ponto ${numbers[0] ?? target}`;
+}
+
+/**
+ * "117 e 118", "5, 6 e 7".
+ *
+ * A page could only ever write two points until it could be told where a point
+ * the reader missed begins; now it can write three, and "5 e 6 e 7" is not
+ * Portuguese.
+ */
+function listOf(numbers: readonly number[]): string {
+  if (numbers.length < 2) {
+    return String(numbers[0] ?? "");
+  }
+  return `${numbers.slice(0, -1).join(", ")} e ${numbers[numbers.length - 1]}`;
 }
 
 /** The same, short enough for the rail. */
@@ -361,6 +464,7 @@ function shortPoints(
   page: ReviewSourcePage,
   target: number | null,
   continuation: boolean,
+  starts: readonly PointStart[],
 ): string {
   if (target === null) {
     return "sem número";
@@ -369,9 +473,9 @@ function shortPoints(
     return `continuação do ponto ${target}`;
   }
   // The same numbers the heading names, so the rail and the page agree.
-  const numbers = writtenNumbers(page, target, continuation);
+  const numbers = writtenNumbers(page, target, continuation, starts);
   if (numbers.length > 1) {
-    return numbers.join(" e ");
+    return listOf(numbers);
   }
   return `ponto ${numbers[0] ?? target}`;
 }
@@ -383,6 +487,7 @@ export function summaryFor({
   target,
   continuation,
   flagged,
+  starts = page.pointStarts,
   changedSinceSaving = false,
   alreadyInDatabase = false,
 }: {
@@ -392,6 +497,8 @@ export function summaryFor({
   continuation: boolean;
   /** Blocks the extraction is unsure about, which is what to look at first. */
   flagged: number;
+  /** Where the teacher placed a point the margin reader missed, if anywhere. */
+  starts?: readonly PointStart[];
   /**
    * The page was written and then edited, so the database is behind the screen.
    *
@@ -419,9 +526,9 @@ export function summaryFor({
     case "needs-answer":
       return "precisa do ponto";
     case "saved":
-      return `${shortPoints(page, target, continuation)} · gravado`;
+      return `${shortPoints(page, target, continuation, starts)} · gravado`;
     default: {
-      const short = shortPoints(page, target, continuation);
+      const short = shortPoints(page, target, continuation, starts);
       if (changedSinceSaving) {
         return `${short} · alteração não gravada`;
       }
@@ -431,7 +538,12 @@ export function summaryFor({
       if (flagged === 0) {
         return short;
       }
-      return `${short} · ${flagged} ${flagged === 1 ? "tabela" : "tabelas"}`;
+      // Not "tabela". The height flag was the only one for a while, so the rail
+      // could name the block by the reason it was flagged and be right. It is
+      // not the only one any more: a vocabulary panel or an explanation holding
+      // a character the book cannot print is flagged too, and calling that a
+      // table sends the teacher looking for a table the page does not have.
+      return `${short} · ${flagged} ${flagged === 1 ? "bloco a conferir" : "blocos a conferir"}`;
     }
   }
 }

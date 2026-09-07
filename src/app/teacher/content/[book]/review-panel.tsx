@@ -11,12 +11,7 @@ import {
 
 import type { StoredPage } from "@/lib/content/batch-store";
 import { lessonForPage, type LessonRange } from "@/lib/content/lesson-range";
-import {
-  asksForPoint,
-  canConfirm,
-  chosenPoint,
-  type PageQuestion,
-} from "@/lib/content/point-question";
+import { canConfirm, chosenPoint } from "@/lib/content/point-question";
 import {
   initialFocus,
   nextAfter,
@@ -24,6 +19,7 @@ import {
   type PageState,
 } from "@/lib/content/review-navigation";
 import type { BlockKind } from "@/lib/extraction/classify";
+import { hasImpossibleCharacter } from "@/lib/extraction/impossible-characters";
 import {
   columnCount,
   parseTable,
@@ -36,6 +32,14 @@ import {
   type TableSection,
 } from "@/lib/extraction/grammar-table";
 import { pointForBlock, unplacedBlocks } from "@/lib/extraction/pipeline";
+import {
+  mayStartAt,
+  startPlacements,
+  unplacedCause,
+  unreadNumbers,
+  type PointStart,
+  type UnplacedCause,
+} from "@/lib/content/unread-points";
 import type { Placement } from "@/lib/extraction/reconcile";
 import { joinTerms, splitTerms } from "@/lib/extraction/terms";
 
@@ -49,11 +53,14 @@ import type { PageFailure } from "./book-workbench";
 import { CropCanvas } from "./crop-canvas";
 import { PageRail, type RailPage } from "./page-rail";
 import {
+  asksThePoint,
   authoredPoints,
   disputeCandidates,
   headerFor,
+  isWritable,
   lessonIsThePageBefores,
   headingFor,
+  questionOf,
   summaryFor,
   targetsOf,
   toStored,
@@ -73,12 +80,13 @@ const KIND_LABELS: Record<BlockKind, string> = {
 /**
  * What the header says when the extractor flagged the block.
  *
- * Only the table is ever flagged today, and the flag is the height of the box,
- * not anything about what came out of it. Since the columns started arriving
- * measured, saying they were not identified claims a failure that usually did
- * not happen. It asks for the teacher's eye instead, which is what the flag has
- * always meant: the table is the block that gets it wrong most often. A second
- * cause would get its own line here rather than a shared "check this".
+ * There are two causes now and they are worth different words. A table is
+ * flagged for the height of its box, not for anything about what came out of
+ * it: since the columns started arriving measured, saying they were not
+ * identified claims a failure that usually did not happen, so it asks for the
+ * teacher's eye instead. Any block can also be flagged for holding a character
+ * the book cannot print, and there the extraction does know what it found, so
+ * the label says so rather than asking for a general look.
  */
 const FLAGGED_LABELS: Record<BlockKind, string> = {
   vocabulary: "Vocabulário · confira",
@@ -118,6 +126,13 @@ type PageDraft = {
   continuation: boolean;
   /** Typed by the teacher when neither of the two above is known. */
   typedPoint: string;
+  /**
+   * Where the teacher said a point the margin reader missed begins.
+   *
+   * On the draft rather than derived, because nothing on the page can derive
+   * it, and persisted with the batch so a reload does not ask again.
+   */
+  pointStarts: PointStart[];
   /*
    * The lesson, when neither the upload nor the database knows it. Held on the
    * draft rather than in the input, so an answer given before the point number
@@ -159,6 +174,7 @@ function initialDraft(page: ReviewSourcePage): PageDraft {
     pointNumber: page.points[0] ?? null,
     continuation: page.points.length === 0 && page.disputes.length === 0,
     typedPoint: "",
+    pointStarts: [...page.pointStarts],
     typedLesson: "",
     blocks: page.blocks.map((block, index) => ({
       id: `${page.id}#${index}`,
@@ -174,15 +190,6 @@ function initialDraft(page: ReviewSourcePage): PageDraft {
     savedPoints: page.savedPoints,
     alreadyInDatabase: false,
     error: null,
-  };
-}
-
-/** The page's side of the question, which does not change while typing. */
-function questionOf(page: ReviewSourcePage): PageQuestion {
-  return {
-    points: page.points,
-    inheritedPoint: page.inheritedPoint,
-    disputeCandidates: disputeCandidates(page),
   };
 }
 
@@ -279,11 +286,23 @@ function targetPoints(page: ReviewSourcePage, draft: PageDraft): number[] {
   ].sort((a, b) => a - b);
 }
 
+/**
+ * The numbers this page writes to, with the height each one governs.
+ *
+ * Three sources, and they are all placements by the time they leave here: what
+ * the batch settled, the teacher's answer to a dispute, and the teacher's
+ * answer to where a point the margin reader missed begins. The last one is
+ * exactly what the reader would have produced had it read the number, which is
+ * why nothing downstream has to know it came from a person.
+ */
 function placementsFor(
   page: ReviewSourcePage,
   draft: PageDraft,
 ): readonly Placement[] {
-  const settled = page.placements;
+  const settled = [
+    ...page.placements,
+    ...startPlacements(draft.pointStarts),
+  ].sort((a, b) => a.y - b.y);
   const answer = draft.pointNumber;
   if (answer === null || settled.some((place) => place.number === answer)) {
     return settled;
@@ -324,7 +343,11 @@ function stateOf(page: ReviewSourcePage, draft: PageDraft): PageState {
   if (draft.saved) {
     return "saved";
   }
-  if (asksForPoint(questionOf(page))) {
+  // The same question the page itself puts, so the rail and the page cannot
+  // disagree about whether one is being asked. Redundant here, since the three
+  // branches above have already turned away everything asksThePoint refuses,
+  // and written this way so it stays true if they ever move.
+  if (asksThePoint(page, draft.saved)) {
     return "needs-answer";
   }
   // A continuation writes everything to one point and asks nothing of the
@@ -463,6 +486,7 @@ export function ReviewPanel({
             target,
             continuation: draft.continuation,
             flagged: draft.blocks.filter((block) => block.needsReview).length,
+            starts: draft.pointStarts,
             changedSinceSaving: changedSinceSaving(draft),
             alreadyInDatabase,
           }),
@@ -635,13 +659,18 @@ export function ReviewPanel({
         pages.map((page) => {
           const draft = drafts[page.id];
           return draft === undefined
-            ? toStored(page, [], page.savedPoints, page.changedSinceSaving)
-            : toStored(
-                page,
-                storedBlocks(draft),
-                draft.savedPoints,
-                changedSinceSaving(draft),
-              );
+            ? toStored(page, {
+                blocks: [],
+                savedPoints: page.savedPoints,
+                changedSinceSaving: page.changedSinceSaving,
+                pointStarts: page.pointStarts,
+              })
+            : toStored(page, {
+                blocks: storedBlocks(draft),
+                savedPoints: draft.savedPoints,
+                changedSinceSaving: changedSinceSaving(draft),
+                pointStarts: draft.pointStarts,
+              });
         }),
       );
     }, 300);
@@ -881,10 +910,10 @@ export function ReviewPanel({
     const unplaced = unplacedBlocks(draft.blocks, placements, page);
     if (unplaced.length > 0) {
       update(id, {
-        error:
-          `${unplaced.length === 1 ? "Um bloco" : `${unplaced.length} blocos`} desta` +
-          " página pertencem ao último ponto da página anterior, que não está" +
-          " neste envio. Suba a página anterior junto com esta.",
+        error: unplacedMessage(
+          unplacedCause(page, placements, draft.pointStarts),
+          unplaced.length,
+        ),
       });
       return;
     }
@@ -1107,6 +1136,77 @@ function FinishedReview({ onDiscard }: { onDiscard: () => void }) {
   );
 }
 
+/**
+ * The number printed highest on the page, which is the one a gap sits under.
+ *
+ * The lowest y and not index 0, and taken from the placements the page is
+ * working with rather than from `page.placements`: on a page whose only number
+ * came out of a dispute the teacher answered, `page.placements` is empty and
+ * the sentence rendered "Entre o ponto 5 e o , o livro imprime".
+ */
+function firstNumberOf(placements: readonly Placement[]): number | null {
+  if (placements.length === 0) {
+    return null;
+  }
+  return placements.reduce((lowest, placement) =>
+    placement.y < lowest.y ? placement : lowest,
+  ).number;
+}
+
+/**
+ * What the screen says about blocks it cannot file, one cause at a time.
+ *
+ * It used to say two in one sentence and lead with the wrong one. Every page
+ * holding an unfiled block was told the previous page was not in the upload,
+ * including the pages whose previous page is exactly where their preceding
+ * point came from, and the teacher was sent to upload something already there.
+ * `unplacedCause` decides which of the causes the page actually has; this only
+ * writes it down.
+ */
+function unplacedMessage(cause: UnplacedCause, unplaced: number): string {
+  const blocks =
+    unplaced === 1
+      ? "Um bloco desta página está impresso"
+      : `${unplaced} blocos desta página estão impressos`;
+  switch (cause.kind) {
+    case "unread-numbers":
+      return (
+        `${blocks} acima do primeiro número dela. Entre o ponto anterior e esse` +
+        ` número o livro imprime ${cause.numbers.length === 1 ? "o ponto" : "os pontos"}` +
+        ` ${cause.numbers.join(", ")}, que a leitura da margem não pegou, então` +
+        " esses blocos podem ser dele ou do ponto anterior. Nada desta página é" +
+        " gravado enquanto isso."
+      );
+    case "elsewhere":
+      return (
+        `${blocks} acima do primeiro número dela, e ${cause.numbers.length === 1 ? "o ponto" : "os pontos"}` +
+        ` ${cause.numbers.join(", ")} não ${cause.numbers.length === 1 ? "começa" : "começam"} nesta` +
+        " página. Então a página que abre esse ponto não está neste envio, ou os" +
+        " números da página anterior foram lidos errado. Suba a página que falta" +
+        " junto com esta. Nada desta página é gravado enquanto isso."
+      );
+    case "no-page-before":
+      return (
+        `${blocks} acima do primeiro número dela, então pertencem ao último ponto` +
+        " da página anterior, e não há página anterior neste envio. Suba a página" +
+        " anterior junto com esta e confirme de novo. Nada desta página é gravado" +
+        " enquanto isso."
+      );
+    default:
+      /*
+       * Nothing on the page names a cause, so this names none. There is a page
+       * before it, which is where its preceding point came from, so the one
+       * thing that must not be said here is that the previous page is missing.
+       */
+      return (
+        `${blocks} acima do primeiro número dela, e os números desta página e da` +
+        " anterior não fecham: nada na página diz a que ponto esses blocos" +
+        " pertencem. Confira o número no alto da página contra a anterior. Nada" +
+        " desta página é gravado enquanto isso."
+      );
+  }
+}
+
 const HEADER_ACTION =
   "text-faint hover:text-foreground -my-1 rounded-sm p-1 transition-colors";
 
@@ -1139,8 +1239,9 @@ function PageWork({
   const question = questionOf(page);
   const target = chosenPoint(question, draft);
   // Derived from the page, never from the answer: the question has to stay put
-  // while a number is being typed into it.
-  const asking = asksForPoint(question) && !draft.saved;
+  // while a number is being typed into it. And never put to a page nobody may
+  // write, which is the same page that is being told nothing of it is kept.
+  const asking = asksThePoint(page, draft.saved);
   const targets = targetPoints(page, draft);
   /*
    * Blocks the page cannot file, which is a question of its own.
@@ -1156,6 +1257,15 @@ function PageWork({
   const unplaced = draft.continuation
     ? []
     : unplacedBlocks(draft.blocks, placements, page);
+  /*
+   * The page's numbers without these answers: what it settled, plus a dispute
+   * the teacher resolved. The missing numbers are read off these and not off
+   * the merged set, so answering one does not make the question vanish before
+   * the others are answered, and an answer stays on screen to be changed.
+   */
+  const settled = placementsFor(page, { ...draft, pointStarts: [] });
+  const missing = unreadNumbers(page, settled);
+  const unreadCause = unplacedCause(page, settled, draft.pointStarts);
   /*
    * Points this page writes to whose lesson only the page before can give.
    *
@@ -1186,8 +1296,7 @@ function PageWork({
     unplaced.length === 0 &&
     lessonPending.length === 0 &&
     targets.every((number) => lessonOf(page, number, lessons, draft) !== null);
-  const writable =
-    page.duplicateOf === null && page.unsupported === null && !page.refused;
+  const writable = isWritable(page);
 
   return (
     <article className="flex min-w-0 flex-col">
@@ -1202,7 +1311,7 @@ function PageWork({
                 target === null && writable ? "text-accent" : ""
               }`}
             >
-              {headingFor(page, target, draft.continuation)}
+              {headingFor(page, target, draft.continuation, draft.pointStarts)}
             </h3>
             {shownLesson !== null && (
               <span className="text-muted text-sm">
@@ -1326,20 +1435,34 @@ function PageWork({
           </p>
         )}
 
-        {unplaced.length > 0 && writable && !draft.saved && (
-          <p className="border-accent max-w-[80ch] rounded-sm border px-4 py-3.5 text-sm leading-relaxed">
-            {unplaced.length === 1
-              ? "Um bloco desta página está impresso"
-              : `${unplaced.length} blocos desta página estão impressos`}{" "}
-            acima do primeiro número dela, então pertencem ao último ponto da
-            página anterior, e essa página não está neste envio
-            {page.precedingPoint === null
-              ? ", porque esta é a primeira dele"
-              : `, ou o número entre o ponto ${page.precedingPoint} e o ${placements[0]?.number} não foi lido`}
-            . Suba a página anterior junto com esta e confirme de novo. Nada
-            desta página é gravado enquanto isso.
-          </p>
-        )}
+        {(unplaced.length > 0 || missing.length > 0) &&
+          writable &&
+          !draft.saved && (
+            <>
+              {/*
+              The message and the question are not alternatives. A page whose
+              missing number the teacher said begins elsewhere still needs to
+              be told why it is held, and it still has to show the answer that
+              held it: rendered as an either/or, choosing "não começa nesta
+              página" made the question disappear and the answer unreachable.
+            */}
+              {unplaced.length > 0 && unreadCause.kind !== "unread-numbers" && (
+                <p className="border-accent max-w-[80ch] rounded-sm border px-4 py-3.5 text-sm leading-relaxed">
+                  {unplacedMessage(unreadCause, unplaced.length)}
+                </p>
+              )}
+              {missing.length > 0 && (
+                <UnreadPointQuestion
+                  page={page}
+                  draft={draft}
+                  numbers={missing}
+                  firstNumber={firstNumberOf(settled)}
+                  candidates={unplacedBlocks(draft.blocks, settled, page)}
+                  onUpdate={onUpdate}
+                />
+              )}
+            </>
+          )}
 
         {askingLesson && writable && (
           <LessonQuestion targets={targets} draft={draft} onUpdate={onUpdate} />
@@ -1413,6 +1536,140 @@ function LessonQuestion({
           className="border-rule bg-surface w-24 rounded-sm border px-2 py-1 font-mono text-sm"
         />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Where a point the margin reader missed begins.
+ *
+ * The page carries blocks above its first read number, and the book's own order
+ * says a number stands between that number and the point before. Nothing on the
+ * page decides which of the two each block belongs to, so the screen used to
+ * hold the page and tell the teacher to upload a page that was already
+ * uploaded. There was no way to answer: skip it, or confirm it wrong.
+ *
+ * A person can answer it by looking, so it is asked here. One question per
+ * missing number, answered by clicking the block that point starts at.
+ *
+ * The candidates are the blocks the page cannot file on its own, which is a
+ * list that does not move while it is being answered: computed from the page's
+ * own placements rather than from the draft, because an answer files blocks and
+ * would otherwise shorten the list the next question is choosing from.
+ *
+ * The blocks offered for a number never sit above the block chosen for a
+ * smaller one. The numbers run down the page in order, and an answer that broke
+ * that order would file blocks under a point they are printed above, silently,
+ * which is the misfiling the whole question exists to avoid.
+ */
+function UnreadPointQuestion({
+  page,
+  draft,
+  numbers,
+  firstNumber,
+  candidates,
+  onUpdate,
+}: {
+  page: ReviewSourcePage;
+  draft: PageDraft;
+  /** Every number the book prints above this page's first, answered or not. */
+  numbers: readonly number[];
+  /** The number those gaps sit under, for the sentence that explains them. */
+  firstNumber: number | null;
+  /**
+   * The blocks one of those numbers could start at.
+   *
+   * Worked out from the page's own numbers and not from these answers, so the
+   * list stands still while it is being answered: an answer files blocks, and a
+   * list that shrank under the teacher would take the choices for the next
+   * number away as the previous one was made.
+   */
+  candidates: readonly BlockDraft[];
+  onUpdate: (change: Partial<PageDraft>) => void;
+}) {
+  const answered = (value: number) =>
+    draft.pointStarts.find((start) => start.number === value) ?? null;
+
+  function answer(value: number, top: number | null) {
+    onUpdate({
+      pointStarts: [
+        ...draft.pointStarts.filter((start) => start.number !== value),
+        { number: value, top },
+      ].sort((a, b) => a.number - b.number),
+    });
+  }
+
+  const all = [...numbers].sort((a, b) => a - b);
+
+  return (
+    <div className="border-accent flex flex-col gap-4 rounded-sm border p-4">
+      <p className="text-accent font-mono text-[0.625rem] tracking-[0.14em] uppercase">
+        {all.length === 1
+          ? "Onde começa o ponto que a margem não deu?"
+          : "Onde começam os pontos que a margem não deu?"}
+      </p>
+      <p className="text-muted max-w-[80ch] text-sm leading-relaxed">
+        Esta página tem blocos impressos acima do primeiro número que a leitura
+        pegou. Entre o ponto {page.precedingPoint} e o {firstNumber}, o livro
+        imprime {all.length === 1 ? "o ponto" : "os pontos"} {all.join(", ")},
+        que a margem não deu. Clique no bloco onde cada um começa. Nada é
+        gravado antes disso.
+      </p>
+      {all.map((value) => {
+        const chosen = answered(value);
+        return (
+          <div key={value} className="flex flex-col gap-2">
+            <p className="text-sm font-bold">Ponto {value} começa em</p>
+            <div className="flex flex-col gap-1.5">
+              {candidates
+                // The numbers run down the page in order, so a block above one
+                // already chosen for a smaller number, or below one chosen for
+                // a bigger, would describe a page that cannot exist. Guarded
+                // only downwards, the same wrong answer was still reachable by
+                // answering the bigger number first.
+                .filter((block) =>
+                  mayStartAt(value, block.top, draft.pointStarts),
+                )
+                .map((block) => {
+                  const picked = chosen !== null && chosen.top === block.top;
+                  return (
+                    <button
+                      key={block.id}
+                      type="button"
+                      onClick={() => answer(value, block.top)}
+                      className={`rounded-sm border px-3 py-2 text-left text-[0.8125rem] transition-colors ${
+                        picked
+                          ? "bg-accent text-accent-foreground border-accent"
+                          : "border-rule hover:border-foreground hover:bg-surface"
+                      }`}
+                    >
+                      <span className="font-mono text-[0.625rem] uppercase opacity-70">
+                        {KIND_LABELS[block.kind]}
+                      </span>{" "}
+                      {block.content.slice(0, 90) || "(vazio)"}
+                    </button>
+                  );
+                })}
+              {/*
+                Without this the screen forces a wrong answer whenever the
+                number really is printed on another page. Choosing it places
+                nothing, so the page stays held and says why.
+              */}
+              <button
+                type="button"
+                onClick={() => answer(value, null)}
+                className={`rounded-sm border px-3 py-2 text-left text-[0.8125rem] transition-colors ${
+                  chosen !== null && chosen.top === null
+                    ? "bg-accent text-accent-foreground border-accent"
+                    : "border-rule hover:border-foreground hover:bg-surface"
+                }`}
+              >
+                Esse ponto não começa nesta página
+              </button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1544,7 +1801,11 @@ function BlockCard({
             flagged ? "text-accent" : "text-faint"
           }`}
         >
-          {flagged ? FLAGGED_LABELS[block.kind] : KIND_LABELS[block.kind]}
+          {!flagged
+            ? KIND_LABELS[block.kind]
+            : hasImpossibleCharacter(block.content, block.kind)
+              ? `${KIND_LABELS[block.kind]} · caractere que o livro não imprime`
+              : FLAGGED_LABELS[block.kind]}
         </span>
         <div className="flex items-center gap-2.5">
           <select

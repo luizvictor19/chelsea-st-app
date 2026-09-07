@@ -94,6 +94,10 @@ const dump = resolveBatch(extractions, RANGE).map((page) => ({
   blocks: page.extraction.blocks.map((block) => ({
     kind: block.kind,
     top: block.band.top,
+    // Dumped so "the flagged panels are still flagged" can be counted off two
+    // dumps like everything else here, instead of being deduced from the code
+    // that sets it. A deduction is not a measurement.
+    needsReview: block.needsReview,
     content: block.content.slice(0, 60),
     point: pointForBlock(page.placements, block.band.top, page),
   })),
@@ -102,8 +106,12 @@ const dump = resolveBatch(extractions, RANGE).map((page) => ({
 if (OUT !== "") {
   writeFileSync(OUT, JSON.stringify(dump, null, 1));
 }
+const blocks = dump.flatMap((page) => page.blocks);
+const tall = blocks.filter((block) => block.kind === "grammar_table");
 console.log(
-  `${FIXTURES}: ${dump.length} páginas, ` +
-    `${dump.reduce((total, page) => total + page.blocks.length, 0)} blocos` +
+  `${FIXTURES}: ${dump.length} páginas, ${blocks.length} blocos, ` +
+    `${blocks.filter((block) => block.point === null).length} sem ponto, ` +
+    `${tall.length} painéis altos (${tall.filter((block) => block.needsReview).length} marcados), ` +
+    `${blocks.filter((block) => block.needsReview).length} blocos marcados ao todo` +
     (OUT === "" ? "" : `, gravado em ${OUT}`),
 );

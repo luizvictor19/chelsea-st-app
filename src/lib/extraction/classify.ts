@@ -3,6 +3,7 @@ import {
   REVISION_EXERCISE_HEADING,
   TABLE_HEIGHT,
 } from "./constants.ts";
+import { hasImpossibleCharacter } from "./impossible-characters.ts";
 import type { Marker } from "./markers.ts";
 import type { Band } from "./types.ts";
 
@@ -188,8 +189,30 @@ export function classify(input: ClassifyInput): ClassifyResult {
       .map((marker) => marker.number),
     isDictation,
     slashRatio: ratio,
-    blocks: blocks.sort((a, b) => a.band.top - b.band.top),
+    blocks: blocks.map(flagArtefacts).sort((a, b) => a.band.top - b.band.top),
   };
+}
+
+/**
+ * Puts a block in front of the teacher when it holds a shape the book cannot
+ * print.
+ *
+ * Applied to every block after they are built rather than inside each branch,
+ * because the question is about content and has nothing to do with which of the
+ * six kinds produced it. Written per branch, the four that do not create their
+ * own flag today would each have had to remember, and the fifth added later
+ * would not have.
+ *
+ * The same mechanism as the height flag on a tall panel, and deliberately no
+ * more than that: it corrects nothing and claims to know nothing about what the
+ * right character was. See impossible-characters.ts for the set and for the 361
+ * blocks it was measured over.
+ */
+function flagArtefacts(block: ExtractedBlock): ExtractedBlock {
+  if (block.needsReview || !hasImpossibleCharacter(block.content, block.kind)) {
+    return block;
+  }
+  return { ...block, needsReview: true };
 }
 
 /**

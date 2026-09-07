@@ -2,14 +2,20 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  asksThePoint,
+  fromStored,
+  toStored,
   authoredPoints,
   headerFor,
   headingFor,
+  isWritable,
   lessonIsThePageBefores,
+  summaryFor,
   targetsOf,
   writtenNumbers,
   type ReviewSourcePage,
 } from "./review-source.ts";
+import type { PointStart } from "../../../../lib/content/unread-points.ts";
 
 function page(overrides: Partial<ReviewSourcePage> = {}): ReviewSourcePage {
   return {
@@ -29,6 +35,7 @@ function page(overrides: Partial<ReviewSourcePage> = {}): ReviewSourcePage {
     refused: false,
     blocks: [],
     savedPoints: [],
+    pointStarts: [],
     changedSinceSaving: false,
     hasImage: true,
     ...overrides,
@@ -238,5 +245,167 @@ describe("writtenNumbers", () => {
       headingFor(unresolved, null, false),
       "Número do ponto não resolvido",
     );
+  });
+});
+
+describe("what the screen may ask of a page", () => {
+  /** A page with nothing on it to say which point it is. */
+  const unanswered = { points: [], placements: [], inheritedPoint: null };
+
+  test("a second scan is not asked which point it is", () => {
+    // The bug this pins: the page said "nothing of it will be written" and
+    // then, directly under that, asked which point it was. Only one of the two
+    // can be true, and it is the first: a re-upload is not the teacher's to
+    // answer, whatever its numbers did or did not say.
+    const second = page({ ...unanswered, duplicateOf: "p116.png" });
+    assert.equal(asksThePoint(second, false), false);
+    assert.equal(isWritable(second), false);
+  });
+
+  test("a refused image and a kind we do not read are not asked either", () => {
+    const photo = page({ ...unanswered, refused: true });
+    const exercise = page({ ...unanswered, unsupported: "revision_exercise" });
+    assert.equal(asksThePoint(photo, false), false);
+    assert.equal(asksThePoint(exercise, false), false);
+  });
+
+  test("an ordinary page with nothing to go on is still asked", () => {
+    // The question has to survive the precedence, or the pages that really need
+    // it stop being asked and are written to whatever number came nearest.
+    assert.equal(asksThePoint(page(unanswered), false), true);
+  });
+
+  test("a page already written is not asked again", () => {
+    assert.equal(asksThePoint(page(unanswered), true), false);
+  });
+
+  test("a page whose number the batch settled is not asked at all", () => {
+    assert.equal(asksThePoint(page(), false), false);
+  });
+});
+
+describe("summaryFor", () => {
+  const waiting = (flagged: number) =>
+    summaryFor({
+      page: page(),
+      state: "waiting",
+      target: 117,
+      continuation: false,
+      flagged,
+    });
+
+  test("says nothing extra when nothing is flagged", () => {
+    assert.equal(waiting(0), "ponto 117");
+  });
+
+  test("names blocks, not tables", () => {
+    // The height flag used to be the only one, so the rail called every flagged
+    // block a table. Since a vocabulary panel or an explanation can be flagged
+    // for holding a character the book cannot print, that sent the teacher
+    // looking for a table that is not on the page.
+    assert.equal(waiting(1), "ponto 117 · 1 bloco a conferir");
+    assert.equal(waiting(3), "ponto 117 · 3 blocos a conferir");
+  });
+});
+
+describe("a point the margin reader missed, once the teacher places it", () => {
+  /*
+   * The real book 1 page: 6 and 7 printed in the margin, only the 7 read. Six
+   * blocks above it, the first of them printed under point 5 and the rest under
+   * the 6. The heights are what scripts/dump-block-points.ts reports.
+   */
+  const unread = (starts: readonly PointStart[]) =>
+    page({
+      id: "Screenshot From 2026-09-05 17-29-56.png",
+      points: [7],
+      placements: [{ number: 7, y: 1008 }],
+      precedingPoint: 5,
+      openingPoint: 5,
+      lessonNumber: 1,
+      pointStarts: starts,
+      blocks: [65, 320, 405, 758, 839, 913, 1090, 1209].map((top) => ({
+        kind: "vocabulary" as const,
+        content: "x",
+        needsReview: false,
+        crop: null,
+        top,
+      })),
+    });
+
+  test("unanswered, the page names only the number it carries", () => {
+    // Everything above the 7 is unfiled, so the page opens in no point yet and
+    // the heading must not promise one.
+    assert.deepEqual(targetsOf(unread([])), [7]);
+    assert.equal(headingFor(unread([]), 7, false), "Ponto 7");
+  });
+
+  test("answered, the page names all three points it writes", () => {
+    const answered = unread([{ number: 6, top: 320 }]);
+    assert.deepEqual(targetsOf(answered), [5, 6, 7]);
+    assert.equal(headingFor(answered, 7, false), "Pontos 5, 6 e 7");
+  });
+
+  test("placing the point at the first block leaves nothing for the one before", () => {
+    const answered = unread([{ number: 6, top: 65 }]);
+    assert.deepEqual(targetsOf(answered), [6, 7]);
+    assert.equal(headingFor(answered, 7, false), "Pontos 6 e 7");
+  });
+
+  test('"not on this page" writes nothing new', () => {
+    const answered = unread([{ number: 6, top: null }]);
+    assert.deepEqual(targetsOf(answered), [7]);
+  });
+
+  test("the rail says the same numbers as the heading", () => {
+    assert.equal(
+      summaryFor({
+        page: unread([{ number: 6, top: 320 }]),
+        state: "waiting",
+        target: 7,
+        continuation: false,
+        flagged: 0,
+        starts: [{ number: 6, top: 320 }],
+      }),
+      "5, 6 e 7",
+    );
+  });
+});
+
+describe("the batch round-trip", () => {
+  test("the unread-point answer survives being stored and read back", () => {
+    // The answer is the one thing on this screen nothing can derive again. A
+    // reload that dropped it would put the same question back on an answered
+    // page and unfile the blocks it had placed.
+    const answered = page({
+      points: [7],
+      placements: [{ number: 7, y: 1008 }],
+      precedingPoint: 5,
+      openingPoint: 5,
+      pointStarts: [
+        { number: 6, top: 320 },
+        { number: 5, top: null },
+      ],
+    });
+    const stored = toStored(answered, {
+      blocks: [],
+      savedPoints: [],
+      changedSinceSaving: false,
+      pointStarts: answered.pointStarts,
+    });
+    assert.deepEqual(stored.pointStarts, [
+      { number: 6, top: 320 },
+      { number: 5, top: null },
+    ]);
+    assert.deepEqual(fromStored(stored).pointStarts, answered.pointStarts);
+  });
+
+  test("a batch just read has been asked nothing yet", () => {
+    const stored = toStored(page(), {
+      blocks: [],
+      savedPoints: [],
+      changedSinceSaving: false,
+      pointStarts: [],
+    });
+    assert.deepEqual(fromStored(stored).pointStarts, []);
   });
 });

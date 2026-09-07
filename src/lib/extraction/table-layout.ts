@@ -1,4 +1,8 @@
-import { TABLE_COLUMN_GAP, TABLE_LINE_TOLERANCE } from "./constants.ts";
+import {
+  TABLE_COLUMN_GAP,
+  TABLE_LINE_TOLERANCE,
+  TABLE_STEM_HEIGHT,
+} from "./constants.ts";
 import {
   cleanCell,
   serializeTable,
@@ -25,7 +29,7 @@ import type { OcrWord } from "./types.ts";
  * @param scale how much the crop was enlarged before reading
  */
 export function tableContent(words: readonly OcrWord[], scale = 1): string {
-  const placed = words
+  const read = words
     .map((word) => ({
       text: word.text.trim(),
       left: word.x / scale,
@@ -33,10 +37,36 @@ export function tableContent(words: readonly OcrWord[], scale = 1): string {
       middle: (word.y + word.height / 2) / scale,
       height: word.height / scale,
     }))
-    // The printed vertical rule is read as "|" often enough to matter, and "|"
-    // is the column boundary of the stored form: kept, the rule would come back
-    // as a boundary of ours, in the middle of a cell.
-    .filter((word) => word.text !== "" && !isRule(word.text));
+    .filter((word) => word.text !== "");
+
+  /*
+   * How tall a line of type is in this panel, from the panel's own text.
+   *
+   * The stems are left out of it, since they are the thing being measured
+   * against it, and the tall ones would drag the yardstick up towards
+   * themselves. The panel and not the line, because a stem can be alone on its
+   * line with nothing beside it to compare against, which is how the "I" of
+   * p060 is printed.
+   */
+  const body = median(
+    read.filter((word) => !isStem(word.text)).map((word) => word.height),
+  );
+
+  const placed = read
+    // A stem the height of the type is the pronoun "I", which this face draws
+    // with no serif and no crossbar. Dropped with the furniture, as it was,
+    // "I am" reached the teacher as "am" and nothing on the screen said a word
+    // had gone. See TABLE_STEM_HEIGHT for the two populations.
+    .map((word) =>
+      isStem(word.text) && word.height <= body * TABLE_STEM_HEIGHT
+        ? { ...word, text: "I" }
+        : word,
+    )
+    // What is left of them is the panel's own furniture: the bracket holding a
+    // group of subjects together and the rule closing the box. "|" is the
+    // column boundary of the stored form, so either would come back as a
+    // boundary of ours, in the middle of a cell.
+    .filter((word) => !isStem(word.text));
 
   if (placed.length === 0) {
     return "";
@@ -59,12 +89,11 @@ export function tableContent(words: readonly OcrWord[], scale = 1): string {
       previousRight = word.right;
     }
     /*
-     * Every cell through the same cleaning the editor uses. The rule is read as
-     * a whole token often enough to be dropped above, but it also fuses to the
-     * glyph beside it, as in "do|" and "|-", and a "|" left anywhere inside a
-     * cell is
-     * read back as a column boundary of ours, which splits the cell and shifts
-     * every column after it.
+     * Every cell through the same cleaning the editor uses. The furniture is a
+     * token of its own often enough to be dropped above, but it also fuses to
+     * the glyph beside it, as in "do|" and "|-", and a "|" left anywhere inside
+     * a cell is read back as a column boundary of ours, which splits the cell
+     * and shifts every column after it.
      */
     const cleaned = cells
       .map((cell) => cleanCell(cell.join(" ")))
@@ -78,8 +107,8 @@ export function tableContent(words: readonly OcrWord[], scale = 1): string {
   return serializeTable(block);
 }
 
-/** A token that is nothing but the table's own rule. */
-function isRule(text: string): boolean {
+/** A token that is nothing but a bare vertical stem, whatever drew it. */
+function isStem(text: string): boolean {
   return /^\|+$/.test(text);
 }
 
