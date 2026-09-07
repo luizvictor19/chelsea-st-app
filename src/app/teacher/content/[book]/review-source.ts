@@ -362,6 +362,102 @@ export function isWritable(page: ReviewSourcePage): boolean {
   );
 }
 
+/**
+ * Whether a page opens already written, before the teacher touches anything.
+ *
+ * Written once and edited since is not written: the edit still has to reach the
+ * database, and a restore that called it saved buried it a second time. Every
+ * other question the screen asks about a restored page hangs off this one, so
+ * it is here where it can be tested against a real round trip rather than
+ * inline in the screen's initial state.
+ */
+export function isSavedOnOpening(page: ReviewSourcePage): boolean {
+  return page.savedPoints.length > 0 && !page.changedSinceSaving;
+}
+
+/**
+ * Whether the points this page writes may hold somebody else's work.
+ *
+ * The note it drives says that confirming will empty the point, including
+ * whatever another page put there, and it is worth saying: two pages can write
+ * to one point, and replacing is how the second one loses the first one's
+ * panel.
+ *
+ * It is not worth saying about a page's own work. A page that has already
+ * written these points in this batch knows it wrote them, and telling it that
+ * the content might be somebody else's is both false and frightening, over
+ * content the teacher put there five minutes ago. Restored batches are where
+ * this bit: `savedPoints` comes back with the page and nothing was consulting
+ * it.
+ */
+export function mayHoldAnotherPagesWork(page: ReviewSourcePage): boolean {
+  return page.savedPoints.length === 0;
+}
+
+/**
+ * Everything about a draft that decides what gets written.
+ *
+ * Structural on purpose: the screen's draft carries more than this, and the
+ * rest of it, the error showing, the flag about a point already holding
+ * content, is the screen talking to itself.
+ */
+export type WrittenShape = {
+  readonly blocks: readonly {
+    readonly kind: BlockKind;
+    readonly content: string;
+    readonly top: number;
+  }[];
+  readonly pointNumber: number | null;
+  readonly continuation: boolean;
+  readonly typedPoint: string;
+  readonly typedLesson: string;
+  readonly pointStarts: readonly PointStart[];
+};
+
+/**
+ * Whether two drafts would write the same thing.
+ *
+ * Confirming has to know whether the teacher typed into the page while the
+ * write was in flight, because calling a page saved when it has been edited
+ * since buries that edit. It compared the two drafts by object identity, which
+ * answers a different question: whether anything at all made a new object.
+ *
+ * Something does. The screen asks the database which points already hold
+ * content, and when that answer lands it puts a flag on every draft, so a save
+ * in flight came back to a draft it no longer recognised and called itself
+ * unsaved. It was then kept as "written and edited since", and on the next open
+ * the page was waiting again, the counter read zero written, and the question
+ * it had already answered was put to it a second time.
+ *
+ * So the comparison is over what would be written and nothing else.
+ */
+export function writesTheSame(a: WrittenShape, b: WrittenShape): boolean {
+  const sameBlocks =
+    a.blocks.length === b.blocks.length &&
+    a.blocks.every((block, at) => {
+      const other = b.blocks[at];
+      return (
+        block.kind === other.kind &&
+        block.content === other.content &&
+        block.top === other.top
+      );
+    });
+  const sameStarts =
+    a.pointStarts.length === b.pointStarts.length &&
+    a.pointStarts.every((start, at) => {
+      const other = b.pointStarts[at];
+      return start.number === other.number && start.top === other.top;
+    });
+  return (
+    sameBlocks &&
+    sameStarts &&
+    a.pointNumber === b.pointNumber &&
+    a.continuation === b.continuation &&
+    a.typedPoint === b.typedPoint &&
+    a.typedLesson === b.typedLesson
+  );
+}
+
 /** The page's side of the point question, which does not change while typing. */
 export function questionOf(page: ReviewSourcePage): PageQuestion {
   return {

@@ -8,10 +8,13 @@ import {
   authoredPoints,
   headerFor,
   headingFor,
+  isSavedOnOpening,
   isWritable,
+  mayHoldAnotherPagesWork,
   lessonIsThePageBefores,
   summaryFor,
   targetsOf,
+  writesTheSame,
   writtenNumbers,
   type ReviewSourcePage,
 } from "./review-source.ts";
@@ -407,5 +410,122 @@ describe("the batch round-trip", () => {
       pointStarts: [],
     });
     assert.deepEqual(fromStored(stored).pointStarts, []);
+  });
+});
+
+describe("a page that was answered and written, across a reload", () => {
+  /*
+   * The whole cycle the teacher goes through: the book 1 page carrying 6 and 7
+   * with only the 7 read, answered, confirmed, kept, and reopened. Every step
+   * uses the function the screen uses, so a break anywhere along it shows here
+   * rather than on the teacher's screen a week later.
+   */
+  const answered = page({
+    id: "Screenshot From 2026-09-05 17-29-56.png",
+    points: [7],
+    placements: [{ number: 7, y: 1008 }],
+    precedingPoint: 5,
+    openingPoint: 5,
+    lessonNumber: 1,
+    pointStarts: [{ number: 6, top: 320 }],
+  });
+
+  const reopened = fromStored(
+    toStored(answered, {
+      blocks: [],
+      savedPoints: [5, 6, 7],
+      changedSinceSaving: false,
+      pointStarts: answered.pointStarts,
+    }),
+  );
+
+  test("the answer about where point 6 starts is still there", () => {
+    assert.deepEqual(reopened.pointStarts, [{ number: 6, top: 320 }]);
+  });
+
+  test("the page still knows this batch wrote it", () => {
+    assert.deepEqual(reopened.savedPoints, [5, 6, 7]);
+    assert.equal(reopened.changedSinceSaving, false);
+  });
+
+  test("so it opens saved, and asks nothing again", () => {
+    // Both reported symptoms hang on this one boolean. False, the page goes
+    // back to "waiting": the unread-point question is put again to a page that
+    // answered it, the batch counter reads zero written, and the note about
+    // replacing somebody else's work appears over content this very batch put
+    // there five minutes ago.
+    assert.equal(isSavedOnOpening(reopened), true);
+  });
+
+  test("a page written and then edited is not saved, and keeps its points", () => {
+    const edited = fromStored(
+      toStored(answered, {
+        blocks: [],
+        savedPoints: [5, 6, 7],
+        changedSinceSaving: true,
+        pointStarts: answered.pointStarts,
+      }),
+    );
+    assert.equal(isSavedOnOpening(edited), false);
+    assert.deepEqual(edited.savedPoints, [5, 6, 7]);
+  });
+
+  test("a flag the screen sets on its own is not an edit", () => {
+    /*
+     * What made the page forget it had been written. Confirming compares the
+     * draft it wrote against the draft on screen when the answer comes back,
+     * and it compared them by object identity. The screen asks the database
+     * which points already hold content, and when that answer lands it puts an
+     * `alreadyInDatabase` flag on the drafts, which makes a new object out of
+     * every one of them. A save in flight while that landed came back to a
+     * draft it no longer recognised, called itself unsaved, and was kept as
+     * "written and edited since". On the next open the page was waiting again,
+     * the counter read zero written, and the question it had answered was put
+     * to it a second time.
+     */
+    const wrote = {
+      blocks: [{ kind: "vocabulary" as const, content: "on, under", top: 65 }],
+      pointNumber: 7,
+      continuation: false,
+      typedPoint: "",
+      typedLesson: "",
+      pointStarts: [{ number: 6, top: 320 }],
+    };
+    assert.equal(writesTheSame(wrote, { ...wrote }), true);
+    assert.equal(
+      writesTheSame(wrote, { ...wrote, blocks: [...wrote.blocks] }),
+      true,
+    );
+  });
+
+  test("a real edit is an edit", () => {
+    const wrote = {
+      blocks: [{ kind: "vocabulary" as const, content: "on, under", top: 65 }],
+      pointNumber: 7,
+      continuation: false,
+      typedPoint: "",
+      typedLesson: "",
+      pointStarts: [{ number: 6, top: 320 }],
+    };
+    assert.equal(
+      writesTheSame(wrote, {
+        ...wrote,
+        blocks: [{ ...wrote.blocks[0], content: "on, under, in" }],
+      }),
+      false,
+    );
+    assert.equal(
+      writesTheSame(wrote, { ...wrote, pointStarts: [{ number: 6, top: 65 }] }),
+      false,
+    );
+    assert.equal(writesTheSame(wrote, { ...wrote, pointNumber: 8 }), false);
+    assert.equal(writesTheSame(wrote, { ...wrote, blocks: [] }), false);
+  });
+
+  test("this batch's own writing is not somebody else's", () => {
+    // The note exists for a point another upload filled. A page that knows it
+    // wrote those points must not be warned about its own work.
+    assert.equal(mayHoldAnotherPagesWork(reopened), false);
+    assert.equal(mayHoldAnotherPagesWork(page()), true);
   });
 });

@@ -57,13 +57,16 @@ import {
   authoredPoints,
   disputeCandidates,
   headerFor,
+  isSavedOnOpening,
   isWritable,
   lessonIsThePageBefores,
+  mayHoldAnotherPagesWork,
   headingFor,
   questionOf,
   summaryFor,
   targetsOf,
   toStored,
+  writesTheSame,
   type ReviewCrop,
   type ReviewSourcePage,
 } from "./review-source";
@@ -186,7 +189,7 @@ function initialDraft(page: ReviewSourcePage): PageDraft {
     })),
     // Written once and edited since is not saved: the edit still has to reach
     // the database, and a restore that called it saved buried it again.
-    saved: page.savedPoints.length > 0 && !page.changedSinceSaving,
+    saved: isSavedOnOpening(page),
     savedPoints: page.savedPoints,
     alreadyInDatabase: false,
     error: null,
@@ -621,6 +624,11 @@ export function ReviewPanel({
             if (
               draft !== undefined &&
               !draft.saved &&
+              // Never over this batch's own writing. The note says the content
+              // may be another page's, and a page that has already written
+              // these points knows whose it is.
+              mayHoldAnotherPagesWork(page) &&
+              draft.savedPoints.length === 0 &&
               targets.length > 0 &&
               targets.every((number) => done.has(number))
             ) {
@@ -803,7 +811,11 @@ export function ReviewPanel({
         ...current,
         [id]: {
           ...draft,
-          saved: draft === writtenFrom,
+          // What would be written, not object identity. The screen puts its
+          // own flags on every draft when the database answers which points
+          // are filled, and a save in flight came back to a draft it no longer
+          // recognised and called itself unsaved.
+          saved: writesTheSame(draft, writtenFrom),
           savedPoints: written,
           // What the point holds is now what this page put there, so the
           // warning about replacing somebody else's work has nothing left to
