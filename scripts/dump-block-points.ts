@@ -98,7 +98,10 @@ const dump = resolveBatch(extractions, RANGE).map((page) => ({
     // dumps like everything else here, instead of being deduced from the code
     // that sets it. A deduction is not a measurement.
     needsReview: block.needsReview,
-    content: block.content.slice(0, 60),
+    // Whole, not a first line. This run is expected to change what a table
+    // panel holds, and "only the tables changed" is a claim about the end of a
+    // block's text as much as its start: a truncated dump cannot make it.
+    content: block.content,
     point: pointForBlock(page.placements, block.band.top, page),
   })),
 }));

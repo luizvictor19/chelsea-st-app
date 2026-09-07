@@ -41,8 +41,14 @@
  * anything downstream of the extraction, which a stored batch has already been
  * through. A bump costs the teacher one re-upload of a batch they had not
  * finished, and not bumping costs them a reading that is quietly wrong.
+ *
+ * 2: a grid panel's columns became the panel's own rather than each line's, so
+ * a row can now carry an empty cell where it skips a column, and a line laid
+ * across the panel is written as a heading instead of a row. Measured over the
+ * real fixtures, 13 of the 18 grid panels of the two books hold different
+ * content than they did at 1.
  */
-export const EXTRACTION_VERSION = 1;
+export const EXTRACTION_VERSION = 2;
 
 /** Normalisation width. Below this the margin digits stop resolving. */
 export const TARGET_WIDTH = 1100;

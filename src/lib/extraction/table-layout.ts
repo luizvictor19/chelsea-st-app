@@ -55,19 +55,30 @@ export function tableContent(words: readonly OcrWord[], scale = 1): string {
     return "";
   }
 
+  const lines = groupLines(placed, toleranceOf(placed)).map((line) =>
+    [...line].sort((a, b) => a.left - b.left),
+  );
+  const columns = panelColumns(lines);
   const rows: TableLine[] = [];
 
-  for (const line of groupLines(placed, toleranceOf(placed))) {
-    const ordered = [...line].sort((a, b) => a.left - b.left);
-    const cells: string[][] = [[ordered[0].text]];
-    let previousRight = ordered[0].right;
-    for (const word of ordered.slice(1)) {
-      if (word.left - previousRight >= TABLE_COLUMN_GAP) {
-        cells.push([word.text]);
-      } else {
-        cells[cells.length - 1].push(word.text);
+  for (const line of lines) {
+    /*
+     * A line that runs across the panel is one phrase, and is written as the
+     * heading it is. Assigned by x like any other it would be torn along the
+     * columns under it: "Present simple (positive)" came back as three cells
+     * with an empty one in the middle, which is a row the book does not have.
+     * See `spansPanel`.
+     */
+    if (spansPanel(line, columns)) {
+      const spanning = cleanCell(line.map((word) => word.text).join(" "));
+      if (spanning !== "") {
+        rows.push({ kind: "title", text: spanning });
       }
-      previousRight = word.right;
+      continue;
+    }
+    const cells: string[][] = columns.map(() => []);
+    for (const word of line) {
+      cells[columnAt(columns, word.left)].push(word.text);
     }
     /*
      * Every cell through the same cleaning the editor uses. The furniture is a
@@ -76,16 +87,158 @@ export function tableContent(words: readonly OcrWord[], scale = 1): string {
      * a cell is read back as a column boundary of ours, which splits the cell
      * and shifts every column after it.
      */
-    const cleaned = cells
-      .map((cell) => cleanCell(cell.join(" ")))
-      .filter((cell) => cell !== "");
-    if (cleaned.length > 0) {
+    const cleaned = cells.map((cell) => cleanCell(cell.join(" ")));
+    /*
+     * A cell empty at the end of a row is dropped and one empty inside it is
+     * kept. Inside, the emptiness is the information: it says which column the
+     * row skipped, and without it every cell after would shift left by one. At
+     * the end there is nothing to shift, the grid draws its width from its
+     * widest row either way, and `parseCells` drops trailing empties when it
+     * reads the block back, so writing them would not survive a round trip.
+     */
+    while (cleaned.length > 0 && cleaned[cleaned.length - 1] === "") {
+      cleaned.pop();
+    }
+    if (cleaned.some((cell) => cell !== "")) {
       rows.push({ kind: "row", cells: cleaned });
     }
   }
 
   const block: TableBlock = rows.length === 0 ? [] : [rows];
   return serializeTable(block);
+}
+
+/**
+ * Whether this line is one phrase laid across the panel rather than a row.
+ *
+ * The heading of a conjugation panel is printed as one line at the top, and its
+ * words fall wherever the phrase happens to reach: on p056 of book 2 it puts
+ * "Present" at 18, "simple" at 141 and "(positive)" at 258, over a grid whose
+ * columns start at 16, 113 and 171. Assigned word by word it comes apart into
+ * three cells, and the pairing the grid exists to show gains a row that is not
+ * one.
+ *
+ * Three things together say it is a phrase and not a row, and none of them is a
+ * threshold of its own:
+ *
+ *   1. the words form one uninterrupted run, with no gap inside it wide enough
+ *      to propose a column. A row of two cells has that gap by construction,
+ *      which is what made the column in the first place;
+ *   2. it starts in the panel's first column. "none", "nobody" and "not
+ *      anybody" are single runs too, and they are cells: they start in the
+ *      second column, and taking them there is the whole point of reading the
+ *      columns off the panel;
+ *   3. it reaches past the second column, so the assignment would in fact cut
+ *      it. A short run inside the first column is already one cell and needs no
+ *      rule.
+ *
+ * Measured over the 18 grid panels of both books: it fires on 8 lines and all 8
+ * are the panel's heading, so what it names is always a heading. It is not the
+ * whole population of headings, and is not meant to be. "To have", the heading
+ * of the panel at 868 of book 1, is short enough to end inside the first
+ * column, so nothing would have cut it and this leaves it alone as the one-cell
+ * row it already was. The rule answers "would the grid tear this line", which
+ * is the question the columns raise, and not "is this line a heading", which
+ * the body-size measurement failed to answer and this does not reopen.
+ */
+function spansPanel(
+  line: readonly Placed[],
+  columns: readonly number[],
+): boolean {
+  if (line.length === 0 || columns.length < 2) {
+    return false;
+  }
+  for (let index = 1; index < line.length; index += 1) {
+    if (line[index].left - line[index - 1].right >= TABLE_COLUMN_GAP) {
+      return false;
+    }
+  }
+  return (
+    columnAt(columns, line[0].left) === 0 &&
+    columnAt(columns, line[line.length - 1].left) > 0
+  );
+}
+
+/**
+ * Where the panel's columns start, in page pixels, left to right.
+ *
+ * The columns of a printed grid belong to the panel, not to a line of it. Cut
+ * line by line, a wide term and the glyph beside it can sit closer than
+ * TABLE_COLUMN_GAP and weld, while the lines above and below part at exactly
+ * that place: point 36 of book 1 read "question mark ?" as one cell because
+ * "question mark" is long, and the two rows under it found the same column
+ * without trouble. A line is not enough evidence about a column; the panel is.
+ *
+ * So the gap proposes and the panel decides. Every line is cut at
+ * TABLE_COLUMN_GAP, which is what keeps the second word of "full stop" from
+ * standing as a column of its own, and only the resulting starts are candidates.
+ * The candidates are then grouped across the whole panel, again at
+ * TABLE_COLUMN_GAP, and each group is one column of the grid. See
+ * `columnAt` for how a line that never proposed a column still lands in it.
+ *
+ * A group is placed at its leftmost candidate, which is also what bounds it: a
+ * candidate opens a new column when it is TABLE_COLUMN_GAP or more from the
+ * column already open, so every start that formed a group falls at or after its
+ * own column and never one to the left, and no group is wider than the gap.
+ */
+function panelColumns(
+  lines: readonly (readonly Placed[])[],
+): readonly number[] {
+  const starts: number[] = [];
+  for (const line of lines) {
+    if (line.length === 0) {
+      continue;
+    }
+    starts.push(line[0].left);
+    let previousRight = line[0].right;
+    for (const word of line.slice(1)) {
+      if (word.left - previousRight >= TABLE_COLUMN_GAP) {
+        starts.push(word.left);
+      }
+      previousRight = word.right;
+    }
+  }
+
+  const ordered = [...starts].sort((a, b) => a - b);
+  const columns: number[] = [];
+  for (const start of ordered) {
+    /*
+     * Against the column already open and not against the candidate before it.
+     * Compared against the predecessor the groups chain: starts at 16, 60 and
+     * 110 would collapse into one column at 16, though 110 is 94px away from
+     * it, and the two columns of every row under it would land in one cell.
+     * Anchored on the leftmost member a group can never be wider than the gap
+     * itself, which is what the grouping claims to be. It matters because the
+     * real columns are tight: p056 of book 2 has columns 58px apart against a
+     * 54px cut, so one stray candidate between two of them is all it takes.
+     */
+    if (
+      columns.length === 0 ||
+      start - columns[columns.length - 1] >= TABLE_COLUMN_GAP
+    ) {
+      columns.push(start);
+    }
+  }
+  return columns;
+}
+
+/**
+ * Which column a word belongs to, by where it starts.
+ *
+ * The last column that begins at or before the word, which is the whole of the
+ * assignment: a word inside a cell starts after its column and before the next,
+ * and a word the line-by-line cut had welded to the cell before it starts at
+ * the next column and is taken there. No threshold of its own, and no appeal to
+ * what the line did: the panel already said where the columns are.
+ */
+function columnAt(columns: readonly number[], left: number): number {
+  let at = 0;
+  for (let index = 1; index < columns.length; index += 1) {
+    if (columns[index] <= left) {
+      at = index;
+    }
+  }
+  return at;
 }
 
 /** A token that is nothing but a bare vertical stem, whatever drew it. */
