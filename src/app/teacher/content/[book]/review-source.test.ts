@@ -14,6 +14,7 @@ import {
   lessonIsThePageBefores,
   summaryFor,
   targetsOf,
+  termsOf,
   writesTheSame,
   writtenNumbers,
   type ReviewSourcePage,
@@ -544,5 +545,22 @@ describe("a page that was answered and written, across a reload", () => {
     // Point by point: a page that wrote 5 and 6 and stopped there says nothing
     // about who filled 8, which is the case the note exists for.
     assert.equal(mayHoldAnotherPagesWork(reopened, 8), true);
+  });
+
+  test("a term keeps the case the book printed it in", () => {
+    // Point 6 of book 1 prints Mr, Mrs, Jack and Anna. The terms were being
+    // lowercased on the way to vocabulary_items, which is the one place the
+    // printed spelling exists and the last one that can keep it. Nothing
+    // depended on the folding: `confirmPoint` finds an existing row with
+    // `ilike`, and the unique index in migration 0004 is on `lower(term)`, so
+    // one row per word is the database's guarantee either way.
+    assert.deepEqual(
+      termsOf([
+        { kind: "vocabulary", content: "Mr, Mrs, Jack, Anna" },
+        { kind: "explanation", content: "Ignored, Not a term" },
+        { kind: "vocabulary", content: "a day, what colour?" },
+      ]),
+      ["Mr", "Mrs", "Jack", "Anna", "a day", "what colour?"],
+    );
   });
 });
