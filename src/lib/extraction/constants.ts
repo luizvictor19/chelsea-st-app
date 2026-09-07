@@ -191,6 +191,34 @@ export const MARGIN_CHAIN_MINIMUM = 2;
  */
 export const POINT_LABEL_REACH = 47;
 
+/**
+ * The blank inside one token, in page pixels, above which the print had a space
+ * there and the engine welded two words into one.
+ *
+ * Tesseract decides word boundaries against the glyphs beside the gap, not
+ * against a width, so after a narrow stem it wants more space than after a
+ * round letter: on the grammar table of points 8 and 9 of book 1, "he is" is
+ * split at a printed 10px while "it is" at 9.5px and "I am" at 10.5px are not.
+ * Widening the printed space by hand, "it is" needs 13.5px before the engine
+ * will part it. Neither the segmentation mode nor the dictionary moves this;
+ * psm 3, 4, 6, preserve_interword_spaces, and a worker started with every dawg
+ * unloaded all return the same fused token.
+ *
+ * So the space is read back off the page instead of being argued with, by
+ * scripts/measure-fused-words.ts, over the 270 panels of both books:
+ *
+ *   - inside a word, 3258 blanks, the widest 5px in book 1 and 4.5px in book 2.
+ *   - between two words the engine did separate, 202 blanks, the narrowest 8px
+ *     in book 1 and 7.5px in book 2.
+ *
+ * The cut goes at 6, inside that void rather than on the edge of either
+ * population. Twelve tokens in 92 pages carry a blank of the second kind inside
+ * them. It is the tightest of the panel constants: 2.5px of void against the
+ * 49px behind POINT_LABEL_REACH, so a book printed tighter than these two is to
+ * be measured before it is ingested, not after.
+ */
+export const FUSED_WORD_GAP = 6;
+
 // --- Explanation lines -----------------------------------------------------
 
 /** Below this grey level a pixel counts as ink. */

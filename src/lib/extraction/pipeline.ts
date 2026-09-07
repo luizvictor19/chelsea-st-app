@@ -6,6 +6,7 @@ import {
   TABLE_HEIGHT,
 } from "./constants.ts";
 import { explanationLines, inkLines } from "./explanation-lines.ts";
+import { splitFusedWords } from "./fused-words.ts";
 import { boxLeft, crop, normalise, resize, shadedMask } from "./image.ts";
 import { findMarkers } from "./markers.ts";
 import { marginReadings, type MarginReading } from "./margin-numbers.ts";
@@ -105,9 +106,23 @@ export async function extractPage(
     // under the fixed segmentation. An ordinary one is a list of terms laid out
     // in columns, and is read with the mode that does not drop a single letter.
     const isTable = band.bottom - band.top > TABLE_HEIGHT;
-    const read = await reader.read(
+    /*
+     * Read, then parted where the engine welded two printed words into one.
+     * Before the two readers below rather than inside either, because both are
+     * about geometry the engine got right, the column that separates a term
+     * from the next and the one that separates a cell from the one beside it,
+     * and this is about geometry it got wrong. The panels are where the two
+     * populations behind FUSED_WORD_GAP were measured, so the rule is applied
+     * where it was measured and nowhere else: the prose lines and the
+     * explanations come off the full-page read, which has not been measured.
+     */
+    const read = splitFusedWords(
       enlarged,
-      isTable ? undefined : { pageSegmentation: BOX_PAGE_SEGMENTATION },
+      await reader.read(
+        enlarged,
+        isTable ? undefined : { pageSegmentation: BOX_PAGE_SEGMENTATION },
+      ),
+      BOX_READ_SCALE,
     );
     boxRegions.push({
       band,
