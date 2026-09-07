@@ -27,6 +27,7 @@ function page(overrides: Partial<StoredPage> = {}): StoredPage {
     blocks: [],
     savedPoints: [],
     changedSinceSaving: false,
+    pointStarts: [],
     ...overrides,
   };
 }

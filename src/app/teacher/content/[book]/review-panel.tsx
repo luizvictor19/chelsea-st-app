@@ -32,7 +32,12 @@ import {
   type TableSection,
 } from "@/lib/extraction/grammar-table";
 import { pointForBlock, unplacedBlocks } from "@/lib/extraction/pipeline";
-import { unplacedCause, type UnplacedCause } from "@/lib/content/unread-points";
+import {
+  startPlacements,
+  unplacedCause,
+  type PointStart,
+  type UnplacedCause,
+} from "@/lib/content/unread-points";
 import type { Placement } from "@/lib/extraction/reconcile";
 import { joinTerms, splitTerms } from "@/lib/extraction/terms";
 
@@ -119,6 +124,13 @@ type PageDraft = {
   continuation: boolean;
   /** Typed by the teacher when neither of the two above is known. */
   typedPoint: string;
+  /**
+   * Where the teacher said a point the margin reader missed begins.
+   *
+   * On the draft rather than derived, because nothing on the page can derive
+   * it, and persisted with the batch so a reload does not ask again.
+   */
+  pointStarts: PointStart[];
   /*
    * The lesson, when neither the upload nor the database knows it. Held on the
    * draft rather than in the input, so an answer given before the point number
@@ -160,6 +172,7 @@ function initialDraft(page: ReviewSourcePage): PageDraft {
     pointNumber: page.points[0] ?? null,
     continuation: page.points.length === 0 && page.disputes.length === 0,
     typedPoint: "",
+    pointStarts: [...page.pointStarts],
     typedLesson: "",
     blocks: page.blocks.map((block, index) => ({
       id: `${page.id}#${index}`,
@@ -271,11 +284,23 @@ function targetPoints(page: ReviewSourcePage, draft: PageDraft): number[] {
   ].sort((a, b) => a - b);
 }
 
+/**
+ * The numbers this page writes to, with the height each one governs.
+ *
+ * Three sources, and they are all placements by the time they leave here: what
+ * the batch settled, the teacher's answer to a dispute, and the teacher's
+ * answer to where a point the margin reader missed begins. The last one is
+ * exactly what the reader would have produced had it read the number, which is
+ * why nothing downstream has to know it came from a person.
+ */
 function placementsFor(
   page: ReviewSourcePage,
   draft: PageDraft,
 ): readonly Placement[] {
-  const settled = page.placements;
+  const settled = [
+    ...page.placements,
+    ...startPlacements(draft.pointStarts),
+  ].sort((a, b) => a.y - b.y);
   const answer = draft.pointNumber;
   if (answer === null || settled.some((place) => place.number === answer)) {
     return settled;
@@ -459,6 +484,7 @@ export function ReviewPanel({
             target,
             continuation: draft.continuation,
             flagged: draft.blocks.filter((block) => block.needsReview).length,
+            starts: draft.pointStarts,
             changedSinceSaving: changedSinceSaving(draft),
             alreadyInDatabase,
           }),
@@ -631,13 +657,18 @@ export function ReviewPanel({
         pages.map((page) => {
           const draft = drafts[page.id];
           return draft === undefined
-            ? toStored(page, [], page.savedPoints, page.changedSinceSaving)
-            : toStored(
-                page,
-                storedBlocks(draft),
-                draft.savedPoints,
-                changedSinceSaving(draft),
-              );
+            ? toStored(page, {
+                blocks: [],
+                savedPoints: page.savedPoints,
+                changedSinceSaving: page.changedSinceSaving,
+                pointStarts: page.pointStarts,
+              })
+            : toStored(page, {
+                blocks: storedBlocks(draft),
+                savedPoints: draft.savedPoints,
+                changedSinceSaving: changedSinceSaving(draft),
+                pointStarts: draft.pointStarts,
+              });
         }),
       );
     }, 300);
@@ -878,7 +909,7 @@ export function ReviewPanel({
     if (unplaced.length > 0) {
       update(id, {
         error: unplacedMessage(
-          unplacedCause(page, placements, []),
+          unplacedCause(page, placements, draft.pointStarts),
           unplaced.length,
         ),
       });
@@ -1195,6 +1226,7 @@ function PageWork({
   const unplaced = draft.continuation
     ? []
     : unplacedBlocks(draft.blocks, placements, page);
+  const unreadCause = unplacedCause(page, placements, draft.pointStarts);
   /*
    * Points this page writes to whose lesson only the page before can give.
    *
@@ -1240,7 +1272,7 @@ function PageWork({
                 target === null && writable ? "text-accent" : ""
               }`}
             >
-              {headingFor(page, target, draft.continuation)}
+              {headingFor(page, target, draft.continuation, draft.pointStarts)}
             </h3>
             {shownLesson !== null && (
               <span className="text-muted text-sm">
@@ -1364,14 +1396,21 @@ function PageWork({
           </p>
         )}
 
-        {unplaced.length > 0 && writable && !draft.saved && (
-          <p className="border-accent max-w-[80ch] rounded-sm border px-4 py-3.5 text-sm leading-relaxed">
-            {unplacedMessage(
-              unplacedCause(page, placements, []),
-              unplaced.length,
-            )}
-          </p>
-        )}
+        {unplaced.length > 0 &&
+          writable &&
+          !draft.saved &&
+          (unreadCause.kind === "unread-numbers" ? (
+            <UnreadPointQuestion
+              page={page}
+              draft={draft}
+              numbers={unreadCause.numbers}
+              onUpdate={onUpdate}
+            />
+          ) : (
+            <p className="border-accent max-w-[80ch] rounded-sm border px-4 py-3.5 text-sm leading-relaxed">
+              {unplacedMessage(unreadCause, unplaced.length)}
+            </p>
+          ))}
 
         {askingLesson && writable && (
           <LessonQuestion targets={targets} draft={draft} onUpdate={onUpdate} />
@@ -1445,6 +1484,133 @@ function LessonQuestion({
           className="border-rule bg-surface w-24 rounded-sm border px-2 py-1 font-mono text-sm"
         />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Where a point the margin reader missed begins.
+ *
+ * The page carries blocks above its first read number, and the book's own order
+ * says a number stands between that number and the point before. Nothing on the
+ * page decides which of the two each block belongs to, so the screen used to
+ * hold the page and tell the teacher to upload a page that was already
+ * uploaded. There was no way to answer: skip it, or confirm it wrong.
+ *
+ * A person can answer it by looking, so it is asked here. One question per
+ * missing number, answered by clicking the block that point starts at.
+ *
+ * The candidates are the blocks the page cannot file on its own, which is a
+ * list that does not move while it is being answered: computed from the page's
+ * own placements rather than from the draft, because an answer files blocks and
+ * would otherwise shorten the list the next question is choosing from.
+ *
+ * The blocks offered for a number never sit above the block chosen for a
+ * smaller one. The numbers run down the page in order, and an answer that broke
+ * that order would file blocks under a point they are printed above, silently,
+ * which is the misfiling the whole question exists to avoid.
+ */
+function UnreadPointQuestion({
+  page,
+  draft,
+  numbers,
+  onUpdate,
+}: {
+  page: ReviewSourcePage;
+  draft: PageDraft;
+  /** The missing numbers still unanswered, ascending. */
+  numbers: readonly number[];
+  onUpdate: (change: Partial<PageDraft>) => void;
+}) {
+  const candidates = unplacedBlocks(draft.blocks, page.placements, page);
+  const answered = (value: number) =>
+    draft.pointStarts.find((start) => start.number === value) ?? null;
+
+  function answer(value: number, top: number | null) {
+    onUpdate({
+      pointStarts: [
+        ...draft.pointStarts.filter((start) => start.number !== value),
+        { number: value, top },
+      ].sort((a, b) => a.number - b.number),
+    });
+  }
+
+  /** No block above the one a smaller number was already placed at. */
+  function floorFor(value: number): number {
+    const below = draft.pointStarts
+      .filter((start) => start.number < value && start.top !== null)
+      .map((start) => start.top as number);
+    return below.length === 0 ? -1 : Math.max(...below);
+  }
+
+  const all = [...numbers, ...draft.pointStarts.map((start) => start.number)]
+    .filter((value, at, list) => list.indexOf(value) === at)
+    .sort((a, b) => a - b);
+
+  return (
+    <div className="border-accent flex flex-col gap-4 rounded-sm border p-4">
+      <p className="text-accent font-mono text-[0.625rem] tracking-[0.14em] uppercase">
+        {all.length === 1
+          ? "Onde começa o ponto que a margem não deu?"
+          : "Onde começam os pontos que a margem não deu?"}
+      </p>
+      <p className="text-muted max-w-[80ch] text-sm leading-relaxed">
+        Esta página tem blocos impressos acima do primeiro número que a leitura
+        pegou. Entre o ponto {page.precedingPoint} e o{" "}
+        {page.placements[0]?.number}, o livro imprime{" "}
+        {all.length === 1 ? "o ponto" : "os pontos"} {all.join(", ")}, que a
+        margem não deu. Clique no bloco onde cada um começa. Nada é gravado
+        antes disso.
+      </p>
+      {all.map((value) => {
+        const chosen = answered(value);
+        const floor = floorFor(value);
+        return (
+          <div key={value} className="flex flex-col gap-2">
+            <p className="text-sm font-bold">Ponto {value} começa em</p>
+            <div className="flex flex-col gap-1.5">
+              {candidates
+                .filter((block) => block.top > floor)
+                .map((block) => {
+                  const picked = chosen !== null && chosen.top === block.top;
+                  return (
+                    <button
+                      key={block.id}
+                      type="button"
+                      onClick={() => answer(value, block.top)}
+                      className={`rounded-sm border px-3 py-2 text-left text-[0.8125rem] transition-colors ${
+                        picked
+                          ? "bg-accent text-accent-foreground border-accent"
+                          : "border-rule hover:border-foreground hover:bg-surface"
+                      }`}
+                    >
+                      <span className="font-mono text-[0.625rem] uppercase opacity-70">
+                        {KIND_LABELS[block.kind]}
+                      </span>{" "}
+                      {block.content.slice(0, 90) || "(vazio)"}
+                    </button>
+                  );
+                })}
+              {/*
+                Without this the screen forces a wrong answer whenever the
+                number really is printed on another page. Choosing it places
+                nothing, so the page stays held and says why.
+              */}
+              <button
+                type="button"
+                onClick={() => answer(value, null)}
+                className={`rounded-sm border px-3 py-2 text-left text-[0.8125rem] transition-colors ${
+                  chosen !== null && chosen.top === null
+                    ? "bg-accent text-accent-foreground border-accent"
+                    : "border-rule hover:border-foreground hover:bg-surface"
+                }`}
+              >
+                Esse ponto não começa nesta página
+              </button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
