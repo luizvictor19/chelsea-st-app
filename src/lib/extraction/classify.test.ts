@@ -198,3 +198,102 @@ describe("classify", () => {
     assert.equal(slashRatio(["a", "b", "c", "d"]), 0);
   });
 });
+
+describe("a character the book cannot print", () => {
+  test("flags a vocabulary panel that is otherwise trusted", () => {
+    // The panel's own right-hand rule, read as a token of its own. Nothing
+    // about the words is wrong, so nothing else on the screen would say so.
+    const result = supported(
+      classify(
+        input({
+          boxes: [
+            { band: { top: 100, bottom: 160 }, content: "do not, don’t, |" },
+          ],
+        }),
+      ),
+    );
+    assert.equal(result.blocks[0].kind, "vocabulary");
+    assert.equal(result.blocks[0].needsReview, true);
+  });
+
+  test("flags an explanation", () => {
+    const result = supported(
+      classify(
+        input({
+          explanations: [
+            {
+              band: { top: 40, bottom: 60 },
+              content: "Are there any books? ~ Yes, there are some",
+            },
+          ],
+        }),
+      ),
+    );
+    assert.equal(result.blocks[0].kind, "explanation");
+    assert.equal(result.blocks[0].needsReview, true);
+  });
+
+  test("flags a dictation", () => {
+    const result = supported(
+      classify(
+        input({
+          lines: [
+            { band: { top: 40, bottom: 60 }, content: "the word “wrist*2/" },
+          ],
+          tokens: ["a/", "b/", "c/"],
+        }),
+      ),
+    );
+    assert.equal(result.blocks[0].kind, "dictation");
+    assert.equal(result.blocks[0].needsReview, true);
+  });
+
+  test("flags a chart reference", () => {
+    const result = supported(
+      classify(
+        input({
+          markers: [
+            {
+              kind: "chart_ref",
+              number: 1,
+              band: { top: 40, bottom: 60 },
+            } as Marker,
+          ],
+        }),
+      ),
+    );
+    assert.equal(result.blocks[0].kind, "chart_ref");
+    assert.equal(result.blocks[0].needsReview, false);
+  });
+
+  test("leaves an ordinary panel alone", () => {
+    const result = supported(
+      classify(
+        input({
+          boxes: [
+            { band: { top: 100, bottom: 160 }, content: "we say “a” — a book" },
+          ],
+        }),
+      ),
+    );
+    assert.equal(result.blocks[0].needsReview, false);
+  });
+
+  test("a table is not flagged for the separator we wrote ourselves", () => {
+    const result = supported(
+      classify(
+        input({
+          boxes: [
+            {
+              band: { top: 100, bottom: 100 + TABLE_HEIGHT + 1 },
+              content: "he | is\nshe | is",
+            },
+          ],
+        }),
+      ),
+    );
+    // Flagged for its height, as every table is, and not a second time for the
+    // one character the stored form is written with.
+    assert.equal(result.blocks[0].needsReview, true);
+  });
+});
