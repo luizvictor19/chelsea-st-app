@@ -248,7 +248,7 @@ describe("a character the book cannot print", () => {
     assert.equal(result.blocks[0].needsReview, true);
   });
 
-  test("flags a chart reference", () => {
+  test("a chart reference is never flagged, because we write its content", () => {
     const result = supported(
       classify(
         input({
@@ -262,7 +262,11 @@ describe("a character the book cannot print", () => {
         }),
       ),
     );
+    // "See Chart 1" is assembled here from the marker's number, so it cannot
+    // hold a shape the engine invented. The rule still runs over it: this pins
+    // that it finds nothing, not that it is skipped.
     assert.equal(result.blocks[0].kind, "chart_ref");
+    assert.equal(result.blocks[0].content, "See Chart 1");
     assert.equal(result.blocks[0].needsReview, false);
   });
 
