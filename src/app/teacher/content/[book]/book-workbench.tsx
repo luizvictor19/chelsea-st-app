@@ -51,8 +51,14 @@ type Batch = {
   readonly readAt: string;
   readonly firstPoint: number;
   readonly lastPoint: number;
-  /** The extraction that read these pages, carried so a restore can re-stamp. */
-  readonly extractionVersion: number;
+  /**
+   * The extraction that read these pages.
+   *
+   * Undefined for a batch stored before the stamp existed, and it stays
+   * undefined: a reading is stamped by what read it, and filling the gap in
+   * here would make it claim an extraction it never went through.
+   */
+  readonly extractionVersion: number | undefined;
   readonly pages: readonly ReviewSourcePage[];
   readonly failures: readonly PageFailure[];
 };
@@ -352,8 +358,10 @@ export function BookWorkbench({
         readAt: stored.readAt,
         firstPoint: stored.firstPoint,
         lastPoint: stored.lastPoint,
-        // Only reached when the stamp matched, so it is this extraction's.
-        extractionVersion: stored.extractionVersion ?? EXTRACTION_VERSION,
+        // Whatever read it, including nothing. Defaulting here would write the
+        // guess back to the database on the next save, which is the one thing
+        // this field exists to refuse.
+        extractionVersion: stored.extractionVersion,
         pages: stored.pages.map(fromStored),
         failures: [],
       },

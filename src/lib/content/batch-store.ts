@@ -249,9 +249,16 @@ export type StaleReason = "extraction-changed" | "range-changed" | "all-saved";
  * page is written has nothing left to do, so offering to resume it would invite
  * writing it all a second time.
  *
- * The extraction is asked first. Both of the first two are mended by uploading
- * again, but a reading made by other code is suspect whatever range it was made
- * against, so it is the truer thing to say.
+ * "all-saved" is asked first, and it is the only one of the three that is not
+ * mended by uploading again: there is nothing left to write, so inviting a
+ * re-upload invites writing the whole batch a second time. Asked last, it was
+ * overruled by the extraction stamp, and since no batch stored before that
+ * stamp existed carries one, the first load after it shipped would have turned
+ * every finished batch in every browser into an invitation to redo it.
+ *
+ * Between the other two the extraction is asked first. Both are mended by
+ * uploading again, but a reading made by other code is suspect whatever range
+ * it was made against, so it is the truer thing to say.
  *
  * @param currentExtraction EXTRACTION_VERSION as it stands now. Passed in
  *   rather than imported so this file keeps knowing nothing about the
@@ -263,13 +270,16 @@ export function staleness(
   currentLast: number | null,
   currentExtraction: number,
 ): StaleReason | null {
+  if (!batch.pages.some(isPending)) {
+    return "all-saved";
+  }
   if (batch.extractionVersion !== currentExtraction) {
     return "extraction-changed";
   }
   if (batch.firstPoint !== currentFirst || batch.lastPoint !== currentLast) {
     return "range-changed";
   }
-  return batch.pages.some(isPending) ? null : "all-saved";
+  return null;
 }
 
 /**

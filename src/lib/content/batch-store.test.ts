@@ -198,6 +198,27 @@ describe("staleness against the extraction that read the batch", () => {
     assert.equal(staleness(unstamped, 53, 128, 4), "extraction-changed");
   });
 
+  test("a finished batch is finished, whatever read it", () => {
+    // The one thing "extraction-changed" must not do. Every batch already in a
+    // teacher's browser lacks the stamp, so on the first load after this ships
+    // a fully written batch would be offered back for a re-upload and a second
+    // review of pages that are already in the database. Uploading again does
+    // not mend "all-saved": nothing is left to mend.
+    const done = batch({
+      extractionVersion: undefined,
+      pages: [page({ savedPoints: [116], changedSinceSaving: false })],
+    });
+    assert.equal(staleness(done, 53, 128, 4), "all-saved");
+  });
+
+  test("an unwritten edit is still work, so the reading still matters", () => {
+    const edited = batch({
+      extractionVersion: 3,
+      pages: [page({ savedPoints: [116], changedSinceSaving: true })],
+    });
+    assert.equal(staleness(edited, 53, 128, 4), "extraction-changed");
+  });
+
   test("the extraction is asked before the range", () => {
     // Both are true and both are mended by uploading again, but the reading
     // being out of date is the deeper of the two: a batch read by another
