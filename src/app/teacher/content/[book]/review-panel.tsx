@@ -1522,7 +1522,21 @@ function UnreadPointQuestion({
   numbers: readonly number[];
   onUpdate: (change: Partial<PageDraft>) => void;
 }) {
-  const candidates = unplacedBlocks(draft.blocks, page.placements, page);
+  /*
+   * The blocks that could hold the start of a missing number.
+   *
+   * Computed against everything the page knows except these answers: the
+   * numbers it settled, and a dispute the teacher has already resolved, which
+   * on a page carrying nothing else is the only number there is. Leaving the
+   * answers out is what keeps the list still while it is being answered, since
+   * an answer files blocks and would otherwise shorten the list the next
+   * question is choosing from.
+   */
+  const candidates = unplacedBlocks(
+    draft.blocks,
+    placementsFor(page, { ...draft, pointStarts: [] }),
+    page,
+  );
   const answered = (value: number) =>
     draft.pointStarts.find((start) => start.number === value) ?? null;
 
