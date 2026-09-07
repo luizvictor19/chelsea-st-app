@@ -30,7 +30,17 @@ import {
 const RANGE = { first: 1, last: 128 };
 
 function word(text: string, x: number, y: number): OcrWord {
-  return { text, x, y, width: text.length * 9, height: 12, confidence: 50 };
+  // No characters: these words are about where a line sits, not about
+  // cutting one, and an empty list is what the engine gives when it offers none.
+  return {
+    text,
+    x,
+    y,
+    width: text.length * 9,
+    height: 12,
+    confidence: 50,
+    symbols: [],
+  };
 }
 
 function scriptedReader(script: {

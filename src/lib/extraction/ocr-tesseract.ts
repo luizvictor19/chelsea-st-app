@@ -70,6 +70,18 @@ export function createTesseractReader(
                   width: word.bbox.x1 - word.bbox.x0,
                   height: word.bbox.y1 - word.bbox.y0,
                   confidence: word.confidence,
+                  // Normalised the same way the word's own text is, because
+                  // the two are compared against each other before either is
+                  // cut. The word is trimmed on the line above, so a whitespace
+                  // character left in here would make them disagree and turn
+                  // the splitting off without saying so.
+                  symbols: (word.symbols ?? [])
+                    .filter((symbol) => symbol.text.trim().length > 0)
+                    .map((symbol) => ({
+                      text: symbol.text,
+                      x: symbol.bbox.x0,
+                      width: symbol.bbox.x1 - symbol.bbox.x0,
+                    })),
                 });
               }
             }

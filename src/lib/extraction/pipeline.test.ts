@@ -31,7 +31,15 @@ const RANGE = { first: 1, last: 128 };
 
 function word(text: string, x: number, y: number, agreement = 1): OcrWord {
   void agreement;
-  return { text, x, y, width: text.length * 9, height: 12, confidence: 50 };
+  return {
+    text,
+    x,
+    y,
+    width: text.length * 9,
+    height: 12,
+    confidence: 50,
+    symbols: [],
+  };
 }
 
 /**
@@ -441,10 +449,42 @@ describe("a table panel keeps the shape it is printed in", () => {
     // Two rows of two columns, in the enlarged crop's coordinates: the column
     // gap is past 54px doubled, and the rows a whole word height apart.
     const panel: readonly OcrWord[] = [
-      { text: "my", x: 20, y: 40, width: 60, height: 30, confidence: 80 },
-      { text: "mine", x: 400, y: 40, width: 120, height: 30, confidence: 80 },
-      { text: "your", x: 20, y: 120, width: 100, height: 30, confidence: 80 },
-      { text: "yours", x: 400, y: 120, width: 140, height: 30, confidence: 80 },
+      {
+        text: "my",
+        x: 20,
+        y: 40,
+        width: 60,
+        height: 30,
+        confidence: 80,
+        symbols: [],
+      },
+      {
+        text: "mine",
+        x: 400,
+        y: 40,
+        width: 120,
+        height: 30,
+        confidence: 80,
+        symbols: [],
+      },
+      {
+        text: "your",
+        x: 20,
+        y: 120,
+        width: 100,
+        height: 30,
+        confidence: 80,
+        symbols: [],
+      },
+      {
+        text: "yours",
+        x: 400,
+        y: 120,
+        width: 140,
+        height: 30,
+        confidence: 80,
+        symbols: [],
+      },
     ];
 
     return extractPage("p105", 0, tablePage(), tableReader(panel)).then(
