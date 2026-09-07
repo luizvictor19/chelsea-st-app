@@ -7,18 +7,8 @@ import {
   MIN_LINE_HEIGHT,
   MIN_ROW_INK,
 } from "./constants.ts";
-import { shadedMask } from "./image.ts";
+import { luma, shadedMask } from "./image.ts";
 import type { Bitmap, Band } from "./types.ts";
-
-/**
- * Luma exactly as PIL computes it for convert("L"), fixed point and all.
- *
- * The ink threshold was measured against PIL's numbers, so a different rounding
- * here would quietly move the threshold with it.
- */
-function luma(red: number, green: number, blue: number): number {
-  return (red * 19595 + green * 38470 + blue * 7471 + 0x8000) >> 16;
-}
 
 /** Right-hand ink column of a line, or -1 when the line is blank. */
 function lastInkColumn(ink: Uint8Array, width: number, band: Band): number {
