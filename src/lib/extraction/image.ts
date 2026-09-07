@@ -217,6 +217,19 @@ export function boxLeft(mask: Mask): number {
  * it surfaces as a canvas complaining about a zero width and says nothing about
  * which crop asked for it.
  */
+/**
+ * The grey a pixel reads as, in the fixed-point weighting the thresholds were
+ * measured against.
+ *
+ * One definition on purpose. Two ink tests answer to INK_LEVEL, the one that
+ * finds a line of prose and the one that finds a printed space inside a word,
+ * and a different rounding in either would quietly move that threshold for
+ * whichever of them kept the old one.
+ */
+export function luma(red: number, green: number, blue: number): number {
+  return (red * 19595 + green * 38470 + blue * 7471 + 0x8000) >> 16;
+}
+
 export function crop(
   image: Bitmap,
   left: number,

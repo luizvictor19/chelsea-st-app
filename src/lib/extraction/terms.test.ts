@@ -6,7 +6,15 @@ import { joinTerms, splitTerms, termsFrom } from "./terms.ts";
 import type { OcrWord } from "./types.ts";
 
 function word(text: string, start: number, width = text.length * 9): OcrWord {
-  return { text, x: start, y: 0, width, height: 12, confidence: 60 };
+  return {
+    text,
+    x: start,
+    y: 0,
+    width,
+    height: 12,
+    confidence: 60,
+    symbols: [],
+  };
 }
 
 describe("termsFrom", () => {

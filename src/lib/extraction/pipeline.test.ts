@@ -11,6 +11,8 @@ import {
 } from "./pipeline.ts";
 import {
   blankPage,
+  fillRect,
+  INK,
   inkLine,
   shadedBox,
   toBitmap,
@@ -31,7 +33,15 @@ const RANGE = { first: 1, last: 128 };
 
 function word(text: string, x: number, y: number, agreement = 1): OcrWord {
   void agreement;
-  return { text, x, y, width: text.length * 9, height: 12, confidence: 50 };
+  return {
+    text,
+    x,
+    y,
+    width: text.length * 9,
+    height: 12,
+    confidence: 50,
+    symbols: [],
+  };
 }
 
 /**
@@ -441,10 +451,42 @@ describe("a table panel keeps the shape it is printed in", () => {
     // Two rows of two columns, in the enlarged crop's coordinates: the column
     // gap is past 54px doubled, and the rows a whole word height apart.
     const panel: readonly OcrWord[] = [
-      { text: "my", x: 20, y: 40, width: 60, height: 30, confidence: 80 },
-      { text: "mine", x: 400, y: 40, width: 120, height: 30, confidence: 80 },
-      { text: "your", x: 20, y: 120, width: 100, height: 30, confidence: 80 },
-      { text: "yours", x: 400, y: 120, width: 140, height: 30, confidence: 80 },
+      {
+        text: "my",
+        x: 20,
+        y: 40,
+        width: 60,
+        height: 30,
+        confidence: 80,
+        symbols: [],
+      },
+      {
+        text: "mine",
+        x: 400,
+        y: 40,
+        width: 120,
+        height: 30,
+        confidence: 80,
+        symbols: [],
+      },
+      {
+        text: "your",
+        x: 20,
+        y: 120,
+        width: 100,
+        height: 30,
+        confidence: 80,
+        symbols: [],
+      },
+      {
+        text: "yours",
+        x: 400,
+        y: 120,
+        width: 140,
+        height: 30,
+        confidence: 80,
+        symbols: [],
+      },
     ];
 
     return extractPage("p105", 0, tablePage(), tableReader(panel)).then(
@@ -454,6 +496,95 @@ describe("a table panel keeps the shape it is printed in", () => {
         );
         assert.notEqual(table, undefined, "the tall panel is read as a table");
         assert.equal(table?.content, "my | mine\nyour | yours");
+      },
+    );
+  });
+
+  /*
+   * The one case that reaches the splitting rule through the pipeline itself.
+   *
+   * Everything above hands the reader words with no characters, so the rule
+   * returns them untouched and none of it would notice the wiring being wrong.
+   * Here the panel is drawn with real ink and the reader answers with the
+   * characters over it, so the two arguments that decide the answer are pinned:
+   * the enlarged crop, because the ink is only there, and the enlargement,
+   * because the gap is judged in page pixels.
+   *
+   * Two words, and the second is the half that catches a missing scale: 4px
+   * inside a word at page size is 8px in the crop, so a rule judging the crop's
+   * own pixels would cut "she" in half.
+   */
+  const PANEL_LEFT = 121;
+  const PANEL_TOP = 200;
+  const CROP_SCALE = 2;
+  /** Page pixels to the enlarged crop's, which is what the reader answers in. */
+  const inCrop = (pageX: number) => (pageX - PANEL_LEFT) * CROP_SCALE;
+  const downCrop = (pageY: number) => (pageY - PANEL_TOP) * CROP_SCALE;
+
+  /** Ink as [left, right) in page pixels, per row. */
+  const FUSED_INK: readonly (readonly [number, number])[] = [
+    [141, 147],
+    [149, 160],
+    // A printed space of 10px: the engine welded this one.
+    [170, 175],
+    [178, 190],
+  ];
+  const WHOLE_INK: readonly (readonly [number, number])[] = [
+    [141, 153],
+    // 4px, the widest blank ever measured inside a word being 5px.
+    [157, 169],
+    [172, 184],
+  ];
+  const FUSED_TOP = 240;
+  const WHOLE_TOP = 340;
+  const ROW_HEIGHT = 60;
+
+  function inkedTablePage(): Bitmap {
+    const page: MutablePage = blankPage(1100, 1500);
+    shadedBox(page, PANEL_LEFT, PANEL_TOP, 400);
+    for (const [top, ink] of [
+      [FUSED_TOP, FUSED_INK],
+      [WHOLE_TOP, WHOLE_INK],
+    ] as const) {
+      for (const [left, right] of ink) {
+        fillRect(page, left, top, right - left, ROW_HEIGHT, INK);
+      }
+    }
+    return toBitmap(page);
+  }
+
+  function inked(
+    text: string,
+    letters: readonly string[],
+    ink: readonly (readonly [number, number])[],
+    top: number,
+  ): OcrWord {
+    return {
+      text,
+      x: inCrop(ink[0][0]),
+      y: downCrop(top),
+      width: inCrop(ink[ink.length - 1][1]) - inCrop(ink[0][0]),
+      height: ROW_HEIGHT * CROP_SCALE,
+      confidence: 90,
+      symbols: letters.map((letter, at) => ({
+        text: letter,
+        x: inCrop(ink[at][0]),
+        width: inCrop(ink[at][1]) - inCrop(ink[at][0]),
+      })),
+    };
+  }
+
+  test("a word the engine welded across a printed space arrives split", () => {
+    const panel = [
+      inked("itis", ["i", "t", "i", "s"], FUSED_INK, FUSED_TOP),
+      inked("she", ["s", "h", "e"], WHOLE_INK, WHOLE_TOP),
+    ];
+    return extractPage("p8-9", 0, inkedTablePage(), tableReader(panel)).then(
+      (page) => {
+        const table = page.blocks.find(
+          (block) => block.kind === "grammar_table",
+        );
+        assert.equal(table?.content, "it is\nshe");
       },
     );
   });

@@ -421,8 +421,9 @@ mudar. Dois encolheram o bastante para valer nota.
 | `TERM_COLUMN_GAP` 45       | dentro até 15,5px, entre desde **51px**    | dentro até 11px, entre desde 75px           |
 | `TABLE_COLUMN_GAP` 54      | dentro até 17,5px, entre desde 201,5px     | dentro até 39,5px, entre desde 68,5px       |
 | `TABLE_LINE_TOLERANCE` .64 | 74 palavras a até 0,35, linhas a 1,72      | 211 palavras a até 0,39, linhas a 0,89      |
+| `FUSED_WORD_GAP` 6         | dentro até 5px, entre desde 8px            | dentro até 4,5px, entre desde **7,5px**     |
 
-Os dois que encolheram:
+Os que encolheram:
 
 - **`TABLE_HEIGHT`.** O livro 1 tem painéis de vocabulário de várias linhas que o livro 2 não tem,
   e eles chegam a 187px. O vazio entre painel normal e tabela cai de 207px para 80px. O corte
@@ -430,6 +431,11 @@ Os dois que encolheram:
 - **`TERM_COLUMN_GAP`.** O menor vão entre termos cai de 75px para 51px, contra um corte de 45:
   6px de folga, contra 30px no livro 2. É a constante mais apertada das cinco, e a que erra em
   silêncio: dois termos colados viram uma entrada só em `vocabulary_items`.
+- **`FUSED_WORD_GAP`.** É a mais nova e a mais apertada de todas, com `scripts/measure-fused-words.ts`
+  atrás dela. O vazio entre as duas populações tem 2,5px: o maior vão dentro de palavra é 5px no
+  livro 1, e o menor vão entre palavras é 7,5px no livro 2. O corte em 6 fica dentro dele, mas
+  contra os 49px de vazio do `POINT_LABEL_REACH` é a mais apertada de todas. Rodar a ferramenta
+  antes de ingerir o livro 3 não é zelo, é a condição para confiar nela.
 
 Os números do livro 2 aqui foram medidos com o tesseract.js do projeto, e não com a baseline do
 CLI que a `constants.ts` cita; as duas populações caem no mesmo lugar, com contagens próximas mas

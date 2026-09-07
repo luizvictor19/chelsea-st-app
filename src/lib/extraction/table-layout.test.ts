@@ -7,7 +7,7 @@ import type { OcrWord } from "./types.ts";
 
 /** A word as the engine returns it, in the enlarged crop's own coordinates. */
 function word(text: string, x: number, y: number, width = 40): OcrWord {
-  return { text, x, y, width, height: 24, confidence: 80 };
+  return { text, x, y, width, height: 24, confidence: 80, symbols: [] };
 }
 
 const SCALE = 2;

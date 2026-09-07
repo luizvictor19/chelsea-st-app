@@ -23,6 +23,21 @@ export type MarginNumber = {
   readonly y: number;
 };
 
+/**
+ * One character of a word, with the box the engine placed it in.
+ *
+ * Carried because a word the engine welded across a printed space has to be cut
+ * at a character, and only the engine knows where its characters begin. The box
+ * is worth less than the text: the engine squeezes and overlaps these when it
+ * has fused two words, which is exactly when they are read. So they say where
+ * the letters are in order, and the page's own ink says where the space is.
+ */
+export type OcrSymbol = {
+  readonly text: string;
+  readonly x: number;
+  readonly width: number;
+};
+
 /** One word as the OCR engine reported it, in the coordinates it was given. */
 export type OcrWord = {
   readonly text: string;
@@ -32,6 +47,8 @@ export type OcrWord = {
   readonly width: number;
   readonly height: number;
   readonly confidence: number;
+  /** Empty when the engine offered none, which is an answer and not a default. */
+  readonly symbols: readonly OcrSymbol[];
 };
 
 /**
