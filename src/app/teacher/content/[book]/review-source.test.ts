@@ -8,6 +8,7 @@ import {
   headingFor,
   isWritable,
   lessonIsThePageBefores,
+  summaryFor,
   targetsOf,
   writtenNumbers,
   type ReviewSourcePage,
@@ -276,5 +277,29 @@ describe("what the screen may ask of a page", () => {
 
   test("a page whose number the batch settled is not asked at all", () => {
     assert.equal(asksThePoint(page(), false), false);
+  });
+});
+
+describe("summaryFor", () => {
+  const waiting = (flagged: number) =>
+    summaryFor({
+      page: page(),
+      state: "waiting",
+      target: 117,
+      continuation: false,
+      flagged,
+    });
+
+  test("says nothing extra when nothing is flagged", () => {
+    assert.equal(waiting(0), "ponto 117");
+  });
+
+  test("names blocks, not tables", () => {
+    // The height flag used to be the only one, so the rail called every flagged
+    // block a table. Since a vocabulary panel or an explanation can be flagged
+    // for holding a character the book cannot print, that sent the teacher
+    // looking for a table that is not on the page.
+    assert.equal(waiting(1), "ponto 117 · 1 bloco a conferir");
+    assert.equal(waiting(3), "ponto 117 · 3 blocos a conferir");
   });
 });

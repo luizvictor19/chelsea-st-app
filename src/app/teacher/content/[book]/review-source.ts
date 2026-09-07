@@ -472,7 +472,12 @@ export function summaryFor({
       if (flagged === 0) {
         return short;
       }
-      return `${short} · ${flagged} ${flagged === 1 ? "tabela" : "tabelas"}`;
+      // Not "tabela". The height flag was the only one for a while, so the rail
+      // could name the block by the reason it was flagged and be right. It is
+      // not the only one any more: a vocabulary panel or an explanation holding
+      // a character the book cannot print is flagged too, and calling that a
+      // table sends the teacher looking for a table the page does not have.
+      return `${short} · ${flagged} ${flagged === 1 ? "bloco a conferir" : "blocos a conferir"}`;
     }
   }
 }

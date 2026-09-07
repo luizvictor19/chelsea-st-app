@@ -19,6 +19,7 @@ import {
   type PageState,
 } from "@/lib/content/review-navigation";
 import type { BlockKind } from "@/lib/extraction/classify";
+import { hasImpossibleCharacter } from "@/lib/extraction/impossible-characters";
 import {
   columnCount,
   parseTable,
@@ -72,12 +73,13 @@ const KIND_LABELS: Record<BlockKind, string> = {
 /**
  * What the header says when the extractor flagged the block.
  *
- * Only the table is ever flagged today, and the flag is the height of the box,
- * not anything about what came out of it. Since the columns started arriving
- * measured, saying they were not identified claims a failure that usually did
- * not happen. It asks for the teacher's eye instead, which is what the flag has
- * always meant: the table is the block that gets it wrong most often. A second
- * cause would get its own line here rather than a shared "check this".
+ * There are two causes now and they are worth different words. A table is
+ * flagged for the height of its box, not for anything about what came out of
+ * it: since the columns started arriving measured, saying they were not
+ * identified claims a failure that usually did not happen, so it asks for the
+ * teacher's eye instead. Any block can also be flagged for holding a character
+ * the book cannot print, and there the extraction does know what it found, so
+ * the label says so rather than asking for a general look.
  */
 const FLAGGED_LABELS: Record<BlockKind, string> = {
   vocabulary: "Vocabulário · confira",
@@ -1574,7 +1576,11 @@ function BlockCard({
             flagged ? "text-accent" : "text-faint"
           }`}
         >
-          {flagged ? FLAGGED_LABELS[block.kind] : KIND_LABELS[block.kind]}
+          {!flagged
+            ? KIND_LABELS[block.kind]
+            : hasImpossibleCharacter(block.content, block.kind)
+              ? `${KIND_LABELS[block.kind]} · caractere que o livro não imprime`
+              : FLAGGED_LABELS[block.kind]}
         </span>
         <div className="flex items-center gap-2.5">
           <select
