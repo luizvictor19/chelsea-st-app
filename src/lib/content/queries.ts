@@ -105,7 +105,7 @@ export async function listBooks(): Promise<BooksOverview> {
       progress: progress(own, book.first_point, book.last_point),
       lastFilledPoint:
         filledNumbers.length === 0 ? null : Math.max(...filledNumbers),
-      complete: own.length > 0 && own.every((point) => point.filled),
+      complete: isComplete(own),
     };
   });
 
@@ -149,7 +149,20 @@ export type BookDetail = {
   /** Where the teacher stopped, and the lesson that point belongs to. */
   readonly lastFilledPoint: number | null;
   readonly lastFilledLesson: number | null;
+  /** Every point of the book's range is filled. */
+  readonly complete: boolean;
 };
+
+/**
+ * Whether every point of the book is filled.
+ *
+ * Named once and read by both shapes. A book with no points is not finished,
+ * it is unconfigured, which is why the emptiness is checked and not just the
+ * absence of an unfilled point.
+ */
+function isComplete(points: readonly PointProgress[]): boolean {
+  return points.length > 0 && points.every((point) => point.filled);
+}
 
 /** A point of the book, and the lesson it is recorded under, if any. */
 export type BookPoint = PointProgress & {
@@ -216,6 +229,7 @@ export async function loadBook(position: number): Promise<BookDetail | null> {
     })),
     gaps: gaps(points),
     progress: progress(points, book.first_point, book.last_point),
+    complete: isComplete(points),
     lastFilledPoint: furthest?.number ?? null,
     lastFilledLesson: furthest?.lessons_content?.number ?? null,
   };

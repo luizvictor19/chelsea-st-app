@@ -70,6 +70,9 @@ export default async function BookPage({
         bookTitle={book.title}
         firstPoint={book.firstPoint}
         lastPoint={book.lastPoint}
+        filledPoints={book.points
+          .filter((point) => point.filled)
+          .map((point) => point.number)}
       >
         {hasRange ? (
           <div className="flex flex-col gap-4">
@@ -99,6 +102,7 @@ export default async function BookPage({
                 points={book.points}
                 lessons={book.lessons}
                 gaps={book.gaps}
+                complete={book.complete}
                 lastFilledPoint={book.lastFilledPoint}
                 lastFilledLesson={book.lastFilledLesson}
               />

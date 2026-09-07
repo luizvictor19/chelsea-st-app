@@ -1,9 +1,12 @@
-import type {
-  StoredBlock,
-  StoredPage,
+import {
+  pendingPages,
+  type StoredBatch,
+  type StoredBlock,
+  type StoredPage,
 } from "../../../../lib/content/batch-store.ts";
 import type { PageState } from "../../../../lib/content/review-navigation.ts";
 import type { BlockKind } from "../../../../lib/extraction/classify.ts";
+import { splitTerms } from "../../../../lib/extraction/terms.ts";
 import {
   isRefused,
   pointForBlock,
@@ -654,4 +657,76 @@ export function summaryFor({
       return `${short} · ${flagged} ${flagged === 1 ? "bloco a conferir" : "blocos a conferir"}`;
     }
   }
+}
+
+/**
+ * The terms a set of vocabulary blocks introduces.
+ *
+ * Read straight off the block, which already holds them separated, because the
+ * separation is geometric and was worked out where the positions still existed.
+ * Splitting text on whitespace here is what turned "a day" into "day" and "the
+ * fewest" into "the" and "fewest".
+ *
+ * No filter on length either: the book teaches "a" and "I", and a term earns
+ * its place by occupying a column, not by being long enough.
+ *
+ * And in the case the book printed. This used to fold the term to lower case,
+ * left over from when it wrote whitespace-split words rather than terms, and
+ * folding here is the one place the printed spelling is lost for good: it is
+ * what put "mr", "mrs", "jack" and "anna" in vocabulary_items for point 6 of
+ * book 1. Nothing was buying it. One row per word is the database's guarantee,
+ * from the unique index on `lower(term)` in migration 0004, and `confirmPoint`
+ * finds the existing row with `ilike`, so both are already blind to case.
+ *
+ * What removing the fold lets through was measured before it was removed, by
+ * scripts/measure-capitalised-terms.ts over both books: of 602 terms, the panels
+ * carrying a capital are 15 that are capital throughout, all proper names the
+ * book prints that way, and 15 where a capital is in a minority. Exactly one of
+ * those is the engine misreading a lower-case word, "Six" at point 7 of book 1,
+ * and it sits at the same fifth of its panel as "Greenwich", which is printed.
+ * So the fold was mending one term and destroying the spelling of the rest, and
+ * that one arrives capitalised now. `confirmPoint` never updates an existing
+ * row, so it stays that way until someone corrects it.
+ *
+ * Lives here rather than beside its caller so it can be tested: the screen that
+ * calls it is a client component, and the suite reads .ts.
+ */
+export function termsOf(
+  blocks: readonly { readonly kind: BlockKind; readonly content: string }[],
+): string[] {
+  return blocks
+    .filter((block) => block.kind === "vocabulary")
+    .flatMap((block) => splitTerms(block.content));
+}
+
+/**
+ * Whether the batch has nothing left that would change the database.
+ *
+ * A batch is offered back as an interrupted upload, with resuming as the thing
+ * to do. That is only true while some page still targets a point that is empty.
+ * When every page still to be written targets points that already hold content,
+ * confirming them would change nothing, and resuming would hand the teacher a
+ * review with no crop beside a table, which is worse than dropping the page on
+ * the dropzone again.
+ *
+ * The filled points are the ones the book screen already read for its grid, not
+ * a second question to the database.
+ *
+ * A batch with no pending page at all is not this case: `staleness` calls that
+ * one "all-saved" and it never reaches here.
+ */
+export function everyPendingPageIsAlreadyWritten(
+  batch: StoredBatch,
+  filled: ReadonlySet<number>,
+): boolean {
+  const pending = pendingPages(batch);
+  if (pending.length === 0) {
+    return false;
+  }
+  return pending.every((page) => {
+    const targets = targetsOf(fromStored(page));
+    // A page that targets nothing has no point to compare against, and saying
+    // "already written" of it would be a claim about work nobody can place.
+    return targets.length > 0 && targets.every((point) => filled.has(point));
+  });
 }

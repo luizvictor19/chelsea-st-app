@@ -65,6 +65,7 @@ import {
   questionOf,
   summaryFor,
   targetsOf,
+  termsOf,
   toStored,
   writesTheSame,
   type ReviewCrop,
@@ -391,24 +392,6 @@ function storedBlocks(draft: PageDraft) {
     // block belongs to.
     top: block.top,
   }));
-}
-
-/**
- * The terms a set of vocabulary blocks introduces.
- *
- * Read straight off the block, which already holds them separated, because the
- * separation is geometric and was worked out where the positions still existed.
- * Splitting text on whitespace here is what turned "a day" into "day" and "the
- * fewest" into "the" and "fewest".
- *
- * No filter on length either: the book teaches "a" and "I", and a term earns
- * its place by occupying a column, not by being long enough.
- */
-function termsOf(blocks: readonly BlockDraft[]): string[] {
-  return blocks
-    .filter((block) => block.kind === "vocabulary")
-    .flatMap((block) => splitTerms(block.content))
-    .map((term) => term.toLowerCase());
 }
 
 export function ReviewPanel({

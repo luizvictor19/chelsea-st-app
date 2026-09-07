@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   asksThePoint,
+  everyPendingPageIsAlreadyWritten,
   fromStored,
   toStored,
   authoredPoints,
@@ -14,6 +15,7 @@ import {
   lessonIsThePageBefores,
   summaryFor,
   targetsOf,
+  termsOf,
   writesTheSame,
   writtenNumbers,
   type ReviewSourcePage,
@@ -544,5 +546,80 @@ describe("a page that was answered and written, across a reload", () => {
     // Point by point: a page that wrote 5 and 6 and stopped there says nothing
     // about who filled 8, which is the case the note exists for.
     assert.equal(mayHoldAnotherPagesWork(reopened, 8), true);
+  });
+
+  test("a term keeps the case the book printed it in", () => {
+    // Point 6 of book 1 prints Mr, Mrs, Jack and Anna. The terms were being
+    // lowercased on the way to vocabulary_items, which is the one place the
+    // printed spelling exists and the last one that can keep it. Nothing
+    // depended on the folding: `confirmPoint` finds an existing row with
+    // `ilike`, and the unique index in migration 0004 is on `lower(term)`, so
+    // one row per word is the database's guarantee either way.
+    assert.deepEqual(
+      termsOf([
+        { kind: "vocabulary", content: "Mr, Mrs, Jack, Anna" },
+        { kind: "explanation", content: "Ignored, Not a term" },
+        { kind: "vocabulary", content: "a day, what colour?" },
+      ]),
+      ["Mr", "Mrs", "Jack", "Anna", "a day", "what colour?"],
+    );
+  });
+
+  test("a batch whose every waiting page is already written has nothing left", () => {
+    // The resume card offers "Retomar revisão" as the thing to do, and that is
+    // only honest while confirming some page would still change something.
+    const stored = (
+      one: ReviewSourcePage,
+      savedPoints: readonly number[] = [],
+    ) =>
+      toStored(one, {
+        blocks: [],
+        savedPoints,
+        changedSinceSaving: false,
+        pointStarts: [],
+      });
+    const batch = (pages: readonly ReturnType<typeof stored>[]) => ({
+      bookId: "b",
+      bookPosition: 1,
+      firstPoint: 1,
+      lastPoint: 52,
+      readAt: "2026-09-07T20:44:00.000Z",
+      pages,
+    });
+
+    const waiting = stored(page({ id: "a", points: [6] }));
+    const alsoWaiting = stored(page({ id: "b", points: [8] }));
+
+    // Both waiting pages point at points that already hold content.
+    assert.equal(
+      everyPendingPageIsAlreadyWritten(
+        batch([waiting, alsoWaiting]),
+        new Set([6, 8]),
+      ),
+      true,
+    );
+    // One of them still has an empty point to fill, so there is work.
+    assert.equal(
+      everyPendingPageIsAlreadyWritten(
+        batch([waiting, alsoWaiting]),
+        new Set([6]),
+      ),
+      false,
+    );
+    // A page already written is not waiting, so it does not speak either way:
+    // point 8 stays empty and the answer is still true, because the only page
+    // still waiting is the one whose point is filled.
+    assert.equal(
+      everyPendingPageIsAlreadyWritten(
+        batch([waiting, stored(page({ id: "b", points: [8] }), [8])]),
+        new Set([6]),
+      ),
+      true,
+    );
+    // No waiting page at all is "all-saved", which this must not claim.
+    assert.equal(
+      everyPendingPageIsAlreadyWritten(batch([]), new Set([6])),
+      false,
+    );
   });
 });

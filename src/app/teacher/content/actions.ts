@@ -24,7 +24,16 @@ export type ConfirmedPoint = {
   readonly pointNumber: number;
   readonly lessonNumber: number | null;
   readonly blocks: readonly ConfirmedBlock[];
-  /** Words to introduce at this point, already folded by the caller. */
+  /**
+   * Words to introduce at this point, in the case the book prints them in.
+   *
+   * Not folded, and must not be: this is the last place the printed spelling
+   * exists. Telling one word from another here is case-insensitive all the same,
+   * and stays that way through the `ilike` below and the unique index on
+   * `lower(term)` in migration 0004. Swapping that `ilike` for an `eq` would
+   * make "Mr" miss the row holding "mr" and the insert would then trip the
+   * index, which nothing reads.
+   */
   readonly vocabulary: readonly string[];
   /**
    * The upload these blocks came from.
