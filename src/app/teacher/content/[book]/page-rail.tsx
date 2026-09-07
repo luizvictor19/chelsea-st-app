@@ -82,11 +82,21 @@ export function PageRail({
   const waiting = progress.total - progress.saved;
 
   return (
+    /*
+     * Pinned to the window from the tablet width up, with the list scrolling
+     * inside it.
+     *
+     * The rail grew with the batch, so reaching the last page of a long upload
+     * meant scrolling the whole document past the page being worked on. Sticky
+     * rather than a fixed pane, and self-start so the flex row stops stretching
+     * it: a short batch keeps its natural height and looks exactly as it did,
+     * and only a rail taller than the window starts scrolling on its own.
+     */
     <nav
       aria-label="Páginas deste envio"
-      className="border-rule flex w-full flex-shrink-0 flex-col border-b md:w-[268px] md:border-r md:border-b-0"
+      className="border-rule flex w-full flex-shrink-0 flex-col border-b md:sticky md:top-0 md:max-h-screen md:w-[268px] md:self-start md:border-r md:border-b-0"
     >
-      <div className="flex flex-col gap-2 px-5 pt-4 pb-3">
+      <div className="flex flex-shrink-0 flex-col gap-2 px-5 pt-4 pb-3">
         <span className="text-faint font-mono text-[0.625rem] tracking-[0.16em] uppercase">
           Este envio
         </span>
@@ -115,7 +125,7 @@ export function PageRail({
         )}
       </div>
 
-      <ul className="flex flex-col gap-[2px] px-3 pb-2">
+      <ul className="flex flex-col gap-[2px] px-3 pb-2 md:min-h-0 md:flex-1 md:overflow-y-auto">
         {pages.map((page) => {
           const focused = page.id === focusedId;
           const mark = markFor(page.state, page.alreadyInDatabase);
@@ -161,9 +171,7 @@ export function PageRail({
         })}
       </ul>
 
-      <div className="flex-grow" />
-
-      <div className="border-rule flex flex-col gap-2 border-t px-5 py-4">
+      <div className="border-rule flex flex-shrink-0 flex-col gap-2 border-t px-5 py-4">
         <span className="text-faint text-xs leading-relaxed">
           O envio fica salvo neste computador. Fechar a aba não perde a leitura.
         </span>
