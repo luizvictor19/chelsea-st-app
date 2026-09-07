@@ -3,6 +3,8 @@ import { describe, test } from "node:test";
 
 import {
   asksThePoint,
+  fromStored,
+  toStored,
   authoredPoints,
   headerFor,
   headingFor,
@@ -366,5 +368,44 @@ describe("a point the margin reader missed, once the teacher places it", () => {
       }),
       "5, 6 e 7",
     );
+  });
+});
+
+describe("the batch round-trip", () => {
+  test("the unread-point answer survives being stored and read back", () => {
+    // The answer is the one thing on this screen nothing can derive again. A
+    // reload that dropped it would put the same question back on an answered
+    // page and unfile the blocks it had placed.
+    const answered = page({
+      points: [7],
+      placements: [{ number: 7, y: 1008 }],
+      precedingPoint: 5,
+      openingPoint: 5,
+      pointStarts: [
+        { number: 6, top: 320 },
+        { number: 5, top: null },
+      ],
+    });
+    const stored = toStored(answered, {
+      blocks: [],
+      savedPoints: [],
+      changedSinceSaving: false,
+      pointStarts: answered.pointStarts,
+    });
+    assert.deepEqual(stored.pointStarts, [
+      { number: 6, top: 320 },
+      { number: 5, top: null },
+    ]);
+    assert.deepEqual(fromStored(stored).pointStarts, answered.pointStarts);
+  });
+
+  test("a batch just read has been asked nothing yet", () => {
+    const stored = toStored(page(), {
+      blocks: [],
+      savedPoints: [],
+      changedSinceSaving: false,
+      pointStarts: [],
+    });
+    assert.deepEqual(fromStored(stored).pointStarts, []);
   });
 });
