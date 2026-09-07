@@ -361,3 +361,28 @@ describe("a panel of more than one line", () => {
     assert.equal(result.blocks[0].kind, "grammar_table");
   });
 });
+
+describe("a panel the reader took something out of", () => {
+  test("is flagged, though its content now looks ordinary", () => {
+    // Point 38: the book prints "the /ðə/" and "the /ðiː/", the transcription
+    // is stripped, and both terms become "the". The evidence is gone by
+    // definition, so nothing downstream could find it again, and a repeated
+    // term inside one panel always means something the teacher should settle.
+    const result = supported(
+      classify(
+        input({
+          boxes: [
+            {
+              band: { top: 100, bottom: 160 },
+              content: "a, an, the, the",
+              amended: true,
+            },
+          ],
+        }),
+      ),
+    );
+    assert.equal(result.blocks[0].kind, "vocabulary");
+    assert.equal(result.blocks[0].needsReview, true);
+    assert.equal(result.blocks[0].content, "a, an, the, the");
+  });
+});

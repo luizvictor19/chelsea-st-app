@@ -12,6 +12,7 @@ import { boxLeft, crop, normalise, resize, shadedMask } from "./image.ts";
 import { findMarkers } from "./markers.ts";
 import { marginReadings, type MarginReading } from "./margin-numbers.ts";
 import { repairPrintedI } from "./printed-i.ts";
+import { stripTranscriptions } from "./pronunciation.ts";
 import { mergeReads } from "./second-read.ts";
 import { repairClosingQuotes } from "./quotes.ts";
 import { printedLines, tableContent } from "./table-layout.ts";
@@ -159,10 +160,10 @@ export async function extractPage(
       });
       continue;
     }
-    boxRegions.push({
-      band,
-      content: joinTerms(termsFrom(repairPrintedI(read), BOX_READ_SCALE)),
-    });
+    const { terms, amended } = stripTranscriptions(
+      termsFrom(repairPrintedI(read), BOX_READ_SCALE),
+    );
+    boxRegions.push({ band, content: joinTerms(terms), amended });
   }
 
   /*

@@ -35,6 +35,14 @@ export type ReadRegion = {
    * the words and is gone by the time there is content. See `printedLines`.
    */
   readonly isGrid?: boolean;
+  /**
+   * Whether the reader took something out of the content.
+   *
+   * Today that is a pronunciation removed from a vocabulary term. The evidence
+   * is gone by definition, so nothing downstream could find it again, and a
+   * panel that was changed on the way in is a panel the teacher should see.
+   */
+  readonly amended?: boolean;
 };
 
 export type ClassifyInput = {
@@ -150,7 +158,7 @@ export function classify(input: ClassifyInput): ClassifyResult {
     blocks.push({
       kind: isTable ? "grammar_table" : "vocabulary",
       content: box.content,
-      needsReview: isTable,
+      needsReview: isTable || (box.amended ?? false),
       band: box.band,
     });
   }
