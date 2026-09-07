@@ -1808,6 +1808,47 @@ function BlockCard({
 }) {
   const flagged = block.needsReview;
 
+  /*
+   * A chart reference is a fact of three words, and it was given the card a
+   * vocabulary panel gets: a header, and a text area three rows tall with one
+   * line in it. On a page carrying four of them that is most of the screen
+   * spent on the part nobody edits.
+   *
+   * Only while there is nothing to warn about. The kind is the teacher's to
+   * change, so any block can become a chart reference carrying anything, and a
+   * flagged one keeps the full card: the line naming what is wrong with it, and
+   * the crop beside it, are worth more than the height they cost.
+   */
+  if (block.kind === "chart_ref" && !flagged) {
+    return (
+      <div className="border-rule bg-surface flex flex-wrap items-center gap-2.5 rounded-sm border px-3.5 py-2">
+        {/*
+          One line, and the whole content: the stored form is the block's text
+          exactly as it was, and all of it stays editable. Only the height and
+          the control changed.
+        */}
+        <input
+          aria-label="Conteúdo do bloco"
+          value={block.content}
+          onChange={(event) => onChange({ content: event.target.value })}
+          className="bg-background border-rule min-w-0 flex-grow rounded-sm border px-2 py-1 font-mono text-xs"
+        />
+        <BlockKindSelect block={block} onChange={onChange} />
+        <span aria-hidden className="bg-rule h-3 w-px" />
+        <button
+          type="button"
+          onClick={onAdd}
+          aria-label="Acrescentar bloco abaixo deste"
+          title="Acrescentar bloco abaixo deste"
+          className={HEADER_ACTION}
+        >
+          <PlusIcon />
+        </button>
+        <DeleteBlockButton onRemove={onRemove} />
+      </div>
+    );
+  }
+
   return (
     <div
       className={`overflow-hidden rounded-sm border ${
@@ -1833,20 +1874,7 @@ function BlockCard({
               : FLAGGED_LABELS[block.kind]}
         </span>
         <div className="flex items-center gap-2.5">
-          <select
-            aria-label="Tipo do bloco"
-            value={block.kind}
-            onChange={(event) =>
-              onChange({ kind: event.target.value as BlockKind })
-            }
-            className="border-rule bg-background rounded-sm border px-1.5 py-1 font-mono text-[0.6875rem]"
-          >
-            {Object.entries(KIND_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+          <BlockKindSelect block={block} onChange={onChange} />
           <span aria-hidden className="bg-rule h-3 w-px" />
           <button
             type="button"
@@ -1895,6 +1923,35 @@ function BlockCard({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * The block's kind, which the teacher may correct.
+ *
+ * Kept wherever the card is drawn, compact or not: the extraction guesses the
+ * kind from geometry, and a wrong guess is only fixable here.
+ */
+function BlockKindSelect({
+  block,
+  onChange,
+}: {
+  block: BlockDraft;
+  onChange: (change: Partial<BlockDraft>) => void;
+}) {
+  return (
+    <select
+      aria-label="Tipo do bloco"
+      value={block.kind}
+      onChange={(event) => onChange({ kind: event.target.value as BlockKind })}
+      className="border-rule bg-background rounded-sm border px-1.5 py-1 font-mono text-[0.6875rem]"
+    >
+      {Object.entries(KIND_LABELS).map(([value, label]) => (
+        <option key={value} value={value}>
+          {label}
+        </option>
+      ))}
+    </select>
   );
 }
 
