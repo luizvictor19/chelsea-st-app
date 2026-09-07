@@ -35,6 +35,7 @@ import { pointForBlock, unplacedBlocks } from "@/lib/extraction/pipeline";
 import {
   startPlacements,
   unplacedCause,
+  unreadNumbers,
   type PointStart,
   type UnplacedCause,
 } from "@/lib/content/unread-points";
@@ -1226,7 +1227,15 @@ function PageWork({
   const unplaced = draft.continuation
     ? []
     : unplacedBlocks(draft.blocks, placements, page);
-  const unreadCause = unplacedCause(page, placements, draft.pointStarts);
+  /*
+   * The page's numbers without these answers: what it settled, plus a dispute
+   * the teacher resolved. The missing numbers are read off these and not off
+   * the merged set, so answering one does not make the question vanish before
+   * the others are answered, and an answer stays on screen to be changed.
+   */
+  const settled = placementsFor(page, { ...draft, pointStarts: [] });
+  const missing = unreadNumbers(page, settled);
+  const unreadCause = unplacedCause(page, settled, draft.pointStarts);
   /*
    * Points this page writes to whose lesson only the page before can give.
    *
@@ -1396,21 +1405,31 @@ function PageWork({
           </p>
         )}
 
-        {unplaced.length > 0 &&
-          writable &&
-          !draft.saved &&
-          (unreadCause.kind === "unread-numbers" ? (
-            <UnreadPointQuestion
-              page={page}
-              draft={draft}
-              numbers={unreadCause.numbers}
-              onUpdate={onUpdate}
-            />
-          ) : (
-            <p className="border-accent max-w-[80ch] rounded-sm border px-4 py-3.5 text-sm leading-relaxed">
-              {unplacedMessage(unreadCause, unplaced.length)}
-            </p>
-          ))}
+        {unplaced.length > 0 && writable && !draft.saved && (
+          <>
+            {/*
+              The message and the question are not alternatives. A page whose
+              missing number the teacher said begins elsewhere still needs to
+              be told why it is held, and it still has to show the answer that
+              held it: rendered as an either/or, choosing "não começa nesta
+              página" made the question disappear and the answer unreachable.
+            */}
+            {unreadCause.kind !== "unread-numbers" && (
+              <p className="border-accent max-w-[80ch] rounded-sm border px-4 py-3.5 text-sm leading-relaxed">
+                {unplacedMessage(unreadCause, unplaced.length)}
+              </p>
+            )}
+            {missing.length > 0 && (
+              <UnreadPointQuestion
+                page={page}
+                draft={draft}
+                numbers={missing}
+                candidates={unplacedBlocks(draft.blocks, settled, page)}
+                onUpdate={onUpdate}
+              />
+            )}
+          </>
+        )}
 
         {askingLesson && writable && (
           <LessonQuestion targets={targets} draft={draft} onUpdate={onUpdate} />
@@ -1514,29 +1533,24 @@ function UnreadPointQuestion({
   page,
   draft,
   numbers,
+  candidates,
   onUpdate,
 }: {
   page: ReviewSourcePage;
   draft: PageDraft;
-  /** The missing numbers still unanswered, ascending. */
+  /** Every number the book prints above this page's first, answered or not. */
   numbers: readonly number[];
+  /**
+   * The blocks one of those numbers could start at.
+   *
+   * Worked out from the page's own numbers and not from these answers, so the
+   * list stands still while it is being answered: an answer files blocks, and a
+   * list that shrank under the teacher would take the choices for the next
+   * number away as the previous one was made.
+   */
+  candidates: readonly BlockDraft[];
   onUpdate: (change: Partial<PageDraft>) => void;
 }) {
-  /*
-   * The blocks that could hold the start of a missing number.
-   *
-   * Computed against everything the page knows except these answers: the
-   * numbers it settled, and a dispute the teacher has already resolved, which
-   * on a page carrying nothing else is the only number there is. Leaving the
-   * answers out is what keeps the list still while it is being answered, since
-   * an answer files blocks and would otherwise shorten the list the next
-   * question is choosing from.
-   */
-  const candidates = unplacedBlocks(
-    draft.blocks,
-    placementsFor(page, { ...draft, pointStarts: [] }),
-    page,
-  );
   const answered = (value: number) =>
     draft.pointStarts.find((start) => start.number === value) ?? null;
 
@@ -1557,9 +1571,7 @@ function UnreadPointQuestion({
     return below.length === 0 ? -1 : Math.max(...below);
   }
 
-  const all = [...numbers, ...draft.pointStarts.map((start) => start.number)]
-    .filter((value, at, list) => list.indexOf(value) === at)
-    .sort((a, b) => a - b);
+  const all = [...numbers].sort((a, b) => a - b);
 
   return (
     <div className="border-accent flex flex-col gap-4 rounded-sm border p-4">
