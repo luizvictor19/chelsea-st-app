@@ -50,14 +50,41 @@ describe("tableContent", () => {
     assert.equal(content, "his | hers\nits |");
   });
 
-  test("the printed rule read as a separator is dropped", () => {
-    // Tesseract reads the table's vertical rule as "|" six times across the
-    // fixtures. Kept, it would be read back as a column boundary of ours.
+  test("the panel's own furniture is dropped", () => {
+    // The bracket that groups a conjugation's subjects, and the rule that
+    // closes the panel, both come back as "|". Kept, either would be read back
+    // as a column boundary of ours, in the middle of a cell. They are drawn
+    // down the whole group of lines they hold together, which is what tells
+    // them from a letter.
+    const bracket = { ...word("|", 200, 0, 6), height: 24 * 3 };
     const content = tableContent(
-      [word("do", 0, 0), word("|", 200, 0, 6), word("speak", 400, 0)],
+      [word("do", 0, 0), bracket, word("speak", 400, 0)],
       SCALE,
     );
     assert.equal(content, "do | speak");
+  });
+
+  test("a stem the height of the type is the pronoun, and survives", () => {
+    // Measured over the 8 bare stems in the tall panels of both books: six are
+    // a printed "I" and sit at 0.80 to 0.96 of their panel's body, and the two
+    // brackets sit at 2.57 and 3.27. Dropped, "I am" reached the teacher as
+    // "am", with nothing on the screen to say a word had gone.
+    const content = tableContent(
+      [word("|", 0, 0, 6), word("am", 40, 0), word("speaking", 400, 0)],
+      SCALE,
+    );
+    assert.equal(content, "I am | speaking");
+  });
+
+  test("a lone stem is judged against the panel, not against its own line", () => {
+    // On p060 the "I" is printed alone on its line, with nothing beside it to
+    // compare against. The panel around it is what says how tall a line of type
+    // is there.
+    const content = tableContent(
+      [word("do", 0, 0), word("|", 300, 100, 6), word("you", 300, 200)],
+      SCALE,
+    );
+    assert.equal(content, ["do", "I", "you"].join("\n"));
   });
 
   test("what it writes is what the editor reads back", () => {

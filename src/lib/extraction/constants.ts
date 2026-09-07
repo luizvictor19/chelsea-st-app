@@ -96,6 +96,37 @@ export const TABLE_COLUMN_GAP = 54;
 export const TABLE_LINE_TOLERANCE = 0.64;
 
 /**
+ * How tall a bare "|" may be, against the panel's own body, and still be an "I".
+ *
+ * Inside a tall panel the same character arrives from three things: the pronoun
+ * "I", which this face draws as a bare stem; the bracket that groups a
+ * conjugation's subjects; and the rule that closes the panel. `tableContent`
+ * used to drop all of them, which mends the last two and deletes the first
+ * without leaving a mark: "I am" became "am".
+ *
+ * Context cannot separate them here, unlike in the prose and the ordinary
+ * panels, where a stem with a word after it is always a letter. A bracket has
+ * words to its right too: on p060 it stands before "you" and on nopoint-1
+ * before "do not speak". Geometry can, because a bracket is drawn down the
+ * whole group of lines it holds together and a letter is one line of type tall.
+ *
+ * Measured with scripts/measure-pipe-tokens.ts over every bare "|" the engine
+ * returns in the 17 tall panels of both books. There are 8, and against the
+ * median word height of their own panel they fall in two places:
+ *
+ *   - 0.80, 0.92, 0.94, 0.94, 0.96, 0.96: six printed "I", one of them alone on
+ *     its line on p060 with no other word to compare against, which is why the
+ *     panel's body and not the line's is the yardstick.
+ *   - 2.57 and 3.27: the printed bracket, on p060 and on nopoint-1. Both were
+ *     checked against the images.
+ *
+ * The cut goes at 1.75, in the middle of that 1.61-wide void rather than on
+ * either edge. Against the panel's median rather than in pixels because the
+ * panels are read enlarged and each book sets its own type size.
+ */
+export const TABLE_STEM_HEIGHT = 1.75;
+
+/**
  * Page segmentation for reading an ordinary panel.
  *
  * Measured over the 151 panels: against the automatic mode this changes 3 of
