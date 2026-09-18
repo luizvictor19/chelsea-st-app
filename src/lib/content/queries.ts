@@ -236,44 +236,6 @@ export async function loadBook(position: number): Promise<BookDetail | null> {
   };
 }
 
-export type WordWithoutImage = {
-  readonly id: string;
-  readonly term: string;
-  readonly firstPointNumber: number | null;
-};
-
-export async function listWordsWithoutImage(): Promise<{
-  readonly words: readonly WordWithoutImage[];
-  readonly progress: Progress;
-}> {
-  const { supabase } = await requireTeacher();
-
-  const { data: rows } = await supabase
-    .from("vocabulary_items")
-    .select("id, term, image_path, points!inner(number)")
-    .order("term");
-
-  const all = rows ?? [];
-  const missing = all
-    .filter((row) => row.image_path === null)
-    .map((row) => ({
-      id: row.id,
-      term: row.term,
-      firstPointNumber: row.points?.number ?? null,
-    }));
-
-  const withImage = all.length - missing.length;
-  return {
-    words: missing,
-    progress: {
-      filled: withImage,
-      total: all.length,
-      remaining: all.length - withImage,
-      fraction: all.length === 0 ? 0 : withImage / all.length,
-    },
-  };
-}
-
 export type Representation = Database["public"]["Enums"]["representation_kind"];
 
 export type WordImage = {
