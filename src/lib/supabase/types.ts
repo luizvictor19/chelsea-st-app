@@ -1,8 +1,11 @@
 /**
  * Generated from the migrations in supabase/migrations, not from the deployed
- * project, so the types describe the schema this repository defines.
+ * project, so the types describe the schema this repository defines. Source
+ * matters: the deployed project keeps pgcrypto in the extensions schema, and
+ * generating from there silently drops its functions out of this file.
  *
- * Regenerate after adding a migration:
+ * Regenerate after adding a migration, against a throwaway Postgres that
+ * scripts/verify-rls.sql has applied the migrations to:
  *   supabase gen types typescript --db-url "<url>" --schema public \
  *     > src/lib/supabase/types.ts
  *
@@ -226,6 +229,59 @@ export type Database = {
           title?: string;
         };
         Relationships: [];
+      };
+      image_attempts: {
+        Row: {
+          created_at: string;
+          credits_spent: number | null;
+          decided_at: string | null;
+          error: string | null;
+          id: string;
+          model: string | null;
+          prompt: string | null;
+          provider: string;
+          provider_request_id: string | null;
+          status: string;
+          storage_path: string | null;
+          vocabulary_item_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          credits_spent?: number | null;
+          decided_at?: string | null;
+          error?: string | null;
+          id?: string;
+          model?: string | null;
+          prompt?: string | null;
+          provider: string;
+          provider_request_id?: string | null;
+          status: string;
+          storage_path?: string | null;
+          vocabulary_item_id: string;
+        };
+        Update: {
+          created_at?: string;
+          credits_spent?: number | null;
+          decided_at?: string | null;
+          error?: string | null;
+          id?: string;
+          model?: string | null;
+          prompt?: string | null;
+          provider?: string;
+          provider_request_id?: string | null;
+          status?: string;
+          storage_path?: string | null;
+          vocabulary_item_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "image_attempts_vocabulary_item_id_fkey";
+            columns: ["vocabulary_item_id"];
+            isOneToOne: false;
+            referencedRelation: "vocabulary_items";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       lesson_schedules: {
         Row: {
@@ -527,27 +583,49 @@ export type Database = {
       };
       vocabulary_items: {
         Row: {
+          approved_attempt_id: string | null;
           created_at: string;
           first_point_id: string;
           id: string;
           image_path: string | null;
+          representation:
+            Database["public"]["Enums"]["representation_kind"] | null;
+          suggested_representation:
+            Database["public"]["Enums"]["representation_kind"] | null;
           term: string;
         };
         Insert: {
+          approved_attempt_id?: string | null;
           created_at?: string;
           first_point_id: string;
           id?: string;
           image_path?: string | null;
+          representation?:
+            Database["public"]["Enums"]["representation_kind"] | null;
+          suggested_representation?:
+            Database["public"]["Enums"]["representation_kind"] | null;
           term: string;
         };
         Update: {
+          approved_attempt_id?: string | null;
           created_at?: string;
           first_point_id?: string;
           id?: string;
           image_path?: string | null;
+          representation?:
+            Database["public"]["Enums"]["representation_kind"] | null;
+          suggested_representation?:
+            Database["public"]["Enums"]["representation_kind"] | null;
           term?: string;
         };
         Relationships: [
+          {
+            foreignKeyName: "vocabulary_items_approved_attempt_id_fkey";
+            columns: ["approved_attempt_id"];
+            isOneToOne: false;
+            referencedRelation: "image_attempts";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "vocabulary_items_first_point_id_fkey";
             columns: ["first_point_id"];
@@ -593,6 +671,7 @@ export type Database = {
         | "revision_exercise"
         | "chart_ref";
       lesson_status: "scheduled" | "done" | "cancelled" | "no_show";
+      representation_kind: "photo" | "symbol" | "figure" | "action" | "none";
       user_role: "student" | "teacher";
     };
     CompositeTypes: {
@@ -731,6 +810,7 @@ export const Constants = {
         "chart_ref",
       ],
       lesson_status: ["scheduled", "done", "cancelled", "no_show"],
+      representation_kind: ["photo", "symbol", "figure", "action", "none"],
       user_role: ["student", "teacher"],
     },
   },
