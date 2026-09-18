@@ -9,6 +9,8 @@ Read this before writing code in this repository.
 - Portuguese where the text is for a person to read: README, the specs under
   docs/, and every string the teacher or the student sees. Their job is to be
   read, and the reader is Brazilian.
+- Reports, summaries and answers to Luiz are written in Portuguese. English is
+  for code, identifiers, comments, commit messages and files under docs/adr/.
 - When unsure, ask before deciding.
 
 ## Content and licensing

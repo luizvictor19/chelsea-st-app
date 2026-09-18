@@ -1,0 +1,29 @@
+{
+  "enabledMcpjsonServers": ["supabase"],
+  "permissions": {
+    "deny": [
+      "Bash(git merge*)",
+      "Bash(git rebase*)",
+      "Bash(git reset --hard*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(rm -rf*)",
+      "Bash(supabase db push*)",
+      "Bash(supabase db reset*)",
+      "Bash(supabase db pull*)",
+      "Bash(supabase migration up*)",
+      "Bash(psql*)",
+      "Bash(vercel --prod*)",
+      "Read(./.env)",
+      "Read(./.env.local)",
+      "Read(./.env.*.local)",
+      "Read(./.env.development)",
+      "Read(./.env.production)",
+      "Read(**/.env)",
+      "Read(**/.env.local)",
+      "Read(**/.env.*.local)",
+      "Read(**/.env.development)",
+      "Read(**/.env.production)"
+    ]
+  }
+}
