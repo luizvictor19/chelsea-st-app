@@ -14,12 +14,30 @@ create function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('test.uid', true), '')::uuid;
 $$;
 
+-- The storage schema, stubbed to the two tables 0008 touches, for the same
+-- reason auth is stubbed above: this runs on a plain Postgres. The columns are
+-- only the ones the bucket row and the policies name.
+create schema storage;
+create table storage.buckets (
+  id text primary key,
+  name text not null,
+  public boolean not null default false
+);
+create table storage.objects (
+  id uuid primary key default gen_random_uuid(),
+  bucket_id text references storage.buckets,
+  name text,
+  owner uuid
+);
+alter table storage.objects enable row level security;
+
 \i supabase/migrations/0001_init.sql
 \i supabase/migrations/0002_profile_on_signup.sql
 \i supabase/migrations/0003_lesson_schedules.sql
 \i supabase/migrations/0004_content.sql
 \i supabase/migrations/0005_block_source_page.sql
 \i supabase/migrations/0006_book_first_point.sql
+\i supabase/migrations/0008_vocabulary_images.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
@@ -36,6 +54,8 @@ insert into blocks (point_id, position, kind, content)
   values ((select id from points where number = 53), 0, 'vocabulary', 'a word');
 insert into vocabulary_items (term, first_point_id)
   values ('a word', (select id from points where number = 53));
+insert into image_attempts (vocabulary_item_id, provider, status)
+  values ((select id from vocabulary_items where term = 'a word'), 'upload', 'generated');
 insert into questions (point_id, position, prompt, expected_answer, is_published)
   values ((select id from points where number = 53), 0, 'p', 'a', true);
 
@@ -46,6 +66,7 @@ declare
   v_points integer;
   v_blocks integer;
   v_vocab integer;
+  v_attempts integer;
   v_questions integer;
 begin
   perform set_config('test.uid', '22222222-2222-2222-2222-222222222222', false);
@@ -56,12 +77,14 @@ begin
   select count(*) into v_points from points;
   select count(*) into v_blocks from blocks;
   select count(*) into v_vocab from vocabulary_items;
+  select count(*) into v_attempts from image_attempts;
   select count(*) into v_questions from questions;
 
-  if v_books <> 0 or v_lessons <> 0 or v_points <> 0 or v_blocks <> 0 or v_vocab <> 0 then
+  if v_books <> 0 or v_lessons <> 0 or v_points <> 0 or v_blocks <> 0
+     or v_vocab <> 0 or v_attempts <> 0 then
     raise exception
-      'criterion 10 failed: student saw books=% lessons=% points=% blocks=% vocabulary=%',
-      v_books, v_lessons, v_points, v_blocks, v_vocab;
+      'criterion 10 failed: student saw books=% lessons=% points=% blocks=% vocabulary=% image_attempts=%',
+      v_books, v_lessons, v_points, v_blocks, v_vocab, v_attempts;
   end if;
 
   if v_questions <> 1 then
