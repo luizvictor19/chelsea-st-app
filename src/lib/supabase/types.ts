@@ -640,6 +640,17 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      approve_image_attempt: {
+        Args: { p_attempt: string };
+        Returns: undefined;
+      };
+      clear_word_representation: {
+        Args: {
+          p_kind: Database["public"]["Enums"]["representation_kind"];
+          p_word: string;
+        };
+        Returns: undefined;
+      };
       dearmor: { Args: { "": string }; Returns: string };
       gen_random_uuid: { Args: never; Returns: string };
       gen_salt: { Args: { "": string }; Returns: string };

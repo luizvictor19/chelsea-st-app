@@ -19,24 +19,6 @@ const SCREEN = "/teacher/content/images";
 const POLL_TIMEOUT_MS = 90_000;
 const POLL_INTERVAL_MS = 2_000;
 
-/*
- * approve_image_attempt and clear_word_representation arrive with migration
- * 0009, which is not applied yet, so they are missing from the generated
- * Database type. These two signatures are that gap, written out by hand, and
- * they go away the next time src/lib/supabase/types.ts is regenerated. A cast
- * through unknown rather than any, so nothing else on the client loosens.
- */
-type ImageRpc = {
-  rpc(
-    name: "approve_image_attempt",
-    args: { p_attempt: string },
-  ): PromiseLike<{ error: { message: string } | null }>;
-  rpc(
-    name: "clear_word_representation",
-    args: { p_word: string; p_kind: Representation },
-  ): PromiseLike<{ error: { message: string } | null }>;
-};
-
 function failure(error: unknown): ActionResult {
   return {
     ok: false,
@@ -71,10 +53,10 @@ export async function setRepresentation(
 ): Promise<ActionResult> {
   try {
     const { supabase } = await requireTeacher();
-    const { error } = await (supabase as unknown as ImageRpc).rpc(
-      "clear_word_representation",
-      { p_word: wordId, p_kind: kind },
-    );
+    const { error } = await supabase.rpc("clear_word_representation", {
+      p_word: wordId,
+      p_kind: kind,
+    });
     if (error) return { ok: false, error: error.message };
     revalidatePath(SCREEN);
     return { ok: true };
@@ -86,10 +68,9 @@ export async function setRepresentation(
 export async function approveAttempt(attemptId: string): Promise<ActionResult> {
   try {
     const { supabase } = await requireTeacher();
-    const { error } = await (supabase as unknown as ImageRpc).rpc(
-      "approve_image_attempt",
-      { p_attempt: attemptId },
-    );
+    const { error } = await supabase.rpc("approve_image_attempt", {
+      p_attempt: attemptId,
+    });
     if (error) return { ok: false, error: error.message };
     revalidatePath(SCREEN);
     return { ok: true };
