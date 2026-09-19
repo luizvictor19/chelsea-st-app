@@ -854,43 +854,52 @@ export function WordPanel({
                     </div>
                   </div>
                   {/*
-                    Not offered while the provider is still drawing. The
-                    credits are spent the moment the task opens, so discarding
-                    a running attempt would throw away a picture that has been
-                    paid for and is on its way, from behind an icon with no
-                    label. It comes back the moment the row settles.
+                    Generated and nothing else, which is every state where
+                    discarding means something.
+
+                    Not while the provider is still drawing: the credits are
+                    spent the moment the task opens, so the picture is paid
+                    for and on its way. Not on an approved one: it is replaced
+                    by approving another, where discarding it here would leave
+                    the word naming an attempt that is no longer a candidate
+                    and a file that no longer exists. Not on a failure: that
+                    is terminal already, and turning it into a rejection is
+                    what lost the two the API refused among the ones the
+                    teacher disliked.
+
+                    rejectAttempt refuses anything but 'generated' as well.
+                    This is the half that stops the control being offered;
+                    that is the half that cannot be worked around.
                   */}
-                  {attempt.status !== "rejected" &&
-                    attempt.status !== "failed" &&
-                    !isRunning(attempt) && (
-                      <button
-                        type="button"
-                        disabled={working}
-                        aria-label="Descartar esta tentativa e apagar o arquivo"
-                        title="Descartar e apagar o arquivo"
-                        onClick={() => askToDiscard(attempt)}
-                        className="text-faint hover:text-accent shrink-0 self-start rounded-sm p-1.5 transition-colors disabled:opacity-40"
-                      >
-                        {busy?.key === `descartar-${attempt.id}` ? (
-                          <span className="block size-3.5 text-center text-[0.6875rem] leading-3.5">
-                            ·
-                          </span>
-                        ) : (
-                          <svg
-                            viewBox="0 0 16 16"
-                            className="size-3.5"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.2a1 1 0 0 0 1 .8h4.6a1 1 0 0 0 1-.8L12 4M6.5 7v4M9.5 7v4" />
-                          </svg>
-                        )}
-                      </button>
-                    )}
+                  {attempt.status === "generated" && (
+                    <button
+                      type="button"
+                      disabled={working}
+                      aria-label="Descartar esta tentativa e apagar o arquivo"
+                      title="Descartar e apagar o arquivo"
+                      onClick={() => askToDiscard(attempt)}
+                      className="text-faint hover:text-accent shrink-0 self-start rounded-sm p-1.5 transition-colors disabled:opacity-40"
+                    >
+                      {busy?.key === `descartar-${attempt.id}` ? (
+                        <span className="block size-3.5 text-center text-[0.6875rem] leading-3.5">
+                          ·
+                        </span>
+                      ) : (
+                        <svg
+                          viewBox="0 0 16 16"
+                          className="size-3.5"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.2a1 1 0 0 0 1 .8h4.6a1 1 0 0 0 1-.8L12 4M6.5 7v4M9.5 7v4" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
                 </li>
               );
             })}
