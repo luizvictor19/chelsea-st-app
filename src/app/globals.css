@@ -2,6 +2,16 @@
 
 /* Brand palette, mirrored from the landing page. */
 :root {
+  /*
+   * Which native palette the browser paints its own surfaces from. Without
+   * it, anything the page does not colour itself falls back to canvas and
+   * canvastext, which are the light palette whatever the theme is: a dialog
+   * with no colour of its own came out with black text on a dark surface,
+   * and the scrollbars inside it stayed light. Every token below still
+   * decides the colours; this decides what the browser does where they do
+   * not reach.
+   */
+  color-scheme: light;
   --background: #f2f2f0;
   --surface: #ffffff;
   --foreground: #14161b;
@@ -20,6 +30,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    color-scheme: dark;
     --background: #0f1115;
     --surface: #161a20;
     --foreground: #ecedea;

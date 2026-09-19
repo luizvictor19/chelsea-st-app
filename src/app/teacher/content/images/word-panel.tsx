@@ -532,7 +532,7 @@ export function WordPanel({
         onClick={(event) => {
           if (event.target === zoom.current) zoom.current?.close();
         }}
-        className="bg-surface border-rule m-auto max-w-[min(90vw,40rem)] rounded-sm border p-2 backdrop:bg-black/70"
+        className="bg-surface text-foreground border-rule m-auto max-w-[min(90vw,40rem)] rounded-sm border p-2 backdrop:bg-black/70"
       >
         {zoomed !== null && (
           <div>

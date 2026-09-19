@@ -135,7 +135,10 @@ export function FilterDrawer({
         onClick={(event) => {
           if (event.target === dialog.current) dialog.current?.close();
         }}
-        className="bg-surface border-rule m-0 mr-auto h-dvh max-h-none w-[22rem] max-w-[90vw] border-r p-0 backdrop:bg-black/40"
+        // The same surface and text colour the word panel uses. A dialog
+        // colours nothing by default, so without both it lands on the
+        // browser's canvas and canvastext instead of this screen's.
+        className="bg-surface text-foreground border-rule m-0 mr-auto h-dvh max-h-none w-[22rem] max-w-[90vw] border-r p-0 backdrop:bg-black/40"
       >
         <div className="flex h-full flex-col">
           <div className="border-rule flex items-center justify-between gap-3 border-b px-4 py-3">
