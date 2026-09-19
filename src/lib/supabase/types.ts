@@ -242,6 +242,7 @@ export type Database = {
           prompt: string | null;
           provider: string;
           provider_request_id: string | null;
+          reference_path: string | null;
           status: string;
           storage_path: string | null;
           subject: string | null;
@@ -258,6 +259,7 @@ export type Database = {
           prompt?: string | null;
           provider: string;
           provider_request_id?: string | null;
+          reference_path?: string | null;
           status: string;
           storage_path?: string | null;
           subject?: string | null;
@@ -274,6 +276,7 @@ export type Database = {
           prompt?: string | null;
           provider?: string;
           provider_request_id?: string | null;
+          reference_path?: string | null;
           status?: string;
           storage_path?: string | null;
           subject?: string | null;
@@ -594,6 +597,7 @@ export type Database = {
           first_point_id: string;
           id: string;
           image_path: string | null;
+          reference_path: string | null;
           representation:
             Database["public"]["Enums"]["representation_kind"] | null;
           suggested_representation:
@@ -607,6 +611,7 @@ export type Database = {
           first_point_id: string;
           id?: string;
           image_path?: string | null;
+          reference_path?: string | null;
           representation?:
             Database["public"]["Enums"]["representation_kind"] | null;
           suggested_representation?:
@@ -620,6 +625,7 @@ export type Database = {
           first_point_id?: string;
           id?: string;
           image_path?: string | null;
+          reference_path?: string | null;
           representation?:
             Database["public"]["Enums"]["representation_kind"] | null;
           suggested_representation?:
