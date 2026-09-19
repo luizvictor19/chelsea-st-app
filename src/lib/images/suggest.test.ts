@@ -79,13 +79,26 @@ describe("buildSuggestionPrompt", () => {
    * The boundary the sixth kind exists for. Pose came out of the blind
    * measurement of lesson 2, where the only two misses were sitting and
    * standing: decided Figure, suggested Action, and both readings defensible
-   * because neither kind described a person held in a position.
+   * because neither kind described a body held in a position.
    */
-  test("states that the arrow is what separates pose from action", () => {
+  test("separates pose from action by rest against activity", () => {
     const { system } = buildSuggestionPrompt(WORDS);
-    assert.match(system, /Pose is still and action is moving/iu);
-    assert.match(system, /arrow is what separates them/iu);
-    assert.match(system, /sitting from sit down/iu);
+    assert.match(system, /rest against activity/iu);
+    assert.match(system, /at rest/iu);
+    assert.match(system, /doing something/iu);
+    assert.match(system, /freeze the drawing/iu);
+  });
+
+  /*
+   * The arrow used to be the criterion, and that was wrong: smile is an
+   * action and has no direction to point at. It may still be mentioned as a
+   * drawing consequence, but never as what tells the two kinds apart.
+   */
+  test("does not make the arrow the criterion", () => {
+    const { system } = buildSuggestionPrompt(WORDS);
+    assert.doesNotMatch(system, /arrow is what separates/iu);
+    assert.match(system, /not what tells the two apart/iu);
+    assert.match(system, /smile is an action with no arrow/iu);
   });
 
   test("states that a colour is a figure", () => {

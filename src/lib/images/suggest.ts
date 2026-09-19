@@ -42,8 +42,8 @@ const SYSTEM = `You sort English vocabulary words by the kind of picture each on
 
 The six kinds:
 - photo: a concrete object, a living thing, or a named person, where one image is enough. Examples: apple, dog, table, Jack, Mr Brown.
-- pose: a person standing still, whole body, where the position of the body is the meaning. Examples: standing, sitting, lying.
-- action: a person in the middle of a movement, with an arrow showing which way it goes. Examples: sit down, stand up, open, close.
+- pose: the body is at rest, and the position it is held in is what the word means. Examples: standing, sitting, lying.
+- action: the person is doing something. Examples: sit down, stand up, open, close, smile, speak, write.
 - figure: something drawn as a simple diagram rather than photographed, with no person in it. A spatial or quantity relation, a place on a map, or a colour as one filled shape. Examples: in, on, under, many, big, England, London, red.
 - symbol: the word is the character itself. Examples: six, question mark, first.
 - none: grammatical or functional, with nothing to draw. Examples: a, the, is, this, yes, Mr, English.
@@ -53,7 +53,7 @@ The pairs that are easy to confuse:
 - A country or a city is figure, drawn as a map: England, Brazil, London.
 - A nationality or a language is none: English, Brazilian, French.
 - A colour is figure, drawn as one filled shape: red, blue, green.
-- Pose is still and action is moving. Pose is a body held in a position: standing, sitting, lying. Action is a body part way through a movement, and it is drawn with an arrow for the direction: sit down, stand up, open, close. The arrow is what separates them, because a still picture without one cannot tell sitting from sit down.
+- Pose against action is rest against activity. In pose the body is at rest and the position it is held in is the meaning of the word: standing, sitting, lying. In action the person is doing something: sit down, stand up, open, close, smile, speak, write. The practical test is to freeze the drawing: if it still says the word, it is pose; if it becomes a different word, it is action. An arrow is a consequence of drawing and not what tells the two apart: it goes in when the movement has a direction and stays out when it has none, which is why smile is an action with no arrow.
 
 Answer with json only, in exactly this shape:
 {"suggestions": [{"id": "the id you were given", "kind": "photo|pose|action|figure|symbol|none"}]}

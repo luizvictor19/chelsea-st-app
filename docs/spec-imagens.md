@@ -137,8 +137,10 @@ Acrescentado em 19/09/2026. O critério geral é onde mora o sentido da palavra.
 
 - **Foto**: o objeto sozinho (pen, book, table). Nome de pessoa é Foto, porque o livro mostra a
   pessoa; mesmo personagem sempre, com dois ou três traços fixos no assunto.
-- **Postura**: pessoa parada, corpo inteiro, a posição do corpo é o sentido.
-- **Ação**: pessoa no meio do movimento, com seta indicando a direção.
+- **Postura**: o corpo está em repouso e a posição dele é o sentido da palavra (standing, sitting,
+  lying). Corpo inteiro.
+- **Ação**: a pessoa está fazendo alguma coisa (sit down, stand up, open, close, smile, speak,
+  write). O desenho pega o instante mais legível do movimento.
 - **Figura**: diagrama, sem pessoa. Relação e posição são caixa e bola; cor é uma forma fixa
   preenchida, a mesma para todas; país e cidade são a silhueta do mapa.
 - **Símbolo**: não gera imagem, a tela renderiza o caractere.
@@ -146,7 +148,12 @@ Acrescentado em 19/09/2026. O critério geral é onde mora o sentido da palavra.
   língua. Pronome pessoal também é Nada por enquanto, porque figura isolada não diz "him": a foto de
   um homem diz "man". Item aberto, ligado à cena do tutor.
 
-A seta é o que separa Postura de Ação. Imagem parada sem ela não distingue `sitting` de `sit down`.
+Postura e Ação se separam por **repouso contra atividade**, não pela seta. Teste prático: congele o
+desenho. Se ele continuar dizendo a palavra, é Postura; se virar outra palavra, é Ação.
+
+A seta é consequência de desenho, não o critério: ela entra quando o movimento tem direção e fica
+fora quando não tem. Por isso `smile` é Ação e não leva seta. Definir a categoria pela seta era o que
+estava escrito aqui até 19/09/2026, e estava errado.
 
 **Proveniência do tipo Postura.** Ele nasceu da medição cega da lição 2, em 19/09/2026, onde os dois
 únicos erros foram `sitting` e `standing`: decididos Figura e sugeridos Ação. Os dois lados eram
