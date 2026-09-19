@@ -5,9 +5,11 @@ import {
   GENERATION_WINDOW_MS,
   POLL_INTERVAL_MS,
   elapsedSeconds,
+  generationSeconds,
   hasExpired,
   isRunning,
   runningAttempt,
+  type Finished,
 } from "./generation.ts";
 
 /** A row shaped like the ones the panel gets, at a chosen age. */
@@ -154,5 +156,99 @@ describe("POLL_INTERVAL_MS", () => {
 
   test("costs at most a dozen questions over the slowest generation seen", () => {
     assert.ok(Math.ceil(21_000 / POLL_INTERVAL_MS) <= 12);
+  });
+});
+
+describe("generationSeconds", () => {
+  const started = "2026-09-19T18:32:32.309Z";
+
+  /** The row shape the duration is read from, at a chosen end. */
+  function finished(over: Partial<Finished> = {}): Finished {
+    return {
+      provider: "freepik",
+      createdAt: started,
+      completedAt: "2026-09-19T18:32:44.309Z",
+      ...over,
+    };
+  }
+
+  test("is the whole wait, from the row being made to it being stored", () => {
+    assert.equal(generationSeconds(finished()), 12);
+  });
+
+  /*
+   * The two attempts the new shape had actually produced by 2026-09-19, read
+   * off the rows: 16.55s and 26.29s. They are here because they are the only
+   * real durations there are, and because the second of them is above the 21s
+   * that was the worst anyone had seen before.
+   */
+  test("reads the two real durations there are", () => {
+    assert.equal(
+      generationSeconds(finished({ completedAt: "2026-09-19T18:32:48.859Z" })),
+      17,
+    );
+    assert.equal(
+      generationSeconds(finished({ completedAt: "2026-09-19T18:32:58.599Z" })),
+      26,
+    );
+  });
+
+  /*
+   * Rounded, not floored. The live counter floors because it counts seconds
+   * that have gone by; this is a measurement, and shaving up to a second off
+   * every one of them would be a bias.
+   */
+  test("rounds rather than floors", () => {
+    assert.equal(
+      generationSeconds(finished({ completedAt: "2026-09-19T18:32:44.909Z" })),
+      13,
+    );
+    assert.equal(
+      generationSeconds(finished({ completedAt: "2026-09-19T18:32:44.209Z" })),
+      12,
+    );
+  });
+
+  test("says nothing about an upload, whose stamp measures something else", () => {
+    assert.equal(generationSeconds(finished({ provider: "upload" })), null);
+  });
+
+  /*
+   * No stamp covers two rows that look nothing alike and answer the same:
+   * one still running, and one made before the column existed. Neither has a
+   * duration, and neither should be given one from decided_at, which is when
+   * the teacher judged the picture rather than when it arrived.
+   */
+  test("says nothing without a stamp, running or merely old", () => {
+    assert.equal(generationSeconds(finished({ completedAt: null })), null);
+    assert.equal(
+      generationSeconds({
+        provider: "freepik",
+        createdAt: "2026-09-19T00:06:46.314Z",
+        completedAt: null,
+      }),
+      null,
+    );
+  });
+
+  test("says nothing when a date cannot be read", () => {
+    assert.equal(generationSeconds(finished({ createdAt: "nope" })), null);
+    assert.equal(generationSeconds(finished({ completedAt: "nope" })), null);
+  });
+
+  /*
+   * created_at is stamped by Postgres and completed_at by the application
+   * server. A negative gap means the skew between those two clocks is bigger
+   * than the thing being measured, and no number beats a wrong one.
+   */
+  test("says nothing when the end is before the beginning", () => {
+    assert.equal(
+      generationSeconds(finished({ completedAt: "2026-09-19T18:32:31.000Z" })),
+      null,
+    );
+  });
+
+  test("a generation that ended at once is zero, not nothing", () => {
+    assert.equal(generationSeconds(finished({ completedAt: started })), 0);
   });
 });

@@ -10,6 +10,7 @@ import type {
 import {
   POLL_INTERVAL_MS,
   elapsedSeconds,
+  generationSeconds,
   hasExpired,
   isRunning,
   runningAttempt,
@@ -557,6 +558,11 @@ export function WordPanel({
               // Bound out of the property so the narrowing survives into the
               // click handler, which it does not do through a closure.
               const imageUrl = attempt.imageUrl;
+              // Null is "there is nothing honest to say", which is an upload,
+              // an attempt still running, and every row from before the
+              // stamp existed. See generationSeconds for why each of those
+              // shows nothing rather than a zero.
+              const took = generationSeconds(attempt);
               return (
                 <li
                   key={attempt.id}
@@ -583,6 +589,7 @@ export function WordPanel({
                       {isRunning(attempt) &&
                         `, ${elapsedSeconds(attempt.createdAt, now)}s`}
                       {attempt.model !== null && ` · ${attempt.model}`}
+                      {took !== null && ` · ${took}s`}
                       {attempt.creditsSpent !== null &&
                         ` · ${attempt.creditsSpent} créditos`}
                     </span>

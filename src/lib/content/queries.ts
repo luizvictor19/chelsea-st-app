@@ -276,6 +276,11 @@ export type ImageAttempt = {
   readonly error: string | null;
   readonly creditsSpent: number | null;
   readonly createdAt: string;
+  /**
+   * When the attempt stopped waiting, for a picture or for an error. Null on
+   * one still running and on every attempt made before migration 0013.
+   */
+  readonly completedAt: string | null;
 };
 
 /** A word is waiting when it has no decision, or a decision it cannot meet yet. */
@@ -411,7 +416,7 @@ export async function readWordAttempts(
   const { data: rows, error } = await supabase
     .from("image_attempts")
     .select(
-      "id, status, provider, model, subject, storage_path, error, credits_spent, created_at",
+      "id, status, provider, model, subject, storage_path, error, credits_spent, created_at, completed_at",
     )
     .eq("vocabulary_item_id", wordId)
     .order("created_at", { ascending: false });
@@ -430,6 +435,7 @@ export async function readWordAttempts(
       error: row.error,
       creditsSpent: row.credits_spent,
       createdAt: row.created_at,
+      completedAt: row.completed_at,
     })),
   );
 }

@@ -109,3 +109,52 @@ export function elapsedSeconds(createdAt: string, now: number): number {
   if (Number.isNaN(started)) return 0;
   return Math.max(0, Math.floor((now - started) / 1000));
 }
+
+/** The parts of a finished attempt the duration is read from. */
+export type Finished = {
+  readonly provider: string;
+  readonly createdAt: string;
+  readonly completedAt: string | null;
+};
+
+/**
+ * How long an attempt took, in whole seconds, or null when there is nothing
+ * honest to say.
+ *
+ * What it measures is the whole wait: created_at is stamped when the row is
+ * inserted, completed_at when it leaves 'pending', which is after the picture
+ * has been downloaded and put in the bucket. So this is what the teacher
+ * actually waited for, not the provider's own drawing time. The two are close
+ * but not the same, and a comparison between models should know the
+ * difference.
+ *
+ * Rounded rather than floored, unlike the live counter: a counter counts
+ * seconds that have gone by, and this is a measurement, where dropping up to
+ * a second every time would be a bias rather than a rounding.
+ *
+ * Null in four cases, all of them "we cannot tell" rather than "zero":
+ *
+ *   An upload. Its stamp measures a file going into the bucket, which is a
+ *   different thing wearing the same column; printing it beside a generation
+ *   would put two unlike numbers under one label.
+ *
+ *   No stamp at all. Every attempt made before 2026-09-19 predates the
+ *   column, and those rows say nothing rather than guessing from decided_at,
+ *   which is when the teacher judged the picture, minutes later.
+ *
+ *   A date that cannot be read.
+ *
+ *   An end before the beginning. created_at comes from Postgres and
+ *   completed_at from the application server, so they are two clocks; a gap
+ *   that comes out negative means the skew between them is larger than the
+ *   thing being measured, and no number is better than a wrong one.
+ */
+export function generationSeconds(attempt: Finished): number | null {
+  if (attempt.provider !== "freepik") return null;
+  if (attempt.completedAt === null) return null;
+  const started = Date.parse(attempt.createdAt);
+  const ended = Date.parse(attempt.completedAt);
+  if (Number.isNaN(started) || Number.isNaN(ended)) return null;
+  if (ended < started) return null;
+  return Math.round((ended - started) / 1000);
+}
