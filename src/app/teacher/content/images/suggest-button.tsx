@@ -1,9 +1,9 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
 import { suggestRepresentations } from "./actions";
+import { settle } from "./panel-state";
 
 /**
  * Asks the model to sort the whole lesson, decided words included. What comes
@@ -29,26 +29,34 @@ export function SuggestButton({
   readonly words: number;
   readonly suggested: number;
 }) {
-  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
 
+  /*
+   * The same shape as the panel's run, and for the same reason: this is the
+   * longest call on the screen, a whole lesson through the model, and awaiting
+   * it without a catch left any rejection to the window. The router.refresh()
+   * that used to sit here is gone too. suggestRepresentations already calls
+   * revalidatePath, so the response re-renders the list on its own; the
+   * refresh only added a second request that returned void and that nobody
+   * could hear fail.
+   */
   async function run() {
     setBusy(true);
     setNote(null);
-    const result = await suggestRepresentations(lessonContentId);
+    const result = await settle(() => suggestRepresentations(lessonContentId));
     setBusy(false);
-    if (result.ok) {
-      setNote(
-        result.rejected === 0
-          ? `${result.suggested} sugeridas`
-          : `${result.suggested} sugeridas, ${result.rejected} recusadas`,
-      );
-      router.refresh();
-    } else {
+    if (!result.ok) {
       setNote(result.error);
+      if ("cause" in result) console.error(result.cause);
+      return;
     }
+    setNote(
+      result.rejected === 0
+        ? `${result.suggested} sugeridas`
+        : `${result.suggested} sugeridas, ${result.rejected} recusadas`,
+    );
   }
 
   function start() {
