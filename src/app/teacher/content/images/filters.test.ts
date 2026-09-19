@@ -4,7 +4,9 @@ import { describe, test } from "node:test";
 import { Constants } from "../../../../lib/supabase/types.ts";
 import {
   SITUATIONS,
-  hasAnyFilter,
+  activeChips,
+  activeCount,
+  filterHref,
   imageCounts,
   matchesSearch,
   matchesSelection,
@@ -180,16 +182,56 @@ describe("matchesSearch", () => {
   });
 });
 
-describe("hasAnyFilter", () => {
-  test("false when nothing narrows the list", () => {
-    assert.ok(!hasAnyFilter(EMPTY, ""));
-    assert.ok(!hasAnyFilter(EMPTY, "  "));
+describe("filterHref", () => {
+  test("an empty state is the bare path, not a trailing question mark", () => {
+    assert.equal(filterHref(EMPTY, null), "/teacher/content/images");
+    assert.equal(filterHref(EMPTY, null, "  "), "/teacher/content/images");
   });
 
-  test("true for a search or for any axis", () => {
-    assert.ok(hasAnyFilter(EMPTY, "book"));
-    assert.ok(hasAnyFilter({ ...EMPTY, tipo: ["photo"] }, ""));
-    assert.ok(hasAnyFilter({ ...EMPTY, classe: ["noun"] }, ""));
-    assert.ok(hasAnyFilter({ ...EMPTY, situacao: ["com-imagem"] }, ""));
+  test("carries the axes, the search and the word", () => {
+    const url = filterHref(
+      { tipo: ["photo", "pose"], classe: ["noun"], situacao: [] },
+      "abc",
+      " book ",
+    );
+    assert.match(url, /tipo=photo%2Cpose/u);
+    assert.match(url, /classe=noun/u);
+    assert.match(url, /busca=book/u);
+    assert.match(url, /palavra=abc/u);
+    assert.doesNotMatch(url, /situacao/u);
+  });
+});
+
+describe("activeChips", () => {
+  test("nothing on means no chips, so the row takes no space", () => {
+    assert.deepEqual(activeChips(EMPTY), []);
+  });
+
+  test("names each filter that is on, with its label", () => {
+    const chips = activeChips({
+      tipo: ["photo"],
+      classe: ["noun"],
+      situacao: ["com-imagem"],
+    });
+    assert.deepEqual(
+      chips.map((chip) => [chip.key, chip.value, chip.label]),
+      [
+        ["tipo", "photo", "Foto"],
+        ["classe", "noun", "Substantivo"],
+        ["situacao", "com-imagem", "Com imagem"],
+      ],
+    );
+  });
+});
+
+describe("activeCount", () => {
+  test("counts every chosen value, and the search as one more", () => {
+    assert.equal(activeCount(EMPTY, ""), 0);
+    assert.equal(activeCount(EMPTY, "book"), 1);
+    assert.equal(activeCount({ ...EMPTY, tipo: ["photo", "pose"] }, ""), 2);
+    assert.equal(
+      activeCount({ tipo: ["photo"], classe: ["noun"], situacao: [] }, "book"),
+      3,
+    );
   });
 });

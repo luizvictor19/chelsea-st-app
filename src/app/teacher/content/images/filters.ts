@@ -144,10 +144,60 @@ export function matchesSearch(term: string, search: string): boolean {
   return needle === "" || term.toLowerCase().includes(needle);
 }
 
-/** Whether anything is narrowing the list, which is when Limpar is worth showing. */
-export function hasAnyFilter(selection: Selection, search: string): boolean {
-  return (
-    search.trim() !== "" ||
-    FILTER_GROUPS.some((group) => selection[group.key].length > 0)
-  );
+/**
+ * The whole state of the screen as a link: three filter axes, the search and
+ * the selected word. Every control is a link, so the back button walks the
+ * filters and a view can be handed to someone as a URL.
+ *
+ * Lives here rather than in the page because the drawer builds these too, and
+ * two copies of a URL format drift.
+ */
+export function filterHref(
+  selection: Selection,
+  word: string | null,
+  term = "",
+): string {
+  const search = new URLSearchParams();
+  for (const { key } of FILTER_GROUPS) {
+    const chosen = selection[key];
+    if (chosen.length > 0) search.set(key, chosen.join(","));
+  }
+  if (term.trim() !== "") search.set("busca", term.trim());
+  if (word) search.set("palavra", word);
+  const query = search.toString();
+  return query === "" ? "/teacher/content/images" : `?${query}`;
+}
+
+export type Chip = {
+  readonly key: FilterKey;
+  readonly value: string;
+  readonly label: string;
+};
+
+/**
+ * Every filter that is on, as something the screen can show while the drawer
+ * is shut.
+ *
+ * A filter you cannot see is a filter you forget, and then half an hour goes
+ * into looking for a word the list is quietly hiding. The chips are that
+ * half hour.
+ */
+export function activeChips(selection: Selection): readonly Chip[] {
+  const chips: Chip[] = [];
+  for (const group of FILTER_GROUPS) {
+    for (const value of selection[group.key]) {
+      const option = group.options.find((item) => item.value === value);
+      chips.push({
+        key: group.key,
+        value,
+        label: option?.label ?? value,
+      });
+    }
+  }
+  return chips;
+}
+
+/** How many filters are on, counting the search as one. */
+export function activeCount(selection: Selection, search: string): number {
+  return activeChips(selection).length + (search.trim() === "" ? 0 : 1);
 }

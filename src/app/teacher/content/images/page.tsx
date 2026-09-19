@@ -6,15 +6,14 @@ import { listVocabularyImages, listWordAttempts } from "@/lib/content/queries";
 import { ProgressBar } from "../progress-bar";
 import { overwriteWarning } from "@/lib/images/suggest";
 
+import { FilterDrawer } from "./filter-drawer";
 import {
-  FILTER_GROUPS,
-  hasAnyFilter,
+  filterHref,
   imageCounts,
   matchesSearch,
   matchesSelection,
   parseSelection,
   situationOf,
-  toggled,
   type Selection,
   type Situation,
 } from "./filters";
@@ -25,52 +24,6 @@ import { WordPanel } from "./word-panel";
 export const metadata: Metadata = {
   title: "Imagens do vocabulário · Chelsea St",
 };
-
-/**
- * The whole state of the screen as a link: three filter axes and the selected
- * word. Every control is a link, so the back button walks the filters and a
- * view can be pasted to someone.
- */
-function href(selection: Selection, word: string | null, term = ""): string {
-  const search = new URLSearchParams();
-  for (const { key } of FILTER_GROUPS) {
-    const chosen = selection[key];
-    if (chosen.length > 0) search.set(key, chosen.join(","));
-  }
-  if (term.trim() !== "") search.set("busca", term.trim());
-  if (word) search.set("palavra", word);
-  const query = search.toString();
-  return query === "" ? "/teacher/content/images" : `?${query}`;
-}
-
-/**
- * One filter option. Filled in the accent when it is on: the outline against
- * outline the two states had before was a difference you had to look for,
- * and a filter you cannot read at a glance is a filter you forget is on.
- */
-function Pill({
-  href,
-  on,
-  label,
-}: {
-  readonly href: string;
-  readonly on: boolean;
-  readonly label: string;
-}) {
-  return (
-    <Link
-      href={href}
-      aria-pressed={on}
-      className={
-        on
-          ? "border-accent bg-accent text-accent-foreground rounded-sm border px-2.5 py-1 text-xs font-semibold"
-          : "border-rule hover:bg-surface rounded-sm border px-2.5 py-1 text-xs transition-colors"
-      }
-    >
-      {label}
-    </Link>
-  );
-}
 
 /** The tick, the waiting circle, or nothing. */
 function StatusMark({ situation }: { readonly situation: Situation }) {
@@ -147,7 +100,6 @@ export default async function VocabularyImagesPage({
     (total, lesson) => total + lesson.words.length,
     0,
   );
-  const filtering = hasAnyFilter(selection, term);
 
   const selected =
     lessons
@@ -178,6 +130,20 @@ export default async function VocabularyImagesPage({
           Imagens do vocabulário
         </h1>
         <ProgressBar progress={progress} label="Palavras resolvidas" emphasis />
+        {/*
+          The filters live in a drawer now: they were taking more height above
+          the two columns than the two columns could spare. What stays out
+          here is the button, the count on it, and the filters that are on.
+        */}
+        {progress.total > 0 && (
+          <FilterDrawer
+            selection={selection}
+            term={term}
+            selectedId={selectedId}
+            shown={shown}
+            total={progress.total}
+          />
+        )}
       </header>
 
       {progress.total === 0 ? (
@@ -186,122 +152,6 @@ export default async function VocabularyImagesPage({
         </p>
       ) : (
         <>
-          {/*
-            A panel, not a loose row of buttons: bordered and set back from
-            the list, so it reads as the thing that narrows what is below it.
-            Every control is a link or a GET form, so the whole state is the
-            query string and a view can be handed to someone as a URL.
-          */}
-          <div className="border-rule bg-surface/50 flex flex-col gap-3 rounded-sm border p-3">
-            <form method="GET" className="flex gap-2">
-              {/*
-                The other axes ride along as hidden fields, or searching would
-                quietly drop the filters already chosen.
-              */}
-              {FILTER_GROUPS.map((group) =>
-                selection[group.key].length === 0 ? null : (
-                  <input
-                    key={group.key}
-                    type="hidden"
-                    name={group.key}
-                    value={selection[group.key].join(",")}
-                  />
-                ),
-              )}
-              <input
-                type="search"
-                name="busca"
-                defaultValue={term}
-                placeholder="Buscar termo"
-                aria-label="Buscar termo"
-                className="border-rule bg-background min-w-0 flex-1 rounded-sm border px-3 py-1.5 text-sm"
-              />
-              <button
-                type="submit"
-                className="border-rule hover:bg-background rounded-sm border px-3 py-1.5 text-sm font-semibold transition-colors"
-              >
-                Buscar
-              </button>
-            </form>
-
-            {FILTER_GROUPS.filter((group) => group.key !== "classe").map(
-              (group) => (
-                <div
-                  key={group.key}
-                  className="flex flex-wrap items-baseline gap-2"
-                >
-                  <span className="text-faint w-16 shrink-0 font-mono text-xs tracking-[0.16em] uppercase">
-                    {group.label}
-                  </span>
-                  {group.options.map((option) => (
-                    <Pill
-                      key={option.value}
-                      href={href(
-                        toggled(selection, group.key, option.value),
-                        selectedId,
-                        term,
-                      )}
-                      on={selection[group.key].includes(option.value)}
-                      label={option.label}
-                    />
-                  ))}
-                </div>
-              ),
-            )}
-
-            {/*
-              Twelve classes would be a third row of pills longer than the
-              other two together, so this one folds away. Native details, no
-              script, and the summary says how many are chosen so a filter
-              that is on can never be invisible.
-            */}
-            <details
-              open={selection.classe.length > 0}
-              className="border-rule rounded-sm border px-3 py-2"
-            >
-              <summary className="text-faint cursor-pointer font-mono text-xs tracking-[0.16em] uppercase">
-                Classe
-                {selection.classe.length > 0 && (
-                  <span className="text-foreground normal-case">
-                    {" "}
-                    · {selection.classe.length} escolhidas
-                  </span>
-                )}
-              </summary>
-              <div className="flex flex-wrap gap-2 pt-2">
-                {FILTER_GROUPS.find(
-                  (group) => group.key === "classe",
-                )?.options.map((option) => (
-                  <Pill
-                    key={option.value}
-                    href={href(
-                      toggled(selection, "classe", option.value),
-                      selectedId,
-                      term,
-                    )}
-                    on={selection.classe.includes(option.value)}
-                    label={option.label}
-                  />
-                ))}
-              </div>
-            </details>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-muted text-xs">
-                {shown} de {progress.total}
-              </span>
-              {/* Only when there is something to clear. */}
-              {filtering && (
-                <Link
-                  href="/teacher/content/images"
-                  className="text-faint hover:text-foreground text-xs underline underline-offset-2 transition-colors"
-                >
-                  Limpar
-                </Link>
-              )}
-            </div>
-          </div>
-
           <div className="grid gap-8 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:overflow-hidden">
             <div className="flex flex-col gap-7 lg:min-h-0 lg:overflow-y-auto lg:pr-3">
               {visible.length === 0 ? (
@@ -347,7 +197,7 @@ export default async function VocabularyImagesPage({
                       {lesson.words.map((word) => (
                         <li key={word.id}>
                           <Link
-                            href={href(selection, word.id, term)}
+                            href={filterHref(selection, word.id, term)}
                             aria-current={
                               selectedId === word.id ? "true" : undefined
                             }
