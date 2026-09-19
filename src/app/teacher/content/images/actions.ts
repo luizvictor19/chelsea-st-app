@@ -16,6 +16,7 @@ import {
 } from "@/lib/images/generation";
 import {
   isImageModelId,
+  modelCredits,
   referenceDelivery,
   takesReference,
 } from "@/lib/images/provider";
@@ -402,10 +403,27 @@ export async function startGeneration(
      * The handle is what makes the row pollable by anyone later, so a row
      * that cannot store it is a row nobody can ever ask about. It is closed
      * here rather than left pending forever.
+     *
+     * The cost is written in the same breath, and it is OUR number, taken
+     * from IMAGE_MODELS — the provider's response carries no credit figure at
+     * all, which is why credits_spent was null on all fifty rows that existed
+     * before this. Null still means "nobody knows", for a model whose price
+     * has not been measured, and it is not zero.
+     *
+     * Here and not at the insert, because here is the first moment a charge
+     * can exist: the provider has taken the task and given back a handle. A
+     * request refused at the door leaves the row with no cost, which is the
+     * truth about it. Whether a task that was accepted and then failed is
+     * charged anyway is not known — and that is exactly what comparing this
+     * sum against the dashboard will answer, now that a failed attempt stays
+     * a failed attempt instead of being reclassified as rejected.
      */
     const { error: handleError } = await supabase
       .from("image_attempts")
-      .update({ provider_request_id: requestId })
+      .update({
+        provider_request_id: requestId,
+        credits_spent: modelCredits(model),
+      })
       .eq("id", attempt.id);
     if (handleError) {
       return recordFailure(supabase, attempt.id, wordId, handleError.message);
@@ -558,8 +576,14 @@ async function storeGenerated(
   const { error: doneError } = await finish(supabase, attemptId, {
     status: "generated",
     storage_path: path,
-    // Null unless the provider reported one, which today it does not.
-    credits_spent: creditsSpent ?? null,
+    /*
+     * Only if the provider ever starts reporting one. Today it does not, and
+     * the figure already on the row is ours, written when the task was
+     * accepted; overwriting it with null here would erase the only record of
+     * the charge. A provider figure, if one ever arrives, is the better
+     * source and wins.
+     */
+    ...(creditsSpent === undefined ? {} : { credits_spent: creditsSpent }),
   });
   if (doneError !== null) return { ok: false, error: doneError };
 

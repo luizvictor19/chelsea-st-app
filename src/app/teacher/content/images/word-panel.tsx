@@ -128,6 +128,15 @@ export function WordPanel({
   /** Said once, right after attaching a reference moved the model. */
   const [modelNote, setModelNote] = useState<string | null>(null);
   /*
+   * Failures are folded away rather than thrown away. A failed attempt is
+   * accounting: it may have cost a credit, and the answer to whether it did
+   * comes from comparing what the table says with what the dashboard says. It
+   * used to be got out of the way by pressing the bin, which turned it into a
+   * 'rejected' row indistinguishable from a picture the teacher just did not
+   * like, and the question became unanswerable.
+   */
+  const [showFailed, setShowFailed] = useState(false);
+  /*
    * Null is "nobody knows", not "free". Flux Kontext Pro is the model this
    * guard was kept for: it went in on 2026-09-19 with its price undocumented
    * and unmeasured, and a model cannot be measured until it has generated
@@ -141,6 +150,19 @@ export function WordPanel({
    * word finds the generation exactly where it was left.
    */
   const running = runningAttempt(shown);
+  /*
+   * A failure is terminal already, so the bin is not offered on one: pressing
+   * it would reclassify rather than tidy, and the difference between "the
+   * provider refused" and "the teacher did not like it" is what tells us
+   * whether a failure is charged. Folded out of the list instead, and counted
+   * in the heading either way.
+   */
+  const failedCount = shown.filter(
+    (attempt) => attempt.status === "failed",
+  ).length;
+  const listed = showFailed
+    ? shown
+    : shown.filter((attempt) => attempt.status !== "failed");
   const runningId = running?.id ?? null;
   const runningStartedAt = running?.createdAt ?? null;
   const [now, setNow] = useState(() => Date.now());
@@ -721,16 +743,34 @@ export function WordPanel({
         held two pictures. Clicking any attempt opens it large.
       */}
       <div className="flex flex-col gap-3">
-        <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
-          Tentativas ({shown.length})
-        </span>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          {/* Every attempt, including the folded ones: the count is the
+              accounting, and a heading that hid some of them would be the
+              first place the sum went wrong. */}
+          <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
+            Tentativas ({shown.length})
+          </span>
+          {failedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowFailed((open) => !open)}
+              className="text-faint hover:text-foreground text-xs underline underline-offset-2 transition-colors"
+            >
+              {showFailed
+                ? "esconder as que falharam"
+                : failedCount === 1
+                  ? "mostrar 1 que falhou"
+                  : `mostrar ${failedCount} que falharam`}
+            </button>
+          )}
+        </div>
         {/*
           No empty state: the heading already says zero, and a sentence
           repeating it is a line of screen saying nothing twice.
         */}
-        {shown.length > 0 && (
+        {listed.length > 0 && (
           <ul className="flex flex-col gap-3">
-            {shown.map((attempt) => {
+            {listed.map((attempt) => {
               // Bound out of the property so the narrowing survives into the
               // click handler, which it does not do through a closure.
               const imageUrl = attempt.imageUrl;
@@ -800,39 +840,41 @@ export function WordPanel({
                     paid for and is on its way, from behind an icon with no
                     label. It comes back the moment the row settles.
                   */}
-                  {attempt.status !== "rejected" && !isRunning(attempt) && (
-                    <button
-                      type="button"
-                      disabled={working}
-                      aria-label="Descartar esta tentativa"
-                      title="Descartar"
-                      onClick={() =>
-                        void run(`descartar-${attempt.id}`, () =>
-                          rejectAttempt(attempt.id),
-                        )
-                      }
-                      className="text-faint hover:text-accent shrink-0 self-start rounded-sm p-1.5 transition-colors disabled:opacity-40"
-                    >
-                      {busy?.key === `descartar-${attempt.id}` ? (
-                        <span className="block size-3.5 text-center text-[0.6875rem] leading-3.5">
-                          ·
-                        </span>
-                      ) : (
-                        <svg
-                          viewBox="0 0 16 16"
-                          className="size-3.5"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden="true"
-                        >
-                          <path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.2a1 1 0 0 0 1 .8h4.6a1 1 0 0 0 1-.8L12 4M6.5 7v4M9.5 7v4" />
-                        </svg>
-                      )}
-                    </button>
-                  )}
+                  {attempt.status !== "rejected" &&
+                    attempt.status !== "failed" &&
+                    !isRunning(attempt) && (
+                      <button
+                        type="button"
+                        disabled={working}
+                        aria-label="Descartar esta tentativa"
+                        title="Descartar"
+                        onClick={() =>
+                          void run(`descartar-${attempt.id}`, () =>
+                            rejectAttempt(attempt.id),
+                          )
+                        }
+                        className="text-faint hover:text-accent shrink-0 self-start rounded-sm p-1.5 transition-colors disabled:opacity-40"
+                      >
+                        {busy?.key === `descartar-${attempt.id}` ? (
+                          <span className="block size-3.5 text-center text-[0.6875rem] leading-3.5">
+                            ·
+                          </span>
+                        ) : (
+                          <svg
+                            viewBox="0 0 16 16"
+                            className="size-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.2a1 1 0 0 0 1 .8h4.6a1 1 0 0 0 1-.8L12 4M6.5 7v4M9.5 7v4" />
+                          </svg>
+                        )}
+                      </button>
+                    )}
                 </li>
               );
             })}
