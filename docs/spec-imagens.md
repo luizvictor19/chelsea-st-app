@@ -36,9 +36,50 @@ do livro. RLS: só professor lê e escreve; aluna alcança zero linhas.
 - **Bucket público para leitura, escrita só do professor.** Imagem de palavra não é dado sensível e
   URL pública dispensa URL assinada na tela da aluna. Caminho:
   `{vocabulary_item_id}/{attempt_id}.{ext}`.
-- **Geração pela API do Freepik em modo de espera** (polling numa server action), sem webhook nesta
-  entrega. O secret do webhook fica guardado para depois. Modelo e fornecedor gravados por tentativa,
-  para o registro da comparação entre modelos, que vive fora deste repositório.
+- **Geração pela API do Freepik, com a espera na linha e não na conexão.** Revisto em 19/09/2026;
+  ver "A espera" abaixo. O secret do webhook continua guardado para depois. Modelo e fornecedor
+  gravados por tentativa, para o registro da comparação entre modelos, que vive fora deste
+  repositório.
+
+## A espera
+
+Decidido em 19/09/2026, depois de duas falhas no mesmo dia. Rigor alto: define o que fica gravado
+na linha e o que a tela pode concluir dela.
+
+Até então a server action fazia tudo numa requisição só: abria a tarefa no Freepik, ficava em
+polling com teto de 90s, baixava a imagem e subia para o bucket. Isso segurava uma conexão HTTP por
+8 a 21 segundos carregando duas coisas — a resposta da action e o re-render da tela. Todo salto do
+caminho tinha veto sobre as duas, e duas vezes em 19/09 alguém usou esse veto: a linha estava
+gravada, correta e paga, e a tela nunca soube.
+
+O desenho agora:
+
+- **`startGeneration`** insere a tentativa como `pending`, faz **uma** chamada ao fornecedor e
+  volta. Grava `provider_request_id`, que é o que torna a linha perguntável por qualquer um depois.
+  Se o fornecedor recusa, ou se o handle não pode ser gravado, a linha é fechada como `failed` ali
+  mesmo: uma tentativa `pending` sem handle é uma que ninguém consegue destravar.
+- **`pollAttempt`** faz **uma** pergunta ao fornecedor e escreve a resposta. Uma geração ainda em
+  curso responde nada — sem lista, sem `revalidatePath` — porque a tela já sabe que a linha está
+  aberta e conta os segundos a partir de `created_at` sozinha.
+- **O painel pergunta a cada 2s**, em sequência e não por intervalo: a última pergunta de uma
+  geração é a que baixa a imagem e a sobe para o bucket, e duas delas ao mesmo tempo fariam o
+  trabalho duas vezes.
+- **O prazo é da linha.** `GENERATION_WINDOW_MS` mede `now - created_at`, não um relógio dentro de
+  uma requisição. Ele limita quanto tempo se espera por uma resposta, e nada mais: um fornecedor que
+  diz COMPLETED depois do prazo ainda tem a imagem gravada, porque ela foi paga e descartá-la por
+  causa de um relógio é o único erro aqui que custa dinheiro.
+- **`completed_at`** é gravado uma vez, na saída de `pending`, tenha a tentativa acabado em imagem
+  ou em erro. `completed_at - created_at` é a duração real, por modelo, e é o que vai substituir o
+  número do prazo por um medido. Migration `0013_attempt_completed_at.sql`.
+
+O que isso compra, além de a resposta não ser mais cortável: a espera sobrevive a um F5 e a trocar
+de palavra no meio, porque nunca esteve no navegador. O painel descobre que há geração aberta
+olhando a lista, não um sinalizador posto no clique.
+
+Enquanto a tentativa está aberta, o botão Gerar fica desabilitado para aquela palavra e o botão de
+descartar não é oferecido: os créditos já foram gastos quando a tarefa abriu, e jogar fora uma
+imagem paga por trás de um ícone sem rótulo é exatamente o caso que o AGENTS.md põe na coluna de
+rigor alto.
 
 ## Migration 0008
 
@@ -219,5 +260,11 @@ fonte.
 
 ## Fora desta entrega
 
-Limpeza de arquivos recusados; webhook do Freepik; leitura das imagens pela aluna (entra na
+O **webhook do Freepik** continua fora, e agora por uma razão mais forte do que "depois": ele exige
+um endpoint público, e `localhost` não é um. Em dev seria um túnel toda vez. Com a espera na linha,
+quando ele entrar não substitui nada — vira um **segundo escritor** da mesma linha, e a sondagem
+pelo painel passa a ser o plano B para quando o webhook não chega, que é uma coisa de que ele vai
+precisar de qualquer jeito.
+
+Limpeza de arquivos recusados; leitura das imagens pela aluna (entra na
 `spec-tutor.md`, que precisa abrir `vocabulary_items` para a aluna ler o que já foi introduzido).

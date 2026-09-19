@@ -3,12 +3,13 @@
 import { revalidatePath } from "next/cache";
 
 import {
-  listWordAttempts,
+  readWordAttempts,
   requireTeacher,
   type ImageAttempt,
 } from "@/lib/content/queries";
 import { createFreepikProvider } from "@/lib/images/freepik";
-import { type ImageModelId, isImageModelId } from "@/lib/images/provider";
+import { GENERATION_WINDOW_MS, hasExpired } from "@/lib/images/generation";
+import { isImageModelId } from "@/lib/images/provider";
 import { buildPrompt } from "@/lib/images/style";
 import { buildSubjectPrompt, parseSubject } from "@/lib/images/subject";
 import { buildSuggestionPrompt, parseSuggestions } from "@/lib/images/suggest";
@@ -27,18 +28,18 @@ type Representation = Database["public"]["Enums"]["representation_kind"];
  * 19/09/2026 it twice did not, after a generation that had taken 8s and 21s.
  *
  * Only the actions that rewrite the list say so. Absent means "I changed
- * nothing there", and the panel keeps what it has.
+ * nothing there", and the panel keeps what it has. A poll that finds the
+ * generation still running says nothing, which is also what makes it cheap.
+ *
+ * A failure can carry a list too: a generation the provider refused leaves a
+ * 'failed' row, and the teacher should see the row as well as the reason.
  */
 export type ActionResult =
   | { ok: true; attempts?: readonly ImageAttempt[] }
-  | { ok: false; error: string };
+  | { ok: false; error: string; attempts?: readonly ImageAttempt[] };
 
 const BUCKET = "vocabulary-images";
 const SCREEN = "/teacher/content/images";
-
-/** How long a generation is waited for, and how often it is asked about. */
-const POLL_TIMEOUT_MS = 90_000;
-const POLL_INTERVAL_MS = 2_000;
 
 /** Whatever was thrown, as a string the screen can show. */
 function errorMessage(cause: unknown): string {
@@ -47,10 +48,6 @@ function errorMessage(cause: unknown): string {
 
 function failure(error: unknown): ActionResult {
   return { ok: false, error: errorMessage(error) };
-}
-
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -150,27 +147,85 @@ export async function uploadImage(
       .from(BUCKET)
       .upload(path, file, { contentType: file.type || undefined });
     if (uploadError) {
-      await supabase
-        .from("image_attempts")
-        .update({ status: "failed", error: uploadError.message })
-        .eq("id", attempt.id);
-      return { ok: false, error: uploadError.message };
+      return recordFailure(supabase, attempt.id, wordId, uploadError.message);
     }
 
-    const { error: doneError } = await supabase
-      .from("image_attempts")
-      .update({ status: "generated", storage_path: path })
-      .eq("id", attempt.id);
-    if (doneError) return { ok: false, error: doneError.message };
+    // An upload leaves 'pending' too, so it stamps completed_at like any
+    // other attempt: the column means the same thing on every row or it means
+    // nothing.
+    const { error: doneError } = await finish(supabase, attempt.id, {
+      status: "generated",
+      storage_path: path,
+    });
+    if (doneError !== null) return { ok: false, error: doneError };
 
     revalidatePath(SCREEN);
-    return { ok: true, attempts: await listWordAttempts(wordId) };
+    return { ok: true, attempts: await readWordAttempts(supabase, wordId) };
   } catch (cause) {
     return failure(cause);
   }
 }
 
-export async function generateImage(
+/**
+ * Mark an attempt as finished, whichever way it finished.
+ *
+ * completed_at is written here and nowhere else, so "when it stopped waiting"
+ * has one meaning across every row: the moment it left 'pending', for an
+ * image or for an error. That is the half of the measurement the old polling
+ * loop never wrote down.
+ */
+async function finish(
+  supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
+  attemptId: string,
+  fields: {
+    status: "generated" | "failed";
+    error?: string;
+    storage_path?: string;
+    credits_spent?: number | null;
+  },
+): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from("image_attempts")
+    .update({ ...fields, completed_at: new Date().toISOString() })
+    .eq("id", attemptId);
+  return { error: error?.message ?? null };
+}
+
+/** Close an attempt with a reason, and answer with the list it leaves behind. */
+async function recordFailure(
+  supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
+  attemptId: string,
+  wordId: string,
+  message: string,
+): Promise<ActionResult> {
+  const { error } = await finish(supabase, attemptId, {
+    status: "failed",
+    error: message,
+  });
+  revalidatePath(SCREEN);
+  return {
+    ok: false,
+    error: error === null ? message : `${message} (${error})`,
+    attempts: await readWordAttempts(supabase, wordId),
+  };
+}
+
+/**
+ * Open a generation at the provider and come back.
+ *
+ * This used to be the whole generation: a POST, then a polling loop, then the
+ * download and the upload, all inside one HTTP request held open for 8 to 21
+ * seconds. Twice on 2026-09-19 that request was cut after the work was done
+ * and paid for, and the teacher's screen never heard about a picture that was
+ * sitting in the bucket.
+ *
+ * So the wait moved to the row. What is left here is one call to the
+ * provider, which leaves a 'pending' attempt carrying the task handle. The
+ * panel asks about it from there, and because the waiting is in the database
+ * rather than in a connection, it survives a reload, a change of word, and
+ * anything on the path deciding a request has gone on long enough.
+ */
+export async function startGeneration(
   wordId: string,
   subject: string,
   model: string,
@@ -220,134 +275,183 @@ export async function generateImage(
       .single();
     if (insertError) return { ok: false, error: insertError.message };
 
-    const result = await runGeneration(supabase, attempt.id, prompt, model);
+    let requestId: string;
+    try {
+      ({ requestId } = await createFreepikProvider().generate({
+        prompt,
+        model,
+      }));
+    } catch (cause) {
+      return recordFailure(supabase, attempt.id, wordId, errorMessage(cause));
+    }
+
+    /*
+     * The handle is what makes the row pollable by anyone later, so a row
+     * that cannot store it is a row nobody can ever ask about. It is closed
+     * here rather than left pending forever.
+     */
+    const { error: handleError } = await supabase
+      .from("image_attempts")
+      .update({ provider_request_id: requestId })
+      .eq("id", attempt.id);
+    if (handleError) {
+      return recordFailure(supabase, attempt.id, wordId, handleError.message);
+    }
+
     revalidatePath(SCREEN);
-    // Read back rather than assembled here: the panel then shows the same
-    // rows the page would show, ordered by the same rule, and a status the
-    // generation reached on the way is never invented from the return value.
-    if (!result.ok) return result;
-    return { ok: true, attempts: await listWordAttempts(wordId) };
+    return { ok: true, attempts: await readWordAttempts(supabase, wordId) };
   } catch (cause) {
     return failure(cause);
   }
 }
 
 /**
- * The part that talks to the provider, split out so that every way it can end
- * writes the attempt row before returning. An attempt left at 'pending'
- * because something threw is an attempt the teacher cannot see the reason for.
+ * Ask the provider once about one attempt, and write down what it said.
+ *
+ * One question, never a loop: this is the call the panel repeats every couple
+ * of seconds, and the whole point of the shape is that no single call is long
+ * enough for anything on the path to object to it.
+ *
+ * A generation still running answers with nothing at all — no list, no
+ * revalidatePath. The screen already knows the row is running and counts the
+ * seconds off created_at by itself, so the common answer costs one provider
+ * GET and no page render.
  */
-async function runGeneration(
-  supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
-  attemptId: string,
-  prompt: string,
-  model: ImageModelId,
-): Promise<ActionResult> {
-  const provider = createFreepikProvider();
-
-  const recordFailure = async (message: string): Promise<ActionResult> => {
-    const { error } = await supabase
-      .from("image_attempts")
-      .update({ status: "failed", error: message })
-      .eq("id", attemptId);
-    return {
-      ok: false,
-      error: error ? `${message} (${error.message})` : message,
-    };
-  };
-
-  let requestId: string;
+export async function pollAttempt(attemptId: string): Promise<ActionResult> {
   try {
-    ({ requestId } = await provider.generate({ prompt, model }));
-  } catch (cause) {
-    return recordFailure(
-      cause instanceof Error ? cause.message : String(cause),
-    );
-  }
+    const { supabase } = await requireTeacher();
 
-  const { error: handleError } = await supabase
-    .from("image_attempts")
-    .update({ provider_request_id: requestId })
-    .eq("id", attemptId);
-  if (handleError) return { ok: false, error: handleError.message };
+    const { data: attempt, error: readError } = await supabase
+      .from("image_attempts")
+      .select(
+        "vocabulary_item_id, provider, status, provider_request_id, created_at",
+      )
+      .eq("id", attemptId)
+      .single();
+    if (readError) return { ok: false, error: readError.message };
 
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-  for (;;) {
+    const wordId = attempt.vocabulary_item_id;
+
+    /*
+     * Already finished, by an earlier poll or in another tab. Answering with
+     * the list rather than with an error is the right thing: the caller asked
+     * how it went, and it went.
+     */
+    if (attempt.provider !== "freepik" || attempt.status !== "pending") {
+      return { ok: true, attempts: await readWordAttempts(supabase, wordId) };
+    }
+
+    if (attempt.provider_request_id === null) {
+      return recordFailure(
+        supabase,
+        attemptId,
+        wordId,
+        "A geração não chegou a ser aberta no fornecedor.",
+      );
+    }
+
     let poll;
     try {
-      poll = await provider.poll(requestId);
+      poll = await createFreepikProvider().poll(attempt.provider_request_id);
     } catch (cause) {
-      return recordFailure(
-        cause instanceof Error ? cause.message : String(cause),
-      );
+      return recordFailure(supabase, attemptId, wordId, errorMessage(cause));
     }
 
     if (poll.status === "failed") {
-      return recordFailure(poll.error ?? "A geração falhou sem dizer por quê.");
-    }
-
-    if (poll.status === "done") {
-      if (poll.imageUrl === undefined) {
-        return recordFailure("A geração terminou sem imagem.");
-      }
-      return storeGenerated(
+      return recordFailure(
         supabase,
         attemptId,
-        poll.imageUrl,
-        poll.creditsSpent,
-        recordFailure,
+        wordId,
+        poll.error ?? "A geração falhou sem dizer por quê.",
       );
     }
 
-    if (Date.now() >= deadline) {
+    if (poll.status === "pending") {
+      if (hasExpired(attempt.created_at, Date.now())) {
+        return recordFailure(
+          supabase,
+          attemptId,
+          wordId,
+          `A geração passou de ${GENERATION_WINDOW_MS / 1000} segundos sem responder.`,
+        );
+      }
+      // Nothing changed, so nothing is said and nothing is re-rendered.
+      return { ok: true };
+    }
+
+    if (poll.imageUrl === undefined) {
       return recordFailure(
-        `A geração passou de ${POLL_TIMEOUT_MS / 1000} segundos sem responder.`,
+        supabase,
+        attemptId,
+        wordId,
+        "A geração terminou sem imagem.",
       );
     }
-    await wait(POLL_INTERVAL_MS);
+
+    /*
+     * Stored even if the window has passed. The window bounds how long we
+     * wait for an answer, not how long an answer stays worth having: the
+     * image was paid for, and throwing it away because a clock ran out would
+     * be the one mistake here that costs money.
+     */
+    return storeGenerated(
+      supabase,
+      attemptId,
+      wordId,
+      poll.imageUrl,
+      poll.creditsSpent,
+    );
+  } catch (cause) {
+    return failure(cause);
   }
 }
 
-/** Download on the server, then into the bucket. The URL never reaches the browser. */
+/**
+ * Download on the server, then into the bucket. The URL never reaches the
+ * browser.
+ *
+ * This is the one poll that is not short: a PNG from Mystic has to come down
+ * and go back up before the row can be called finished. It is seconds rather
+ * than the tens of seconds the old shape held open, and it happens once per
+ * generation rather than on every question.
+ */
 async function storeGenerated(
   supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
   attemptId: string,
+  wordId: string,
   imageUrl: string,
   creditsSpent: number | undefined,
-  recordFailure: (message: string) => Promise<ActionResult>,
 ): Promise<ActionResult> {
-  const { data: attempt, error: readError } = await supabase
-    .from("image_attempts")
-    .select("vocabulary_item_id")
-    .eq("id", attemptId)
-    .single();
-  if (readError) return { ok: false, error: readError.message };
-
   const response = await fetch(imageUrl, { cache: "no-store" });
   if (!response.ok) {
-    return recordFailure(`Não deu para baixar a imagem: ${response.status}`);
+    return recordFailure(
+      supabase,
+      attemptId,
+      wordId,
+      `Não deu para baixar a imagem: ${response.status}`,
+    );
   }
   const contentType = response.headers.get("content-type");
   const bytes = await response.arrayBuffer();
-  const path = `${attempt.vocabulary_item_id}/${attemptId}.${extensionFor(contentType, "png")}`;
+  const path = `${wordId}/${attemptId}.${extensionFor(contentType, "png")}`;
 
   const { error: uploadError } = await supabase.storage
     .from(BUCKET)
     .upload(path, bytes, { contentType: contentType ?? undefined });
-  if (uploadError) return recordFailure(uploadError.message);
+  if (uploadError) {
+    return recordFailure(supabase, attemptId, wordId, uploadError.message);
+  }
 
-  const { error: doneError } = await supabase
-    .from("image_attempts")
-    .update({
-      status: "generated",
-      storage_path: path,
-      // Null unless the provider reported one, which today it does not.
-      credits_spent: creditsSpent ?? null,
-    })
-    .eq("id", attemptId);
-  if (doneError) return { ok: false, error: doneError.message };
+  const { error: doneError } = await finish(supabase, attemptId, {
+    status: "generated",
+    storage_path: path,
+    // Null unless the provider reported one, which today it does not.
+    credits_spent: creditsSpent ?? null,
+  });
+  if (doneError !== null) return { ok: false, error: doneError };
 
-  return { ok: true };
+  revalidatePath(SCREEN);
+  return { ok: true, attempts: await readWordAttempts(supabase, wordId) };
 }
 
 export type SuggestResult =

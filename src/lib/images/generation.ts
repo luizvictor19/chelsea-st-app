@@ -1,0 +1,111 @@
+/**
+ * How long a generation is waited for, and who does the waiting.
+ *
+ * Until 2026-09-19 the waiting was a loop inside the server action: one HTTP
+ * request held open for the whole generation, 8 to 21 seconds of it, carrying
+ * both the answer and the screen's re-render. Everything on that path had a
+ * veto over both, and twice that day something took it: the row was written,
+ * paid for and correct, and the teacher's screen never heard.
+ *
+ * Now the attempt row is the wait. The action starts the generation and
+ * returns; the panel asks the row how it is going. No request lives long
+ * enough to be cut, and the wait survives a reload and a change of word,
+ * because it was never in the browser to begin with.
+ */
+
+/**
+ * How long an attempt is given before it is called lost.
+ *
+ * What is actually known about how long these take, as of 2026-09-19: two
+ * observations, 8s and 21s, read off the counter on the panel. Two points are
+ * not a distribution, so this window is NOT derived from them. It is the 90s
+ * the old polling loop already used, kept because it is over four times the
+ * slowest generation seen and because nothing measured argues for less.
+ *
+ * `image_attempts.completed_at` exists to end that. Every attempt from here
+ * on records when it left 'pending', so the real duration is a column
+ * subtraction, per model, and this number gets replaced by one that came from
+ * the rows:
+ *
+ *   select model, count(*),
+ *          percentile_cont(0.5) within group (
+ *            order by completed_at - created_at) as p50,
+ *          max(completed_at - created_at) as worst
+ *   from image_attempts
+ *   where provider = 'freepik' and completed_at is not null
+ *   group by model;
+ *
+ * The window bounds how long we wait for the provider, and nothing else. A
+ * provider that says COMPLETED after the window is still stored: the image
+ * was paid for, and refusing it because a clock ran out would throw away the
+ * only thing the money bought.
+ */
+export const GENERATION_WINDOW_MS = 90_000;
+
+/**
+ * How long the panel waits before asking the row again.
+ *
+ * Against generations of 8 to 21 seconds this is 4 to 10 questions. Each one
+ * is a short call, so the cost is auth and a provider GET, not a held
+ * connection; see the note on the proxy in the panel.
+ */
+export const POLL_INTERVAL_MS = 2_000;
+
+/** The parts of an attempt this module judges. Anything wider is the screen's. */
+export type Running = {
+  readonly id: string;
+  readonly status: string;
+  readonly provider: string;
+  readonly createdAt: string;
+};
+
+/**
+ * An attempt still waiting on the provider.
+ *
+ * Provider and status both, because an upload is 'pending' too, for the
+ * moment between its row and its file. Polling that one would ask Freepik
+ * about a task that was never created.
+ */
+export function isRunning(attempt: Running): boolean {
+  return attempt.provider === "freepik" && attempt.status === "pending";
+}
+
+/**
+ * The one attempt worth asking about, or null.
+ *
+ * The newest, when there is somehow more than one: the list arrives newest
+ * first, and an older stuck row must not hold up the one the teacher is
+ * actually watching. The other will be picked up on the next pass.
+ */
+export function runningAttempt<T extends Running>(
+  attempts: readonly T[],
+): T | null {
+  return attempts.find(isRunning) ?? null;
+}
+
+/**
+ * Whether an attempt has been waiting longer than it is given.
+ *
+ * A date that cannot be read counts as not expired. Being unable to tell how
+ * old a row is is not a reason to declare its generation lost: the provider
+ * still has the answer, and the next poll will get it.
+ */
+export function hasExpired(createdAt: string, now: number): boolean {
+  const started = Date.parse(createdAt);
+  if (Number.isNaN(started)) return false;
+  return now - started > GENERATION_WINDOW_MS;
+}
+
+/**
+ * How long an attempt has been running, in whole seconds, for the counter.
+ *
+ * Taken from the row and not from a timer started on click, so it is still
+ * right after a reload and still right on a word the teacher came back to.
+ * Never negative: a clock skew between the database and the browser should
+ * read as "just started", not as a countdown.
+ */
+export function elapsedSeconds(createdAt: string, now: number): number {
+  const started = Date.parse(createdAt);
+  if (Number.isNaN(started)) return 0;
+  return Math.max(0, Math.floor((now - started) / 1000));
+}

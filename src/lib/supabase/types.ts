@@ -232,6 +232,7 @@ export type Database = {
       };
       image_attempts: {
         Row: {
+          completed_at: string | null;
           created_at: string;
           credits_spent: number | null;
           decided_at: string | null;
@@ -247,6 +248,7 @@ export type Database = {
           vocabulary_item_id: string;
         };
         Insert: {
+          completed_at?: string | null;
           created_at?: string;
           credits_spent?: number | null;
           decided_at?: string | null;
@@ -262,6 +264,7 @@ export type Database = {
           vocabulary_item_id: string;
         };
         Update: {
+          completed_at?: string | null;
           created_at?: string;
           credits_spent?: number | null;
           decided_at?: string | null;
