@@ -25,9 +25,14 @@ if (typeof window !== "undefined") {
 
 const BASE_URL = "https://api.magnific.com";
 
-/** Each model is its own endpoint, and polling goes back to the same one. */
+/**
+ * Each model is its own endpoint, and polling goes back to the same one.
+ *
+ * Mystic came out with the model list. A handle stored before that says
+ * "mystic:" and no longer decodes, which reaches nothing: polling happens
+ * inside the generating request, so no attempt is ever polled after the fact.
+ */
 const ENDPOINTS: Record<ImageModelId, string> = {
-  mystic: "/v1/ai/mystic",
   "seedream-v4": "/v1/ai/text-to-image/seedream-v4",
 };
 
@@ -160,9 +165,10 @@ export function createFreepikProvider(): ImageProvider {
           if (imageUrl === undefined) {
             return { status: "failed", error: "Finished with no image" };
           }
-          // creditsSpent is deliberately absent: the documented response
-          // carries no credit figure, so image_attempts.credits_spent stays
-          // null and the cost per attempt comes from the published price.
+          // creditsSpent is deliberately absent: the response carries no
+          // credit figure, so image_attempts.credits_spent stays null. What
+          // an image actually costs was measured from the dashboard instead
+          // and is recorded next to IMAGE_MODELS in provider.ts.
           return { status: "done", imageUrl };
         }
         case "FAILED":

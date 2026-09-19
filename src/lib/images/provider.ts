@@ -24,12 +24,18 @@ export interface ImageProvider {
  * The models the screen offers, provider neutral so the screen can name them
  * without importing the provider.
  *
- * The spec asked for Mystic and Imagen 3. Imagen 3 is not in this API, so
- * Seedream 4 takes the second slot: same 50 credit band, and the point of the
- * measurement is two models of comparable price, not two particular names.
+ * Seedream 4 is the only one, and so the default. Decided on 2026-09-19 from
+ * one sample against Mystic; the comparison is written up in
+ * claude/modelos.md. Attempts already recorded with model 'mystic' stay as
+ * they are: model is a plain text column and what a past attempt was drawn
+ * with is a fact about that attempt, not a setting to migrate.
+ *
+ * 50 credits per image. Measured on 2026-09-19 against the Freepik dashboard,
+ * where "API keys spent" went from 0 to 100 over two generations. The API
+ * does not report the charge, so this figure comes from the dashboard and
+ * image_attempts.credits_spent stays null.
  */
 export const IMAGE_MODELS = [
-  { id: "mystic", label: "Mystic" },
   { id: "seedream-v4", label: "Seedream 4" },
 ] as const;
 

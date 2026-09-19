@@ -243,6 +243,8 @@ export type WordImage = {
   readonly term: string;
   readonly pointNumber: number | null;
   readonly representation: Representation | null;
+  /** What the model proposed. Never a decision; see listVocabularyImages. */
+  readonly suggestedRepresentation: Representation | null;
   readonly imageUrl: string | null;
   readonly attempts: number;
   /** The rule the vocabulary_items_pending_image_idx predicate spells out. */
@@ -252,6 +254,8 @@ export type WordImage = {
 export type LessonWords = {
   /** Null for a point that belongs to no lesson yet. */
   readonly lessonNumber: number | null;
+  /** Null for the same reason, and what the suggestion pass is asked for. */
+  readonly lessonContentId: string | null;
   readonly words: readonly WordImage[];
 };
 
@@ -312,18 +316,20 @@ export async function listVocabularyImages(): Promise<{
   const { data: rows, error } = await supabase
     .from("vocabulary_items")
     .select(
-      "id, term, representation, image_path, points!inner(number, lessons_content(number)), image_attempts!image_attempts_vocabulary_item_id_fkey(count)",
+      "id, term, representation, suggested_representation, image_path, points!inner(number, lessons_content(id, number)), image_attempts!image_attempts_vocabulary_item_id_fkey(count)",
     );
   if (error) throw new Error(error.message);
 
   const all = (rows ?? []).map((row) => ({
     lessonNumber: row.points?.lessons_content?.number ?? null,
+    lessonContentId: row.points?.lessons_content?.id ?? null,
     pointNumber: row.points?.number ?? null,
     word: {
       id: row.id,
       term: row.term,
       pointNumber: row.points?.number ?? null,
       representation: row.representation,
+      suggestedRepresentation: row.suggested_representation,
       imageUrl: publicImageUrl(supabase, row.image_path),
       // An array now, and correctly so: naming the attempt-to-word key makes
       // this the to-many side. Unhinted, the generated type resolved to the
@@ -349,7 +355,11 @@ export async function listVocabularyImages(): Promise<{
   for (const entry of all) {
     const last = lessons.at(-1);
     if (last === undefined || last.lessonNumber !== entry.lessonNumber) {
-      lessons.push({ lessonNumber: entry.lessonNumber, words: [entry.word] });
+      lessons.push({
+        lessonNumber: entry.lessonNumber,
+        lessonContentId: entry.lessonContentId,
+        words: [entry.word],
+      });
     } else {
       (last.words as WordImage[]).push(entry.word);
     }

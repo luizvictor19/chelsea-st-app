@@ -6,6 +6,8 @@ import { requireTeacher } from "@/lib/content/queries";
 import { createFreepikProvider } from "@/lib/images/freepik";
 import { type ImageModelId, isImageModelId } from "@/lib/images/provider";
 import { buildPrompt } from "@/lib/images/style";
+import { buildSuggestionPrompt, parseSuggestions } from "@/lib/images/suggest";
+import { createDeepSeekProvider } from "@/lib/text/deepseek";
 import type { Database } from "@/lib/supabase/types";
 
 type Representation = Database["public"]["Enums"]["representation_kind"];
@@ -19,11 +21,13 @@ const SCREEN = "/teacher/content/images";
 const POLL_TIMEOUT_MS = 90_000;
 const POLL_INTERVAL_MS = 2_000;
 
+/** Whatever was thrown, as a string the screen can show. */
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
 function failure(error: unknown): ActionResult {
-  return {
-    ok: false,
-    error: error instanceof Error ? error.message : String(error),
-  };
+  return { ok: false, error: errorMessage(error) };
 }
 
 function wait(ms: number): Promise<void> {
@@ -298,4 +302,68 @@ async function storeGenerated(
   if (doneError) return { ok: false, error: doneError.message };
 
   return { ok: true };
+}
+
+export type SuggestResult =
+  | { ok: true; suggested: number; rejected: number }
+  | { ok: false; error: string };
+
+/**
+ * Ask the model what kind of picture every word in one lesson needs.
+ *
+ * Every word, including the ones already decided. A decided lesson is the
+ * answer key, so sending all of it turns each decided lesson into a
+ * regression set for the prompt: change the wording and the suggestions move
+ * against answers that already exist. Asking only about undecided words meant
+ * a lesson produced a measurement once and never again, and the lessons worth
+ * measuring against are exactly the ones already worked through.
+ *
+ * Writes suggested_representation and never representation. That separation is
+ * the whole point of having two columns: a suggestion the teacher never looked
+ * at must not be able to pass itself off as a decision, and the distance
+ * between the two columns is how the model gets marked. Overwriting an older
+ * suggestion is the point of re-running it; overwriting a decision would not
+ * be a re-run, it would be the model grading itself.
+ */
+export async function suggestRepresentations(
+  lessonContentId: string,
+): Promise<SuggestResult> {
+  try {
+    const { supabase } = await requireTeacher();
+
+    const { data: rows, error: readError } = await supabase
+      .from("vocabulary_items")
+      .select("id, term, points!inner(lesson_content_id)")
+      .eq("points.lesson_content_id", lessonContentId);
+    if (readError) return { ok: false, error: readError.message };
+
+    const words = (rows ?? []).map((row) => ({ id: row.id, term: row.term }));
+    // An empty lesson is not a failure, and it is not worth a request.
+    if (words.length === 0) return { ok: true, suggested: 0, rejected: 0 };
+
+    const { system, user } = buildSuggestionPrompt(words);
+    const { text } = await createDeepSeekProvider().complete({
+      system,
+      user,
+      json: true,
+    });
+
+    const { suggestions, rejected } = parseSuggestions(
+      text,
+      words.map((word) => word.id),
+    );
+
+    for (const suggestion of suggestions) {
+      const { error } = await supabase
+        .from("vocabulary_items")
+        .update({ suggested_representation: suggestion.kind })
+        .eq("id", suggestion.id);
+      if (error) return { ok: false, error: error.message };
+    }
+
+    revalidatePath(SCREEN);
+    return { ok: true, suggested: suggestions.length, rejected };
+  } catch (cause) {
+    return { ok: false, error: errorMessage(cause) };
+  }
 }
