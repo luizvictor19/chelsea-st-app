@@ -160,9 +160,10 @@ export function createFreepikProvider(): ImageProvider {
           if (imageUrl === undefined) {
             return { status: "failed", error: "Finished with no image" };
           }
-          // creditsSpent is deliberately absent: the documented response
-          // carries no credit figure, so image_attempts.credits_spent stays
-          // null and the cost per attempt comes from the published price.
+          // creditsSpent is deliberately absent: the response carries no
+          // credit figure, so image_attempts.credits_spent stays null. What
+          // an image actually costs was measured from the dashboard instead
+          // and is recorded next to IMAGE_MODELS in provider.ts.
           return { status: "done", imageUrl };
         }
         case "FAILED":

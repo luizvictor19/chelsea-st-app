@@ -27,6 +27,11 @@ export interface ImageProvider {
  * The spec asked for Mystic and Imagen 3. Imagen 3 is not in this API, so
  * Seedream 4 takes the second slot: same 50 credit band, and the point of the
  * measurement is two models of comparable price, not two particular names.
+ *
+ * Both cost 50 credits per image. Measured on 2026-09-19 against the Freepik
+ * dashboard, where "API keys spent" went from 0 to 100 over two generations,
+ * one on each model. The API does not report the charge, so this figure comes
+ * from the dashboard and image_attempts.credits_spent stays null.
  */
 export const IMAGE_MODELS = [
   { id: "mystic", label: "Mystic" },
