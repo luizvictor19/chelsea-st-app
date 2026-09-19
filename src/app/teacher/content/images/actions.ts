@@ -6,6 +6,7 @@ import { requireTeacher } from "@/lib/content/queries";
 import { createFreepikProvider } from "@/lib/images/freepik";
 import { type ImageModelId, isImageModelId } from "@/lib/images/provider";
 import { buildPrompt } from "@/lib/images/style";
+import { buildSubjectPrompt, parseSubject } from "@/lib/images/subject";
 import { buildSuggestionPrompt, parseSuggestions } from "@/lib/images/suggest";
 import { createDeepSeekProvider } from "@/lib/text/deepseek";
 import type { Database } from "@/lib/supabase/types";
@@ -192,6 +193,9 @@ export async function generateImage(
         provider: "freepik",
         model,
         prompt,
+        // Stored next to the prompt it went into, because the prompt cannot
+        // be taken apart again once the style constant has moved on.
+        subject: subject.trim(),
         status: "pending",
       })
       .select("id")
@@ -383,6 +387,55 @@ export async function suggestRepresentations(
 
     revalidatePath(SCREEN);
     return { ok: true, suggested: suggestions.length, rejected };
+  } catch (cause) {
+    return { ok: false, error: errorMessage(cause) };
+  }
+}
+
+export type SubjectResult =
+  { ok: true; subject: string } | { ok: false; error: string };
+
+/**
+ * Propose the subject line for one word.
+ *
+ * Writes nothing, anywhere. What comes back fills the field and the teacher
+ * edits it before generating: the subject is the half of the prompt that is
+ * theirs, so a model may draft it and never commit it. That is also why this
+ * returns the phrase rather than saving it and letting the screen reread it.
+ */
+export async function suggestSubject(wordId: string): Promise<SubjectResult> {
+  try {
+    const { supabase } = await requireTeacher();
+
+    const { data: word, error: readError } = await supabase
+      .from("vocabulary_items")
+      .select("term, representation")
+      .eq("id", wordId)
+      .single();
+    if (readError) return { ok: false, error: readError.message };
+
+    if (word.representation === null) {
+      return {
+        ok: false,
+        error: "Escolha o tipo da palavra antes de pedir um assunto.",
+      };
+    }
+
+    // Throws for a kind that has no picture, which the screen already hides
+    // the button for; this is the same refusal one layer down.
+    const { system, user } = buildSubjectPrompt(word.term, word.representation);
+
+    const { text } = await createDeepSeekProvider().complete({
+      system,
+      user,
+      json: true,
+    });
+
+    const subject = parseSubject(text);
+    if (subject === null) {
+      return { ok: false, error: "O modelo não devolveu um assunto legível." };
+    }
+    return { ok: true, subject };
   } catch (cause) {
     return { ok: false, error: errorMessage(cause) };
   }

@@ -16,6 +16,7 @@ import {
   generateImage,
   rejectAttempt,
   setRepresentation,
+  suggestSubject,
   uploadImage,
   type ActionResult,
 } from "./actions";
@@ -32,6 +33,21 @@ const STATUS_LABELS: Record<string, string> = {
   rejected: "descartada",
 };
 
+/**
+ * What to put in the Assunto field when a word is opened: what the approved
+ * attempt was drawn from, and failing that the most recent attempt that had a
+ * subject at all.
+ *
+ * Uploads carry none, so they are skipped rather than allowed to blank the
+ * field: the teacher uploading a file by hand is not a statement that the
+ * last subject was wrong.
+ */
+function lastSubject(attempts: readonly ImageAttempt[]): string {
+  const approved = attempts.find((attempt) => attempt.status === "approved");
+  if (approved?.subject) return approved.subject;
+  return attempts.find((attempt) => attempt.subject)?.subject ?? "";
+}
+
 export function WordPanel({
   word,
   attempts,
@@ -42,7 +58,7 @@ export function WordPanel({
   const router = useRouter();
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
-  const [subject, setSubject] = useState("");
+  const [subject, setSubject] = useState(() => lastSubject(attempts));
   const [model, setModel] = useState<string>(IMAGE_MODELS[0].id);
   const [elapsed, setElapsed] = useState(0);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -71,7 +87,13 @@ export function WordPanel({
    * appears and then vanishes because the upload failed is worse than one that
    * takes a second to appear.
    */
-  async function run(key: string, action: () => Promise<ActionResult>) {
+  async function run(
+    key: string,
+    action: () => Promise<ActionResult>,
+    // An action that wrote nothing has nothing to reread, and refreshing
+    // over a field the teacher is editing is worse than doing nothing.
+    { refresh = true }: { refresh?: boolean } = {},
+  ) {
     if (busy !== null) return;
     setBusy({ key });
     setError(null);
@@ -79,7 +101,7 @@ export function WordPanel({
     const result = await action();
     setBusy(null);
     if (result.ok) {
-      router.refresh();
+      if (refresh) router.refresh();
     } else {
       setError(result.error);
     }
@@ -200,13 +222,59 @@ export function WordPanel({
             >
               Assunto
             </label>
-            <input
-              id="assunto"
-              value={subject}
-              onChange={(event) => setSubject(event.target.value)}
-              placeholder="o que a imagem mostra, em inglês"
-              className="border-rule bg-background rounded-sm border px-3 py-2 text-sm"
-            />
+            {/*
+              The suggest control sits inside the field rather than beside it:
+              it belongs to this one input and it is not worth a line of its
+              own. It only ever fills the field, so it is reachable and
+              harmless, and the teacher edits what lands there.
+            */}
+            <div className="relative">
+              <input
+                id="assunto"
+                value={subject}
+                onChange={(event) => setSubject(event.target.value)}
+                placeholder="o que a imagem mostra, em inglês"
+                className="border-rule bg-background w-full rounded-sm border py-2 pr-10 pl-3 text-sm"
+              />
+              <button
+                type="button"
+                disabled={working}
+                aria-label="Sugerir assunto"
+                title="Sugerir um assunto para esta palavra"
+                onClick={() =>
+                  void run(
+                    "assunto",
+                    async () => {
+                      const result = await suggestSubject(word.id);
+                      if (result.ok) setSubject(result.subject);
+                      return result.ok
+                        ? { ok: true }
+                        : { ok: false, error: result.error };
+                    },
+                    { refresh: false },
+                  )
+                }
+                className="text-faint hover:text-foreground absolute top-1/2 right-1.5 -translate-y-1/2 rounded-sm p-1.5 transition-colors disabled:opacity-40"
+              >
+                {busy?.key === "assunto" ? (
+                  <span className="block size-3.5 text-center text-[0.6875rem] leading-3.5">
+                    ·
+                  </span>
+                ) : (
+                  <svg
+                    viewBox="0 0 16 16"
+                    className="size-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3M3.4 3.4l2.1 2.1M10.5 10.5l2.1 2.1M12.6 3.4l-2.1 2.1M5.5 10.5l-2.1 2.1" />
+                  </svg>
+                )}
+              </button>
+            </div>
             <p className="text-faint text-xs">
               O estilo é fixo e entra sozinho. Aqui vai só o que a imagem
               mostra.
