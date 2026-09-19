@@ -39,6 +39,24 @@ describe("buildSuggestionPrompt", () => {
   });
 
   /*
+   * The caller now sends a whole lesson, decided words included, so the
+   * prompt has to carry all of them rather than a sample. Nothing here knows
+   * which were decided: this function is handed a list and asks about the
+   * list, and that is the property worth holding.
+   */
+  test("asks about the whole list it was given, however long", () => {
+    const many = Array.from({ length: 40 }, (_, index) => ({
+      id: `id-${index}`,
+      term: `word-${index}`,
+    }));
+    const { user } = buildSuggestionPrompt(many);
+    for (const word of many) {
+      assert.ok(user.includes(word.id), `missing ${word.id}`);
+    }
+    assert.ok(user.includes("40"), "the prompt should say how many words");
+  });
+
+  /*
    * The four boundaries the book keeps putting next to each other, pinned
    * here because they were got wrong once. These assert the rule is stated,
    * not that the model obeys it: whether it obeys is what the measurement in
@@ -98,6 +116,11 @@ describe("parseSuggestions", () => {
    * The dangerous one. A kind outside the enum would be refused by Postgres
    * anyway; an id the model invented is a plausible uuid that would write a
    * suggestion onto the wrong word, or onto a word nobody asked about.
+   */
+  /*
+   * Sending the whole lesson makes the list longer, which is exactly when a
+   * model starts inventing plausible ids. The guard does not loosen because
+   * the caller got more generous.
    */
   test("drops an id that was never sent", () => {
     const text = JSON.stringify({

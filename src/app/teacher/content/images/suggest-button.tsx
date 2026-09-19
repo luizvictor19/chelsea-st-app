@@ -6,16 +6,20 @@ import { useState } from "react";
 import { suggestRepresentations } from "./actions";
 
 /**
- * Asks the model to sort one lesson's undecided words. What comes back is a
- * suggestion on each word, never a decision, so this button changes what the
- * list proposes and never what it records.
+ * Asks the model to sort the whole lesson, decided words included. What comes
+ * back is a suggestion on each word, never a decision, so this button changes
+ * what the list proposes and never what it records.
+ *
+ * Re-running it is expected, not an accident: the suggestions on a decided
+ * lesson are how a change to the prompt gets marked against answers that
+ * already exist.
  */
 export function SuggestButton({
   lessonContentId,
-  undecided,
+  words,
 }: {
   readonly lessonContentId: string;
-  readonly undecided: number;
+  readonly words: number;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -42,16 +46,16 @@ export function SuggestButton({
     <span className="flex items-center gap-3">
       <button
         type="button"
-        disabled={busy || undecided === 0}
+        disabled={busy || words === 0}
         onClick={() => void run()}
         title={
-          undecided === 0
-            ? "Todas as palavras desta lição já têm decisão"
-            : undefined
+          words === 0
+            ? "Esta lição não tem palavras"
+            : "Sugere de novo a lição inteira, inclusive as já decididas"
         }
         className="border-rule hover:bg-surface rounded-sm border px-2.5 py-1 text-xs font-semibold normal-case transition-colors disabled:opacity-40"
       >
-        {busy ? "sugerindo" : "Sugerir tipos"}
+        {busy ? "sugerindo" : "Sugerir a lição toda"}
       </button>
       {note !== null && (
         <span className="text-faint text-xs normal-case">{note}</span>

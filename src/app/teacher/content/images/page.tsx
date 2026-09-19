@@ -37,6 +37,9 @@ export default async function VocabularyImagesPage({
   const visible = lessons
     .map((lesson) => ({
       ...lesson,
+      // The whole lesson, kept apart from the filtered view of it: the
+      // suggestion button acts on the lesson, not on what the filter shows.
+      totalWords: lesson.words.length,
       words: lesson.words.filter((word) =>
         matchesFilter(filter, word.representation),
       ),
@@ -118,11 +121,7 @@ export default async function VocabularyImagesPage({
                       {lesson.lessonContentId !== null && (
                         <SuggestButton
                           lessonContentId={lesson.lessonContentId}
-                          undecided={
-                            lesson.words.filter(
-                              (word) => word.representation === null,
-                            ).length
-                          }
+                          words={lesson.totalWords}
                         />
                       )}
                     </div>
