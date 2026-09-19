@@ -105,10 +105,17 @@ export function FilterDrawer({
             draft,
           )}
           title={`Remover o filtro ${chip.label}`}
-          className="border-rule text-muted hover:text-foreground flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-colors"
+          className="border-rule text-muted hover:text-foreground flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors"
         >
           {chip.label}
-          <span aria-hidden="true">×</span>
+          {/*
+            Bigger than the label it sits next to, because it is the thing
+            being aimed at. Only the glyph grows: the whole chip removes the
+            filter, so the target was never the cross.
+          */}
+          <span aria-hidden="true" className="text-base leading-none">
+            ×
+          </span>
         </Link>
       ))}
       {draft.trim() !== "" && (
@@ -116,10 +123,12 @@ export function FilterDrawer({
           type="button"
           onClick={() => search("")}
           title="Remover a busca"
-          className="border-rule text-muted hover:text-foreground flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-colors"
+          className="border-rule text-muted hover:text-foreground flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors"
         >
           {draft.trim()}
-          <span aria-hidden="true">×</span>
+          <span aria-hidden="true" className="text-base leading-none">
+            ×
+          </span>
         </button>
       )}
       {pending && <span className="text-faint text-xs">filtrando</span>}
@@ -138,19 +147,16 @@ export function FilterDrawer({
         // The same surface and text colour the word panel uses. A dialog
         // colours nothing by default, so without both it lands on the
         // browser's canvas and canvastext instead of this screen's.
-        className="bg-surface text-foreground border-rule m-0 mr-auto h-dvh max-h-none w-[22rem] max-w-[90vw] border-r p-0 backdrop:bg-black/40"
+        className="drawer bg-surface text-foreground border-rule m-0 mr-auto h-dvh max-h-none w-[22rem] max-w-[90vw] border-r p-0 backdrop:bg-black/40"
       >
         <div className="flex h-full flex-col">
-          <div className="border-rule flex items-center justify-between gap-3 border-b px-4 py-3">
+          {/*
+            No close button. Esc and a click outside are how the other two
+            dialogs on this screen close, and a third way out of this one
+            would be the only one that needed learning.
+          */}
+          <div className="border-rule border-b px-4 py-3">
             <h2 className="text-sm font-extrabold tracking-tight">Filtros</h2>
-            <button
-              type="button"
-              onClick={() => dialog.current?.close()}
-              aria-label="Fechar"
-              className="text-faint hover:text-foreground rounded-sm px-2 py-1 text-sm transition-colors"
-            >
-              ×
-            </button>
           </div>
 
           <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">

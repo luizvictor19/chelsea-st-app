@@ -184,23 +184,22 @@ export function parseSuggestions(
  * of the whole lesson and not of whatever the type filter happens to be
  * showing. Handing this function the list makes that the caller's obvious job.
  *
- * Counts both columns the pass writes, separately, because they are filled
- * at different times: a lesson can carry classes from an earlier run and no
- * suggestions, or the other way round. A decision is never at risk either
- * way; the pass writes suggested_representation and word_class and nothing
- * else.
+ * One number, not two. The pass writes both columns in the same request, so
+ * from any run onwards a word has both or neither, and counting them apart
+ * only ever described lesson 1, suggested before the class column existed.
+ * A decision is never at risk either way; the pass writes
+ * suggested_representation and word_class and nothing else.
  */
 export function overwriteWarning(
   words: readonly {
     readonly suggestedRepresentation: Representation | null;
     readonly wordClass: WordClass | null;
   }[],
-): { confirm: boolean; suggestions: number; classes: number } {
-  const suggestions = words.filter(
-    (word) => word.suggestedRepresentation !== null,
+): { confirm: boolean; suggested: number } {
+  // Either column being there is work the pass would replace, so a word
+  // counts once whichever of the two it carries.
+  const suggested = words.filter(
+    (word) => word.suggestedRepresentation !== null || word.wordClass !== null,
   ).length;
-  const classes = words.filter((word) => word.wordClass !== null).length;
-  // Either column being there is work the pass would replace, so either is
-  // enough to ask first.
-  return { confirm: suggestions > 0 || classes > 0, suggestions, classes };
+  return { confirm: suggested > 0, suggested };
 }

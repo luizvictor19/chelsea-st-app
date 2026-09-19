@@ -108,3 +108,86 @@ body {
     outline-color: var(--faint);
   }
 }
+
+/*
+ * The filter drawer sliding in and out.
+ *
+ * Three things are needed together and the exit animation is what tells you
+ * when one is missing. @starting-style gives the element somewhere to come
+ * from, since a dialog has no styles at all until it is open. allow-discrete
+ * on display and overlay keeps the element rendered, and on top, while it
+ * leaves: without them the closing dialog is removed from the top layer on
+ * the same frame and simply vanishes, so the entrance animates and the exit
+ * does not.
+ *
+ * Written here rather than as utilities because @starting-style and
+ * allow-discrete have no utility to write them with.
+ */
+@layer components {
+  .drawer {
+    translate: -100% 0;
+    opacity: 0;
+    transition:
+      translate 180ms ease,
+      opacity 180ms ease,
+      display 180ms allow-discrete,
+      overlay 180ms allow-discrete;
+  }
+
+  .drawer[open] {
+    translate: 0 0;
+    opacity: 1;
+  }
+
+  @starting-style {
+    .drawer[open] {
+      translate: -100% 0;
+      opacity: 0;
+    }
+  }
+
+  .drawer::backdrop {
+    opacity: 0;
+    transition:
+      opacity 180ms ease,
+      display 180ms allow-discrete,
+      overlay 180ms allow-discrete;
+  }
+
+  .drawer[open]::backdrop {
+    opacity: 1;
+  }
+
+  @starting-style {
+    .drawer[open]::backdrop {
+      opacity: 0;
+    }
+  }
+
+  /*
+   * Asked for no motion, the drawer still has to arrive and leave; it just
+   * does it without travelling. Opacity is not movement, and a panel that
+   * appeared with no transition at all would flicker harder than one that
+   * fades.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    .drawer,
+    .drawer[open] {
+      translate: 0 0;
+    }
+
+    .drawer,
+    .drawer::backdrop {
+      transition:
+        opacity 100ms ease,
+        display 100ms allow-discrete,
+        overlay 100ms allow-discrete;
+    }
+
+    @starting-style {
+      .drawer[open] {
+        translate: 0 0;
+      }
+    }
+  }
+}

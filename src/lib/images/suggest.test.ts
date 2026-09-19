@@ -233,47 +233,37 @@ describe("overwriteWarning", () => {
     suggestedRepresentation: null,
     wordClass: "verb",
   } as const;
+  const onlyKind = {
+    suggestedRepresentation: "figure",
+    wordClass: null,
+  } as const;
   const without = { suggestedRepresentation: null, wordClass: null } as const;
 
   test("nothing stored means no confirmation, so the click goes straight through", () => {
-    assert.deepEqual(overwriteWarning([]), {
-      confirm: false,
-      suggestions: 0,
-      classes: 0,
-    });
+    assert.deepEqual(overwriteWarning([]), { confirm: false, suggested: 0 });
     assert.deepEqual(overwriteWarning([without, without]), {
       confirm: false,
-      suggestions: 0,
-      classes: 0,
+      suggested: 0,
     });
   });
 
-  test("one stored suggestion is enough to ask first", () => {
+  test("one suggested word is enough to ask first", () => {
     assert.deepEqual(overwriteWarning([without, both, without]), {
       confirm: true,
-      suggestions: 1,
-      classes: 1,
+      suggested: 1,
     });
   });
 
   /*
-   * The two columns are filled at different times, so a lesson can carry
-   * classes and no suggestions. Either is work the pass would replace.
+   * One number and not two. The pass writes both columns in the same
+   * request, so a word carries both or neither from any run onwards, and
+   * counting them apart only ever described lesson 1, which was suggested
+   * before the class column existed. A word with either still counts once.
    */
-  test("a stored class alone is also enough to ask", () => {
-    assert.deepEqual(overwriteWarning([onlyClass, without]), {
+  test("counts a word once, whichever of the two columns it carries", () => {
+    assert.deepEqual(overwriteWarning([onlyClass, onlyKind, both, without]), {
       confirm: true,
-      suggestions: 0,
-      classes: 1,
-    });
-  });
-
-  test("counts each column separately, which is what the teacher is shown", () => {
-    const words = [both, both, onlyClass, without];
-    assert.deepEqual(overwriteWarning(words), {
-      confirm: true,
-      suggestions: 2,
-      classes: 3,
+      suggested: 3,
     });
   });
 });

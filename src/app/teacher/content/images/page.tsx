@@ -181,15 +181,14 @@ export default async function VocabularyImagesPage({
                         imagem
                       </span>
                       <span className="text-faint text-xs whitespace-nowrap">
-                        {lesson.overwrite.suggestions}/{lesson.totalWords} com
+                        {lesson.overwrite.suggested}/{lesson.totalWords} com
                         sugestão
                       </span>
                       {lesson.lessonContentId !== null && (
                         <SuggestButton
                           lessonContentId={lesson.lessonContentId}
                           words={lesson.totalWords}
-                          existingSuggestions={lesson.overwrite.suggestions}
-                          existingClasses={lesson.overwrite.classes}
+                          suggested={lesson.overwrite.suggested}
                         />
                       )}
                     </div>

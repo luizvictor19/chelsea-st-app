@@ -23,13 +23,11 @@ import { suggestRepresentations } from "./actions";
 export function SuggestButton({
   lessonContentId,
   words,
-  existingSuggestions,
-  existingClasses,
+  suggested,
 }: {
   readonly lessonContentId: string;
   readonly words: number;
-  readonly existingSuggestions: number;
-  readonly existingClasses: number;
+  readonly suggested: number;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -54,7 +52,7 @@ export function SuggestButton({
   }
 
   function start() {
-    if (existingSuggestions === 0 && existingClasses === 0) {
+    if (suggested === 0) {
       void run();
       return;
     }
@@ -96,9 +94,11 @@ export function SuggestButton({
             Substituir as sugestões desta lição?
           </h2>
           <p className="text-muted text-sm">
-            Nesta lição, {existingSuggestions} já têm sugestão de tipo e{" "}
-            {existingClasses} já têm classe. Sugerir de novo substitui as duas
-            coisas. As decisões que você já tomou não são tocadas.
+            {suggested === 1
+              ? "1 palavra desta lição já tem sugestão."
+              : `${suggested} palavras desta lição já têm sugestão.`}{" "}
+            Sugerir de novo substitui o tipo e a classe. As decisões que você já
+            tomou não são tocadas.
           </p>
           <div className="flex flex-wrap justify-end gap-2">
             {/*
