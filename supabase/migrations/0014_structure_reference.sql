@@ -23,8 +23,8 @@
 -- id>.<ext>, so the two never collide. The prefix is held by a check rather
 -- than by habit: a path written somewhere else would still read back, still
 -- resolve to a public URL and still look right, and the only thing that would
--- notice is whoever comes to clean the bucket up. storage_path has no such
--- check because it predates the idea, not because it deserves none.
+-- notice is whoever comes to clean the bucket up. storage_path gets the
+-- mirror of that check below, so the separation is held from both sides.
 --
 -- No backfill, and nothing to backfill: no attempt has ever been generated
 -- from a reference.
@@ -46,6 +46,30 @@ alter table image_attempts
   add column reference_path text,
   add constraint image_attempts_reference_path_prefix check (
     reference_path is null or reference_path like 'references/%'
+  );
+
+-- The mirror, on the column that was there first.
+--
+-- storage_path is where the finished picture lives, and it is never under
+-- references/. The reason is the one above, read the other way round: a
+-- finished picture written into the reference prefix would still read back,
+-- still resolve to a public URL and still look right, and the only one to
+-- notice would be whoever comes to clean the bucket up — who would then
+-- delete a picture a word is pointing at, because everything under
+-- references/ is supposed to be a discardable input.
+--
+-- Two checks and not one shared rule, because the two columns are not saying
+-- the same thing. One says "this is a reference"; the other says "this is
+-- not". A single convention naming only the prefix would be satisfied by a
+-- path that is neither.
+--
+-- No `not valid` and no backfill: measured against the project on
+-- 2026-09-19, image_attempts has 43 rows, none of them under the prefix and
+-- none of them null, so the constraint is true of the table before it is
+-- written.
+alter table image_attempts
+  add constraint image_attempts_storage_path_not_reference check (
+    storage_path is null or storage_path not like 'references/%'
   );
 
 comment on column vocabulary_items.reference_path is
