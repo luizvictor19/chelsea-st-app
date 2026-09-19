@@ -8,7 +8,12 @@ import type {
   Representation,
   WordImage,
 } from "@/lib/content/queries";
-import { IMAGE_MODELS } from "@/lib/images/provider";
+import {
+  IMAGE_MODELS,
+  defaultModelFor,
+  isImageModelId,
+  modelCredits,
+} from "@/lib/images/provider";
 import { isDrawableKind } from "@/lib/images/style";
 
 import {
@@ -61,7 +66,19 @@ export function WordPanel({
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
   const [subject, setSubject] = useState(() => lastSubject(attempts));
-  const [model, setModel] = useState<string>(IMAGE_MODELS[0].id);
+  /*
+   * The model starts on whatever this kind of word starts on, and stays put
+   * once the teacher has picked one. Changing the kind moves it again only
+   * while it has not been picked: a deliberate choice is not something to
+   * undo on someone's behalf, and the panel remounts per word, so a choice
+   * lives exactly as long as the word is open.
+   */
+  const [model, setModel] = useState<string>(
+    () => defaultModelFor(word.representation) ?? IMAGE_MODELS[0].id,
+  );
+  const [modelPicked, setModelPicked] = useState(false);
+  // Null is "nobody knows", not "free". Only Seedream has been measured.
+  const credits = isImageModelId(model) ? modelCredits(model) : null;
   const [elapsed, setElapsed] = useState(0);
   const fileInput = useRef<HTMLInputElement>(null);
   const zoom = useRef<HTMLDialogElement>(null);
@@ -233,7 +250,13 @@ export function WordPanel({
               type="button"
               disabled={working}
               onClick={() =>
-                void run(`tipo-${kind}`, () => setRepresentation(word.id, kind))
+                void run(`tipo-${kind}`, async () => {
+                  const result = await setRepresentation(word.id, kind);
+                  if (result.ok && !modelPicked) {
+                    setModel(defaultModelFor(kind) ?? model);
+                  }
+                  return result;
+                })
               }
               className={kindClass(kind)}
             >
@@ -338,21 +361,22 @@ export function WordPanel({
               mostra.
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              {/*
-                One model means nothing to choose, so the control is left out
-                rather than shown with a single option. It comes back on its
-                own the day IMAGE_MODELS has a second entry.
-              */}
               {IMAGE_MODELS.length > 1 && (
                 <select
                   aria-label="Modelo"
                   value={model}
-                  onChange={(event) => setModel(event.target.value)}
+                  onChange={(event) => {
+                    setModelPicked(true);
+                    setModel(event.target.value);
+                  }}
                   className="border-rule bg-background rounded-sm border px-3 py-2 text-sm"
                 >
                   {IMAGE_MODELS.map((option) => (
                     <option key={option.id} value={option.id}>
                       {option.label}
+                      {option.credits === null
+                        ? " · custo desconhecido"
+                        : ` · ${option.credits} créditos`}
                     </option>
                   ))}
                 </select>
@@ -389,6 +413,16 @@ export function WordPanel({
                 }}
               />
             </div>
+            {/*
+              What this costs, or that nobody knows. Said outside the select,
+              because an option is only readable while the list is open, and
+              the number matters most at the moment of pressing Gerar.
+            */}
+            <p className="text-faint text-xs">
+              {credits === null
+                ? "O custo deste modelo não está documentado."
+                : `${credits} créditos por imagem, medido no painel do Freepik.`}
+            </p>
           </div>
         </>
       ) : (
