@@ -90,16 +90,26 @@ describe("the rule each kind adds", () => {
   });
 
   /*
-   * Action keeps both halves: the arrow and the middle of the movement are
-   * what separate it from pose, and losing either would make the two kinds
-   * produce the same picture.
+   * The movement is the category; the arrow is only a way of drawing a
+   * direction when there is one. Asked for unconditionally it turned up on
+   * smile and listen, pointing at nothing, which is why the two halves are
+   * asserted differently: one is always required, the other must be offered
+   * as a condition and must state the case where it is left out.
    */
-  test("action asks for the movement and the arrow", () => {
+  test("action always asks for the middle of the movement", () => {
     const prompt = buildPrompt("a man standing up", "action");
     assert.ok(prompt.endsWith(SUBJECT_RULES.action));
     assert.match(prompt, /middle of the movement/iu);
-    assert.match(prompt, /a single arrow/iu);
-    assert.match(SUBJECT_RULES.action, /arrow/iu);
+    assert.match(prompt, /whole body/iu);
+  });
+
+  test("action offers the arrow as a condition, never as an order", () => {
+    assert.match(SUBJECT_RULES.action, /if the movement has a direction/iu);
+    // The branch that was missing: a movement with no direction gets none.
+    assert.match(SUBJECT_RULES.action, /if it does not, no arrow/iu);
+  });
+
+  test("pose mentions the arrow only to refuse it", () => {
     assert.doesNotMatch(SUBJECT_RULES.pose, /(?<!No )arrow/u);
   });
 

@@ -35,9 +35,16 @@ export const SUBJECT_RULES = {
   pose:
     "Show the whole body, the posture clearly readable, and no movement. " +
     "No arrow.",
+  /*
+   * The arrow is a drawing device, not what makes something an action. Plenty
+   * of action words have no direction for one to point at (speak, listen,
+   * smile, read, write, wait, hold), and asked for an arrow unconditionally
+   * the model draws one anyway, pointing at nothing.
+   */
   action:
-    "Show one person in the middle of the movement, with a single arrow " +
-    "indicating the direction of the movement.",
+    "Show one person in the middle of the movement, the whole body visible, " +
+    "the gesture at its clearest moment. If the movement has a direction, " +
+    "add a simple arrow showing it; if it does not, no arrow.",
   figure: "Draw it as a diagram, with no person in it.",
 } as const;
 
