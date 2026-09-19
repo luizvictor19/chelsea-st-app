@@ -300,10 +300,19 @@ export async function listVocabularyImages(): Promise<{
 }> {
   const { supabase } = await requireTeacher();
 
+  /*
+   * image_attempts is named by its foreign key, not by its table. The two
+   * tables reference each other: an attempt points at its word, and a word
+   * points back at its approved attempt, so PostgREST finds two relationships
+   * and refuses to guess which one the embed means. The lesson generalises:
+   * whenever two tables reference each other, an embed needs the constraint
+   * name. Here it is the attempt-to-word direction; the other way round would
+   * be vocabulary_items_approved_attempt_id_fkey.
+   */
   const { data: rows, error } = await supabase
     .from("vocabulary_items")
     .select(
-      "id, term, representation, image_path, points!inner(number, lessons_content(number)), image_attempts(count)",
+      "id, term, representation, image_path, points!inner(number, lessons_content(number)), image_attempts!image_attempts_vocabulary_item_id_fkey(count)",
     );
   if (error) throw new Error(error.message);
 
@@ -316,7 +325,11 @@ export async function listVocabularyImages(): Promise<{
       pointNumber: row.points?.number ?? null,
       representation: row.representation,
       imageUrl: publicImageUrl(supabase, row.image_path),
-      attempts: row.image_attempts?.count ?? 0,
+      // An array now, and correctly so: naming the attempt-to-word key makes
+      // this the to-many side. Unhinted, the generated type resolved to the
+      // to-one approved_attempt_id relationship, so this read a count that was
+      // never the number of attempts.
+      attempts: row.image_attempts?.[0]?.count ?? 0,
       pending: isPending(row.representation, row.image_path),
     } satisfies WordImage,
   }));
