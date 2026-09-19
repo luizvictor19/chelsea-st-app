@@ -36,6 +36,19 @@ describe("buildPrompt", () => {
     );
   });
 
+  /*
+   * 2026-09-19: the first real figure came back inside a black frame. The
+   * style asked for a plain background and never said the background was the
+   * whole image, so a border broke no rule that had been written down.
+   */
+  test("forbids a frame, in every prompt", () => {
+    for (const kind of ["photo", "pose", "action", "figure"]) {
+      const prompt = buildPrompt("a thing", kind);
+      assert.match(prompt, /no frame, no border/iu);
+      assert.match(prompt, /background fills the entire image/iu);
+    }
+  });
+
   test("refuses an empty subject instead of paying for nothing", () => {
     assert.throws(() => buildPrompt("", "photo"), /subject/);
     assert.throws(() => buildPrompt("   ", "photo"), /subject/);
@@ -128,6 +141,27 @@ describe("the rule each kind adds", () => {
   test("symbol and none have no prompt to build", () => {
     assert.throws(() => buildPrompt(SUBJECT, "symbol"), /symbol/);
     assert.throws(() => buildPrompt(SUBJECT, "none"), /none/);
+  });
+
+  /*
+   * 2026-09-19: the first two real images each invented their own person, and
+   * one changed its own shirt colour between the top and the bottom of the
+   * figure. The character is fixed only where a person is drawn: a photo of a
+   * pen and a diagram have nobody in them.
+   */
+  test("fixes the character in pose and action, and only there", () => {
+    for (const kind of ["pose", "action"]) {
+      const prompt = buildPrompt("a thing", kind);
+      assert.match(prompt, /always the same character/iu);
+      assert.match(prompt, /short dark hair/iu);
+      assert.match(prompt, /consistent across the whole figure/iu);
+    }
+    for (const kind of ["photo", "figure"]) {
+      assert.doesNotMatch(
+        buildPrompt("a thing", kind),
+        /always the same character/iu,
+      );
+    }
   });
 
   test("every drawable kind ends with its own rule and no other", () => {

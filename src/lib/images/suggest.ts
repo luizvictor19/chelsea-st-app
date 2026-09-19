@@ -24,9 +24,16 @@ type Representation = Database["public"]["Enums"]["representation_kind"];
 export const REPRESENTATION_KINDS: readonly Representation[] =
   Constants.public.Enums.representation_kind;
 
+type WordClass = Database["public"]["Enums"]["word_class"];
+
+export const WORD_CLASSES: readonly WordClass[] =
+  Constants.public.Enums.word_class;
+
 export type Suggestion = {
   readonly id: string;
   readonly kind: Representation;
+  /** Null when the model gave none, or gave one outside the enum. */
+  readonly wordClass: WordClass | null;
 };
 
 /**
@@ -56,7 +63,12 @@ The pairs that are easy to confuse:
 - Pose against action is rest against activity. In pose the body is at rest and the position it is held in is the meaning of the word: standing, sitting, lying. In action the person is doing something: sit down, stand up, open, close, smile, speak, write. The practical test is to freeze the drawing: if it still says the word, it is pose; if it becomes a different word, it is action. An arrow is a consequence of drawing and not what tells the two apart: it goes in when the movement has a direction and stays out when it has none, which is why smile is an action with no arrow.
 
 Answer with json only, in exactly this shape:
-{"suggestions": [{"id": "the id you were given", "kind": "photo|pose|action|figure|symbol|none"}]}
+{"suggestions": [{"id": "the id you were given", "kind": "photo|pose|action|figure|symbol|none", "class": "noun|verb|adjective|adverb|pronoun|preposition|determiner|conjunction|numeral|question_word|interjection|phrase"}]}
+
+The class is the part of speech, and it is a fact about the word rather than a judgement about the picture. For a term of more than one word:
+- a verb that keeps its particle is verb: putting on, taking from.
+- a prepositional locution is preposition: in front of.
+- phrase is only for a term with no single function: what is (what's).
 
 Give one entry for every word you were sent, using the id exactly as it was given to you. No prose, no explanation.`;
 
@@ -78,6 +90,13 @@ function isRepresentation(value: unknown): value is Representation {
   return (
     typeof value === "string" &&
     (REPRESENTATION_KINDS as readonly string[]).includes(value)
+  );
+}
+
+function isWordClass(value: unknown): value is WordClass {
+  return (
+    typeof value === "string" &&
+    (WORD_CLASSES as readonly string[]).includes(value)
   );
 }
 
@@ -124,7 +143,11 @@ export function parseSuggestions(
       rejected += 1;
       continue;
     }
-    const { id, kind } = entry as { id?: unknown; kind?: unknown };
+    const {
+      id,
+      kind,
+      class: wordClass,
+    } = entry as { id?: unknown; kind?: unknown; class?: unknown };
     // A repeated id is dropped rather than allowed to overwrite: two answers
     // for one word means the model lost track, and the second is not better.
     if (
@@ -137,7 +160,17 @@ export function parseSuggestions(
       continue;
     }
     seen.add(id);
-    suggestions.push({ id, kind });
+    /*
+     * The class is validated but not required. An unrecognised one is worth
+     * dropping on its own; throwing away a good representation suggestion
+     * because the model called something a particle would cost the teacher
+     * more than the bad class does.
+     */
+    suggestions.push({
+      id,
+      kind,
+      wordClass: isWordClass(wordClass) ? wordClass : null,
+    });
   }
 
   return { suggestions, rejected };
@@ -151,17 +184,23 @@ export function parseSuggestions(
  * of the whole lesson and not of whatever the type filter happens to be
  * showing. Handing this function the list makes that the caller's obvious job.
  *
- * Only a stored suggestion counts. A decided word with no suggestion has
- * nothing to lose, and a decision is never at risk either way: the pass writes
- * suggested_representation and nothing else.
+ * Counts both columns the pass writes, separately, because they are filled
+ * at different times: a lesson can carry classes from an earlier run and no
+ * suggestions, or the other way round. A decision is never at risk either
+ * way; the pass writes suggested_representation and word_class and nothing
+ * else.
  */
 export function overwriteWarning(
   words: readonly {
     readonly suggestedRepresentation: Representation | null;
+    readonly wordClass: WordClass | null;
   }[],
-): { confirm: boolean; existing: number } {
-  const existing = words.filter(
+): { confirm: boolean; suggestions: number; classes: number } {
+  const suggestions = words.filter(
     (word) => word.suggestedRepresentation !== null,
   ).length;
-  return { confirm: existing > 0, existing };
+  const classes = words.filter((word) => word.wordClass !== null).length;
+  // Either column being there is work the pass would replace, so either is
+  // enough to ask first.
+  return { confirm: suggestions > 0 || classes > 0, suggestions, classes };
 }

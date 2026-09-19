@@ -10,6 +10,12 @@
   --rule: #d6d6d1;
   --accent: #c1121f;
   --accent-foreground: #ffffff;
+  /*
+   * A warning is not an error. The accent is the alarm colour, and using it
+   * for "the model read this differently" made a disagreement look like
+   * something broken. Amber says look, red says stop.
+   */
+  --warning: #9a5b06;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -22,6 +28,7 @@
     --rule: #2a2f37;
     --accent: #ff5a5f;
     --accent-foreground: #180405;
+    --warning: #e0a33c;
   }
 }
 
@@ -34,6 +41,7 @@
   --color-rule: var(--rule);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-warning: var(--warning);
   --font-sans: var(--font-archivo);
   --font-mono: var(--font-plex-mono);
 }

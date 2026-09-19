@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   REPRESENTATION_KINDS,
+  WORD_CLASSES,
   buildSuggestionPrompt,
   overwriteWarning,
   parseSuggestions,
@@ -122,8 +123,8 @@ describe("parseSuggestions", () => {
     const { suggestions, rejected } = parseSuggestions(text, IDS);
     assert.equal(rejected, 0);
     assert.deepEqual(suggestions, [
-      { id: IDS[0], kind: "photo" },
-      { id: IDS[1], kind: "figure" },
+      { id: IDS[0], kind: "photo", wordClass: null },
+      { id: IDS[1], kind: "figure", wordClass: null },
     ]);
   });
 
@@ -135,7 +136,9 @@ describe("parseSuggestions", () => {
       ],
     });
     const { suggestions, rejected } = parseSuggestions(text, IDS);
-    assert.deepEqual(suggestions, [{ id: IDS[1], kind: "none" }]);
+    assert.deepEqual(suggestions, [
+      { id: IDS[1], kind: "none", wordClass: null },
+    ]);
     assert.equal(rejected, 1);
   });
 
@@ -157,7 +160,9 @@ describe("parseSuggestions", () => {
       ],
     });
     const { suggestions, rejected } = parseSuggestions(text, IDS);
-    assert.deepEqual(suggestions, [{ id: IDS[0], kind: "photo" }]);
+    assert.deepEqual(suggestions, [
+      { id: IDS[0], kind: "photo", wordClass: null },
+    ]);
     assert.equal(rejected, 1);
   });
 
@@ -169,7 +174,9 @@ describe("parseSuggestions", () => {
       ],
     });
     const { suggestions, rejected } = parseSuggestions(text, IDS);
-    assert.deepEqual(suggestions, [{ id: IDS[0], kind: "photo" }]);
+    assert.deepEqual(suggestions, [
+      { id: IDS[0], kind: "photo", wordClass: null },
+    ]);
     assert.equal(rejected, 1);
   });
 
@@ -181,7 +188,9 @@ describe("parseSuggestions", () => {
       "```json\n" + inner + "\n```",
       IDS,
     );
-    assert.deepEqual(suggestions, [{ id: IDS[0], kind: "photo" }]);
+    assert.deepEqual(suggestions, [
+      { id: IDS[0], kind: "photo", wordClass: null },
+    ]);
   });
 
   test("returns nothing rather than throwing on junk", () => {
@@ -208,32 +217,118 @@ describe("parseSuggestions", () => {
       ],
     });
     const { suggestions, rejected } = parseSuggestions(text, IDS);
-    assert.deepEqual(suggestions, [{ id: IDS[1], kind: "action" }]);
+    assert.deepEqual(suggestions, [
+      { id: IDS[1], kind: "action", wordClass: null },
+    ]);
     assert.equal(rejected, 3);
   });
 });
 
 describe("overwriteWarning", () => {
-  const withSuggestion = { suggestedRepresentation: "photo" } as const;
-  const without = { suggestedRepresentation: null } as const;
+  const both = {
+    suggestedRepresentation: "photo",
+    wordClass: "noun",
+  } as const;
+  const onlyClass = {
+    suggestedRepresentation: null,
+    wordClass: "verb",
+  } as const;
+  const without = { suggestedRepresentation: null, wordClass: null } as const;
 
-  test("no suggestions stored means no confirmation, so the click goes straight through", () => {
-    assert.deepEqual(overwriteWarning([]), { confirm: false, existing: 0 });
+  test("nothing stored means no confirmation, so the click goes straight through", () => {
+    assert.deepEqual(overwriteWarning([]), {
+      confirm: false,
+      suggestions: 0,
+      classes: 0,
+    });
     assert.deepEqual(overwriteWarning([without, without]), {
       confirm: false,
-      existing: 0,
+      suggestions: 0,
+      classes: 0,
     });
   });
 
   test("one stored suggestion is enough to ask first", () => {
-    assert.deepEqual(overwriteWarning([without, withSuggestion, without]), {
+    assert.deepEqual(overwriteWarning([without, both, without]), {
       confirm: true,
-      existing: 1,
+      suggestions: 1,
+      classes: 1,
     });
   });
 
-  test("counts every stored suggestion, which is the number the teacher is shown", () => {
-    const words = [withSuggestion, withSuggestion, without, withSuggestion];
-    assert.deepEqual(overwriteWarning(words), { confirm: true, existing: 3 });
+  /*
+   * The two columns are filled at different times, so a lesson can carry
+   * classes and no suggestions. Either is work the pass would replace.
+   */
+  test("a stored class alone is also enough to ask", () => {
+    assert.deepEqual(overwriteWarning([onlyClass, without]), {
+      confirm: true,
+      suggestions: 0,
+      classes: 1,
+    });
+  });
+
+  test("counts each column separately, which is what the teacher is shown", () => {
+    const words = [both, both, onlyClass, without];
+    assert.deepEqual(overwriteWarning(words), {
+      confirm: true,
+      suggestions: 2,
+      classes: 3,
+    });
+  });
+});
+
+describe("the word class half of the answer", () => {
+  test("names every class the database has, so the model sees the whole enum", () => {
+    const { system } = buildSuggestionPrompt(WORDS);
+    for (const wordClass of WORD_CLASSES) {
+      assert.ok(system.includes(wordClass), `missing ${wordClass}`);
+    }
+  });
+
+  /*
+   * The three rules a term of more than one word is decided by. They are the
+   * part that gets argued about, so the prompt has to state them.
+   */
+  test("states the rules for a term of more than one word", () => {
+    const { system } = buildSuggestionPrompt(WORDS);
+    assert.match(system, /keeps its particle is verb/iu);
+    assert.match(system, /prepositional locution is preposition/iu);
+    assert.match(system, /phrase is only for a term with no single function/iu);
+  });
+
+  test("reads the class back", () => {
+    const text = JSON.stringify({
+      suggestions: [{ id: IDS[0], kind: "photo", class: "noun" }],
+    });
+    const { suggestions } = parseSuggestions(text, IDS);
+    assert.deepEqual(suggestions, [
+      { id: IDS[0], kind: "photo", wordClass: "noun" },
+    ]);
+  });
+
+  /*
+   * A class outside the enum is dropped on its own. Throwing away a good
+   * representation suggestion because the model called something a particle
+   * would cost the teacher more than the bad class does.
+   */
+  test("drops an unknown class without losing the kind", () => {
+    const text = JSON.stringify({
+      suggestions: [{ id: IDS[0], kind: "photo", class: "particle" }],
+    });
+    const { suggestions, rejected } = parseSuggestions(text, IDS);
+    assert.deepEqual(suggestions, [
+      { id: IDS[0], kind: "photo", wordClass: null },
+    ]);
+    assert.equal(rejected, 0);
+  });
+
+  test("an unknown kind still rejects the whole entry, class or no class", () => {
+    const text = JSON.stringify({
+      suggestions: [{ id: IDS[0], kind: "drawing", class: "noun" }],
+    });
+    const { suggestions, rejected } = parseSuggestions(text, IDS);
+    assert.deepEqual(suggestions, []);
+    assert.equal(rejected, 1);
   });
 });

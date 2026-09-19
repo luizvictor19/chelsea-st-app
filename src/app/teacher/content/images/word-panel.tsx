@@ -16,11 +16,13 @@ import {
   generateImage,
   rejectAttempt,
   setRepresentation,
+  setWordClass,
   suggestSubject,
   uploadImage,
   type ActionResult,
 } from "./actions";
 import { REPRESENTATIONS, disagreement, labelFor } from "./representation";
+import { WORD_CLASS_LABELS } from "./word-class";
 
 /** Which control is waiting on the server, so only that one shows it. */
 type Busy = { readonly key: string } | null;
@@ -62,6 +64,19 @@ export function WordPanel({
   const [model, setModel] = useState<string>(IMAGE_MODELS[0].id);
   const [elapsed, setElapsed] = useState(0);
   const fileInput = useRef<HTMLInputElement>(null);
+  const zoom = useRef<HTMLDialogElement>(null);
+  const [zoomed, setZoomed] = useState<string | null>(null);
+
+  /*
+   * The native dialog again, the same one the confirmation uses: showModal
+   * brings Esc and the focus move, and there is still no dialog of our own
+   * to reuse. The image is set first so the element has something to paint
+   * before it opens.
+   */
+  function openZoom(url: string) {
+    setZoomed(url);
+    zoom.current?.showModal();
+  }
 
   /*
    * Generating takes most of a minute, so the wait is counted out loud. The
@@ -129,9 +144,14 @@ export function WordPanel({
 
   /*
    * Three states, and they have to look like three different things. Filled
-   * is a decision the teacher made. Dashed in the accent colour is the model
-   * proposing, which is why it is an outline and not a fill: a proposal that
-   * looked like a record would be read as one. Plain is neither.
+   * is a decision the teacher made. Dashed in amber is the model proposing,
+   * outline and not fill because a proposal that looked like a record would
+   * be read as one. Plain is neither.
+   *
+   * The colours carry the rule the whole screen follows: amber is the model
+   * speaking, the accent is the teacher deciding. A proposal in the accent
+   * colour claimed an authority it does not have, and read as an alarm on top
+   * of that.
    *
    * A decision that agrees with the suggestion lands as filled, because
    * `suggested` is already null once a decision exists. Agreement is not its
@@ -145,7 +165,7 @@ export function WordPanel({
       return `${base} border-foreground bg-foreground text-background font-semibold`;
     }
     if (suggested === kind) {
-      return `${base} border-dashed border-accent text-foreground`;
+      return `${base} border-dashed border-warning text-foreground`;
     }
     return `${base} border-rule text-muted hover:bg-background`;
   }
@@ -163,6 +183,44 @@ export function WordPanel({
           </span>
         )}
       </header>
+
+      <div className="flex flex-col gap-2">
+        <label
+          htmlFor="classe"
+          className="text-faint font-mono text-xs tracking-[0.16em] uppercase"
+        >
+          Classe
+        </label>
+        {/*
+          One column and no suggested pair, so this select is both what the
+          model said and what the teacher says. Editing it is a correction,
+          not a decision recorded beside a proposal.
+        */}
+        <select
+          id="classe"
+          value={word.wordClass ?? ""}
+          disabled={working}
+          onChange={(event) => {
+            const value = event.target.value;
+            void run(`classe`, () =>
+              setWordClass(
+                word.id,
+                value === ""
+                  ? null
+                  : (value as (typeof WORD_CLASS_LABELS)[number]["value"]),
+              ),
+            );
+          }}
+          className="border-rule bg-background w-full rounded-sm border px-3 py-2 text-sm disabled:opacity-50"
+        >
+          <option value="">sem classe</option>
+          {WORD_CLASS_LABELS.map((item) => (
+            <option key={item.value} value={item.value}>
+              {item.label}
+            </option>
+          ))}
+        </select>
+      </div>
 
       <div className="flex flex-col gap-2">
         <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
@@ -184,13 +242,13 @@ export function WordPanel({
           ))}
         </div>
         {disagrees !== null && (
-          <p className="text-accent/70 pt-1 text-xs">
+          <p className="text-warning pt-1 text-xs">
             O modelo sugeriu {labelFor(disagrees).toLowerCase()}.
           </p>
         )}
         {suggested !== null && (
           <div className="flex flex-wrap items-center gap-3 pt-1">
-            <span className="text-faint text-xs">
+            <span className="text-warning text-xs">
               O modelo sugere {labelFor(suggested).toLowerCase()}.
             </span>
             <button
@@ -350,22 +408,11 @@ export function WordPanel({
         </p>
       )}
 
-      {word.imageUrl !== null && (
-        <div className="flex flex-col gap-2">
-          <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
-            Aprovada
-          </span>
-          {/* eslint-disable-next-line @next/next/no-img-element -- the bucket
-              host is not in next.config, and this screen is the teacher's
-              workbench, not a page whose images need optimising. */}
-          <img
-            src={word.imageUrl}
-            alt={`Imagem aprovada de ${word.term}`}
-            className="border-rule w-full max-w-[200px] rounded-sm border"
-          />
-        </div>
-      )}
-
+      {/*
+        No separate Aprovada block. The approved image is in the list below,
+        marked as approved, and showing it twice made the panel look like it
+        held two pictures. Clicking any attempt opens it large.
+      */}
       <div className="flex flex-col gap-3">
         <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
           Tentativas ({attempts.length})
@@ -376,69 +423,127 @@ export function WordPanel({
         */}
         {attempts.length > 0 && (
           <ul className="flex flex-col gap-3">
-            {attempts.map((attempt) => (
-              <li
-                key={attempt.id}
-                className="border-rule flex flex-wrap items-start gap-3 rounded-sm border p-3"
-              >
-                {attempt.imageUrl !== null && (
-                  // eslint-disable-next-line @next/next/no-img-element -- as above
-                  <img
-                    src={attempt.imageUrl}
-                    alt={`Tentativa para ${word.term}`}
-                    className="border-rule size-20 rounded-sm border object-cover"
-                  />
-                )}
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="font-mono text-xs">
-                    {STATUS_LABELS[attempt.status] ?? attempt.status}
-                    {attempt.model !== null && ` · ${attempt.model}`}
-                    {attempt.creditsSpent !== null &&
-                      ` · ${attempt.creditsSpent} créditos`}
-                  </span>
-                  {attempt.error !== null && (
-                    <span className="text-muted text-xs">{attempt.error}</span>
+            {attempts.map((attempt) => {
+              // Bound out of the property so the narrowing survives into the
+              // click handler, which it does not do through a closure.
+              const imageUrl = attempt.imageUrl;
+              return (
+                <li
+                  key={attempt.id}
+                  className="border-rule flex flex-wrap items-start gap-3 rounded-sm border p-3"
+                >
+                  {imageUrl !== null && (
+                    <button
+                      type="button"
+                      onClick={() => openZoom(imageUrl)}
+                      title="Ver grande"
+                      className="border-rule shrink-0 rounded-sm border"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element -- as above */}
+                      <img
+                        src={imageUrl}
+                        alt={`Tentativa para ${word.term}`}
+                        className="size-20 rounded-sm object-cover"
+                      />
+                    </button>
                   )}
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {attempt.status === "generated" && (
-                      <button
-                        type="button"
-                        disabled={working}
-                        onClick={() =>
-                          void run(`aprovar-${attempt.id}`, () =>
-                            approveAttempt(attempt.id),
-                          )
-                        }
-                        className="border-rule hover:bg-background rounded-sm border px-3 py-1 text-xs transition-colors disabled:opacity-50"
-                      >
-                        {busy?.key === `aprovar-${attempt.id}`
-                          ? "aprovando"
-                          : "Aprovar"}
-                      </button>
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <span className="font-mono text-xs">
+                      {STATUS_LABELS[attempt.status] ?? attempt.status}
+                      {attempt.model !== null && ` · ${attempt.model}`}
+                      {attempt.creditsSpent !== null &&
+                        ` · ${attempt.creditsSpent} créditos`}
+                    </span>
+                    {attempt.error !== null && (
+                      <span className="text-muted text-xs">
+                        {attempt.error}
+                      </span>
                     )}
-                    {attempt.status !== "rejected" && (
-                      <button
-                        type="button"
-                        disabled={working}
-                        onClick={() =>
-                          void run(`descartar-${attempt.id}`, () =>
-                            rejectAttempt(attempt.id),
-                          )
-                        }
-                        className="text-muted hover:text-foreground rounded-sm px-3 py-1 text-xs transition-colors disabled:opacity-50"
-                      >
-                        {busy?.key === `descartar-${attempt.id}`
-                          ? "descartando"
-                          : "Descartar"}
-                      </button>
-                    )}
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {attempt.status === "generated" && (
+                        <button
+                          type="button"
+                          disabled={working}
+                          onClick={() =>
+                            void run(`aprovar-${attempt.id}`, () =>
+                              approveAttempt(attempt.id),
+                            )
+                          }
+                          className="border-rule hover:bg-background rounded-sm border px-3 py-1 text-xs transition-colors disabled:opacity-50"
+                        >
+                          {busy?.key === `aprovar-${attempt.id}`
+                            ? "aprovando"
+                            : "Aprovar"}
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </li>
-            ))}
+                  {attempt.status !== "rejected" && (
+                    <button
+                      type="button"
+                      disabled={working}
+                      aria-label="Descartar esta tentativa"
+                      title="Descartar"
+                      onClick={() =>
+                        void run(`descartar-${attempt.id}`, () =>
+                          rejectAttempt(attempt.id),
+                        )
+                      }
+                      className="text-faint hover:text-accent shrink-0 self-start rounded-sm p-1.5 transition-colors disabled:opacity-40"
+                    >
+                      {busy?.key === `descartar-${attempt.id}` ? (
+                        <span className="block size-3.5 text-center text-[0.6875rem] leading-3.5">
+                          ·
+                        </span>
+                      ) : (
+                        <svg
+                          viewBox="0 0 16 16"
+                          className="size-3.5"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.2a1 1 0 0 0 1 .8h4.6a1 1 0 0 0 1-.8L12 4M6.5 7v4M9.5 7v4" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
+
+      <dialog
+        ref={zoom}
+        onClose={() => setZoomed(null)}
+        className="bg-surface border-rule m-auto max-w-[min(90vw,40rem)] rounded-sm border p-2 backdrop:bg-black/70"
+      >
+        {zoomed !== null && (
+          <form method="dialog">
+            {/*
+              The whole thing is the close button: anywhere on the picture, or
+              Esc. A viewer with one way out does not need a corner control.
+            */}
+            <button
+              type="submit"
+              aria-label="Fechar"
+              className="block cursor-zoom-out"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element -- as above */}
+              <img
+                src={zoomed}
+                alt={`Imagem de ${word.term}`}
+                className="max-h-[80vh] w-auto rounded-sm"
+              />
+            </button>
+          </form>
+        )}
+      </dialog>
     </section>
   );
 }

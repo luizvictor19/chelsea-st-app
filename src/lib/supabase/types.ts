@@ -596,6 +596,7 @@ export type Database = {
           suggested_representation:
             Database["public"]["Enums"]["representation_kind"] | null;
           term: string;
+          word_class: Database["public"]["Enums"]["word_class"] | null;
         };
         Insert: {
           approved_attempt_id?: string | null;
@@ -608,6 +609,7 @@ export type Database = {
           suggested_representation?:
             Database["public"]["Enums"]["representation_kind"] | null;
           term: string;
+          word_class?: Database["public"]["Enums"]["word_class"] | null;
         };
         Update: {
           approved_attempt_id?: string | null;
@@ -620,6 +622,7 @@ export type Database = {
           suggested_representation?:
             Database["public"]["Enums"]["representation_kind"] | null;
           term?: string;
+          word_class?: Database["public"]["Enums"]["word_class"] | null;
         };
         Relationships: [
           {
@@ -688,6 +691,19 @@ export type Database = {
       representation_kind:
         "photo" | "symbol" | "figure" | "action" | "pose" | "none";
       user_role: "student" | "teacher";
+      word_class:
+        | "noun"
+        | "verb"
+        | "adjective"
+        | "adverb"
+        | "pronoun"
+        | "preposition"
+        | "determiner"
+        | "conjunction"
+        | "numeral"
+        | "question_word"
+        | "interjection"
+        | "phrase";
     };
     CompositeTypes: {
       [_ in never]: never;
@@ -834,6 +850,20 @@ export const Constants = {
         "none",
       ],
       user_role: ["student", "teacher"],
+      word_class: [
+        "noun",
+        "verb",
+        "adjective",
+        "adverb",
+        "pronoun",
+        "preposition",
+        "determiner",
+        "conjunction",
+        "numeral",
+        "question_word",
+        "interjection",
+        "phrase",
+      ],
     },
   },
 } as const;

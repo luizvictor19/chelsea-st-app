@@ -342,7 +342,9 @@ export type SuggestResult =
  * a lesson produced a measurement once and never again, and the lessons worth
  * measuring against are exactly the ones already worked through.
  *
- * Writes suggested_representation and never representation. That separation is
+ * Writes suggested_representation and word_class, and never representation.
+ * The class has one column because it is a fact rather than a judgement; the
+ * separation of the other two is
  * the whole point of having two columns: a suggestion the teacher never looked
  * at must not be able to pass itself off as a decision, and the distance
  * between the two columns is how the model gets marked. Overwriting an older
@@ -380,7 +382,15 @@ export async function suggestRepresentations(
     for (const suggestion of suggestions) {
       const { error } = await supabase
         .from("vocabulary_items")
-        .update({ suggested_representation: suggestion.kind })
+        .update({
+          suggested_representation: suggestion.kind,
+          // The class goes in the one column it has. A null here is the model
+          // failing to name a class this run, not a decision to clear one, so
+          // an earlier class is left alone.
+          ...(suggestion.wordClass === null
+            ? {}
+            : { word_class: suggestion.wordClass }),
+        })
         .eq("id", suggestion.id);
       if (error) return { ok: false, error: error.message };
     }
@@ -438,5 +448,24 @@ export async function suggestSubject(wordId: string): Promise<SubjectResult> {
     return { ok: true, subject };
   } catch (cause) {
     return { ok: false, error: errorMessage(cause) };
+  }
+}
+
+/** The teacher correcting the class the model gave. One column, so one write. */
+export async function setWordClass(
+  wordId: string,
+  wordClass: Database["public"]["Enums"]["word_class"] | null,
+): Promise<ActionResult> {
+  try {
+    const { supabase } = await requireTeacher();
+    const { error } = await supabase
+      .from("vocabulary_items")
+      .update({ word_class: wordClass })
+      .eq("id", wordId);
+    if (error) return { ok: false, error: error.message };
+    revalidatePath(SCREEN);
+    return { ok: true };
+  } catch (cause) {
+    return failure(cause);
   }
 }

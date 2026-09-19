@@ -238,6 +238,8 @@ export async function loadBook(position: number): Promise<BookDetail | null> {
 
 export type Representation = Database["public"]["Enums"]["representation_kind"];
 
+export type WordClass = Database["public"]["Enums"]["word_class"];
+
 export type WordImage = {
   readonly id: string;
   readonly term: string;
@@ -245,6 +247,8 @@ export type WordImage = {
   readonly representation: Representation | null;
   /** What the model proposed. Never a decision; see listVocabularyImages. */
   readonly suggestedRepresentation: Representation | null;
+  /** A fact about the word, not a decision about the picture. One column. */
+  readonly wordClass: WordClass | null;
   readonly imageUrl: string | null;
   readonly attempts: number;
   /** The rule the vocabulary_items_pending_image_idx predicate spells out. */
@@ -318,7 +322,7 @@ export async function listVocabularyImages(): Promise<{
   const { data: rows, error } = await supabase
     .from("vocabulary_items")
     .select(
-      "id, term, representation, suggested_representation, image_path, points!inner(number, lessons_content(id, number)), image_attempts!image_attempts_vocabulary_item_id_fkey(count)",
+      "id, term, representation, suggested_representation, word_class, image_path, points!inner(number, lessons_content(id, number)), image_attempts!image_attempts_vocabulary_item_id_fkey(count)",
     );
   if (error) throw new Error(error.message);
 
@@ -332,6 +336,7 @@ export async function listVocabularyImages(): Promise<{
       pointNumber: row.points?.number ?? null,
       representation: row.representation,
       suggestedRepresentation: row.suggested_representation,
+      wordClass: row.word_class,
       imageUrl: publicImageUrl(supabase, row.image_path),
       // An array now, and correctly so: naming the attempt-to-word key makes
       // this the to-many side. Unhinted, the generated type resolved to the
