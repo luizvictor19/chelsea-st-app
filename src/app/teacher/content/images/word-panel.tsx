@@ -144,9 +144,14 @@ export function WordPanel({
 
   /*
    * Three states, and they have to look like three different things. Filled
-   * is a decision the teacher made. Dashed in the accent colour is the model
-   * proposing, which is why it is an outline and not a fill: a proposal that
-   * looked like a record would be read as one. Plain is neither.
+   * is a decision the teacher made. Dashed in amber is the model proposing,
+   * outline and not fill because a proposal that looked like a record would
+   * be read as one. Plain is neither.
+   *
+   * The colours carry the rule the whole screen follows: amber is the model
+   * speaking, the accent is the teacher deciding. A proposal in the accent
+   * colour claimed an authority it does not have, and read as an alarm on top
+   * of that.
    *
    * A decision that agrees with the suggestion lands as filled, because
    * `suggested` is already null once a decision exists. Agreement is not its
@@ -160,7 +165,7 @@ export function WordPanel({
       return `${base} border-foreground bg-foreground text-background font-semibold`;
     }
     if (suggested === kind) {
-      return `${base} border-dashed border-accent text-foreground`;
+      return `${base} border-dashed border-warning text-foreground`;
     }
     return `${base} border-rule text-muted hover:bg-background`;
   }
@@ -243,7 +248,7 @@ export function WordPanel({
         )}
         {suggested !== null && (
           <div className="flex flex-wrap items-center gap-3 pt-1">
-            <span className="text-faint text-xs">
+            <span className="text-warning text-xs">
               O modelo sugere {labelFor(suggested).toLowerCase()}.
             </span>
             <button

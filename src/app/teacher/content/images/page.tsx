@@ -267,12 +267,12 @@ export default async function VocabularyImagesPage({
                                 )}
                               />
                               {/*
-                                A decision reads as settled, a suggestion on an
-                                undecided word reads as the accent colour
-                                proposing, and neither stays faint. A decision
-                                the model disagreed with carries what it
-                                thought, quietly: agreement is not worth the
-                                space, disagreement is the whole point.
+                                Amber is the model talking and the accent is
+                                the teacher deciding, so both things the model
+                                says are amber: what it proposes for an
+                                undecided word, and what it still thinks about
+                                a word decided against it. Agreement is not
+                                worth the space; disagreement is the point.
                               */}
                               {word.representation !== null ? (
                                 <span className="text-foreground text-xs">
@@ -292,7 +292,7 @@ export default async function VocabularyImagesPage({
                                   )}
                                 </span>
                               ) : word.suggestedRepresentation !== null ? (
-                                <span className="text-accent/70 text-xs">
+                                <span className="text-warning text-xs">
                                   sugestão:{" "}
                                   {labelFor(word.suggestedRepresentation)}
                                 </span>
