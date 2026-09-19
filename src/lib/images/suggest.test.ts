@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
-  REPRESENTATION_KINDS,
-  WORD_CLASSES,
   buildSuggestionPrompt,
   overwriteWarning,
   parseSuggestions,
+  REPRESENTATION_KINDS,
+  SUGGESTION_BATCH,
+  suggestionBatch,
+  WORD_CLASSES,
 } from "./suggest.ts";
 
 const WORDS = [
@@ -320,5 +322,60 @@ describe("the word class half of the answer", () => {
     const { suggestions, rejected } = parseSuggestions(text, IDS);
     assert.deepEqual(suggestions, []);
     assert.equal(rejected, 1);
+  });
+});
+
+describe("suggestionBatch", () => {
+  const lesson = (n: number) => Array.from({ length: n }, (_, i) => i);
+
+  /** The loop the button runs, as a walk over the offsets. */
+  function walk(n: number): number[] {
+    const seen: number[] = [];
+    for (let offset = 0; ;) {
+      const batch = suggestionBatch(lesson(n), offset);
+      if (batch.length === 0) break;
+      seen.push(...batch);
+      offset += batch.length;
+      if (offset >= n) break;
+    }
+    return seen;
+  }
+
+  /*
+   * The property that matters, over the real lesson sizes of this book:
+   * 60, 50, 31, 30, 27, 26, 24, 18 and 17 words. Every word once, in order,
+   * none skipped and none repeated.
+   */
+  test("walks every real lesson exactly once, in order", () => {
+    for (const size of [60, 50, 31, 30, 27, 26, 24, 18, 17]) {
+      const seen = walk(size);
+      assert.deepEqual(seen, lesson(size), `lesson of ${size}`);
+      assert.equal(new Set(seen).size, size, `repeats in ${size}`);
+    }
+  });
+
+  test("a size that is not a whole number of batches ends short, not over", () => {
+    assert.equal(suggestionBatch(lesson(17), 10).length, 7);
+    assert.deepEqual(
+      suggestionBatch(lesson(17), 10),
+      [10, 11, 12, 13, 14, 15, 16],
+    );
+  });
+
+  test("a size that is a whole number of batches ends empty, not short", () => {
+    assert.equal(suggestionBatch(lesson(60), 50).length, SUGGESTION_BATCH);
+    assert.deepEqual(suggestionBatch(lesson(60), 60), []);
+  });
+
+  test("an offset past the end is empty rather than an error", () => {
+    assert.deepEqual(suggestionBatch(lesson(17), 100), []);
+  });
+
+  test("an empty lesson is one empty batch", () => {
+    assert.deepEqual(suggestionBatch([], 0), []);
+  });
+
+  test("a negative offset reads as the start", () => {
+    assert.deepEqual(suggestionBatch(lesson(60), -5), lesson(SUGGESTION_BATCH));
   });
 });

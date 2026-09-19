@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
 import { approvedFirst } from "./attempt-order";
+import { compareWords } from "./word-order";
 import type { Database } from "@/lib/supabase/types";
 
 import type { LessonRange } from "./lesson-range";
@@ -362,16 +363,22 @@ export async function listVocabularyImages(): Promise<{
     } satisfies WordImage,
   }));
 
-  all.sort((a, b) => {
-    // A point with no lesson sorts last: it is not part of the book's order yet.
-    const lessonA = a.lessonNumber ?? Number.MAX_SAFE_INTEGER;
-    const lessonB = b.lessonNumber ?? Number.MAX_SAFE_INTEGER;
-    if (lessonA !== lessonB) return lessonA - lessonB;
-    const pointA = a.pointNumber ?? Number.MAX_SAFE_INTEGER;
-    const pointB = b.pointNumber ?? Number.MAX_SAFE_INTEGER;
-    if (pointA !== pointB) return pointA - pointB;
-    return a.word.term.localeCompare(b.word.term, "en");
-  });
+  // The one comparator, shared with the suggestion pass, so a batch of that
+  // pass is always a stretch of the list this screen shows.
+  all.sort((a, b) =>
+    compareWords(
+      {
+        lessonNumber: a.lessonNumber,
+        pointNumber: a.pointNumber,
+        term: a.word.term,
+      },
+      {
+        lessonNumber: b.lessonNumber,
+        pointNumber: b.pointNumber,
+        term: b.word.term,
+      },
+    ),
+  );
 
   const lessons: LessonWords[] = [];
   for (const entry of all) {

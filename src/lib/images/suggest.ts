@@ -72,6 +72,58 @@ The class is the part of speech, and it is a fact about the word rather than a j
 
 Give one entry for every word you were sent, using the id exactly as it was given to you. No prose, no explanation.`;
 
+/**
+ * How many words one suggestion request carries.
+ *
+ * Measured on 2026-09-19 against the real sixty words of lesson 1:
+ *
+ *   all 60 in one call   36.4s, one request
+ *   batches of 10        56.5s total, worst call 15.9s, six requests
+ *   batches of 5         70.7s total, worst call 13.8s, twelve requests
+ *
+ * Ten, because five buys nothing. The worst call is the same at both sizes —
+ * the time is DeepSeek's variance, not the word count, and a single-word
+ * request has been seen at 27.7s — while five costs twice the calls and
+ * fourteen more seconds of wall clock.
+ *
+ * Which is the point worth being clear about: batching does NOT make the
+ * request short. It makes the unit of work small enough that losing one
+ * costs ten words and a repeat, instead of the whole lesson.
+ *
+ * Two things it fixes, and only one of them is comfort. In development a
+ * 45 second action comes back to a browser that has already given up. In
+ * production it would not come back at all: a Vercel function has a duration
+ * limit, and a lesson of sixty words asks for more of it in one call than the
+ * platform is going to give. Neither problem is about ergonomics.
+ *
+ * Batching does not change the answers, which was measured rather than
+ * assumed: over those sixty words, nought of sixty changed kind at ten, and
+ * nought at five. Every rule in the system prompt judges one word on its own,
+ * and the measurement agrees with the prompt.
+ */
+export const SUGGESTION_BATCH = 10;
+
+/**
+ * The slice of a lesson one request carries, from an offset.
+ *
+ * Its own function because it is the arithmetic that can lose a word without
+ * saying anything: a batch that skips one leaves it unsuggested for ever, and
+ * a batch that repeats one spends a call on an answer already had. Both are
+ * invisible on the screen, which is why they are held by a test that walks a
+ * whole lesson and counts what came out.
+ *
+ * A negative offset is read as the start rather than refused: it can only
+ * come from our own loop, and returning the first batch is the harmless
+ * reading.
+ */
+export function suggestionBatch<T>(
+  words: readonly T[],
+  offset: number,
+): readonly T[] {
+  const from = Math.max(0, offset);
+  return words.slice(from, from + SUGGESTION_BATCH);
+}
+
 /** The system and user halves of one classification request. */
 export function buildSuggestionPrompt(
   words: readonly { readonly id: string; readonly term: string }[],

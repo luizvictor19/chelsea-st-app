@@ -7,6 +7,7 @@ import {
   requireTeacher,
   type ImageAttempt,
 } from "@/lib/content/queries";
+import { compareWords } from "@/lib/content/word-order";
 import { createFreepikProvider } from "@/lib/images/freepik";
 import {
   GENERATION_WINDOW_MS,
@@ -22,7 +23,11 @@ import {
 } from "@/lib/images/provider";
 import { buildPrompt } from "@/lib/images/style";
 import { buildSubjectPrompt, parseSubject } from "@/lib/images/subject";
-import { buildSuggestionPrompt, parseSuggestions } from "@/lib/images/suggest";
+import {
+  buildSuggestionPrompt,
+  parseSuggestions,
+  suggestionBatch,
+} from "@/lib/images/suggest";
 import { createDeepSeekProvider } from "@/lib/text/deepseek";
 import type { Database } from "@/lib/supabase/types";
 
@@ -657,43 +662,104 @@ async function storeGenerated(
 }
 
 export type SuggestResult =
-  | { ok: true; suggested: number; rejected: number }
+  | {
+      ok: true;
+      /** Written in this batch. */
+      suggested: number;
+      /** Answers this batch dropped as unreadable. */
+      rejected: number;
+      /** Words this batch covered, whether or not the model answered them. */
+      words: number;
+      /** The whole lesson, so the caller knows how far it has to go. */
+      total: number;
+      /** Whether this batch reached the end of the lesson. */
+      done: boolean;
+    }
   | { ok: false; error: string };
 
 /**
- * Ask the model what kind of picture every word in one lesson needs.
+ * Ask the model what kind of picture one BATCH of a lesson's words needs.
  *
- * Every word, including the ones already decided. A decided lesson is the
- * answer key, so sending all of it turns each decided lesson into a
- * regression set for the prompt: change the wording and the suggestions move
- * against answers that already exist. Asking only about undecided words meant
- * a lesson produced a measurement once and never again, and the lessons worth
- * measuring against are exactly the ones already worked through.
+ * Every word of the lesson still goes, including the ones already decided: a
+ * decided lesson is the answer key, so sending all of it turns each decided
+ * lesson into a regression set for the prompt, and asking only about
+ * undecided words meant a lesson produced a measurement once and never again.
+ * What changed on 2026-09-19 is that it no longer goes in one call.
+ *
+ * WHY IT IS CUT UP. Sixty words in one request took 43 seconds, came back
+ * 200, and reached a browser that had already given up — the teacher saw the
+ * message written for a lost connection over a suggestion that was safely in
+ * the database. That is the development half of it. The production half is
+ * worse and quieter: a Vercel function has a duration limit, and a call that
+ * long is cut by the runtime rather than by anybody's patience.
+ *
+ * Batching does not make the request short; nothing here can. The time is the
+ * model's variance and not the word count, and a single-word request has been
+ * seen at 27 seconds. What it makes small is the unit of work: losing one
+ * costs ten words and a repeat, where losing the old one cost the lesson.
  *
  * Writes suggested_representation and word_class, and never representation.
  * The class has one column because it is a fact rather than a judgement; the
- * separation of the other two is
- * the whole point of having two columns: a suggestion the teacher never looked
- * at must not be able to pass itself off as a decision, and the distance
- * between the two columns is how the model gets marked. Overwriting an older
- * suggestion is the point of re-running it; overwriting a decision would not
- * be a re-run, it would be the model grading itself.
+ * separation of the other two is the whole point of having two columns: a
+ * suggestion the teacher never looked at must not be able to pass itself off
+ * as a decision, and the distance between the two columns is how the model
+ * gets marked. Overwriting an older suggestion is the point of re-running it;
+ * overwriting a decision would not be a re-run, it would be the model grading
+ * itself.
  */
 export async function suggestRepresentations(
   lessonContentId: string,
+  offset = 0,
 ): Promise<SuggestResult> {
   try {
     const { supabase } = await requireTeacher();
 
     const { data: rows, error: readError } = await supabase
       .from("vocabulary_items")
-      .select("id, term, points!inner(lesson_content_id)")
+      .select("id, term, points!inner(number, lesson_content_id)")
       .eq("points.lesson_content_id", lessonContentId);
     if (readError) return { ok: false, error: readError.message };
 
-    const words = (rows ?? []).map((row) => ({ id: row.id, term: row.term }));
-    // An empty lesson is not a failure, and it is not worth a request.
-    if (words.length === 0) return { ok: true, suggested: 0, rejected: 0 };
+    /*
+     * Sorted the way the screen sorts, with the shared comparator, and then
+     * sliced. Two reasons it is not by id. Paging needs a total order or a
+     * batch can skip one word and send another twice — but a uuid order would
+     * also cut the lesson into stretches that match nothing the teacher can
+     * see, and when a batch fails for good they need to be able to say which
+     * words were left out. In this order, "the third batch" is a region of
+     * the list in front of them.
+     *
+     * Re-read and re-sorted per batch rather than paged in the database, for
+     * the reason listVocabularyImages already gives about nested ordering in
+     * PostgREST, and because sixty rows cost nothing.
+     */
+    const all = (rows ?? [])
+      .map((row) => ({
+        id: row.id,
+        term: row.term,
+        pointNumber: row.points?.number ?? null,
+      }))
+      .sort((a, b) =>
+        compareWords(
+          { lessonNumber: null, pointNumber: a.pointNumber, term: a.term },
+          { lessonNumber: null, pointNumber: b.pointNumber, term: b.term },
+        ),
+      );
+
+    const total = all.length;
+    const words = suggestionBatch(all, offset);
+    // An empty lesson is not a failure, and it is not worth a request. Nor is
+    // an offset past the end, which is how a caller asks "is there more".
+    if (words.length === 0) {
+      return {
+        ok: true,
+        suggested: 0,
+        rejected: 0,
+        words: 0,
+        total,
+        done: true,
+      };
+    }
 
     const { system, user } = buildSuggestionPrompt(words);
     const { text } = await createDeepSeekProvider().complete({
@@ -723,8 +789,23 @@ export async function suggestRepresentations(
       if (error) return { ok: false, error: error.message };
     }
 
+    /*
+     * Every batch and not only the last. A run that stops halfway — because a
+     * batch failed twice — would otherwise never revalidate, and the
+     * "N/M com sugestão" count beside the lesson would go on showing the
+     * number from before the run: a count that is wrong precisely when
+     * something went wrong. Six re-renders of this page over a minute is the
+     * cheaper half of that trade, and it makes the count climb as it goes.
+     */
     revalidatePath(SCREEN);
-    return { ok: true, suggested: suggestions.length, rejected };
+    return {
+      ok: true,
+      suggested: suggestions.length,
+      rejected,
+      words: words.length,
+      total,
+      done: offset + words.length >= total,
+    };
   } catch (cause) {
     return { ok: false, error: errorMessage(cause) };
   }

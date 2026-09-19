@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 
 import { suggestRepresentations } from "./actions";
 import { settle } from "./panel-state";
+import { suggestNote } from "./suggest-note";
 
 /**
  * Asks the model to sort the whole lesson, decided words included. What comes
@@ -34,29 +35,78 @@ export function SuggestButton({
   const dialog = useRef<HTMLDialogElement>(null);
 
   /*
-   * The same shape as the panel's run, and for the same reason: this is the
-   * longest call on the screen, a whole lesson through the model, and awaiting
-   * it without a catch left any rejection to the window. The router.refresh()
-   * that used to sit here is gone too. suggestRepresentations already calls
-   * revalidatePath, so the response re-renders the list on its own; the
-   * refresh only added a second request that returned void and that nobody
-   * could hear fail.
+   * The lesson, ten words at a time, one request after the last.
+   *
+   * It used to be one call for the whole lesson. Sixty words took 43 seconds,
+   * came back 200, and reached a browser that had already given up — and on
+   * Vercel it would not have come back at all, because a function has a
+   * duration limit that a call that long does not fit inside. Neither of
+   * those is ergonomics.
+   *
+   * Sequential and not parallel: six calls at once would be six writes racing
+   * over the same lesson, and the progress count would jump about rather than
+   * climb. Each batch is idempotent in the columns it writes, which is what
+   * makes the retry below safe.
    */
   async function run() {
     setBusy(true);
     setNote(null);
-    const result = await settle(() => suggestRepresentations(lessonContentId));
-    setBusy(false);
-    if (!result.ok) {
-      setNote(result.error);
-      if ("cause" in result) console.error(result.cause);
-      return;
+
+    let covered = 0;
+    let suggested = 0;
+    let rejected = 0;
+    let total = 0;
+
+    for (;;) {
+      const at = covered;
+      let result = await settle(() =>
+        suggestRepresentations(lessonContentId, at),
+      );
+
+      /*
+       * A call that did not come back is not an answer about the batch: the
+       * ten words may well have been written. Asked once more rather than
+       * abandoned, because repeating them costs one request and changes
+       * nothing else. Once, not until it works: a network that is down would
+       * otherwise spin here forever.
+       */
+      if (!result.ok && "cause" in result) {
+        console.error(result.cause);
+        result = await settle(() =>
+          suggestRepresentations(lessonContentId, at),
+        );
+      }
+
+      if (!result.ok) {
+        if ("cause" in result) console.error(result.cause);
+        setBusy(false);
+        setNote(
+          suggestNote({
+            kind: "stalled",
+            suggested,
+            rejected,
+            covered,
+            total,
+            error: result.error,
+          }),
+        );
+        return;
+      }
+
+      suggested += result.suggested;
+      rejected += result.rejected;
+      total = result.total;
+      covered += result.words;
+      setNote(suggestNote({ kind: "running", covered, total }));
+
+      // done is the end of the lesson; the zero is insurance, so that a batch
+      // which somehow covers nothing cannot turn this into a loop that keeps
+      // asking for ever.
+      if (result.done || result.words === 0) break;
     }
-    setNote(
-      result.rejected === 0
-        ? `${result.suggested} sugeridas`
-        : `${result.suggested} sugeridas, ${result.rejected} recusadas`,
-    );
+
+    setBusy(false);
+    setNote(suggestNote({ kind: "done", suggested, rejected }));
   }
 
   function start() {
