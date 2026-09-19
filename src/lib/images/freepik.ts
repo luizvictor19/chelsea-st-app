@@ -6,8 +6,8 @@
  * the host are Magnific: docs.freepik.com now redirects to docs.magnific.com,
  * and the documented base URL and header are the Magnific ones, so that is
  * what is used here. Read https://docs.magnific.com/llms.txt before changing
- * any of it. If a call comes back unauthorised, the legacy pair to try is
- * https://api.freepik.com with the header x-freepik-api-key.
+ * any of it. This host and header pair was confirmed against the live API on
+ * 2026-09-19.
  */
 
 import {
