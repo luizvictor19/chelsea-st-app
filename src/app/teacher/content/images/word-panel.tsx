@@ -14,7 +14,7 @@ import {
   uploadImage,
   type ActionResult,
 } from "./actions";
-import { REPRESENTATIONS } from "./representation";
+import { REPRESENTATIONS, labelFor } from "./representation";
 
 /** Which control is waiting on the server, so only that one shows it. */
 type Busy = { readonly key: string } | null;
@@ -81,6 +81,13 @@ export function WordPanel({
   }
 
   const working = busy !== null;
+  /*
+   * A suggestion is only offered while the word has no decision. Once the
+   * teacher has decided, the suggestion has done its job and stays in the
+   * column for the measurement rather than on the screen.
+   */
+  const suggested =
+    word.representation === null ? word.suggestedRepresentation : null;
 
   return (
     <section
@@ -116,9 +123,36 @@ export function WordPanel({
               }
             >
               {busy?.key === `tipo-${kind}` ? "salvando" : label}
+              {/*
+                The marker sits on the suggested button only while nothing has
+                been decided, so it reads as a proposal and never as a record.
+              */}
+              {suggested === kind && (
+                <span aria-label="sugerido pelo modelo" className="text-faint">
+                  {" "}
+                  ·
+                </span>
+              )}
             </button>
           ))}
         </div>
+        {suggested !== null && (
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <span className="text-faint text-xs">
+              O modelo sugere {labelFor(suggested).toLowerCase()}.
+            </span>
+            <button
+              type="button"
+              disabled={working}
+              onClick={() =>
+                void run("aceitar", () => setRepresentation(word.id, suggested))
+              }
+              className="border-rule hover:bg-background rounded-sm border px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-50"
+            >
+              {busy?.key === "aceitar" ? "aceitando" : "Aceitar sugestão"}
+            </button>
+          </div>
+        )}
       </div>
 
       {word.representation !== "none" && (

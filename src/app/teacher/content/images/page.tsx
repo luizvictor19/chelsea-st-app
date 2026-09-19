@@ -5,6 +5,7 @@ import { listVocabularyImages, listWordAttempts } from "@/lib/content/queries";
 
 import { ProgressBar } from "../progress-bar";
 import { FILTERS, labelFor, matchesFilter } from "./representation";
+import { SuggestButton } from "./suggest-button";
 import { WordPanel } from "./word-panel";
 
 export const metadata: Metadata = {
@@ -98,11 +99,23 @@ export default async function VocabularyImagesPage({
                     key={lesson.lessonNumber ?? "sem-licao"}
                     className="flex flex-col gap-2"
                   >
-                    <h2 className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
-                      {lesson.lessonNumber === null
-                        ? "Fora de lição"
-                        : `Lição ${lesson.lessonNumber}`}
-                    </h2>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <h2 className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
+                        {lesson.lessonNumber === null
+                          ? "Fora de lição"
+                          : `Lição ${lesson.lessonNumber}`}
+                      </h2>
+                      {lesson.lessonContentId !== null && (
+                        <SuggestButton
+                          lessonContentId={lesson.lessonContentId}
+                          undecided={
+                            lesson.words.filter(
+                              (word) => word.representation === null,
+                            ).length
+                          }
+                        />
+                      )}
+                    </div>
                     <ul className="flex flex-col">
                       {lesson.words.map((word) => (
                         <li key={word.id}>
@@ -138,7 +151,16 @@ export default async function VocabularyImagesPage({
                                     : "text-muted text-xs"
                                 }
                               >
-                                {labelFor(word.representation)}
+                                {/*
+                                  The suggestion only shows while there is no
+                                  decision. Once the teacher has decided, what
+                                  the model thought is history, and the list is
+                                  about what the word is.
+                                */}
+                                {word.representation === null &&
+                                word.suggestedRepresentation !== null
+                                  ? `sugestão: ${labelFor(word.suggestedRepresentation)}`
+                                  : labelFor(word.representation)}
                               </span>
                             </span>
                           </Link>
