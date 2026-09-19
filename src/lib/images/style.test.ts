@@ -72,6 +72,34 @@ describe("buildPrompt", () => {
   });
 
   /*
+   * 2026-09-19: the style asked for bold outlines and no shading, a real
+   * generation of "sitting" ignored both, and what came back was better. The
+   * words describe that picture now.
+   *
+   * This asserts the decision rather than the prose, so the next rewrite
+   * cannot quietly put the outlines back. While the constant describes a
+   * drawing nobody wants, the result is a toss-up between two styles, which
+   * is what had already happened between "book" and "sitting".
+   */
+  test("asks for no outlines, in every prompt", () => {
+    for (const kind of ["photo", "pose", "action", "figure"]) {
+      const prompt = buildPrompt("a thing", kind);
+      assert.match(prompt, /no outlines/iu);
+      assert.doesNotMatch(prompt, /bold outlines/iu);
+    }
+    assert.match(STYLE_PROMPT, /no outlines/iu);
+  });
+
+  test("describes the drawing that came back, not the one that was asked for", () => {
+    assert.match(STYLE_PROMPT, /solid flat colors/iu);
+    assert.match(STYLE_PROMPT, /limited muted palette/iu);
+    assert.match(STYLE_PROMPT, /soft shadow under the subject/iu);
+    // The old constant forbade shading outright, which is what produced a
+    // flat cut-out with nothing holding it to the ground.
+    assert.doesNotMatch(STYLE_PROMPT, /no shading/iu);
+  });
+
+  /*
    * 2026-09-19: the first real figure came back inside a black frame. The
    * style asked for a plain background and never said the background was the
    * whole image, so a border broke no rule that had been written down.
@@ -181,6 +209,23 @@ describe("the rule each kind adds", () => {
       assert.doesNotMatch(prompt, /always the same character/iu);
       assert.doesNotMatch(prompt, /short dark hair/iu);
       assert.doesNotMatch(prompt, /consistent across the whole figure/iu);
+    }
+  });
+
+  /*
+   * 2026-09-19: "sitting" took four attempts and the angle is what fixed it.
+   * A seated person drawn from the front does not read as seated; the bent
+   * knee in profile is what says it. Only where a body is drawn: a pen and a
+   * diagram have no posture to lose.
+   */
+  test("asks pose and action for the angle, and only them", () => {
+    for (const kind of ["pose", "action"]) {
+      const prompt = buildPrompt("a thing", kind);
+      assert.match(prompt, /viewing angle is part of the meaning/iu);
+      assert.match(prompt, /draw the view the subject names/iu);
+    }
+    for (const kind of ["photo", "figure"]) {
+      assert.doesNotMatch(buildPrompt("a thing", kind), /viewing angle/iu);
     }
   });
 

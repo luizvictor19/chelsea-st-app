@@ -20,15 +20,43 @@ export const MEDIUM_PROMPT = "Flat vector illustration of {subject}.";
 /** Where the subject is substituted into MEDIUM_PROMPT. */
 const SUBJECT_SLOT = "{subject}";
 
-/** The rest of the style, which can wait until the end. */
+/**
+ * The rest of the style, which can wait until the end.
+ *
+ * 2026-09-19: this used to ask for bold outlines and no shading. A real
+ * generation of "sitting" ignored both and came back with no outlines at all,
+ * flat shapes in solid colour, a narrow palette and a soft shadow under the
+ * figure, and it was better than what had been asked for. The words are the
+ * picture we want now.
+ *
+ * The point is not that one style beats the other. It is that while the
+ * constant describes a drawing nobody wants, the result is a toss-up between
+ * two of them, which is what had already happened: "book" came back thickly
+ * outlined and cartoonish, "sitting" came back like this, and the set stopped
+ * looking like a set. Having one style is the whole reason this constant is
+ * not editable on the screen.
+ */
 export const STYLE_PROMPT =
-  "Centered, bold outlines, flat colors, no " +
-  "shading, plain warm off-white background, no text, no letters, no " +
-  "numbers, no watermark. Minimal, clean, friendly. " +
+  "Simple shapes, solid flat colors, no outlines, a limited muted palette, " +
+  "plain warm off-white background, a soft shadow under the subject only, " +
+  "no text, no letters, no numbers, no watermark. Minimal, clean, friendly. " +
   // 2026-09-19: the first real figure came back inside a black frame. The
   // style asked for a plain background and never said the background was
   // the whole image, so a border was not forbidden.
   "No frame, no border, the background fills the entire image.";
+
+/*
+ * The angle is part of what the word means, not a detail of the drawing.
+ *
+ * 2026-09-19: "sitting" took four attempts, and what fixed it was saying the
+ * view. A seated person drawn from the front does not read as seated; the
+ * bent knee in profile is what says it. The subject is where the teacher
+ * names the angle, so the rule asks them to.
+ */
+const ANGLE =
+  "The viewing angle is part of the meaning: draw the view the subject " +
+  "names, and if it names none, choose the one that makes the posture or " +
+  "the movement unmistakable.";
 
 /*
  * 2026-09-19: "Single subject" used to live in the style, applying to every
@@ -73,7 +101,8 @@ export const SUBJECT_RULES = {
   // subject that was sitting or lying.
   pose:
     "Show the whole person, and the object they are using when the subject " +
-    "names one. The posture clearly readable, and no movement. No arrow.",
+    "names one. The posture clearly readable, and no movement. No arrow. " +
+    ANGLE,
   /*
    * The arrow is a drawing device, not what makes something an action. Plenty
    * of action words have no direction for one to point at (speak, listen,
@@ -84,7 +113,8 @@ export const SUBJECT_RULES = {
     "Show the whole person, and the object they are using when the subject " +
     "names one. The person is in the middle of the movement, the gesture at " +
     "its clearest moment. If the movement has a direction, add a simple " +
-    "arrow showing it; if it does not, no arrow.",
+    "arrow showing it; if it does not, no arrow. " +
+    ANGLE,
   figure:
     "Draw it as a diagram, with no person in it. Only the objects the " +
     "subject names, and nothing else in the background.",

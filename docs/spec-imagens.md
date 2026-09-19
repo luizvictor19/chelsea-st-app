@@ -155,6 +155,11 @@ não guarda identidade entre chamadas, e o Seedream 4 não aceita imagem de refe
 era a única alavanca e ela não moveu nada. O assunto de um nome de pessoa também não precisa carregar
 traços fixos pelo mesmo motivo. O tema volta com a cena do tutor, com um modelo que aceite referência.
 
+**O ângulo é parte do sentido**, em Postura e em Ação. Pessoa sentada desenhada de frente não lê
+como sentada: o que comunica a postura é o joelho dobrado, de perfil. O assunto é onde o professor
+nomeia o ângulo, e a regra da categoria pede isso. Descoberto em 19/09/2026, depois de quatro
+tentativas em `sitting`.
+
 Postura e Ação se separam por **repouso contra atividade**, não pela seta. Teste prático: congele o
 desenho. Se ele continuar dizendo a palavra, é Postura; se virar outra palavra, é Ação.
 
@@ -165,6 +170,27 @@ estava escrito aqui até 19/09/2026, e estava errado.
 **Proveniência do tipo Postura.** Ele nasceu da medição cega da lição 2, em 19/09/2026, onde os dois
 únicos erros foram `sitting` e `standing`: decididos Figura e sugeridos Ação. Os dois lados eram
 coerentes com o que liam, e é isso que mostrou que faltava uma categoria, não que alguém errou.
+
+## Estilo do desenho
+
+Uma constante só, não editável na tela, porque o ponto de ter um estilo é algumas centenas de
+imagens lerem como um conjunto em vez de como algumas centenas de decisões separadas. O professor
+escreve o assunto; o estilo entra sozinho.
+
+O prompt abre pelo meio e pelo assunto ("Flat vector illustration of {subject}."), segue pela regra
+da categoria e fecha pelo resto do estilo:
+
+> Simple shapes, solid flat colors, no outlines, a limited muted palette, plain warm off-white
+> background, a soft shadow under the subject only, no text, no letters, no numbers, no watermark.
+> Minimal, clean, friendly. No frame, no border, the background fills the entire image.
+
+**Reescrito em 19/09/2026 a partir do que voltou, não do que foi pedido.** A constante pedia `bold
+outlines` e `no shading`; uma geração real de `sitting` ignorou os dois e devolveu formas chapadas
+sem contorno, paleta reduzida e uma sombra suave sob o sujeito, melhor do que o que estava escrito.
+
+O motivo de mudar não é um estilo ser melhor que o outro. É que, enquanto a constante descrever um
+desenho que ninguém quer, o resultado fica sorteando entre dois: `book` voltou com contorno grosso e
+cartunesco, `sitting` voltou assim, e o conjunto deixou de parecer um conjunto.
 
 ## Migration 0010
 
