@@ -154,24 +154,29 @@ export default async function VocabularyImagesPage({
                                   {word.attempts}
                                 </span>
                               )}
-                              <span
-                                className={
-                                  word.pending
-                                    ? "text-faint text-xs"
-                                    : "text-muted text-xs"
-                                }
-                              >
-                                {/*
-                                  The suggestion only shows while there is no
-                                  decision. Once the teacher has decided, what
-                                  the model thought is history, and the list is
-                                  about what the word is.
-                                */}
-                                {word.representation === null &&
-                                word.suggestedRepresentation !== null
-                                  ? `sugestão: ${labelFor(word.suggestedRepresentation)}`
-                                  : labelFor(word.representation)}
-                              </span>
+                              {/*
+                                The three states of the panel buttons, said in
+                                text: a decision reads as settled, a suggestion
+                                reads as the accent colour proposing, and
+                                neither stays faint. The suggestion disappears
+                                the moment a decision exists, agreement
+                                included: after that the list is about what the
+                                word is, not who thought of it first.
+                              */}
+                              {word.representation !== null ? (
+                                <span className="text-foreground text-xs">
+                                  {labelFor(word.representation)}
+                                </span>
+                              ) : word.suggestedRepresentation !== null ? (
+                                <span className="text-accent/70 text-xs">
+                                  sugestão:{" "}
+                                  {labelFor(word.suggestedRepresentation)}
+                                </span>
+                              ) : (
+                                <span className="text-faint text-xs">
+                                  {labelFor(null)}
+                                </span>
+                              )}
                             </span>
                           </Link>
                         </li>

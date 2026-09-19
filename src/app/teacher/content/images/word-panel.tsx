@@ -3,7 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
-import type { ImageAttempt, WordImage } from "@/lib/content/queries";
+import type {
+  ImageAttempt,
+  Representation,
+  WordImage,
+} from "@/lib/content/queries";
 import { IMAGE_MODELS } from "@/lib/images/provider";
 
 import {
@@ -89,6 +93,29 @@ export function WordPanel({
   const suggested =
     word.representation === null ? word.suggestedRepresentation : null;
 
+  /*
+   * Three states, and they have to look like three different things. Filled
+   * is a decision the teacher made. Dashed in the accent colour is the model
+   * proposing, which is why it is an outline and not a fill: a proposal that
+   * looked like a record would be read as one. Plain is neither.
+   *
+   * A decision that agrees with the suggestion lands as filled, because
+   * `suggested` is already null once a decision exists. Agreement is not its
+   * own state: once the teacher has decided, who thought of it first belongs
+   * to the measurement.
+   */
+  function kindClass(kind: Representation): string {
+    const base =
+      "rounded-sm border px-3 py-1.5 text-sm transition-colors disabled:opacity-50";
+    if (word.representation === kind) {
+      return `${base} border-foreground bg-foreground text-background font-semibold`;
+    }
+    if (suggested === kind) {
+      return `${base} border-dashed border-accent text-foreground`;
+    }
+    return `${base} border-rule text-muted hover:bg-background`;
+  }
+
   return (
     <section
       aria-label={`Imagem de ${word.term}`}
@@ -116,23 +143,9 @@ export function WordPanel({
               onClick={() =>
                 void run(`tipo-${kind}`, () => setRepresentation(word.id, kind))
               }
-              className={
-                word.representation === kind
-                  ? "border-foreground bg-foreground text-background rounded-sm border px-3 py-1.5 text-sm font-semibold"
-                  : "border-rule hover:bg-background rounded-sm border px-3 py-1.5 text-sm transition-colors disabled:opacity-50"
-              }
+              className={kindClass(kind)}
             >
               {busy?.key === `tipo-${kind}` ? "salvando" : label}
-              {/*
-                The marker sits on the suggested button only while nothing has
-                been decided, so it reads as a proposal and never as a record.
-              */}
-              {suggested === kind && (
-                <span aria-label="sugerido pelo modelo" className="text-faint">
-                  {" "}
-                  ·
-                </span>
-              )}
             </button>
           ))}
         </div>
