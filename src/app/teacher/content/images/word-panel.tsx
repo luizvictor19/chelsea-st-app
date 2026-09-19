@@ -518,30 +518,31 @@ export function WordPanel({
         )}
       </div>
 
+      {/*
+        Esc closes it, and so does clicking outside the picture. A click on
+        the backdrop of a native dialog lands on the dialog element itself,
+        not on anything inside it, so the content sits in its own element and
+        the handler closes only when the click never reached it. Clicking the
+        picture does nothing, because looking closely at something is not a
+        reason to have it taken away.
+      */}
       <dialog
         ref={zoom}
         onClose={() => setZoomed(null)}
-        className="bg-surface border-rule m-auto max-w-[min(90vw,40rem)] rounded-sm border p-2 backdrop:bg-black/70"
+        onClick={(event) => {
+          if (event.target === zoom.current) zoom.current?.close();
+        }}
+        className="bg-surface text-foreground border-rule m-auto max-w-[min(90vw,40rem)] rounded-sm border p-2 backdrop:bg-black/70"
       >
         {zoomed !== null && (
-          <form method="dialog">
-            {/*
-              The whole thing is the close button: anywhere on the picture, or
-              Esc. A viewer with one way out does not need a corner control.
-            */}
-            <button
-              type="submit"
-              aria-label="Fechar"
-              className="block cursor-zoom-out"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element -- as above */}
-              <img
-                src={zoomed}
-                alt={`Imagem de ${word.term}`}
-                className="max-h-[80vh] w-auto rounded-sm"
-              />
-            </button>
-          </form>
+          <div>
+            {/* eslint-disable-next-line @next/next/no-img-element -- as above */}
+            <img
+              src={zoomed}
+              alt={`Imagem de ${word.term}`}
+              className="max-h-[80vh] w-auto rounded-sm"
+            />
+          </div>
         )}
       </dialog>
     </section>

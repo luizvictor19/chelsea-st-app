@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
+
+import { approvedFirst } from "./attempt-order";
 import type { Database } from "@/lib/supabase/types";
 
 import type { LessonRange } from "./lesson-range";
@@ -399,15 +401,19 @@ export async function listWordAttempts(
     .order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
 
-  return (rows ?? []).map((row) => ({
-    id: row.id,
-    status: row.status,
-    provider: row.provider,
-    model: row.model,
-    subject: row.subject,
-    imageUrl: publicImageUrl(supabase, row.storage_path),
-    error: row.error,
-    creditsSpent: row.credits_spent,
-    createdAt: row.created_at,
-  }));
+  // Approved first, then newest to oldest. The database can order by date but
+  // not by "the one in use", so the order the screen needs is made here.
+  return approvedFirst(
+    (rows ?? []).map((row) => ({
+      id: row.id,
+      status: row.status,
+      provider: row.provider,
+      model: row.model,
+      subject: row.subject,
+      imageUrl: publicImageUrl(supabase, row.storage_path),
+      error: row.error,
+      creditsSpent: row.credits_spent,
+      createdAt: row.created_at,
+    })),
+  );
 }

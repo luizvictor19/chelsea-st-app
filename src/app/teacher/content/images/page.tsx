@@ -6,13 +6,14 @@ import { listVocabularyImages, listWordAttempts } from "@/lib/content/queries";
 import { ProgressBar } from "../progress-bar";
 import { overwriteWarning } from "@/lib/images/suggest";
 
+import { FilterDrawer } from "./filter-drawer";
 import {
-  FILTER_GROUPS,
+  filterHref,
+  imageCounts,
+  matchesSearch,
   matchesSelection,
   parseSelection,
   situationOf,
-  toggled,
-  type FilterKey,
   type Selection,
   type Situation,
 } from "./filters";
@@ -23,22 +24,6 @@ import { WordPanel } from "./word-panel";
 export const metadata: Metadata = {
   title: "Imagens do vocabulário · Chelsea St",
 };
-
-/**
- * The whole state of the screen as a link: three filter axes and the selected
- * word. Every control is a link, so the back button walks the filters and a
- * view can be pasted to someone.
- */
-function href(selection: Selection, word: string | null): string {
-  const search = new URLSearchParams();
-  for (const { key } of FILTER_GROUPS) {
-    const chosen = selection[key];
-    if (chosen.length > 0) search.set(key, chosen.join(","));
-  }
-  if (word) search.set("palavra", word);
-  const query = search.toString();
-  return query === "" ? "/teacher/content/images" : `?${query}`;
-}
 
 /** The tick, the waiting circle, or nothing. */
 function StatusMark({ situation }: { readonly situation: Situation }) {
@@ -89,6 +74,7 @@ export default async function VocabularyImagesPage({
     classe: parseSelection(params.classe),
     situacao: parseSelection(params.situacao),
   };
+  const term = typeof params.busca === "string" ? params.busca : "";
   const selectedId = typeof params.palavra === "string" ? params.palavra : null;
 
   const { lessons, progress } = await listVocabularyImages();
@@ -101,11 +87,19 @@ export default async function VocabularyImagesPage({
       // Both the count it is disabled by and the count it warns with are
       // taken here, before the filter, for the same reason.
       totalWords: lesson.words.length,
-      withImage: lesson.words.filter((word) => word.imageUrl !== null).length,
+      images: imageCounts(lesson.words),
       overwrite: overwriteWarning(lesson.words),
-      words: lesson.words.filter((word) => matchesSelection(word, selection)),
+      words: lesson.words.filter(
+        (word) =>
+          matchesSelection(word, selection) && matchesSearch(word.term, term),
+      ),
     }))
     .filter((lesson) => lesson.words.length > 0);
+
+  const shown = visible.reduce(
+    (total, lesson) => total + lesson.words.length,
+    0,
+  );
 
   const selected =
     lessons
@@ -136,6 +130,20 @@ export default async function VocabularyImagesPage({
           Imagens do vocabulário
         </h1>
         <ProgressBar progress={progress} label="Palavras resolvidas" emphasis />
+        {/*
+          The filters live in a drawer now: they were taking more height above
+          the two columns than the two columns could spare. What stays out
+          here is the button, the count on it, and the filters that are on.
+        */}
+        {progress.total > 0 && (
+          <FilterDrawer
+            selection={selection}
+            term={term}
+            selectedId={selectedId}
+            shown={shown}
+            total={progress.total}
+          />
+        )}
       </header>
 
       {progress.total === 0 ? (
@@ -144,51 +152,6 @@ export default async function VocabularyImagesPage({
         </p>
       ) : (
         <>
-          {/*
-            Three axes, each a labelled group, multi select inside a group and
-            all three required at once. Every option is a link, so the whole
-            state is the query string: the back button walks the filters and a
-            view can be handed to someone as a URL.
-          */}
-          <nav aria-label="Filtros" className="flex flex-col gap-2">
-            {FILTER_GROUPS.map((group) => (
-              <div
-                key={group.key}
-                className="flex flex-wrap items-baseline gap-2"
-              >
-                <span className="text-faint w-16 shrink-0 font-mono text-xs tracking-[0.16em] uppercase">
-                  {group.label}
-                </span>
-                {group.options.map((option) => {
-                  const on = selection[group.key as FilterKey].includes(
-                    option.value,
-                  );
-                  return (
-                    <Link
-                      key={option.value}
-                      href={href(
-                        toggled(
-                          selection,
-                          group.key as FilterKey,
-                          option.value,
-                        ),
-                        selectedId,
-                      )}
-                      aria-pressed={on}
-                      className={
-                        on
-                          ? "border-foreground bg-foreground text-background rounded-sm border px-2.5 py-1 text-xs font-semibold"
-                          : "border-rule hover:bg-surface rounded-sm border px-2.5 py-1 text-xs transition-colors"
-                      }
-                    >
-                      {option.label}
-                    </Link>
-                  );
-                })}
-              </div>
-            ))}
-          </nav>
-
           <div className="grid gap-8 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:overflow-hidden">
             <div className="flex flex-col gap-7 lg:min-h-0 lg:overflow-y-auto lg:pr-3">
               {visible.length === 0 ? (
@@ -214,18 +177,18 @@ export default async function VocabularyImagesPage({
                         the second number.
                       */}
                       <span className="text-faint text-xs whitespace-nowrap">
-                        {lesson.withImage}/{lesson.totalWords} com imagem
+                        {lesson.images.withImage}/{lesson.images.takesImage} com
+                        imagem
                       </span>
                       <span className="text-faint text-xs whitespace-nowrap">
-                        {lesson.overwrite.suggestions}/{lesson.totalWords} com
+                        {lesson.overwrite.suggested}/{lesson.totalWords} com
                         sugestão
                       </span>
                       {lesson.lessonContentId !== null && (
                         <SuggestButton
                           lessonContentId={lesson.lessonContentId}
                           words={lesson.totalWords}
-                          existingSuggestions={lesson.overwrite.suggestions}
-                          existingClasses={lesson.overwrite.classes}
+                          suggested={lesson.overwrite.suggested}
                         />
                       )}
                     </div>
@@ -233,7 +196,7 @@ export default async function VocabularyImagesPage({
                       {lesson.words.map((word) => (
                         <li key={word.id}>
                           <Link
-                            href={href(selection, word.id)}
+                            href={filterHref(selection, word.id, term)}
                             aria-current={
                               selectedId === word.id ? "true" : undefined
                             }

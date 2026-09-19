@@ -4,6 +4,11 @@ import { describe, test } from "node:test";
 import { Constants } from "../../../../lib/supabase/types.ts";
 import {
   SITUATIONS,
+  activeChips,
+  activeCount,
+  filterHref,
+  imageCounts,
+  matchesSearch,
   matchesSelection,
   parseSelection,
   situationOf,
@@ -122,5 +127,111 @@ describe("toggled", () => {
     assert.deepEqual(next.tipo, ["photo"]);
     assert.deepEqual(next.classe, ["noun"]);
     assert.deepEqual(next.situacao, ["com-imagem"]);
+  });
+});
+
+describe("imageCounts", () => {
+  const word = (
+    representation: (typeof KINDS)[number] | null,
+    imageUrl: string | null,
+  ) => ({ representation, imageUrl });
+
+  /*
+   * The denominator is the words that take a picture, not the lesson. A word
+   * decided as none will never have one and an undecided word might never
+   * take one, so counting either would make a finished lesson read as
+   * unfinished forever.
+   */
+  test("counts only the words that take an image", () => {
+    const words = [
+      word("photo", "/a.png"),
+      word("pose", null),
+      word("none", null),
+      word("symbol", null),
+      word(null, null),
+    ];
+    assert.deepEqual(imageCounts(words), { withImage: 1, takesImage: 2 });
+  });
+
+  test("a lesson of none and undecided words has no denominator at all", () => {
+    const words = [word("none", null), word("symbol", null), word(null, null)];
+    assert.deepEqual(imageCounts(words), { withImage: 0, takesImage: 0 });
+  });
+
+  test("a finished lesson reads as finished", () => {
+    const words = [
+      word("photo", "/a.png"),
+      word("figure", "/b.png"),
+      word("none", null),
+    ];
+    assert.deepEqual(imageCounts(words), { withImage: 2, takesImage: 2 });
+  });
+});
+
+describe("matchesSearch", () => {
+  test("an empty search matches everything", () => {
+    assert.ok(matchesSearch("book", ""));
+    assert.ok(matchesSearch("book", "   "));
+  });
+
+  test("matches part of the term, whatever the case", () => {
+    assert.ok(matchesSearch("in front of", "front"));
+    assert.ok(matchesSearch("Mr", "mr"));
+    assert.ok(matchesSearch("book", "BOO"));
+    assert.ok(!matchesSearch("book", "pen"));
+  });
+});
+
+describe("filterHref", () => {
+  test("an empty state is the bare path, not a trailing question mark", () => {
+    assert.equal(filterHref(EMPTY, null), "/teacher/content/images");
+    assert.equal(filterHref(EMPTY, null, "  "), "/teacher/content/images");
+  });
+
+  test("carries the axes, the search and the word", () => {
+    const url = filterHref(
+      { tipo: ["photo", "pose"], classe: ["noun"], situacao: [] },
+      "abc",
+      " book ",
+    );
+    assert.match(url, /tipo=photo%2Cpose/u);
+    assert.match(url, /classe=noun/u);
+    assert.match(url, /busca=book/u);
+    assert.match(url, /palavra=abc/u);
+    assert.doesNotMatch(url, /situacao/u);
+  });
+});
+
+describe("activeChips", () => {
+  test("nothing on means no chips, so the row takes no space", () => {
+    assert.deepEqual(activeChips(EMPTY), []);
+  });
+
+  test("names each filter that is on, with its label", () => {
+    const chips = activeChips({
+      tipo: ["photo"],
+      classe: ["noun"],
+      situacao: ["com-imagem"],
+    });
+    assert.deepEqual(
+      chips.map((chip) => [chip.key, chip.value, chip.label]),
+      [
+        ["tipo", "photo", "Foto"],
+        ["classe", "noun", "Substantivo"],
+        ["situacao", "com-imagem", "Com imagem"],
+      ],
+    );
+  });
+});
+
+describe("activeCount", () => {
+  test("counts every chosen value, and the search as one more", () => {
+    assert.equal(activeCount(EMPTY, ""), 0);
+    assert.equal(activeCount(EMPTY, "book"), 1);
+    assert.equal(activeCount({ ...EMPTY, tipo: ["photo", "pose"] }, ""), 2);
+    assert.equal(
+      activeCount({ tipo: ["photo"], classe: ["noun"], situacao: [] }, "book"),
+      3,
+    );
   });
 });
