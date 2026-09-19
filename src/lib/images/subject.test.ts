@@ -119,6 +119,69 @@ describe("parseSubject", () => {
    * A refusal leaves the teacher typing, which is what they were doing
    * anyway, so nothing here throws.
    */
+  /*
+   * MEDIUM_PROMPT is "Flat vector illustration of {subject}." and brings its
+   * own full stop, so a phrase that ends in one produces two. The example is
+   * what deepseek-flash actually answered for `under` on 2026-09-19.
+   */
+  test("drops a full stop the medium prompt is about to add again", () => {
+    assert.equal(
+      parseSubject(
+        '{"subject": "A ball directly beneath a raised horizontal bar, seen from the side."}',
+      ),
+      "A ball directly beneath a raised horizontal bar, seen from the side",
+    );
+  });
+
+  test("drops it through a trailing space, a run of them, and a quote", () => {
+    assert.equal(parseSubject('{"subject": "an open book. "}'), "an open book");
+    assert.equal(
+      parseSubject('{"subject": "an open book..."}'),
+      "an open book",
+    );
+    assert.equal(
+      parseSubject('{"subject": "\'an open book.\'"}'),
+      "an open book",
+    );
+  });
+
+  test("leaves a full stop that is not at the end alone", () => {
+    assert.equal(
+      parseSubject('{"subject": "a 2.5 litre bottle on a table"}'),
+      "a 2.5 litre bottle on a table",
+    );
+  });
+
+  /*
+   * The capital stays. Lowercasing the first letter would look like tidying
+   * and would be wrong about the word on exactly the subjects where the
+   * capital carries the meaning: a proper noun in lower case is a content
+   * error, where a capital mid-phrase is only ugly.
+   */
+  test("never touches the capital, because Jack is not jack", () => {
+    assert.equal(
+      parseSubject(
+        '{"subject": "a young man named Jack, seen from the side."}',
+      ),
+      "a young man named Jack, seen from the side",
+    );
+    assert.equal(
+      parseSubject(
+        '{"subject": "Mr Brown standing beside a door in England."}',
+      ),
+      "Mr Brown standing beside a door in England",
+    );
+    assert.equal(
+      parseSubject('{"subject": "A ball under a table."}'),
+      "A ball under a table",
+    );
+  });
+
+  test("a phrase that is nothing but a full stop is not a phrase", () => {
+    assert.equal(parseSubject('{"subject": "."}'), null);
+    assert.equal(parseSubject('{"subject": "  ...  "}'), null);
+  });
+
   test("returns null for anything that is not a phrase", () => {
     for (const junk of [
       "",

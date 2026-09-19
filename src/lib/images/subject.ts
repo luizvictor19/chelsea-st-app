@@ -124,6 +124,17 @@ No prose, no explanation, no quotation marks inside the phrase.`,
  * Untrusted input like any other answer: anything that is not a non-empty
  * string under "subject" is refused rather than pushed into the field, and a
  * refusal leaves the teacher typing, which is what they were doing anyway.
+ *
+ * A full stop at the end is dropped, for the same reason the stray quotes
+ * are. MEDIUM_PROMPT is "Flat vector illustration of {subject}." and brings
+ * its own, so a phrase that ends in one produces two. Seen on 2026-09-19:
+ * "A ball directly beneath a raised horizontal bar, seen from the side."
+ *
+ * The capital at the front is left exactly where it is. Lowercasing it would
+ * read as tidying, and it would quietly break Jack, England and Mr Brown,
+ * which are the subjects where the capital carries the meaning. A capital in
+ * the middle of a phrase is ugly and harmless; a proper noun in lower case is
+ * wrong about the word.
  */
 export function parseSubject(text: string): string | null {
   const unfenced = text
@@ -145,6 +156,10 @@ export function parseSubject(text: string): string | null {
   const cleaned = subject
     .trim()
     .replace(/^["']|["']$/gu, "")
+    // After the quotes, because a quoted phrase hides its full stop behind
+    // one. Any run of them, and any space after: "side.", "side. " and an
+    // ellipsis all end the same way.
+    .replace(/[.\s]+$/u, "")
     .trim();
   return cleaned === "" ? null : cleaned;
 }
