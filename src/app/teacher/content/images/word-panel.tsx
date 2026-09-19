@@ -16,11 +16,13 @@ import {
   generateImage,
   rejectAttempt,
   setRepresentation,
+  setWordClass,
   suggestSubject,
   uploadImage,
   type ActionResult,
 } from "./actions";
 import { REPRESENTATIONS, disagreement, labelFor } from "./representation";
+import { WORD_CLASS_LABELS } from "./word-class";
 
 /** Which control is waiting on the server, so only that one shows it. */
 type Busy = { readonly key: string } | null;
@@ -163,6 +165,44 @@ export function WordPanel({
           </span>
         )}
       </header>
+
+      <div className="flex flex-col gap-2">
+        <label
+          htmlFor="classe"
+          className="text-faint font-mono text-xs tracking-[0.16em] uppercase"
+        >
+          Classe
+        </label>
+        {/*
+          One column and no suggested pair, so this select is both what the
+          model said and what the teacher says. Editing it is a correction,
+          not a decision recorded beside a proposal.
+        */}
+        <select
+          id="classe"
+          value={word.wordClass ?? ""}
+          disabled={working}
+          onChange={(event) => {
+            const value = event.target.value;
+            void run(`classe`, () =>
+              setWordClass(
+                word.id,
+                value === ""
+                  ? null
+                  : (value as (typeof WORD_CLASS_LABELS)[number]["value"]),
+              ),
+            );
+          }}
+          className="border-rule bg-background w-full rounded-sm border px-3 py-2 text-sm disabled:opacity-50"
+        >
+          <option value="">sem classe</option>
+          {WORD_CLASS_LABELS.map((item) => (
+            <option key={item.value} value={item.value}>
+              {item.label}
+            </option>
+          ))}
+        </select>
+      </div>
 
       <div className="flex flex-col gap-2">
         <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">

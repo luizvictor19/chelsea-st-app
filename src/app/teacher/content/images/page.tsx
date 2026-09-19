@@ -49,7 +49,7 @@ export default async function VocabularyImagesPage({
       // Both the count it is disabled by and the count it warns with are
       // taken here, before the filter, for the same reason.
       totalWords: lesson.words.length,
-      existingSuggestions: overwriteWarning(lesson.words).existing,
+      overwrite: overwriteWarning(lesson.words),
       words: lesson.words.filter((word) =>
         matchesFilter(filter, word.representation),
       ),
@@ -132,7 +132,8 @@ export default async function VocabularyImagesPage({
                         <SuggestButton
                           lessonContentId={lesson.lessonContentId}
                           words={lesson.totalWords}
-                          existingSuggestions={lesson.existingSuggestions}
+                          existingSuggestions={lesson.overwrite.suggestions}
+                          existingClasses={lesson.overwrite.classes}
                         />
                       )}
                     </div>
