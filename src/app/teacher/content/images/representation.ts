@@ -39,3 +39,21 @@ export function matchesFilter(
   if (filter === "sem-decidir") return representation === null;
   return representation === filter;
 }
+
+/**
+ * The suggestion a decided word disagrees with, or null when there is nothing
+ * to show.
+ *
+ * Null in three cases: no suggestion, no decision, or the two agreeing. The
+ * undecided word is handled by the proposal states instead, and agreement is
+ * not worth screen space, so what is left is exactly the disagreements. That
+ * turns a decided lesson into a visible list of where the model and the
+ * teacher differ, which until now only came out of a SQL query.
+ */
+export function disagreement(
+  representation: Representation | null,
+  suggested: Representation | null,
+): Representation | null {
+  if (representation === null || suggested === null) return null;
+  return representation === suggested ? null : suggested;
+}

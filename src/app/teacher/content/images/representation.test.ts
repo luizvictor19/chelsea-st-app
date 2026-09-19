@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { Constants } from "../../../../lib/supabase/types.ts";
-import { FILTERS, REPRESENTATIONS, matchesFilter } from "./representation.ts";
+import {
+  FILTERS,
+  REPRESENTATIONS,
+  disagreement,
+  matchesFilter,
+} from "./representation.ts";
 
 const ENUM = Constants.public.Enums.representation_kind;
 
@@ -61,5 +66,36 @@ describe("FILTERS", () => {
     }
     assert.ok(matchesFilter("sem-decidir", null));
     assert.ok(matchesFilter("todas", null));
+  });
+});
+
+describe("disagreement", () => {
+  test("shows nothing while the word is undecided", () => {
+    assert.equal(disagreement(null, "photo"), null);
+    assert.equal(disagreement(null, null), null);
+  });
+
+  test("shows nothing when there is no suggestion to disagree with", () => {
+    assert.equal(disagreement("photo", null), null);
+  });
+
+  test("shows nothing when the two agree", () => {
+    for (const kind of ENUM) {
+      assert.equal(disagreement(kind, kind), null);
+    }
+  });
+
+  /*
+   * The case the whole thing exists for: a decided lesson should read as the
+   * list of places the model and the teacher differ.
+   */
+  test("shows the suggestion when it differs from the decision", () => {
+    assert.equal(disagreement("figure", "action"), "action");
+    assert.equal(disagreement("pose", "figure"), "figure");
+    for (const kind of ENUM) {
+      for (const other of ENUM) {
+        if (other !== kind) assert.equal(disagreement(kind, other), other);
+      }
+    }
   });
 });

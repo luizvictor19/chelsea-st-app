@@ -6,7 +6,12 @@ import { listVocabularyImages, listWordAttempts } from "@/lib/content/queries";
 import { ProgressBar } from "../progress-bar";
 import { overwriteWarning } from "@/lib/images/suggest";
 
-import { FILTERS, labelFor, matchesFilter } from "./representation";
+import {
+  FILTERS,
+  disagreement,
+  labelFor,
+  matchesFilter,
+} from "./representation";
 import { SuggestButton } from "./suggest-button";
 import { WordPanel } from "./word-panel";
 
@@ -160,17 +165,29 @@ export default async function VocabularyImagesPage({
                                 </span>
                               )}
                               {/*
-                                The three states of the panel buttons, said in
-                                text: a decision reads as settled, a suggestion
-                                reads as the accent colour proposing, and
-                                neither stays faint. The suggestion disappears
-                                the moment a decision exists, agreement
-                                included: after that the list is about what the
-                                word is, not who thought of it first.
+                                A decision reads as settled, a suggestion on an
+                                undecided word reads as the accent colour
+                                proposing, and neither stays faint. A decision
+                                the model disagreed with carries what it
+                                thought, quietly: agreement is not worth the
+                                space, disagreement is the whole point.
                               */}
                               {word.representation !== null ? (
                                 <span className="text-foreground text-xs">
                                   {labelFor(word.representation)}
+                                  {disagreement(
+                                    word.representation,
+                                    word.suggestedRepresentation,
+                                  ) !== null && (
+                                    <span className="text-accent/60">
+                                      {" "}
+                                      ·{" "}
+                                      {labelFor(
+                                        word.suggestedRepresentation,
+                                      ).toLowerCase()}
+                                      ?
+                                    </span>
+                                  )}
                                 </span>
                               ) : word.suggestedRepresentation !== null ? (
                                 <span className="text-accent/70 text-xs">
