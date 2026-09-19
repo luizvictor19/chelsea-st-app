@@ -15,7 +15,7 @@ import {
   type ImageProvider,
   type PollResult,
   isImageModelId,
-  takesStructureReference,
+  takesReference,
 } from "./provider";
 
 // This module reads a secret, so it must never be bundled for the browser.
@@ -57,8 +57,11 @@ const BASE_URL = "https://api.magnific.com";
  * not, it stops being a constant and becomes a column on the attempt, because
  * a value that varies has to be stored next to the picture it made.
  *
- * It only takes effect alongside structure_reference, which is why it is set
- * in the same branch.
+ * Mystic's, and only Mystic's. It takes effect alongside structure_reference
+ * and nowhere else, which is why it is set in the same branch — and Flux
+ * Kontext Pro has no equivalent at all, so do not go looking for why this
+ * number does nothing there. Its documentation, read on 2026-09-19, lists no
+ * parameter with strength, weight, adherence or fidelity in the name.
  */
 const STRUCTURE_STRENGTH = 25;
 
@@ -90,6 +93,11 @@ const STRUCTURE_STRENGTH = 25;
  */
 type ModelSpec = {
   readonly path: string;
+  /**
+   * `reference` arrives in whatever form this model asked for, which is the
+   * model's `reference` field in provider.ts: base64 for Mystic, a public
+   * URL for Kontext. The caller prepares it; the spec only places it.
+   */
   readonly body: (
     prompt: string,
     reference: string | null,
@@ -100,6 +108,28 @@ const SPECS: Record<ImageModelId, ModelSpec> = {
   "seedream-v4": {
     path: "/v1/ai/text-to-image/seedream-v4",
     body: (prompt) => ({ prompt, aspect_ratio: "square_1_1" }),
+  },
+  /*
+   * Kontext takes its reference as a URL, so nothing is downloaded and
+   * nothing is encoded: the caller hands over the public URL of the file
+   * already sitting in the bucket. That is the whole reason it is here and
+   * Flux 2 Pro is not.
+   *
+   * guidance (3.0) and steps (50) are left at the API's own defaults, read on
+   * 2026-09-19, and deliberately not sent. Sending them would write down two
+   * numbers nobody chose; what fixed structure_strength at 25 was a
+   * measurement, not a principle. The reproducibility argument still applies
+   * to them, so it waits here for its first reason: the day anyone has cause
+   * to move guidance or steps, they become explicit in the same movement,
+   * never nudged as a loose default.
+   */
+  "flux-kontext-pro": {
+    path: "/v1/ai/text-to-image/flux-kontext-pro",
+    body: (prompt, reference) => ({
+      prompt,
+      aspect_ratio: "square_1_1",
+      ...(reference === null ? {} : { input_image: reference }),
+    }),
   },
   mystic: {
     path: "/v1/ai/mystic",
@@ -223,7 +253,7 @@ export function createFreepikProvider(): ImageProvider {
       if (!isImageModelId(model)) {
         throw new Error(`Unknown image model: ${model}`);
       }
-      if (reference !== null && !takesStructureReference(model)) {
+      if (reference !== null && !takesReference(model)) {
         throw new Error(`${model} takes no structure reference`);
       }
 

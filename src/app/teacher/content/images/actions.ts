@@ -14,7 +14,11 @@ import {
   REFERENCE_TOO_BIG,
   hasExpired,
 } from "@/lib/images/generation";
-import { isImageModelId, takesStructureReference } from "@/lib/images/provider";
+import {
+  isImageModelId,
+  referenceDelivery,
+  takesReference,
+} from "@/lib/images/provider";
 import { buildPrompt } from "@/lib/images/style";
 import { buildSubjectPrompt, parseSubject } from "@/lib/images/subject";
 import { buildSuggestionPrompt, parseSuggestions } from "@/lib/images/suggest";
@@ -337,9 +341,7 @@ export async function startGeneration(
      * because it used none. Writing the path anyway would make the record say
      * a picture came from a file the model never saw.
      */
-    const referencePath = takesStructureReference(model)
-      ? word.reference_path
-      : null;
+    const referencePath = takesReference(model) ? word.reference_path : null;
 
     const { data: attempt, error: insertError } = await supabase
       .from("image_attempts")
@@ -369,7 +371,17 @@ export async function startGeneration(
     let reference: string | null = null;
     if (referencePath !== null) {
       try {
-        reference = await readReference(supabase, referencePath);
+        /*
+         * Two forms, and the model says which. Mystic wants the bytes, so
+         * the file is downloaded on the server and encoded; Kontext wants a
+         * URL, and the bucket is public, so there is nothing to fetch and
+         * nothing to encode — the address of the file we already stored is
+         * the whole handover.
+         */
+        reference =
+          referenceDelivery(model) === "url"
+            ? publicReferenceUrl(supabase, referencePath)
+            : await readReference(supabase, referencePath);
       } catch (cause) {
         return recordFailure(supabase, attempt.id, wordId, errorMessage(cause));
       }

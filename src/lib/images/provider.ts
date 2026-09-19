@@ -67,42 +67,58 @@ export interface ImageProvider {
  * verdict does not carry, and it has to be measured again.
  */
 /**
- * `structureReference` says whether the model can be handed a picture to take
- * the shape from. Read off the Freepik documentation on 2026-09-19:
+ * `reference` says whether the model can be handed a picture to work from,
+ * and in what form it wants it. Read off the Freepik documentation on
+ * 2026-09-19:
  *
  *   Seedream 4 and 4.5 take no input image at all.
  *   Mystic takes structure_reference and style_reference, both base64.
+ *   Flux Kontext Pro takes one, input_image, by URL.
  *   Flux 2 Pro takes up to four, base64.
- *   Flux Kontext Pro takes one, by URL.
  *
- * Only Mystic is here, and only its structure reference.
+ * The form is a property of the model and not of the caller, which is why it
+ * lives here: the same stored reference_path becomes base64 for one and a
+ * public URL for the other, and only this table knows which.
  *
- * style_reference is left out on purpose rather than for lack of time. The
- * style of these pictures comes from the style constant in the prompt, the
- * same one for all of them, which is the whole point of having one: a few
- * hundred images read as a set instead of as a few hundred decisions. A style
- * taken from whatever photo the teacher happened to upload would undo that
- * one image at a time.
+ * Mystic's style_reference is left out on purpose rather than for lack of
+ * time. The style of these pictures comes from the style constant in the
+ * prompt, the same one for all of them, which is the whole point of having
+ * one: a few hundred images read as a set instead of as a few hundred
+ * decisions. A style taken from whatever photo the teacher happened to upload
+ * would undo that one image at a time.
  *
- * The two Flux models are out for a different reason. What they cost in
- * credits is not documented, and a credit with an unknown price breaks the
- * cost arithmetic that closes exactly against the Freepik dashboard today.
- * They come back when the number does.
+ * Flux 2 Pro is still out. What it costs is not documented and has not been
+ * measured, and it brings nothing Kontext does not: Kontext takes its
+ * reference by URL from a bucket that is already public, so it needed neither
+ * base64 nor a new shape of request. It is the short road to having a second
+ * way to generate from a reference at all, which is the point — on
+ * 2026-09-19 Mystic was the only one, and two generations failed on it in a
+ * row that evening, one with a 500 on the way in and one hanging past the 90
+ * second window. Whether that was their service or the picture is not known,
+ * which is exactly why one road was one too few.
+ *
+ * Kontext's own price is unknown too, and the screen says so rather than
+ * showing a number nobody measured. That is the difference between a model
+ * that is offered and one that is the default; see defaultReferenceModel.
  */
 export const IMAGE_MODELS = [
+  { id: "seedream-v4", label: "Seedream 4", credits: 50, reference: "none" },
+  { id: "mystic", label: "Mystic", credits: 80, reference: "base64" },
   {
-    id: "seedream-v4",
-    label: "Seedream 4",
-    credits: 50,
-    structureReference: false,
+    id: "flux-kontext-pro",
+    label: "Flux Kontext Pro",
+    credits: null,
+    reference: "url",
   },
-  { id: "mystic", label: "Mystic", credits: 80, structureReference: true },
 ] as const satisfies readonly {
   id: string;
   label: string;
   credits: number | null;
-  structureReference: boolean;
+  reference: "none" | "base64" | "url";
 }[];
+
+/** How a model wants its reference handed over, or that it takes none. */
+export type ReferenceDelivery = (typeof IMAGE_MODELS)[number]["reference"];
 
 export type ImageModelId = (typeof IMAGE_MODELS)[number]["id"];
 
@@ -114,22 +130,38 @@ export function modelLabel(id: ImageModelId): string {
   return IMAGE_MODELS.find((model) => model.id === id)?.label ?? id;
 }
 
-/** Whether this model can be handed a picture to take the shape from. */
-export function takesStructureReference(id: ImageModelId): boolean {
-  return (
-    IMAGE_MODELS.find((model) => model.id === id)?.structureReference === true
-  );
+/** Whether this model can be handed a picture to work from. */
+export function takesReference(id: ImageModelId): boolean {
+  return referenceDelivery(id) !== "none";
+}
+
+/** The form this model wants its reference in. */
+export function referenceDelivery(id: ImageModelId): ReferenceDelivery {
+  return IMAGE_MODELS.find((model) => model.id === id)?.reference ?? "none";
 }
 
 /**
- * The model a reference gets generated on, or null when none takes one.
+ * The model attaching a reference moves to, or null when none will do.
  *
- * The first in the list rather than a named one, because the list is the
- * order the screen offers and today it has exactly one answer. Naming Mystic
- * here would have to be unwritten the day a second arrives; this does not.
+ * Two conditions and not one: it takes a reference, and what it costs has
+ * been measured. The second is the whole rule. Attaching a reference is the
+ * teacher saying "use this as the guide", and the program answering by
+ * spending money on their behalf; what it spends cannot be a number nobody
+ * has checked. Kontext is offered in the selector and is never the default
+ * while its price is unknown.
+ *
+ * Read off the list rather than named, so the day Kontext's price is measured
+ * this answers differently without being edited. Not "the first that takes
+ * one" either: that would have been right by accident, on array order, and
+ * would quietly stop being right the day somebody reordered the list for an
+ * unrelated reason.
  */
-export function firstModelWithStructureReference(): ImageModelId | null {
-  return IMAGE_MODELS.find((model) => model.structureReference)?.id ?? null;
+export function defaultReferenceModel(): ImageModelId | null {
+  return (
+    IMAGE_MODELS.find(
+      (model) => model.reference !== "none" && model.credits !== null,
+    )?.id ?? null
+  );
 }
 
 /** What one image costs on this model, or null when it is not known. */

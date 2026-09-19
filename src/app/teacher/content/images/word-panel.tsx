@@ -20,7 +20,7 @@ import {
 import {
   IMAGE_MODELS,
   defaultModelFor,
-  firstModelWithStructureReference,
+  defaultReferenceModel,
   isImageModelId,
   modelCredits,
   modelLabel,
@@ -47,9 +47,9 @@ import { WORD_CLASS_LABELS } from "./word-class";
 /** Which control is waiting on the server, so only that one shows it. */
 type Busy = { readonly key: string } | null;
 
-/** The models that can be handed a picture to take the shape from. */
+/** The models that can be handed a picture to work from. */
 const ACCEPT_REFERENCE = IMAGE_MODELS.filter(
-  (option) => option.structureReference,
+  (option) => option.reference !== "none",
 );
 
 const STATUS_LABELS: Record<string, string> = {
@@ -110,7 +110,7 @@ export function WordPanel({
      * word whose kind starts on Seedream.
      */
     if (word.referenceUrl === null) return forKind;
-    return firstModelWithStructureReference() ?? forKind;
+    return defaultReferenceModel() ?? forKind;
   });
   /*
    * A reference decides the model, so a word that opens with one opens with
@@ -128,9 +128,10 @@ export function WordPanel({
   /** Said once, right after attaching a reference moved the model. */
   const [modelNote, setModelNote] = useState<string | null>(null);
   /*
-   * Null is "nobody knows", not "free". Both models on the list are measured
-   * now, so nothing reaches it today: it is the guard for the model added
-   * next, which cannot be measured until it has generated once.
+   * Null is "nobody knows", not "free". Flux Kontext Pro is the model this
+   * guard was kept for: it went in on 2026-09-19 with its price undocumented
+   * and unmeasured, and a model cannot be measured until it has generated
+   * once. The screen says so instead of showing a number nobody checked.
    */
   const credits = isImageModelId(model) ? modelCredits(model) : null;
   /*
@@ -289,7 +290,7 @@ export function WordPanel({
    * choice, not silent guesswork.
    */
   function moveModelToTakeReference() {
-    const target = firstModelWithStructureReference();
+    const target = defaultReferenceModel();
     if (target === null || target === model) {
       setModelNote(null);
       return;
@@ -299,7 +300,7 @@ export function WordPanel({
     setModelNote(
       ACCEPT_REFERENCE.length === 1
         ? `Mudei para ${modelLabel(target)}, o único modelo que aceita referência.`
-        : `Mudei para ${modelLabel(target)}, que aceita referência.`,
+        : `Mudei para ${modelLabel(target)}, que aceita referência e tem custo medido. Os outros que aceitam estão no seletor.`,
     );
   }
 
@@ -644,7 +645,7 @@ export function WordPanel({
                     <option key={option.id} value={option.id}>
                       {option.label}
                       {option.credits === null
-                        ? " · custo desconhecido"
+                        ? " · custo não medido"
                         : ` · ${option.credits} créditos`}
                     </option>
                   ))}
@@ -685,15 +686,14 @@ export function WordPanel({
             {/*
               What this costs. Said outside the select, because an option is
               only readable while the list is open, and the number matters
-              most at the moment of pressing Gerar, where the two models are
-              50 credits against 80 and the choice is a price.
-
-              The other sentence is what an unmeasured model would say, and
-              neither of today's two can reach it.
+              most at the moment of pressing Gerar: Seedream at 50, Mystic at
+              80, and Kontext at a price nobody has read off the dashboard
+              yet. The sentence for that last case is not decoration any
+              more — one of the three reaches it.
             */}
             <p className="text-faint text-xs">
               {credits === null
-                ? "O custo deste modelo não está documentado."
+                ? "O custo deste modelo ainda não foi medido no painel do Freepik."
                 : `${credits} créditos por imagem, medido no painel do Freepik.`}
             </p>
           </div>

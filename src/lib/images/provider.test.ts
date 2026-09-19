@@ -5,26 +5,28 @@ import { Constants } from "../supabase/types.ts";
 import {
   IMAGE_MODELS,
   defaultModelFor,
-  firstModelWithStructureReference,
+  defaultReferenceModel,
   isImageModelId,
   modelCredits,
-  takesStructureReference,
+  referenceDelivery,
+  takesReference,
 } from "./provider.ts";
 
 const KINDS = Constants.public.Enums.representation_kind;
 
 describe("IMAGE_MODELS", () => {
   /*
-   * Two, and deliberately so. Flux 2 Pro was here and came out again: today's
-   * question is Seedream against Mystic, and a third API shape to handle buys
-   * nothing towards answering it.
+   * Three since 2026-09-19, when Flux Kontext Pro went in to stop Mystic
+   * being the only way to generate from a reference at all. Flux 2 Pro is
+   * still out: its price is unmeasured too, and it brings nothing Kontext
+   * does not.
    */
-  test("has two models, each with a distinct id and label", () => {
-    assert.equal(IMAGE_MODELS.length, 2);
+  test("has three models, each with a distinct id and label", () => {
+    assert.equal(IMAGE_MODELS.length, 3);
     const ids = IMAGE_MODELS.map((model) => model.id);
-    assert.equal(new Set(ids).size, 2);
+    assert.equal(new Set(ids).size, 3);
     const labels = IMAGE_MODELS.map((model) => model.label);
-    assert.equal(new Set(labels).size, 2);
+    assert.equal(new Set(labels).size, 3);
   });
 
   /*
@@ -34,9 +36,18 @@ describe("IMAGE_MODELS", () => {
    * more is the thing its results have to pay for, and a silent edit to
    * either number would move the bar without moving anything visible.
    */
-  test("knows what both models cost, and how they differ", () => {
+  test("knows what the two measured models cost, and how they differ", () => {
     assert.equal(modelCredits("seedream-v4"), 50);
     assert.equal(modelCredits("mystic"), 80);
+  });
+
+  /*
+   * Kontext went in with its price undocumented and unmeasured. Null is the
+   * only honest answer, and it is what makes the screen say so instead of
+   * showing a number nobody read off the dashboard.
+   */
+  test("admits it does not know what Kontext costs", () => {
+    assert.equal(modelCredits("flux-kontext-pro"), null);
   });
 
   /*
@@ -54,40 +65,71 @@ describe("IMAGE_MODELS", () => {
   });
 });
 
-describe("takesStructureReference", () => {
+describe("takesReference", () => {
   /*
    * Read off the Freepik documentation on 2026-09-19. Seedream takes no input
-   * image at all; Mystic takes structure_reference and style_reference. Only
-   * the structure half is used here, and only on Mystic.
+   * image at all; Mystic takes structure_reference in base64; Kontext takes
+   * input_image as a URL.
    */
-  test("only Mystic takes one today", () => {
-    assert.equal(takesStructureReference("mystic"), true);
-    assert.equal(takesStructureReference("seedream-v4"), false);
+  test("Mystic and Kontext take one, Seedream does not", () => {
+    assert.equal(takesReference("mystic"), true);
+    assert.equal(takesReference("flux-kontext-pro"), true);
+    assert.equal(takesReference("seedream-v4"), false);
   });
 
-  test("every model answers one way or the other", () => {
+  /*
+   * The form is the model's and not the caller's: the same stored path
+   * becomes bytes for one and an address for the other, and getting the two
+   * the wrong way round is a request the API refuses.
+   */
+  test("each says which form it wants", () => {
+    assert.equal(referenceDelivery("mystic"), "base64");
+    assert.equal(referenceDelivery("flux-kontext-pro"), "url");
+    assert.equal(referenceDelivery("seedream-v4"), "none");
+  });
+
+  test("takesReference and referenceDelivery never disagree", () => {
     for (const { id } of IMAGE_MODELS) {
-      assert.equal(typeof takesStructureReference(id), "boolean", id);
+      assert.equal(takesReference(id), referenceDelivery(id) !== "none", id);
     }
   });
 });
 
-describe("firstModelWithStructureReference", () => {
+describe("defaultReferenceModel", () => {
   /*
-   * What attaching a reference switches the selector to. Taken from the list
-   * rather than named, so the day a second model takes one this keeps
-   * answering without being edited.
+   * What attaching a reference moves the selector to. Two conditions, and the
+   * second is the rule: attaching is the teacher asking the program to spend
+   * money on their behalf, and what it spends cannot be a number nobody has
+   * checked. Kontext is offered and is never the default while its price is
+   * unknown.
    */
-  test("is the first in the list that takes one", () => {
-    const first = firstModelWithStructureReference();
-    assert.equal(first, "mystic");
-    assert.ok(first !== null && takesStructureReference(first));
+  test("takes a reference and has a measured price", () => {
+    const chosen = defaultReferenceModel();
+    assert.equal(chosen, "mystic");
+    assert.ok(chosen !== null && takesReference(chosen));
+    assert.notEqual(chosen === null ? null : modelCredits(chosen), null);
   });
 
-  test("agrees with the list it is read from", () => {
-    const fromList =
-      IMAGE_MODELS.find((model) => model.structureReference)?.id ?? null;
-    assert.equal(firstModelWithStructureReference(), fromList);
+  test("never lands on a model whose price nobody has measured", () => {
+    const chosen = defaultReferenceModel();
+    assert.notEqual(chosen, "flux-kontext-pro");
+  });
+
+  /*
+   * Not "the first that takes one". Today that is the same answer by array
+   * order, and it would stop being the same the day the list is reordered for
+   * an unrelated reason, silently, with the default landing on a price nobody
+   * knows.
+   */
+  test("is not simply the first in the list that takes one", () => {
+    const firstThatTakesOne =
+      IMAGE_MODELS.find((model) => model.reference !== "none") ?? null;
+    const chosen = defaultReferenceModel();
+    assert.ok(
+      firstThatTakesOne === null ||
+        firstThatTakesOne.credits !== null ||
+        chosen !== firstThatTakesOne.id,
+    );
   });
 });
 
