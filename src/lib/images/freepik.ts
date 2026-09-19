@@ -26,14 +26,46 @@ if (typeof window !== "undefined") {
 const BASE_URL = "https://api.magnific.com";
 
 /**
- * Each model is its own endpoint, and polling goes back to the same one.
+ * What each model needs, since the three do not take the same request.
  *
- * Mystic came out with the model list. A handle stored before that says
- * "mystic:" and no longer decodes, which reaches nothing: polling happens
- * inside the generating request, so no attempt is ever polled after the fact.
+ * A word's picture is square: it sits in a small tile on the lesson screen,
+ * and any other ratio would have to be cropped to get there. Both models say
+ * that with aspect_ratio, which is why the two specs differ only in the path
+ * and in Mystic's extra field; a model that wanted width and height would
+ * need its own body, which is what this shape is for.
+ *
+ * Mystic's own `model` field picks a generator inside Mystic, and it
+ * defaults to `realism`. `flexible` is asked for instead, because the docs
+ * say it is the one that is "especially good with illustrations" and warn
+ * against realism for anything stylised. Leaving the default would have
+ * measured Mystic at the thing this product never asks it for.
+ *
+ * No reference image on either, though Mystic accepts one. This delivery
+ * compares text to image, and a model given a reference the other cannot
+ * have would not be being compared to it.
+ *
+ * Polling goes back to the same path with the task id appended. That is
+ * documented for Mystic, and assumed for Seedream: its page gives the POST
+ * and says the answer is polled, without spelling the GET out.
  */
-const ENDPOINTS: Record<ImageModelId, string> = {
-  "seedream-v4": "/v1/ai/text-to-image/seedream-v4",
+type ModelSpec = {
+  readonly path: string;
+  readonly body: (prompt: string) => Record<string, unknown>;
+};
+
+const SPECS: Record<ImageModelId, ModelSpec> = {
+  "seedream-v4": {
+    path: "/v1/ai/text-to-image/seedream-v4",
+    body: (prompt) => ({ prompt, aspect_ratio: "square_1_1" }),
+  },
+  mystic: {
+    path: "/v1/ai/mystic",
+    body: (prompt) => ({
+      prompt,
+      aspect_ratio: "square_1_1",
+      model: "flexible",
+    }),
+  },
 };
 
 /**
@@ -130,11 +162,10 @@ export function createFreepikProvider(): ImageProvider {
         throw new Error(`Unknown image model: ${model}`);
       }
 
-      const body = await call(ENDPOINTS[model], {
+      const spec = SPECS[model];
+      const body = await call(spec.path, {
         method: "POST",
-        // A word's picture is square: it sits in a small tile on the lesson
-        // screen, and every other ratio would have to be cropped to get there.
-        body: { prompt, aspect_ratio: "square_1_1" },
+        body: spec.body(prompt),
       });
 
       const task = readTaskBody(body);
@@ -154,7 +185,7 @@ export function createFreepikProvider(): ImageProvider {
      */
     async poll(requestId): Promise<PollResult> {
       const { model, taskId } = decodeHandle(requestId);
-      const body = await call(`${ENDPOINTS[model]}/${taskId}`, {
+      const body = await call(`${SPECS[model].path}/${taskId}`, {
         method: "GET",
       });
       const task = readTaskBody(body);
