@@ -27,19 +27,28 @@ export type Suggestion = {
 };
 
 /**
- * The definitions come from docs/spec-imagens.md, so the model is asked the
- * same question the teacher answers. The word "json" has to appear for
- * DeepSeek to accept response_format json_object, and the example below is
- * what the docs ask for as well.
+ * The five kinds come from docs/spec-imagens.md, so the model is asked the
+ * same question the teacher answers. The boundary rules underneath them were
+ * decided on 2026-09-19, from the pairs the book actually puts next to each
+ * other: a named person against a bare title, a country against a
+ * nationality. The word "json" has to appear for DeepSeek to accept
+ * response_format json_object, and the example below is what the docs ask for
+ * as well.
  */
 const SYSTEM = `You sort English vocabulary words by the kind of picture each one needs.
 
 The five kinds:
-- photo: a concrete object or living thing, where one image is enough. Examples: apple, dog, table.
+- photo: a concrete object, a living thing, or a named person, where one image is enough. Examples: apple, dog, table, Jack, Mr Brown.
 - action: a verb or a gesture, shown as a person doing it. Examples: run, point, sit.
-- figure: a spatial or quantity relation, drawn as a diagram such as a box and a ball. Examples: in, on, under, many, big.
+- figure: something drawn as a simple diagram rather than photographed. A spatial or quantity relation, a place on a map, or a colour as one filled shape. Examples: in, on, under, many, big, England, London, red.
 - symbol: the word is the character itself. Examples: six, question mark, first.
-- none: grammatical or functional, with nothing to draw. Examples: a, the, is, this, Mr, yes.
+- none: grammatical or functional, with nothing to draw. Examples: a, the, is, this, yes, Mr, English.
+
+The pairs that are easy to confuse:
+- A person's name is photo, because the book shows that person: Jack, Mr Brown, Mrs Smith. A title on its own is none: Mr, Mrs, Miss.
+- A country or a city is figure, drawn as a map: England, Brazil, London.
+- A nationality or a language is none: English, Brazilian, French.
+- A colour is figure, drawn as one filled shape: red, blue, green.
 
 Answer with json only, in exactly this shape:
 {"suggestions": [{"id": "the id you were given", "kind": "photo|symbol|figure|action|none"}]}

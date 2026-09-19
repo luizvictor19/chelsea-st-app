@@ -38,6 +38,29 @@ describe("buildSuggestionPrompt", () => {
     }
   });
 
+  /*
+   * The four boundaries the book keeps putting next to each other, pinned
+   * here because they were got wrong once. These assert the rule is stated,
+   * not that the model obeys it: whether it obeys is what the measurement in
+   * docs/spec-imagens.md is for.
+   */
+  test("states the boundary between a person's name and a bare title", () => {
+    const { system } = buildSuggestionPrompt(WORDS);
+    assert.match(system, /Mr Brown/u);
+    assert.match(system, /title on its own is none/iu);
+  });
+
+  test("states that places are figures and nationalities are not", () => {
+    const { system } = buildSuggestionPrompt(WORDS);
+    assert.match(system, /country or a city is figure/iu);
+    assert.match(system, /nationality or a language is none/iu);
+  });
+
+  test("states that a colour is a figure", () => {
+    const { system } = buildSuggestionPrompt(WORDS);
+    assert.match(system, /colour is figure/iu);
+  });
+
   test("refuses an empty list instead of asking about nothing", () => {
     assert.throws(() => buildSuggestionPrompt([]), /at least one/);
   });
