@@ -9,6 +9,7 @@ import type {
   WordImage,
 } from "@/lib/content/queries";
 import { IMAGE_MODELS } from "@/lib/images/provider";
+import { isDrawableKind } from "@/lib/images/style";
 
 import {
   approveAttempt,
@@ -92,6 +93,8 @@ export function WordPanel({
    */
   const suggested =
     word.representation === null ? word.suggestedRepresentation : null;
+  const drawable =
+    word.representation !== null && isDrawableKind(word.representation);
 
   /*
    * Three states, and they have to look like three different things. Filled
@@ -168,7 +171,13 @@ export function WordPanel({
         )}
       </div>
 
-      {word.representation !== "none" && (
+      {/*
+        Only the kinds an image is generated for. A symbol is the character,
+        drawn by the screen, and an undecided word has no rule to generate
+        under: offering a button that is certain to come back with an error
+        is worse than not offering it.
+      */}
+      {drawable ? (
         <>
           <div className="flex flex-col gap-2">
             <label
@@ -242,6 +251,12 @@ export function WordPanel({
             </div>
           </div>
         </>
+      ) : (
+        <p className="text-faint text-sm">
+          {word.representation === null
+            ? "Escolha o tipo da palavra para poder gerar a imagem."
+            : "Este tipo não leva imagem gerada."}
+        </p>
       )}
 
       {error !== null && (

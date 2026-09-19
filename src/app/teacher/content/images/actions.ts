@@ -162,8 +162,28 @@ export async function generateImage(
     }
     const { supabase } = await requireTeacher();
 
-    // Before anything is inserted or paid for: an empty subject throws here.
-    const prompt = buildPrompt(subject);
+    /*
+     * What the picture has to show depends on the kind, so the kind has to be
+     * decided before anything is generated. Reading it here rather than
+     * taking it from the caller keeps the decision the database holds as the
+     * one that is used: the screen could be a refresh behind.
+     */
+    const { data: word, error: wordError } = await supabase
+      .from("vocabulary_items")
+      .select("representation")
+      .eq("id", wordId)
+      .single();
+    if (wordError) return { ok: false, error: wordError.message };
+    if (word.representation === null) {
+      return {
+        ok: false,
+        error: "Escolha o tipo da palavra antes de gerar a imagem.",
+      };
+    }
+
+    // Before anything is inserted or paid for: an empty subject and a kind
+    // that has no picture both throw here.
+    const prompt = buildPrompt(subject, word.representation);
 
     const { data: attempt, error: insertError } = await supabase
       .from("image_attempts")
