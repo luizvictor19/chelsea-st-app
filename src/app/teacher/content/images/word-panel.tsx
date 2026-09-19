@@ -9,6 +9,7 @@ import type {
   WordImage,
 } from "@/lib/content/queries";
 import { IMAGE_MODELS } from "@/lib/images/provider";
+import { isDrawableKind } from "@/lib/images/style";
 
 import {
   approveAttempt,
@@ -18,7 +19,7 @@ import {
   uploadImage,
   type ActionResult,
 } from "./actions";
-import { REPRESENTATIONS, labelFor } from "./representation";
+import { REPRESENTATIONS, disagreement, labelFor } from "./representation";
 
 /** Which control is waiting on the server, so only that one shows it. */
 type Busy = { readonly key: string } | null;
@@ -92,6 +93,17 @@ export function WordPanel({
    */
   const suggested =
     word.representation === null ? word.suggestedRepresentation : null;
+  const drawable =
+    word.representation !== null && isDrawableKind(word.representation);
+  /*
+   * What the model thought, on a word that has already been decided against
+   * it. Shown quietly and without an accept button: the teacher changes their
+   * mind by pressing the type, not by accepting an old proposal.
+   */
+  const disagrees = disagreement(
+    word.representation,
+    word.suggestedRepresentation,
+  );
 
   /*
    * Three states, and they have to look like three different things. Filled
@@ -149,6 +161,11 @@ export function WordPanel({
             </button>
           ))}
         </div>
+        {disagrees !== null && (
+          <p className="text-accent/70 pt-1 text-xs">
+            O modelo sugeriu {labelFor(disagrees).toLowerCase()}.
+          </p>
+        )}
         {suggested !== null && (
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <span className="text-faint text-xs">
@@ -168,7 +185,13 @@ export function WordPanel({
         )}
       </div>
 
-      {word.representation !== "none" && (
+      {/*
+        Only the kinds an image is generated for. A symbol is the character,
+        drawn by the screen, and an undecided word has no rule to generate
+        under: offering a button that is certain to come back with an error
+        is worse than not offering it.
+      */}
+      {drawable ? (
         <>
           <div className="flex flex-col gap-2">
             <label
@@ -242,6 +265,12 @@ export function WordPanel({
             </div>
           </div>
         </>
+      ) : (
+        <p className="text-faint text-sm">
+          {word.representation === null
+            ? "Escolha o tipo da palavra para poder gerar a imagem."
+            : "Este tipo não leva imagem gerada."}
+        </p>
       )}
 
       {error !== null && (
@@ -273,9 +302,11 @@ export function WordPanel({
         <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
           Tentativas ({attempts.length})
         </span>
-        {attempts.length === 0 ? (
-          <p className="text-muted text-sm">Nenhuma tentativa ainda.</p>
-        ) : (
+        {/*
+          No empty state: the heading already says zero, and a sentence
+          repeating it is a line of screen saying nothing twice.
+        */}
+        {attempts.length > 0 && (
           <ul className="flex flex-col gap-3">
             {attempts.map((attempt) => (
               <li

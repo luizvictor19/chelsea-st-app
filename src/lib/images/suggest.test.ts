@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
-  SUGGESTION_KINDS,
+  REPRESENTATION_KINDS,
   buildSuggestionPrompt,
   overwriteWarning,
   parseSuggestions,
@@ -17,7 +17,7 @@ const IDS = WORDS.map((word) => word.id);
 describe("buildSuggestionPrompt", () => {
   test("names every kind, so the model is told the whole enum", () => {
     const { system } = buildSuggestionPrompt(WORDS);
-    for (const kind of SUGGESTION_KINDS) {
+    for (const kind of REPRESENTATION_KINDS) {
       assert.ok(system.includes(kind), `missing ${kind}`);
     }
   });
@@ -73,6 +73,32 @@ describe("buildSuggestionPrompt", () => {
     const { system } = buildSuggestionPrompt(WORDS);
     assert.match(system, /country or a city is figure/iu);
     assert.match(system, /nationality or a language is none/iu);
+  });
+
+  /*
+   * The boundary the sixth kind exists for. Pose came out of the blind
+   * measurement of lesson 2, where the only two misses were sitting and
+   * standing: decided Figure, suggested Action, and both readings defensible
+   * because neither kind described a body held in a position.
+   */
+  test("separates pose from action by rest against activity", () => {
+    const { system } = buildSuggestionPrompt(WORDS);
+    assert.match(system, /rest against activity/iu);
+    assert.match(system, /at rest/iu);
+    assert.match(system, /doing something/iu);
+    assert.match(system, /freeze the drawing/iu);
+  });
+
+  /*
+   * The arrow used to be the criterion, and that was wrong: smile is an
+   * action and has no direction to point at. It may still be mentioned as a
+   * drawing consequence, but never as what tells the two kinds apart.
+   */
+  test("does not make the arrow the criterion", () => {
+    const { system } = buildSuggestionPrompt(WORDS);
+    assert.doesNotMatch(system, /arrow is what separates/iu);
+    assert.match(system, /not what tells the two apart/iu);
+    assert.match(system, /smile is an action with no arrow/iu);
   });
 
   test("states that a colour is a figure", () => {

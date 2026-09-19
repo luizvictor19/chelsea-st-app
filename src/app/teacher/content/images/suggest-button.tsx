@@ -76,6 +76,16 @@ export function SuggestButton({
       >
         {busy ? "sugerindo" : "Sugerir tipos"}
       </button>
+      {/*
+        How much of the lesson has been suggested, which nothing else on the
+        screen says: a decided word hides its suggestion, so without this a
+        fully suggested lesson and one never suggested look the same.
+      */}
+      {words > 0 && (
+        <span className="text-faint text-xs normal-case">
+          {existingSuggestions}/{words} com sugestão
+        </span>
+      )}
       {note !== null && (
         <span className="text-faint text-xs normal-case">{note}</span>
       )}
