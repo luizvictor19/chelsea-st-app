@@ -10,7 +10,11 @@
 export const STYLE_PROMPT =
   "Flat vector illustration of {subject}. Single subject, centered, bold " +
   "outlines, flat colors, no shading, plain warm off-white background, no " +
-  "text, no letters, no numbers, no watermark. Minimal, clean, friendly.";
+  "text, no letters, no numbers, no watermark. Minimal, clean, friendly. " +
+  // 2026-09-19: the first real figure came back inside a black frame. The
+  // style asked for a plain background and never said the background was
+  // the whole image, so a border was not forbidden.
+  "No frame, no border, the background fills the entire image.";
 
 /** Where the subject is substituted into STYLE_PROMPT. */
 const SUBJECT_SLOT = "{subject}";
@@ -27,6 +31,23 @@ const SUBJECT_SLOT = "{subject}";
  *
  * Decided on 2026-09-19.
  */
+/**
+ * The person in every pose and action, described the same way each time.
+ *
+ * 2026-09-19: the first two real images each invented their own person, and
+ * one of them changed the colour of its own shirt between the top and the
+ * bottom of the figure. Nothing in the style said the character was fixed,
+ * so nothing kept it fixed.
+ *
+ * This is the minimum cast, one man, enough to make a set of pictures look
+ * like one course. It gets replaced by the cast of the scene once
+ * spec-tutor.md exists and says who the student is looking at.
+ */
+const CHARACTER =
+  "Always the same character: a man with short dark hair, a plain white " +
+  "t-shirt, blue trousers and brown shoes. Keep every color flat and " +
+  "consistent across the whole figure.";
+
 export const SUBJECT_RULES = {
   photo: "Show the subject on its own, with nothing around it.",
   // No posture may be named here. "standing still" read as the posture
@@ -34,7 +55,8 @@ export const SUBJECT_RULES = {
   // subject that was sitting or lying.
   pose:
     "Show the whole body, the posture clearly readable, and no movement. " +
-    "No arrow.",
+    "No arrow. " +
+    CHARACTER,
   /*
    * The arrow is a drawing device, not what makes something an action. Plenty
    * of action words have no direction for one to point at (speak, listen,
@@ -44,7 +66,8 @@ export const SUBJECT_RULES = {
   action:
     "Show one person in the middle of the movement, the whole body visible, " +
     "the gesture at its clearest moment. If the movement has a direction, " +
-    "add a simple arrow showing it; if it does not, no arrow.",
+    "add a simple arrow showing it; if it does not, no arrow. " +
+    CHARACTER,
   figure: "Draw it as a diagram, with no person in it.",
 } as const;
 
