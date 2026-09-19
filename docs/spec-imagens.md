@@ -196,10 +196,13 @@ não guarda identidade entre chamadas, e o Seedream 4 não aceita imagem de refe
 era a única alavanca e ela não moveu nada. O assunto de um nome de pessoa também não precisa carregar
 traços fixos pelo mesmo motivo. O tema volta com a cena do tutor, com um modelo que aceite referência.
 
-**O ângulo é parte do sentido**, em Postura e em Ação. Pessoa sentada desenhada de frente não lê
-como sentada: o que comunica a postura é o joelho dobrado, de perfil. A instrução é onde o professor
-nomeia o ângulo, e a regra da categoria pede isso. Descoberto em 19/09/2026, depois de quatro
-tentativas em `sitting`.
+**O ângulo é parte do sentido**, em toda categoria que desenha. Pessoa sentada desenhada de frente
+não lê como sentada: o que comunica a postura é o joelho dobrado, de perfil. A instrução é onde o
+professor nomeia o ângulo. Descoberto em 19/09/2026, depois de quatro tentativas em `sitting`, e
+generalizado no mesmo dia: nasceu valendo só para Postura e Ação, e rodar a regra sobre sete
+palavras mostrou que caixa e bola leem de lado, e que a melhor das sete respostas foi um livro
+aberto visto de cima. Nomear o ponto de vista vale para qualquer coisa que seja desenhada; **qual**
+ponto de vista é o julgamento, e é para fazer esse julgamento que o professor edita a frase.
 
 **Escolha a vista com a silhueta mais reconhecível.** Livro fechado em pé voltou como caixa, como
 pasta e como cartão, porque os quatro têm o mesmo contorno; livro aberto não é confundível com nada.

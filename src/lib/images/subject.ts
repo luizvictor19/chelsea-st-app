@@ -27,7 +27,16 @@ const SUBJECT_SHAPE: Record<DrawableKind, string> = {
   figure: "a diagram that shows it, with no person in it",
 };
 
-/** How long a subject may be before it stops being a subject. */
+/**
+ * How long a subject may be before it stops being a subject.
+ *
+ * Asked for in the prompt and deliberately enforced nowhere. The only way to
+ * impose it is to truncate, and a phrase cut in the middle is a worse subject
+ * than a phrase of fourteen words: "a small ball on the ground directly
+ * beneath a table, seen from the side" came back over the cap on 2026-09-19
+ * and was right. The number is here to push the answer short, and it is
+ * doing that — six of the seven answers that day landed at or under it.
+ */
 const MAX_WORDS = 12;
 
 /**
@@ -45,6 +54,13 @@ const MAX_WORDS = 12;
  *    from the side" is what made it come out right, and it is only ever the
  *    subject that can say so, because the style constant is fixed and the
  *    category rule is the same for every word in the category.
+ *
+ *    It was written for a pose and an action, and generalised the same day
+ *    once the rule had been run over seven words: a box and a ball read from
+ *    the side rather than from above, and the best of the seven answers was
+ *    an open book seen from above. The point of view is worth naming for
+ *    anything that gets drawn; which point of view is the judgement, and that
+ *    is exactly the judgement the teacher is editing the phrase to make.
  *
  * 2. The silhouette. A closed book standing up came back as a box, a folder
  *    and a card, because all four share an outline. An open book is not
@@ -64,7 +80,7 @@ const MAX_WORDS = 12;
  * to matching a sentence someone can quietly delete.
  */
 export const LEARNED_RULES = [
-  `Angle is part of the meaning. For a pose or an action, the phrase must name the point of view, because the same body drawn from the wrong side stops saying the word. A seated person seen from the front does not read as seated: write "seen from the side".`,
+  `Angle is part of the meaning. Name the point of view, whatever the word is: the same thing drawn from the wrong side stops saying it. A seated person seen from the front does not read as seated, because the bent knee points at the viewer and disappears, so write "seen from the side". A box or a ball reads from the side; an open book reads from above.`,
 
   `Choose the view or the state with the most recognisable silhouette. A closed book standing up could be a box, a folder or a card; an open book could be nothing else. Scissors open, not shut. A door ajar, not flat in its frame.`,
 
