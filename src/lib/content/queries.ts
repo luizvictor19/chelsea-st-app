@@ -252,6 +252,13 @@ export type WordImage = {
   /** A fact about the word, not a decision about the picture. One column. */
   readonly wordClass: WordClass | null;
   readonly imageUrl: string | null;
+  /**
+   * The structure reference this word is set up to generate from, as a URL
+   * the screen can show, or null. Upload once, generate several times: it is
+   * on the word and not in the browser, so it survives a reload and a trip to
+   * another word.
+   */
+  readonly referenceUrl: string | null;
   readonly attempts: number;
   /** The rule the vocabulary_items_pending_image_idx predicate spells out. */
   readonly pending: boolean;
@@ -329,7 +336,7 @@ export async function listVocabularyImages(): Promise<{
   const { data: rows, error } = await supabase
     .from("vocabulary_items")
     .select(
-      "id, term, representation, suggested_representation, word_class, image_path, points!inner(number, lessons_content(id, number)), image_attempts!image_attempts_vocabulary_item_id_fkey(count)",
+      "id, term, representation, suggested_representation, word_class, image_path, reference_path, points!inner(number, lessons_content(id, number)), image_attempts!image_attempts_vocabulary_item_id_fkey(count)",
     );
   if (error) throw new Error(error.message);
 
@@ -345,6 +352,7 @@ export async function listVocabularyImages(): Promise<{
       suggestedRepresentation: row.suggested_representation,
       wordClass: row.word_class,
       imageUrl: publicImageUrl(supabase, row.image_path),
+      referenceUrl: publicImageUrl(supabase, row.reference_path),
       // An array now, and correctly so: naming the attempt-to-word key makes
       // this the to-many side. Unhinted, the generated type resolved to the
       // to-one approved_attempt_id relationship, so this read a count that was

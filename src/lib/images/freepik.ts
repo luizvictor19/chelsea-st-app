@@ -15,6 +15,7 @@ import {
   type ImageProvider,
   type PollResult,
   isImageModelId,
+  takesStructureReference,
 } from "./provider";
 
 // This module reads a secret, so it must never be bundled for the browser.
@@ -24,6 +25,24 @@ if (typeof window !== "undefined") {
 }
 
 const BASE_URL = "https://api.magnific.com";
+
+/**
+ * How much of the reference's shape to keep, 0 to 100.
+ *
+ * The API's own default is 50, read from the Mystic POST reference on
+ * 2026-09-19, and 50 is what we send. Sent rather than left out on purpose:
+ * a picture has to be reproducible from what is stored, and if Freepik moves
+ * their default then every image made until then becomes irreproducible in
+ * silence and the record starts lying without anyone noticing. The value is
+ * ours, constant, and visible in a diff the day it changes.
+ *
+ * It only takes effect alongside structure_reference, which is why it is set
+ * in the same branch.
+ *
+ * A column for it when we start varying it per word. While it is one number
+ * for every generation, a comment is where it belongs.
+ */
+const STRUCTURE_STRENGTH = 50;
 
 /**
  * What each model needs, since the three do not take the same request.
@@ -40,9 +59,12 @@ const BASE_URL = "https://api.magnific.com";
  * against realism for anything stylised. Leaving the default would have
  * measured Mystic at the thing this product never asks it for.
  *
- * No reference image on either, though Mystic accepts one. This delivery
- * compares text to image, and a model given a reference the other cannot
- * have would not be being compared to it.
+ * Mystic takes a structure reference and Seedream takes no input image at
+ * all, so the reference is part of the body a model builds rather than
+ * something added on top of it. A model handed one it cannot use throws
+ * rather than dropping it: the attempt row would still record which file was
+ * used, and a row that says a picture came from a reference it never saw is
+ * worse than a refusal.
  *
  * Polling goes back to the same path with the task id appended. That is
  * documented for Mystic, and assumed for Seedream: its page gives the POST
@@ -50,7 +72,10 @@ const BASE_URL = "https://api.magnific.com";
  */
 type ModelSpec = {
   readonly path: string;
-  readonly body: (prompt: string) => Record<string, unknown>;
+  readonly body: (
+    prompt: string,
+    reference: string | null,
+  ) => Record<string, unknown>;
 };
 
 const SPECS: Record<ImageModelId, ModelSpec> = {
@@ -60,10 +85,25 @@ const SPECS: Record<ImageModelId, ModelSpec> = {
   },
   mystic: {
     path: "/v1/ai/mystic",
-    body: (prompt) => ({
+    body: (prompt, reference) => ({
       prompt,
       aspect_ratio: "square_1_1",
       model: "flexible",
+      /*
+       * Raw base64, no data: prefix, because the POST reference types the
+       * field as a string of `format: byte`. Read on 2026-09-19 and not
+       * exercised against the live API in the same session, so if it comes
+       * back refused, the two things to try in order are the data-URL form
+       * and a plain URL: the Mystic overview page recommends URLs for
+       * quality, and the bucket is already public, so the URL is a short
+       * road from here.
+       */
+      ...(reference === null
+        ? {}
+        : {
+            structure_reference: reference,
+            structure_strength: STRUCTURE_STRENGTH,
+          }),
     }),
   },
 };
@@ -157,15 +197,22 @@ async function call(
 
 export function createFreepikProvider(): ImageProvider {
   return {
-    async generate({ prompt, model }): Promise<{ requestId: string }> {
+    async generate({
+      prompt,
+      model,
+      reference,
+    }): Promise<{ requestId: string }> {
       if (!isImageModelId(model)) {
         throw new Error(`Unknown image model: ${model}`);
+      }
+      if (reference !== null && !takesStructureReference(model)) {
+        throw new Error(`${model} takes no structure reference`);
       }
 
       const spec = SPECS[model];
       const body = await call(spec.path, {
         method: "POST",
-        body: spec.body(prompt),
+        body: spec.body(prompt, reference),
       });
 
       const task = readTaskBody(body);

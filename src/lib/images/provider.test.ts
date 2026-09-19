@@ -5,8 +5,10 @@ import { Constants } from "../supabase/types.ts";
 import {
   IMAGE_MODELS,
   defaultModelFor,
+  firstModelWithStructureReference,
   isImageModelId,
   modelCredits,
+  takesStructureReference,
 } from "./provider.ts";
 
 const KINDS = Constants.public.Enums.representation_kind;
@@ -49,6 +51,43 @@ describe("IMAGE_MODELS", () => {
       assert.ok(Number.isInteger(credits), id);
       assert.ok(credits > 0, id);
     }
+  });
+});
+
+describe("takesStructureReference", () => {
+  /*
+   * Read off the Freepik documentation on 2026-09-19. Seedream takes no input
+   * image at all; Mystic takes structure_reference and style_reference. Only
+   * the structure half is used here, and only on Mystic.
+   */
+  test("only Mystic takes one today", () => {
+    assert.equal(takesStructureReference("mystic"), true);
+    assert.equal(takesStructureReference("seedream-v4"), false);
+  });
+
+  test("every model answers one way or the other", () => {
+    for (const { id } of IMAGE_MODELS) {
+      assert.equal(typeof takesStructureReference(id), "boolean", id);
+    }
+  });
+});
+
+describe("firstModelWithStructureReference", () => {
+  /*
+   * What attaching a reference switches the selector to. Taken from the list
+   * rather than named, so the day a second model takes one this keeps
+   * answering without being edited.
+   */
+  test("is the first in the list that takes one", () => {
+    const first = firstModelWithStructureReference();
+    assert.equal(first, "mystic");
+    assert.ok(first !== null && takesStructureReference(first));
+  });
+
+  test("agrees with the list it is read from", () => {
+    const fromList =
+      IMAGE_MODELS.find((model) => model.structureReference)?.id ?? null;
+    assert.equal(firstModelWithStructureReference(), fromList);
   });
 });
 

@@ -16,6 +16,12 @@ export interface ImageProvider {
   generate(input: {
     prompt: string;
     model: string;
+    /**
+     * The structure reference as base64, or null for none. Not optional: a
+     * caller that has one and forgets to pass it would pay for a picture that
+     * ignored it, and the attempt row would still say which file it used.
+     */
+    reference: string | null;
   }): Promise<{ requestId: string }>;
   poll(requestId: string): Promise<PollResult>;
 }
@@ -60,13 +66,42 @@ export interface ImageProvider {
  * was run against a description of a picture we no longer want, so its
  * verdict does not carry, and it has to be measured again.
  */
+/**
+ * `structureReference` says whether the model can be handed a picture to take
+ * the shape from. Read off the Freepik documentation on 2026-09-19:
+ *
+ *   Seedream 4 and 4.5 take no input image at all.
+ *   Mystic takes structure_reference and style_reference, both base64.
+ *   Flux 2 Pro takes up to four, base64.
+ *   Flux Kontext Pro takes one, by URL.
+ *
+ * Only Mystic is here, and only its structure reference.
+ *
+ * style_reference is left out on purpose rather than for lack of time. The
+ * style of these pictures comes from the style constant in the prompt, the
+ * same one for all of them, which is the whole point of having one: a few
+ * hundred images read as a set instead of as a few hundred decisions. A style
+ * taken from whatever photo the teacher happened to upload would undo that
+ * one image at a time.
+ *
+ * The two Flux models are out for a different reason. What they cost in
+ * credits is not documented, and a credit with an unknown price breaks the
+ * cost arithmetic that closes exactly against the Freepik dashboard today.
+ * They come back when the number does.
+ */
 export const IMAGE_MODELS = [
-  { id: "seedream-v4", label: "Seedream 4", credits: 50 },
-  { id: "mystic", label: "Mystic", credits: 80 },
+  {
+    id: "seedream-v4",
+    label: "Seedream 4",
+    credits: 50,
+    structureReference: false,
+  },
+  { id: "mystic", label: "Mystic", credits: 80, structureReference: true },
 ] as const satisfies readonly {
   id: string;
   label: string;
   credits: number | null;
+  structureReference: boolean;
 }[];
 
 export type ImageModelId = (typeof IMAGE_MODELS)[number]["id"];
@@ -77,6 +112,24 @@ export function isImageModelId(value: string): value is ImageModelId {
 
 export function modelLabel(id: ImageModelId): string {
   return IMAGE_MODELS.find((model) => model.id === id)?.label ?? id;
+}
+
+/** Whether this model can be handed a picture to take the shape from. */
+export function takesStructureReference(id: ImageModelId): boolean {
+  return (
+    IMAGE_MODELS.find((model) => model.id === id)?.structureReference === true
+  );
+}
+
+/**
+ * The model a reference gets generated on, or null when none takes one.
+ *
+ * The first in the list rather than a named one, because the list is the
+ * order the screen offers and today it has exactly one answer. Naming Mystic
+ * here would have to be unwritten the day a second arrives; this does not.
+ */
+export function firstModelWithStructureReference(): ImageModelId | null {
+  return IMAGE_MODELS.find((model) => model.structureReference)?.id ?? null;
 }
 
 /** What one image costs on this model, or null when it is not known. */

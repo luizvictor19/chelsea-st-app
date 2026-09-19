@@ -158,3 +158,35 @@ export function generationSeconds(attempt: Finished): number | null {
   if (ended < started) return null;
   return Math.round((ended - started) / 1000);
 }
+
+/**
+ * The most a structure reference may weigh by the time it reaches the server.
+ *
+ * The browser shrinks every reference before it is sent — longest side 1536,
+ * JPEG at 0.85 — and after that shrink almost nothing reaches a few hundred
+ * KB, so this is a net and not a rule anybody is meant to feel. What it
+ * catches is the file that is still enormous afterwards, so that it is
+ * refused by us, with a sentence, rather than by the framework.
+ *
+ * Next caps a server action body at 1 MB unless told otherwise
+ * (action-handler.js, 1024 * 1024), and it refuses with a 413 that reaches
+ * the panel as "the server's answer never arrived" — the message written for
+ * a lost connection, on a file that was simply too big. So next.config.ts
+ * raises the frame to 3 MB: the limit that says no has to be ours, and it has
+ * to say why.
+ *
+ * Structure is silhouette. A reference is telling the model what shape to
+ * draw, not what detail to copy, so there was never anything here that needed
+ * the resolution a phone camera produces.
+ */
+export const MAX_REFERENCE_BYTES = 2 * 1024 * 1024;
+
+/** Said when a file is still too big after the browser has shrunk it. */
+export const REFERENCE_TOO_BIG =
+  "Imagem muito grande mesmo depois de reduzir. Tente uma imagem menor.";
+
+/** The longest side a reference is reduced to before it is sent. */
+export const REFERENCE_MAX_SIDE = 1536;
+
+/** The JPEG quality the reduction uses. */
+export const REFERENCE_QUALITY = 0.85;

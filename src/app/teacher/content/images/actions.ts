@@ -8,8 +8,13 @@ import {
   type ImageAttempt,
 } from "@/lib/content/queries";
 import { createFreepikProvider } from "@/lib/images/freepik";
-import { GENERATION_WINDOW_MS, hasExpired } from "@/lib/images/generation";
-import { isImageModelId } from "@/lib/images/provider";
+import {
+  GENERATION_WINDOW_MS,
+  MAX_REFERENCE_BYTES,
+  REFERENCE_TOO_BIG,
+  hasExpired,
+} from "@/lib/images/generation";
+import { isImageModelId, takesStructureReference } from "@/lib/images/provider";
 import { buildPrompt } from "@/lib/images/style";
 import { buildSubjectPrompt, parseSubject } from "@/lib/images/subject";
 import { buildSuggestionPrompt, parseSuggestions } from "@/lib/images/suggest";
@@ -33,13 +38,33 @@ type Representation = Database["public"]["Enums"]["representation_kind"];
  *
  * A failure can carry a list too: a generation the provider refused leaves a
  * 'failed' row, and the teacher should see the row as well as the reason.
+ *
+ * `reference` follows the same convention one step further: absent means the
+ * action did not touch the word's structure reference, a string is the one it
+ * now has, and null is "there is none any more". Three states, because two
+ * could not tell "I changed nothing" apart from "I took it off".
  */
 export type ActionResult =
-  | { ok: true; attempts?: readonly ImageAttempt[] }
+  | {
+      ok: true;
+      attempts?: readonly ImageAttempt[];
+      reference?: string | null;
+    }
   | { ok: false; error: string; attempts?: readonly ImageAttempt[] };
 
 const BUCKET = "vocabulary-images";
 const SCREEN = "/teacher/content/images";
+
+/**
+ * Where a structure reference lives, apart from the finished pictures.
+ *
+ * Migration 0014 holds this from three sides with checks, because a path in
+ * the wrong prefix would still read back, still resolve to a public URL and
+ * still look right: the only one to notice would be whoever comes to clean
+ * the bucket up, and everything under this prefix is meant to be a
+ * discardable input.
+ */
+const REFERENCE_PREFIX = "references";
 
 /** Whatever was thrown, as a string the screen can show. */
 function errorMessage(cause: unknown): string {
@@ -114,6 +139,13 @@ export async function rejectAttempt(attemptId: string): Promise<ActionResult> {
   }
 }
 
+/**
+ * Upload a finished picture, skipping the generation entirely.
+ *
+ * On its way out: the button that reaches it is replaced by the structure
+ * reference in the next commit, and this goes with the button. Kept here so
+ * this commit is a state the screen still compiles against.
+ */
 export async function uploadImage(
   wordId: string,
   file: File,
@@ -164,6 +196,104 @@ export async function uploadImage(
   } catch (cause) {
     return failure(cause);
   }
+}
+
+/**
+ * Attach a structure reference to a word, or replace the one it has.
+ *
+ * The file is kept and the column points at it, so the teacher uploads once
+ * and generates several times, changing the instruction between tries,
+ * without the reference going anywhere on a reload or on a trip to another
+ * word.
+ *
+ * The old file is not deleted when a new one replaces it. Attempts made under
+ * it still name it in their own reference_path, and that is the whole reason
+ * the attempt has a column of its own: deleting the file would leave those
+ * rows pointing at nothing and the record would stop being able to say what
+ * produced a picture. Cleaning the bucket is a job that has to read both
+ * columns, and it is not this one.
+ */
+export async function setReference(
+  wordId: string,
+  file: File,
+): Promise<ActionResult> {
+  try {
+    if (file.size === 0) return { ok: false, error: "O arquivo está vazio." };
+    // The browser has already shrunk it. This is the net under that, and it
+    // has to be ours: Next refuses a bigger body with a 413 that reaches the
+    // panel as a lost connection.
+    if (file.size > MAX_REFERENCE_BYTES) {
+      return { ok: false, error: REFERENCE_TOO_BIG };
+    }
+    const { supabase } = await requireTeacher();
+
+    const extension = extensionFor(
+      file.type,
+      file.name.split(".").pop() ?? "jpg",
+    );
+    const path = `${REFERENCE_PREFIX}/${wordId}/${crypto.randomUUID()}.${extension}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(BUCKET)
+      .upload(path, file, { contentType: file.type || undefined });
+    if (uploadError) return { ok: false, error: uploadError.message };
+
+    // After the file is in the bucket, never before: a column pointing at a
+    // file that is not there yet is a generation that fails for a reason the
+    // teacher cannot see.
+    const { error } = await supabase
+      .from("vocabulary_items")
+      .update({ reference_path: path })
+      .eq("id", wordId);
+    if (error) return { ok: false, error: error.message };
+
+    revalidatePath(SCREEN);
+    return { ok: true, reference: publicReferenceUrl(supabase, path) };
+  } catch (cause) {
+    return failure(cause);
+  }
+}
+
+/**
+ * Take the reference off a word.
+ *
+ * The column only, never the file. Every attempt generated from it still
+ * names it, and those rows have to go on meaning something.
+ */
+export async function clearReference(wordId: string): Promise<ActionResult> {
+  try {
+    const { supabase } = await requireTeacher();
+    const { error } = await supabase
+      .from("vocabulary_items")
+      .update({ reference_path: null })
+      .eq("id", wordId);
+    if (error) return { ok: false, error: error.message };
+    revalidatePath(SCREEN);
+    return { ok: true, reference: null };
+  } catch (cause) {
+    return failure(cause);
+  }
+}
+
+/** The public URL of a reference, which the bucket serves without signing. */
+function publicReferenceUrl(
+  supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
+  path: string,
+): string {
+  return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
+/**
+ * The reference as the provider wants it: raw base64, downloaded on the
+ * server so the file never travels through the browser twice.
+ */
+async function readReference(
+  supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
+  path: string,
+): Promise<string> {
+  const { data, error } = await supabase.storage.from(BUCKET).download(path);
+  if (error) throw new Error(`Não deu para ler a referência: ${error.message}`);
+  return Buffer.from(await data.arrayBuffer()).toString("base64");
 }
 
 /**
@@ -244,7 +374,7 @@ export async function startGeneration(
      */
     const { data: word, error: wordError } = await supabase
       .from("vocabulary_items")
-      .select("representation")
+      .select("representation, reference_path")
       .eq("id", wordId)
       .single();
     if (wordError) return { ok: false, error: wordError.message };
@@ -259,6 +389,17 @@ export async function startGeneration(
     // that has no picture both throw here.
     const prompt = buildPrompt(subject, word.representation);
 
+    /*
+     * The word's reference is only this attempt's reference if the model can
+     * take one. A word keeps its reference while the teacher generates on a
+     * model that ignores it, and the row then records that it used none,
+     * because it used none. Writing the path anyway would make the record say
+     * a picture came from a file the model never saw.
+     */
+    const referencePath = takesStructureReference(model)
+      ? word.reference_path
+      : null;
+
     const { data: attempt, error: insertError } = await supabase
       .from("image_attempts")
       .insert({
@@ -269,17 +410,36 @@ export async function startGeneration(
         // Stored next to the prompt it went into, because the prompt cannot
         // be taken apart again once the style constant has moved on.
         subject: subject.trim(),
+        // What this attempt used, which is not the same column as what the
+        // word is set up with: that one can change afterwards, and this one
+        // has to go on being true about a picture already in the bucket.
+        reference_path: referencePath,
         status: "pending",
       })
       .select("id")
       .single();
     if (insertError) return { ok: false, error: insertError.message };
 
+    /*
+     * Read after the row exists, so a reference that cannot be read closes
+     * the attempt with the reason on it rather than throwing into a caller
+     * that has nowhere to put it.
+     */
+    let reference: string | null = null;
+    if (referencePath !== null) {
+      try {
+        reference = await readReference(supabase, referencePath);
+      } catch (cause) {
+        return recordFailure(supabase, attempt.id, wordId, errorMessage(cause));
+      }
+    }
+
     let requestId: string;
     try {
       ({ requestId } = await createFreepikProvider().generate({
         prompt,
         model,
+        reference,
       }));
     } catch (cause) {
       return recordFailure(supabase, attempt.id, wordId, errorMessage(cause));
