@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test \"src/**/*.test.ts\"",
+    "test": "node --test \"src/**/*.test.ts\" \"scripts/**/*.test.ts\"",
     "calibrate": "node scripts/calibrate-extraction.ts",
     "smoke:reconcile": "node scripts/smoke-reconciliation.ts"
   },
