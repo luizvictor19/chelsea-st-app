@@ -30,20 +30,29 @@ update image_attempts
  where credits_spent is null
    and model is not null;
 
--- WHAT THIS DOES NOT FIX, recorded once instead of chased.
+-- WHAT THE SUM WILL NOT MATCH, recorded once instead of chased.
 --
 -- At 21:00 on 2026-09-19 the table held 41 attempts and the dashboard showed
--- 2350 credits spent, which 31 Seedream and 10 Mystic fit exactly and
--- uniquely. By 21:40 the table held 50 attempts of which 30 were Seedream:
--- one row that existed is gone, and with it the only record of a credit that
--- was really spent.
+-- 2350 credits spent. 31 Seedream and 10 Mystic fit that exactly, and it
+-- looked like the only fit, which made a missing row look certain. It is not
+-- the only fit: it is the only one in which every attempt was charged, and
+-- whether a failed attempt is charged is the open question this column exists
+-- to answer.
 --
--- Nothing in the application deletes an attempt row — the bin marks a row
--- 'rejected' and always has — so it was removed from outside, by hand. It is
--- not recoverable: the row carried its own id, its model and its prompt, and
--- no other table references it.
+-- Letting k be the attempts that cost nothing, 50a + 80b = 2350 with
+-- a + b = 41 - k gives b = 10 + 5k/3, so k has to be a multiple of three.
+-- k = 0 is 31 and 10, k = 3 is 23 and 15, k = 6 is 15 and 20. All of them
+-- need no row to be missing. k = 4 has no whole-number answer at all, so if
+-- exactly four generations really went uncharged, then either one of the four
+-- was charged after all, or one of them came after 21:00, or something is
+-- missing — and none of those can be told apart from here.
 --
--- So the sum of this column will read below the dashboard by at least one
--- Seedream, 50 credits, and pretending otherwise would mean inventing a row.
--- The gap is the measurement of what was lost, and it is better left visible
--- than closed with a guess.
+-- Nothing in the application has ever deleted an attempt row: the bin marks
+-- one 'rejected', and as of today it also removes the file from the bucket
+-- and leaves the row. So the arithmetic above is where the doubt lives, not
+-- the code.
+--
+-- The sum of this column may therefore read below the dashboard, and that
+-- gap is a measurement rather than a defect. It stops growing here: from now
+-- on the cost is written when the provider accepts the task, and the total
+-- is read off the rows instead of solved for by elimination.

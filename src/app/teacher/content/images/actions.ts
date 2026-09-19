@@ -129,16 +129,78 @@ export async function approveAttempt(attemptId: string): Promise<ActionResult> {
   }
 }
 
+/**
+ * Discard a generated attempt: the file goes, the row stays.
+ *
+ * The row is accounting — what it cost, which model, which prompt, which
+ * reference — and deleting it would make the sum of credits_spent read low,
+ * silently and always. The file is what takes up space, and the bin is the
+ * teacher saying to get rid of that.
+ *
+ * Only a generated attempt. The screen offers the bin nowhere else, and this
+ * says the same thing where it cannot be worked around. An approved one is
+ * replaced by approving another, which demotes it inside one transaction and
+ * moves the word's pointer with it; discarding it here would leave
+ * vocabulary_items naming a rejected attempt, and now also a file that no
+ * longer exists. A failed one is terminal already, and reclassifying it as
+ * rejected is what made the two the API refused indistinguishable from
+ * eleven pictures the teacher simply disliked.
+ */
 export async function rejectAttempt(attemptId: string): Promise<ActionResult> {
   try {
     const { supabase } = await requireTeacher();
+
+    const { data: attempt, error: readError } = await supabase
+      .from("image_attempts")
+      .select("vocabulary_item_id, status, storage_path")
+      .eq("id", attemptId)
+      .single();
+    if (readError) return { ok: false, error: readError.message };
+
+    if (attempt.status !== "generated") {
+      return {
+        ok: false,
+        error: "Só uma tentativa pronta pode ser descartada.",
+      };
+    }
+
+    /*
+     * The row is marked before the file is removed, never the other way
+     * round. A rejected row whose file is still there is an orphan for a
+     * cleanup to find later; a generated row whose file is already gone is a
+     * broken picture on the screen, now.
+     */
     const { error } = await supabase
       .from("image_attempts")
       .update({ status: "rejected", decided_at: new Date().toISOString() })
       .eq("id", attemptId);
     if (error) return { ok: false, error: error.message };
+
+    if (attempt.storage_path !== null) {
+      const { error: removeError } = await supabase.storage
+        .from(BUCKET)
+        .remove([attempt.storage_path]);
+      /*
+       * Cleared only when the file really went. A path kept next to a deleted
+       * file would paint a thumbnail with nothing behind it; a path cleared
+       * next to a file that survived would lose the only thing that could
+       * find it again. The failure is not raised to the teacher: the attempt
+       * is discarded either way, and a file left behind is a cleanup's
+       * problem rather than theirs.
+       */
+      if (removeError === null) {
+        await supabase
+          .from("image_attempts")
+          .update({ storage_path: null })
+          .eq("id", attemptId);
+      }
+    }
+
     revalidatePath(SCREEN);
-    return { ok: true };
+    return {
+      ok: true,
+      attempts: await readWordAttempts(supabase, attempt.vocabulary_item_id),
+    };
   } catch (cause) {
     return failure(cause);
   }

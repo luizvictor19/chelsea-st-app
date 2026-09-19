@@ -846,8 +846,8 @@ export function WordPanel({
                       <button
                         type="button"
                         disabled={working}
-                        aria-label="Descartar esta tentativa"
-                        title="Descartar"
+                        aria-label="Descartar esta tentativa e apagar o arquivo"
+                        title="Descartar e apagar o arquivo"
                         onClick={() =>
                           void run(`descartar-${attempt.id}`, () =>
                             rejectAttempt(attempt.id),
