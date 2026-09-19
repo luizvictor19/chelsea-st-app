@@ -15,6 +15,7 @@ import {
   type ImageProvider,
   type PollResult,
   isImageModelId,
+  takesReference,
 } from "./provider";
 
 // This module reads a secret, so it must never be bundled for the browser.
@@ -24,6 +25,45 @@ if (typeof window !== "undefined") {
 }
 
 const BASE_URL = "https://api.magnific.com";
+
+/**
+ * How much of the reference's shape to keep, 0 to 100.
+ *
+ * 25, measured on 2026-09-19 against the same word, the same reference and
+ * the same instruction, with this number as the only thing that moved:
+ *
+ *   50, which is the API's own default as read from the Mystic POST
+ *   reference that day: the pen came out right, but rendered like a catalogue
+ *   photograph, on a grey background, with a reflection under it.
+ *
+ *   25: the style went back to flat, on the off-white background the style
+ *   constant asks for, and the barrel came out solid blue instead of
+ *   transparent.
+ *
+ * So the number is not "how much of the shape to keep" in practice so much as
+ * how much of the reference's own rendering comes with it. At 50 the
+ * photograph won over the style constant, which is the one thing the style
+ * constant exists to prevent: a few hundred pictures read as a set, and a
+ * reference that drags its own lighting in undoes that one word at a time.
+ * Approved at 25.
+ *
+ * Sent rather than left out: a picture has to be reproducible from what is
+ * stored, and if Freepik moves their default then every image made until then
+ * becomes irreproducible in silence and the record starts lying without
+ * anyone noticing. The value is ours, and visible in a diff the day it
+ * changes.
+ *
+ * It stays a constant while one number serves every word. The day one does
+ * not, it stops being a constant and becomes a column on the attempt, because
+ * a value that varies has to be stored next to the picture it made.
+ *
+ * Mystic's, and only Mystic's. It takes effect alongside structure_reference
+ * and nowhere else, which is why it is set in the same branch — and Flux
+ * Kontext Pro has no equivalent at all, so do not go looking for why this
+ * number does nothing there. Its documentation, read on 2026-09-19, lists no
+ * parameter with strength, weight, adherence or fidelity in the name.
+ */
+const STRUCTURE_STRENGTH = 25;
 
 /**
  * What each model needs, since the three do not take the same request.
@@ -40,9 +80,12 @@ const BASE_URL = "https://api.magnific.com";
  * against realism for anything stylised. Leaving the default would have
  * measured Mystic at the thing this product never asks it for.
  *
- * No reference image on either, though Mystic accepts one. This delivery
- * compares text to image, and a model given a reference the other cannot
- * have would not be being compared to it.
+ * Mystic takes a structure reference and Seedream takes no input image at
+ * all, so the reference is part of the body a model builds rather than
+ * something added on top of it. A model handed one it cannot use throws
+ * rather than dropping it: the attempt row would still record which file was
+ * used, and a row that says a picture came from a reference it never saw is
+ * worse than a refusal.
  *
  * Polling goes back to the same path with the task id appended. That is
  * documented for Mystic, and assumed for Seedream: its page gives the POST
@@ -50,7 +93,15 @@ const BASE_URL = "https://api.magnific.com";
  */
 type ModelSpec = {
   readonly path: string;
-  readonly body: (prompt: string) => Record<string, unknown>;
+  /**
+   * `reference` arrives in whatever form this model asked for, which is the
+   * model's `reference` field in provider.ts: base64 for Mystic, a public
+   * URL for Kontext. The caller prepares it; the spec only places it.
+   */
+  readonly body: (
+    prompt: string,
+    reference: string | null,
+  ) => Record<string, unknown>;
 };
 
 const SPECS: Record<ImageModelId, ModelSpec> = {
@@ -58,12 +109,49 @@ const SPECS: Record<ImageModelId, ModelSpec> = {
     path: "/v1/ai/text-to-image/seedream-v4",
     body: (prompt) => ({ prompt, aspect_ratio: "square_1_1" }),
   },
+  /*
+   * Kontext takes its reference as a URL, so nothing is downloaded and
+   * nothing is encoded: the caller hands over the public URL of the file
+   * already sitting in the bucket. That is the whole reason it is here and
+   * Flux 2 Pro is not.
+   *
+   * guidance (3.0) and steps (50) are left at the API's own defaults, read on
+   * 2026-09-19, and deliberately not sent. Sending them would write down two
+   * numbers nobody chose; what fixed structure_strength at 25 was a
+   * measurement, not a principle. The reproducibility argument still applies
+   * to them, so it waits here for its first reason: the day anyone has cause
+   * to move guidance or steps, they become explicit in the same movement,
+   * never nudged as a loose default.
+   */
+  "flux-kontext-pro": {
+    path: "/v1/ai/text-to-image/flux-kontext-pro",
+    body: (prompt, reference) => ({
+      prompt,
+      aspect_ratio: "square_1_1",
+      ...(reference === null ? {} : { input_image: reference }),
+    }),
+  },
   mystic: {
     path: "/v1/ai/mystic",
-    body: (prompt) => ({
+    body: (prompt, reference) => ({
       prompt,
       aspect_ratio: "square_1_1",
       model: "flexible",
+      /*
+       * Raw base64, no data: prefix, because the POST reference types the
+       * field as a string of `format: byte`. Read on 2026-09-19 and not
+       * exercised against the live API in the same session, so if it comes
+       * back refused, the two things to try in order are the data-URL form
+       * and a plain URL: the Mystic overview page recommends URLs for
+       * quality, and the bucket is already public, so the URL is a short
+       * road from here.
+       */
+      ...(reference === null
+        ? {}
+        : {
+            structure_reference: reference,
+            structure_strength: STRUCTURE_STRENGTH,
+          }),
     }),
   },
 };
@@ -157,15 +245,22 @@ async function call(
 
 export function createFreepikProvider(): ImageProvider {
   return {
-    async generate({ prompt, model }): Promise<{ requestId: string }> {
+    async generate({
+      prompt,
+      model,
+      reference,
+    }): Promise<{ requestId: string }> {
       if (!isImageModelId(model)) {
         throw new Error(`Unknown image model: ${model}`);
+      }
+      if (reference !== null && !takesReference(model)) {
+        throw new Error(`${model} takes no structure reference`);
       }
 
       const spec = SPECS[model];
       const body = await call(spec.path, {
         method: "POST",
-        body: spec.body(prompt),
+        body: spec.body(prompt, reference),
       });
 
       const task = readTaskBody(body);

@@ -5,24 +5,28 @@ import { Constants } from "../supabase/types.ts";
 import {
   IMAGE_MODELS,
   defaultModelFor,
+  defaultReferenceModel,
   isImageModelId,
   modelCredits,
+  referenceDelivery,
+  takesReference,
 } from "./provider.ts";
 
 const KINDS = Constants.public.Enums.representation_kind;
 
 describe("IMAGE_MODELS", () => {
   /*
-   * Two, and deliberately so. Flux 2 Pro was here and came out again: today's
-   * question is Seedream against Mystic, and a third API shape to handle buys
-   * nothing towards answering it.
+   * Three since 2026-09-19, when Flux Kontext Pro went in to stop Mystic
+   * being the only way to generate from a reference at all. Flux 2 Pro is
+   * still out: its price is unmeasured too, and it brings nothing Kontext
+   * does not.
    */
-  test("has two models, each with a distinct id and label", () => {
-    assert.equal(IMAGE_MODELS.length, 2);
+  test("has three models, each with a distinct id and label", () => {
+    assert.equal(IMAGE_MODELS.length, 3);
     const ids = IMAGE_MODELS.map((model) => model.id);
-    assert.equal(new Set(ids).size, 2);
+    assert.equal(new Set(ids).size, 3);
     const labels = IMAGE_MODELS.map((model) => model.label);
-    assert.equal(new Set(labels).size, 2);
+    assert.equal(new Set(labels).size, 3);
   });
 
   /*
@@ -32,9 +36,19 @@ describe("IMAGE_MODELS", () => {
    * more is the thing its results have to pay for, and a silent edit to
    * either number would move the bar without moving anything visible.
    */
-  test("knows what both models cost, and how they differ", () => {
+  test("knows what the two measured models cost, and how they differ", () => {
     assert.equal(modelCredits("seedream-v4"), 50);
     assert.equal(modelCredits("mystic"), 80);
+  });
+
+  /*
+   * Measured on the dashboard on 2026-09-19, 2830 to 2980 across one isolated
+   * generation. One sample, and it makes Kontext the dearest of the three.
+   */
+  test("knows what Kontext costs, and that it is the dearest", () => {
+    assert.equal(modelCredits("flux-kontext-pro"), 150);
+    assert.equal(modelCredits("mystic"), 80);
+    assert.equal(modelCredits("seedream-v4"), 50);
   });
 
   /*
@@ -49,6 +63,83 @@ describe("IMAGE_MODELS", () => {
       assert.ok(Number.isInteger(credits), id);
       assert.ok(credits > 0, id);
     }
+  });
+});
+
+describe("takesReference", () => {
+  /*
+   * Read off the Freepik documentation on 2026-09-19. Seedream takes no input
+   * image at all; Mystic takes structure_reference in base64; Kontext takes
+   * input_image as a URL.
+   */
+  test("Mystic and Kontext take one, Seedream does not", () => {
+    assert.equal(takesReference("mystic"), true);
+    assert.equal(takesReference("flux-kontext-pro"), true);
+    assert.equal(takesReference("seedream-v4"), false);
+  });
+
+  /*
+   * The form is the model's and not the caller's: the same stored path
+   * becomes bytes for one and an address for the other, and getting the two
+   * the wrong way round is a request the API refuses.
+   */
+  test("each says which form it wants", () => {
+    assert.equal(referenceDelivery("mystic"), "base64");
+    assert.equal(referenceDelivery("flux-kontext-pro"), "url");
+    assert.equal(referenceDelivery("seedream-v4"), "none");
+  });
+
+  test("takesReference and referenceDelivery never disagree", () => {
+    for (const { id } of IMAGE_MODELS) {
+      assert.equal(takesReference(id), referenceDelivery(id) !== "none", id);
+    }
+  });
+});
+
+describe("defaultReferenceModel", () => {
+  /*
+   * Kontext since 2026-09-19, on one word. Same reference and same
+   * instruction on `pen`: it returned the only picture that was both legible
+   * and in the flat style, where Mystic at 50 came back like a catalogue
+   * photograph and at 25 lost the transparent barrel. The comment on the
+   * function carries that, and says out loud that it is a sample of one.
+   */
+  test("is the model marked for it", () => {
+    assert.equal(defaultReferenceModel(), "flux-kontext-pro");
+  });
+
+  /*
+   * The three invariants the flag has to keep, here rather than as a chain of
+   * conditions in the function: a failing test is louder than a silent
+   * fallback, and the third of them is the one that spends money.
+   */
+  test("exactly one model is marked", () => {
+    const marked = IMAGE_MODELS.filter((model) => model.preferredForReference);
+    assert.equal(marked.length, 1);
+  });
+
+  test("the marked one takes a reference", () => {
+    const chosen = defaultReferenceModel();
+    assert.ok(chosen !== null && takesReference(chosen));
+  });
+
+  test("the marked one has a price somebody measured", () => {
+    const chosen = defaultReferenceModel();
+    assert.ok(chosen !== null);
+    assert.notEqual(modelCredits(chosen), null);
+  });
+
+  /*
+   * Not array order. Once Kontext's price was measured, the old rule — first
+   * that takes a reference and has a measured price — was satisfied by both
+   * and went back to deciding by position, which is exactly what this used to
+   * warn about. The flag makes the choice survive a reorder.
+   */
+  test("does not change when the list is read in a different order", () => {
+    const marked = [...IMAGE_MODELS]
+      .reverse()
+      .find((model) => model.preferredForReference);
+    assert.equal(marked?.id, defaultReferenceModel());
   });
 });
 

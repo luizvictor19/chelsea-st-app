@@ -43,6 +43,8 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0011_attempt_subject.sql
 \i supabase/migrations/0012_word_class.sql
 \i supabase/migrations/0013_attempt_completed_at.sql
+\i supabase/migrations/0014_structure_reference.sql
+\i supabase/migrations/0015_backfill_credits_spent.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),

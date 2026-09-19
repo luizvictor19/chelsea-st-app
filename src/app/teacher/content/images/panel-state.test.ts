@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import {
   LOST_RESPONSE,
   attemptsToShow,
+  discardWarning,
   settle,
   type LastAnswer,
 } from "./panel-state.ts";
@@ -114,5 +115,56 @@ describe("attemptsToShow", () => {
   test("an empty answer is an answer, not an absence", () => {
     const answered: LastAnswer<{ id: string }> = { list: [], served };
     assert.deepEqual(attemptsToShow(served, answered), []);
+  });
+});
+
+describe("discardWarning", () => {
+  /*
+   * The number, not "are you sure". The bin removes the file from the bucket
+   * and what stops a person is knowing what they are throwing away: a picture
+   * that has already been paid for.
+   */
+  test("says what the picture cost and that the file is gone", () => {
+    assert.equal(
+      discardWarning(80),
+      "Esta imagem custou 80 créditos. O arquivo não volta.",
+    );
+    assert.equal(
+      discardWarning(150),
+      "Esta imagem custou 150 créditos. O arquivo não volta.",
+    );
+  });
+
+  /*
+   * Null is a model whose price was never measured, and every attempt made
+   * before the cost was written down at all. Filling the sentence with a
+   * guess would put an unchecked number in front of the teacher at the exact
+   * moment they are deciding with it.
+   */
+  test("says the cost was not recorded rather than inventing one", () => {
+    const said = discardWarning(null);
+    assert.match(said, /não foi registrado/u);
+    assert.doesNotMatch(said, /\d/u);
+    assert.match(said, /O arquivo não volta\./u);
+  });
+
+  test("never drops the warning that the file is gone", () => {
+    for (const cost of [null, 0, 1, 50, 80, 150]) {
+      assert.match(discardWarning(cost), /O arquivo não volta\./u, `${cost}`);
+    }
+  });
+
+  /*
+   * Zero is a cost, not an absence: it would mean a generation that really
+   * was free, and saying "not recorded" there would be as wrong as inventing
+   * a number in the other direction.
+   */
+  test("tells zero apart from unknown", () => {
+    assert.match(discardWarning(0), /custou 0 créditos/u);
+    assert.doesNotMatch(discardWarning(0), /não foi registrado/u);
+  });
+
+  test("counts one credit in the singular", () => {
+    assert.match(discardWarning(1), /custou 1 crédito\./u);
   });
 });
