@@ -7,8 +7,22 @@
  * Decided on 2026-09-18, style 1 of three proposed. The comparison that
  * settled it is not in this repository.
  */
+/**
+ * The first words of every prompt: what medium this is, and what it is of.
+ *
+ * 2026-09-19: moving the subject to the front pushed the medium to the
+ * seventh sentence. An image model weighs its opening, and the flat style is
+ * the part Seedream obeys and Mystic used to ignore, so it is worth the first
+ * words. The subject rides with it, which is what the reordering was for.
+ */
+export const MEDIUM_PROMPT = "Flat vector illustration of {subject}.";
+
+/** Where the subject is substituted into MEDIUM_PROMPT. */
+const SUBJECT_SLOT = "{subject}";
+
+/** The rest of the style, which can wait until the end. */
 export const STYLE_PROMPT =
-  "Flat vector illustration. Centered, bold outlines, flat colors, no " +
+  "Centered, bold outlines, flat colors, no " +
   "shading, plain warm off-white background, no text, no letters, no " +
   "numbers, no watermark. Minimal, clean, friendly. " +
   // 2026-09-19: the first real figure came back inside a black frame. The
@@ -88,13 +102,15 @@ export function isDrawableKind(kind: string): kind is DrawableKind {
 }
 
 /**
- * The full prompt for one word: the subject, then what this kind has to show,
- * then the style.
+ * The full prompt for one word: the medium and the subject, then what this
+ * kind has to show, then the rest of the style.
  *
  * 2026-09-19: the order is the fix, not the wording. The character used to be
  * the last sentence of the prompt, after eleven style constraints, and a
  * generation of "sitting" came back as an empty chair. Who is in the picture
- * belongs next to the subject; how it is drawn can wait until the end.
+ * belongs next to the subject; how it is drawn can wait until the end, except
+ * for the medium, which belongs in the first words and takes the subject with
+ * it.
  *
  * Refuses twice before anything is spent. A symbol is rendered by the screen
  * as the character itself and none has no picture at all, so neither has a
@@ -111,7 +127,6 @@ export function buildPrompt(subject: string, kind: string): string {
   if (cleaned === "") {
     throw new Error("A prompt needs a subject");
   }
-  // The subject opens the prompt, so it opens as a sentence.
-  const opening = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
-  return `${opening}. ${SUBJECT_RULES[kind]} ${STYLE_PROMPT}`;
+  const opening = MEDIUM_PROMPT.replace(SUBJECT_SLOT, cleaned);
+  return `${opening} ${SUBJECT_RULES[kind]} ${STYLE_PROMPT}`;
 }

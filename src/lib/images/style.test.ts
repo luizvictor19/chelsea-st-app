@@ -1,32 +1,49 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { STYLE_PROMPT, SUBJECT_RULES, buildPrompt } from "./style.ts";
+import {
+  MEDIUM_PROMPT,
+  STYLE_PROMPT,
+  SUBJECT_RULES,
+  buildPrompt,
+} from "./style.ts";
 
 const SUBJECT = "a man sitting on a chair";
 
 describe("buildPrompt", () => {
   /*
-   * 2026-09-19: the order is the whole fix. The character used to be the last
-   * sentence, after eleven style constraints, and a generation of "sitting"
-   * came back as an empty chair. Who is in the picture goes next to the
-   * subject; how it is drawn waits until the end.
+   * 2026-09-19, twice over. The character used to be the last sentence, after
+   * eleven style constraints, and a generation of "sitting" came back as an
+   * empty chair, so who is in the picture moved up next to the subject. That
+   * pushed the medium to the seventh sentence, and an image model weighs its
+   * opening, so the medium came back to the front and brought the subject
+   * with it. What stayed in the tail is the part that can wait.
    */
-  test("says the subject, then the category rule, then the style", () => {
+  test("says the medium and subject, then the rule, then the rest of the style", () => {
     const prompt = buildPrompt(SUBJECT, "pose");
     const ruleAt = prompt.indexOf(SUBJECT_RULES.pose);
     const styleAt = prompt.indexOf(STYLE_PROMPT);
     assert.ok(
-      prompt.startsWith("A man sitting on a chair."),
-      "the subject opens",
+      prompt.startsWith(
+        "Flat vector illustration of a man sitting on a chair.",
+      ),
+      "the medium and the subject open together",
     );
     assert.ok(prompt.indexOf("chair") < ruleAt, "the rule follows the subject");
-    assert.ok(ruleAt < styleAt, "the style comes last");
+    assert.ok(ruleAt < styleAt, "the rest of the style comes last");
     assert.ok(prompt.endsWith(STYLE_PROMPT));
   });
 
-  test("opens the subject as a sentence", () => {
-    assert.ok(buildPrompt("a red apple", "photo").startsWith("A red apple."));
+  test("names the medium once, and in the first words", () => {
+    for (const kind of ["photo", "pose", "action", "figure"]) {
+      const prompt = buildPrompt("a red apple", kind);
+      assert.ok(prompt.startsWith("Flat vector illustration of a red apple."));
+      const occurrences =
+        prompt.toLowerCase().split("flat vector illustration").length - 1;
+      assert.equal(occurrences, 1, `${kind} repeats the medium`);
+    }
+    assert.doesNotMatch(STYLE_PROMPT, /flat vector illustration/iu);
+    assert.match(MEDIUM_PROMPT, /flat vector illustration/iu);
   });
 
   test("the style is the same for every kind", () => {
