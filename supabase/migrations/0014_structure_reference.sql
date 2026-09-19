@@ -72,6 +72,29 @@ alter table image_attempts
     storage_path is null or storage_path not like 'references/%'
   );
 
+-- And the third side, on the copy.
+--
+-- vocabulary_items.image_path is the approved attempt's storage_path, held
+-- twice on purpose so the tutor screen can read the picture without a join.
+-- A copy of a value that cannot be under references/ cannot be under
+-- references/ either, and the reason is the same one again: it would read
+-- back, resolve to a public URL and look right, and the only one to notice
+-- would be whoever comes to clean the bucket up, who would then delete a
+-- picture a word is pointing at.
+--
+-- It is checked here rather than trusted to the copying, because the copy is
+-- made by a function and a function can be changed. The pair check from 0008
+-- already says image_path and approved_attempt_id are both set or both null;
+-- this says nothing about that, only about where the path may point.
+--
+-- No `not valid`: measured against the project on 2026-09-19, 283 words, 276
+-- of them with no approved picture at all and none of the other 7 under the
+-- prefix.
+alter table vocabulary_items
+  add constraint vocabulary_items_image_path_not_reference check (
+    image_path is null or image_path not like 'references/%'
+  );
+
 comment on column vocabulary_items.reference_path is
   'The structure reference this word is set up to generate from. Null when none is set. Upload once, generate many.';
 
