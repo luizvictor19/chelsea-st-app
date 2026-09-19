@@ -8,11 +8,13 @@ import { overwriteWarning } from "@/lib/images/suggest";
 
 import {
   FILTER_GROUPS,
+  hasAnyFilter,
+  imageCounts,
+  matchesSearch,
   matchesSelection,
   parseSelection,
   situationOf,
   toggled,
-  type FilterKey,
   type Selection,
   type Situation,
 } from "./filters";
@@ -29,15 +31,45 @@ export const metadata: Metadata = {
  * word. Every control is a link, so the back button walks the filters and a
  * view can be pasted to someone.
  */
-function href(selection: Selection, word: string | null): string {
+function href(selection: Selection, word: string | null, term = ""): string {
   const search = new URLSearchParams();
   for (const { key } of FILTER_GROUPS) {
     const chosen = selection[key];
     if (chosen.length > 0) search.set(key, chosen.join(","));
   }
+  if (term.trim() !== "") search.set("busca", term.trim());
   if (word) search.set("palavra", word);
   const query = search.toString();
   return query === "" ? "/teacher/content/images" : `?${query}`;
+}
+
+/**
+ * One filter option. Filled in the accent when it is on: the outline against
+ * outline the two states had before was a difference you had to look for,
+ * and a filter you cannot read at a glance is a filter you forget is on.
+ */
+function Pill({
+  href,
+  on,
+  label,
+}: {
+  readonly href: string;
+  readonly on: boolean;
+  readonly label: string;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-pressed={on}
+      className={
+        on
+          ? "border-accent bg-accent text-accent-foreground rounded-sm border px-2.5 py-1 text-xs font-semibold"
+          : "border-rule hover:bg-surface rounded-sm border px-2.5 py-1 text-xs transition-colors"
+      }
+    >
+      {label}
+    </Link>
+  );
 }
 
 /** The tick, the waiting circle, or nothing. */
@@ -89,6 +121,7 @@ export default async function VocabularyImagesPage({
     classe: parseSelection(params.classe),
     situacao: parseSelection(params.situacao),
   };
+  const term = typeof params.busca === "string" ? params.busca : "";
   const selectedId = typeof params.palavra === "string" ? params.palavra : null;
 
   const { lessons, progress } = await listVocabularyImages();
@@ -101,11 +134,20 @@ export default async function VocabularyImagesPage({
       // Both the count it is disabled by and the count it warns with are
       // taken here, before the filter, for the same reason.
       totalWords: lesson.words.length,
-      withImage: lesson.words.filter((word) => word.imageUrl !== null).length,
+      images: imageCounts(lesson.words),
       overwrite: overwriteWarning(lesson.words),
-      words: lesson.words.filter((word) => matchesSelection(word, selection)),
+      words: lesson.words.filter(
+        (word) =>
+          matchesSelection(word, selection) && matchesSearch(word.term, term),
+      ),
     }))
     .filter((lesson) => lesson.words.length > 0);
+
+  const shown = visible.reduce(
+    (total, lesson) => total + lesson.words.length,
+    0,
+  );
+  const filtering = hasAnyFilter(selection, term);
 
   const selected =
     lessons
@@ -145,49 +187,120 @@ export default async function VocabularyImagesPage({
       ) : (
         <>
           {/*
-            Three axes, each a labelled group, multi select inside a group and
-            all three required at once. Every option is a link, so the whole
-            state is the query string: the back button walks the filters and a
-            view can be handed to someone as a URL.
+            A panel, not a loose row of buttons: bordered and set back from
+            the list, so it reads as the thing that narrows what is below it.
+            Every control is a link or a GET form, so the whole state is the
+            query string and a view can be handed to someone as a URL.
           */}
-          <nav aria-label="Filtros" className="flex flex-col gap-2">
-            {FILTER_GROUPS.map((group) => (
-              <div
-                key={group.key}
-                className="flex flex-wrap items-baseline gap-2"
+          <div className="border-rule bg-surface/50 flex flex-col gap-3 rounded-sm border p-3">
+            <form method="GET" className="flex gap-2">
+              {/*
+                The other axes ride along as hidden fields, or searching would
+                quietly drop the filters already chosen.
+              */}
+              {FILTER_GROUPS.map((group) =>
+                selection[group.key].length === 0 ? null : (
+                  <input
+                    key={group.key}
+                    type="hidden"
+                    name={group.key}
+                    value={selection[group.key].join(",")}
+                  />
+                ),
+              )}
+              <input
+                type="search"
+                name="busca"
+                defaultValue={term}
+                placeholder="Buscar termo"
+                aria-label="Buscar termo"
+                className="border-rule bg-background min-w-0 flex-1 rounded-sm border px-3 py-1.5 text-sm"
+              />
+              <button
+                type="submit"
+                className="border-rule hover:bg-background rounded-sm border px-3 py-1.5 text-sm font-semibold transition-colors"
               >
-                <span className="text-faint w-16 shrink-0 font-mono text-xs tracking-[0.16em] uppercase">
-                  {group.label}
-                </span>
-                {group.options.map((option) => {
-                  const on = selection[group.key as FilterKey].includes(
-                    option.value,
-                  );
-                  return (
-                    <Link
+                Buscar
+              </button>
+            </form>
+
+            {FILTER_GROUPS.filter((group) => group.key !== "classe").map(
+              (group) => (
+                <div
+                  key={group.key}
+                  className="flex flex-wrap items-baseline gap-2"
+                >
+                  <span className="text-faint w-16 shrink-0 font-mono text-xs tracking-[0.16em] uppercase">
+                    {group.label}
+                  </span>
+                  {group.options.map((option) => (
+                    <Pill
                       key={option.value}
                       href={href(
-                        toggled(
-                          selection,
-                          group.key as FilterKey,
-                          option.value,
-                        ),
+                        toggled(selection, group.key, option.value),
                         selectedId,
+                        term,
                       )}
-                      aria-pressed={on}
-                      className={
-                        on
-                          ? "border-foreground bg-foreground text-background rounded-sm border px-2.5 py-1 text-xs font-semibold"
-                          : "border-rule hover:bg-surface rounded-sm border px-2.5 py-1 text-xs transition-colors"
-                      }
-                    >
-                      {option.label}
-                    </Link>
-                  );
-                })}
+                      on={selection[group.key].includes(option.value)}
+                      label={option.label}
+                    />
+                  ))}
+                </div>
+              ),
+            )}
+
+            {/*
+              Twelve classes would be a third row of pills longer than the
+              other two together, so this one folds away. Native details, no
+              script, and the summary says how many are chosen so a filter
+              that is on can never be invisible.
+            */}
+            <details
+              open={selection.classe.length > 0}
+              className="border-rule rounded-sm border px-3 py-2"
+            >
+              <summary className="text-faint cursor-pointer font-mono text-xs tracking-[0.16em] uppercase">
+                Classe
+                {selection.classe.length > 0 && (
+                  <span className="text-foreground normal-case">
+                    {" "}
+                    · {selection.classe.length} escolhidas
+                  </span>
+                )}
+              </summary>
+              <div className="flex flex-wrap gap-2 pt-2">
+                {FILTER_GROUPS.find(
+                  (group) => group.key === "classe",
+                )?.options.map((option) => (
+                  <Pill
+                    key={option.value}
+                    href={href(
+                      toggled(selection, "classe", option.value),
+                      selectedId,
+                      term,
+                    )}
+                    on={selection.classe.includes(option.value)}
+                    label={option.label}
+                  />
+                ))}
               </div>
-            ))}
-          </nav>
+            </details>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-muted text-xs">
+                {shown} de {progress.total}
+              </span>
+              {/* Only when there is something to clear. */}
+              {filtering && (
+                <Link
+                  href="/teacher/content/images"
+                  className="text-faint hover:text-foreground text-xs underline underline-offset-2 transition-colors"
+                >
+                  Limpar
+                </Link>
+              )}
+            </div>
+          </div>
 
           <div className="grid gap-8 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:overflow-hidden">
             <div className="flex flex-col gap-7 lg:min-h-0 lg:overflow-y-auto lg:pr-3">
@@ -214,7 +327,8 @@ export default async function VocabularyImagesPage({
                         the second number.
                       */}
                       <span className="text-faint text-xs whitespace-nowrap">
-                        {lesson.withImage}/{lesson.totalWords} com imagem
+                        {lesson.images.withImage}/{lesson.images.takesImage} com
+                        imagem
                       </span>
                       <span className="text-faint text-xs whitespace-nowrap">
                         {lesson.overwrite.suggestions}/{lesson.totalWords} com
@@ -233,7 +347,7 @@ export default async function VocabularyImagesPage({
                       {lesson.words.map((word) => (
                         <li key={word.id}>
                           <Link
-                            href={href(selection, word.id)}
+                            href={href(selection, word.id, term)}
                             aria-current={
                               selectedId === word.id ? "true" : undefined
                             }

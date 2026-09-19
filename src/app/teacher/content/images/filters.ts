@@ -111,3 +111,43 @@ export function toggled(
     : [...current, value];
   return { ...selection, [key]: next };
 }
+
+/**
+ * How many of a lesson's words have their picture, out of the ones that take
+ * a picture at all.
+ *
+ * The denominator is not the lesson. A word decided as none or symbol will
+ * never have an image, and an undecided word might never take one, so
+ * counting either would make a finished lesson read as unfinished forever.
+ */
+export function imageCounts(
+  words: readonly {
+    readonly representation: Representation | null;
+    readonly imageUrl: string | null;
+  }[],
+): { withImage: number; takesImage: number } {
+  let withImage = 0;
+  let takesImage = 0;
+  for (const word of words) {
+    const situation = situationOf(word.representation, word.imageUrl);
+    if (situation === "com-imagem" || situation === "sem-imagem") {
+      takesImage += 1;
+      if (situation === "com-imagem") withImage += 1;
+    }
+  }
+  return { withImage, takesImage };
+}
+
+/** Case insensitive substring on the term. An empty search matches all. */
+export function matchesSearch(term: string, search: string): boolean {
+  const needle = search.trim().toLowerCase();
+  return needle === "" || term.toLowerCase().includes(needle);
+}
+
+/** Whether anything is narrowing the list, which is when Limpar is worth showing. */
+export function hasAnyFilter(selection: Selection, search: string): boolean {
+  return (
+    search.trim() !== "" ||
+    FILTER_GROUPS.some((group) => selection[group.key].length > 0)
+  );
+}

@@ -4,6 +4,9 @@ import { describe, test } from "node:test";
 import { Constants } from "../../../../lib/supabase/types.ts";
 import {
   SITUATIONS,
+  hasAnyFilter,
+  imageCounts,
+  matchesSearch,
   matchesSelection,
   parseSelection,
   situationOf,
@@ -122,5 +125,71 @@ describe("toggled", () => {
     assert.deepEqual(next.tipo, ["photo"]);
     assert.deepEqual(next.classe, ["noun"]);
     assert.deepEqual(next.situacao, ["com-imagem"]);
+  });
+});
+
+describe("imageCounts", () => {
+  const word = (
+    representation: (typeof KINDS)[number] | null,
+    imageUrl: string | null,
+  ) => ({ representation, imageUrl });
+
+  /*
+   * The denominator is the words that take a picture, not the lesson. A word
+   * decided as none will never have one and an undecided word might never
+   * take one, so counting either would make a finished lesson read as
+   * unfinished forever.
+   */
+  test("counts only the words that take an image", () => {
+    const words = [
+      word("photo", "/a.png"),
+      word("pose", null),
+      word("none", null),
+      word("symbol", null),
+      word(null, null),
+    ];
+    assert.deepEqual(imageCounts(words), { withImage: 1, takesImage: 2 });
+  });
+
+  test("a lesson of none and undecided words has no denominator at all", () => {
+    const words = [word("none", null), word("symbol", null), word(null, null)];
+    assert.deepEqual(imageCounts(words), { withImage: 0, takesImage: 0 });
+  });
+
+  test("a finished lesson reads as finished", () => {
+    const words = [
+      word("photo", "/a.png"),
+      word("figure", "/b.png"),
+      word("none", null),
+    ];
+    assert.deepEqual(imageCounts(words), { withImage: 2, takesImage: 2 });
+  });
+});
+
+describe("matchesSearch", () => {
+  test("an empty search matches everything", () => {
+    assert.ok(matchesSearch("book", ""));
+    assert.ok(matchesSearch("book", "   "));
+  });
+
+  test("matches part of the term, whatever the case", () => {
+    assert.ok(matchesSearch("in front of", "front"));
+    assert.ok(matchesSearch("Mr", "mr"));
+    assert.ok(matchesSearch("book", "BOO"));
+    assert.ok(!matchesSearch("book", "pen"));
+  });
+});
+
+describe("hasAnyFilter", () => {
+  test("false when nothing narrows the list", () => {
+    assert.ok(!hasAnyFilter(EMPTY, ""));
+    assert.ok(!hasAnyFilter(EMPTY, "  "));
+  });
+
+  test("true for a search or for any axis", () => {
+    assert.ok(hasAnyFilter(EMPTY, "book"));
+    assert.ok(hasAnyFilter({ ...EMPTY, tipo: ["photo"] }, ""));
+    assert.ok(hasAnyFilter({ ...EMPTY, classe: ["noun"] }, ""));
+    assert.ok(hasAnyFilter({ ...EMPTY, situacao: ["com-imagem"] }, ""));
   });
 });

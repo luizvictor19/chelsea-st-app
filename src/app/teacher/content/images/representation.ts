@@ -15,7 +15,7 @@ export const REPRESENTATIONS = [
   { kind: "action", label: "Ação" },
   { kind: "figure", label: "Figura" },
   { kind: "symbol", label: "Símbolo" },
-  { kind: "none", label: "Nada" },
+  { kind: "none", label: "Outro" },
 ] as const satisfies readonly { kind: Representation; label: string }[];
 
 export function labelFor(kind: Representation | null): string {
