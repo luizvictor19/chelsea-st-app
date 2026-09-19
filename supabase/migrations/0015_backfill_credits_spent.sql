@@ -21,6 +21,28 @@
 -- A model that appears later and is not named here keeps its null, which goes
 -- on meaning "nobody knows" and never zero. Same for an upload, which names
 -- no model and cost nothing to make.
+--
+-- AND ONLY ROWS THE PROVIDER ACCEPTED. provider_request_id is the handle the
+-- provider gives back when it takes the task, and it is written immediately
+-- after — in the code of the day and in the code now. A row without one is a
+-- request refused at the door, which was never drawn and cannot have been
+-- charged, and giving it the price of its model would invent a credit.
+--
+-- This is the same rule the application now follows, and it has to be: the
+-- cost is written in the same statement that stores the handle. A backfill
+-- that used a different rule would make the rows before it and the rows after
+-- it mean different things, in the one column whose whole job is to be added
+-- up.
+--
+-- Status is deliberately not filtered on. An attempt that was accepted and
+-- then failed, or that ran past the window, keeps the price of its model,
+-- because the task was opened and a charge may well exist. Whether it does is
+-- the open question; writing zero there would be answering it by assertion.
+-- The one failure that can still be told apart is the request refused at the
+-- door, because it has no handle. The one that timed out cannot: it was
+-- discarded into 'rejected' before failures stopped being reclassified, and
+-- it is now indistinguishable from ten pictures the teacher disliked. That
+-- loss is why the bin no longer touches a failure.
 update image_attempts
    set credits_spent = case model
          when 'seedream-v4' then 50
@@ -28,7 +50,8 @@ update image_attempts
          when 'flux-kontext-pro' then 150
        end
  where credits_spent is null
-   and model is not null;
+   and model is not null
+   and provider_request_id is not null;
 
 -- WHAT THE SUM WILL NOT MATCH, recorded once instead of chased.
 --
@@ -52,7 +75,26 @@ update image_attempts
 -- and leaves the row. So the arithmetic above is where the doubt lives, not
 -- the code.
 --
--- The sum of this column may therefore read below the dashboard, and that
--- gap is a measurement rather than a defect. It stops growing here: from now
--- on the cost is written when the provider accepts the task, and the total
--- is read off the rows instead of solved for by elimination.
+-- WHAT IT WRITES, counted against the project on 2026-09-19 before it ran:
+--
+--   seedream-v4        30 rows x  50 = 1500, none of them refused at the door
+--   mystic             17 rows x  80 = 1360, of 18; one has no handle
+--   flux-kontext-pro    2 rows x 150 =  300
+--                      ------------------------
+--                      49 rows          3160
+--
+-- and one row left null on purpose: a Mystic request the provider refused
+-- with a 500 on the way in, now carrying status 'rejected' because it was
+-- discarded before a failure could stay a failure.
+--
+-- So null in this column will mean two things at once, and it is worth
+-- knowing which: nothing was charged, or nobody measured the model's price.
+-- Today only the first happens, because all three models are priced. The day
+-- an unpriced model is added, they stop being distinguishable and the column
+-- needs help — a check against provider_request_id tells them apart until
+-- then.
+--
+-- The sum of this column may still read below the dashboard, and that gap is
+-- a measurement rather than a defect. It stops growing here: from now on the
+-- cost is written when the provider accepts the task, and the total is read
+-- off the rows instead of solved for by elimination.
