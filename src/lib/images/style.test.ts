@@ -61,16 +61,46 @@ describe("the rule each kind adds", () => {
   test("pose asks for a still whole body and forbids the arrow", () => {
     const prompt = buildPrompt(SUBJECT, "pose");
     assert.ok(prompt.endsWith(SUBJECT_RULES.pose));
-    assert.match(prompt, /standing still/iu);
     assert.match(prompt, /whole body/iu);
+    assert.match(prompt, /posture clearly readable/iu);
+    assert.match(prompt, /no movement/iu);
     assert.match(prompt, /No arrow/u);
   });
 
+  /*
+   * The rule may not name a posture. It said "standing still", meaning
+   * motionless, but standing is itself a posture and a word in this
+   * vocabulary, so the instruction argued with every subject that was
+   * sitting or lying. The rule describes how to draw a posture; the subject
+   * is what says which one.
+   */
+  test("the pose rule names no posture of its own", () => {
+    for (const posture of ["standing", "sitting", "lying", "kneeling"]) {
+      assert.doesNotMatch(
+        SUBJECT_RULES.pose,
+        new RegExp(posture, "iu"),
+        `the pose rule must not say ${posture}`,
+      );
+    }
+  });
+
+  test("the subject still carries the posture through untouched", () => {
+    const prompt = buildPrompt("a man sitting on a chair", "pose");
+    assert.match(prompt, /a man sitting on a chair/u);
+  });
+
+  /*
+   * Action keeps both halves: the arrow and the middle of the movement are
+   * what separate it from pose, and losing either would make the two kinds
+   * produce the same picture.
+   */
   test("action asks for the movement and the arrow", () => {
     const prompt = buildPrompt("a man standing up", "action");
     assert.ok(prompt.endsWith(SUBJECT_RULES.action));
     assert.match(prompt, /middle of the movement/iu);
     assert.match(prompt, /a single arrow/iu);
+    assert.match(SUBJECT_RULES.action, /arrow/iu);
+    assert.doesNotMatch(SUBJECT_RULES.pose, /(?<!No )arrow/u);
   });
 
   test("figure asks for a diagram with nobody in it", () => {

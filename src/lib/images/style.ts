@@ -29,9 +29,12 @@ const SUBJECT_SLOT = "{subject}";
  */
 export const SUBJECT_RULES = {
   photo: "Show the subject on its own, with nothing around it.",
+  // No posture may be named here. "standing still" read as the posture
+  // standing, which is also a word in the vocabulary, and contradicted every
+  // subject that was sitting or lying.
   pose:
-    "Show one person standing still, the whole body visible, the posture " +
-    "clearly readable. No arrow.",
+    "Show the whole body, the posture clearly readable, and no movement. " +
+    "No arrow.",
   action:
     "Show one person in the middle of the movement, with a single arrow " +
     "indicating the direction of the movement.",
