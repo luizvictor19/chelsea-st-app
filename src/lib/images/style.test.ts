@@ -12,9 +12,10 @@ const SUBJECT = "a man sitting on a chair";
 
 describe("buildPrompt", () => {
   /*
-   * 2026-09-19, twice over. The character used to be the last sentence, after
-   * eleven style constraints, and a generation of "sitting" came back as an
-   * empty chair, so who is in the picture moved up next to the subject. That
+   * 2026-09-19, twice over. The description of who was in the picture used to
+   * be the last sentence, after eleven style constraints, and a generation of
+   * "sitting" came back as an empty chair, so it moved up next to the
+   * subject. That
    * pushed the medium to the seventh sentence, and an image model weighs its
    * opening, so the medium came back to the front and brought the subject
    * with it. What stayed in the tail is the part that can wait.
@@ -68,6 +69,34 @@ describe("buildPrompt", () => {
     assert.throws(() => buildPrompt("", "photo"), /subject/);
     assert.throws(() => buildPrompt("   ", "photo"), /subject/);
     assert.throws(() => buildPrompt(".", "photo"), /subject/);
+  });
+
+  /*
+   * 2026-09-19: the style asked for bold outlines and no shading, a real
+   * generation of "sitting" ignored both, and what came back was better. The
+   * words describe that picture now.
+   *
+   * This asserts the decision rather than the prose, so the next rewrite
+   * cannot quietly put the outlines back. While the constant describes a
+   * drawing nobody wants, the result is a toss-up between two styles, which
+   * is what had already happened between "book" and "sitting".
+   */
+  test("asks for no outlines, in every prompt", () => {
+    for (const kind of ["photo", "pose", "action", "figure"]) {
+      const prompt = buildPrompt("a thing", kind);
+      assert.match(prompt, /no outlines/iu);
+      assert.doesNotMatch(prompt, /bold outlines/iu);
+    }
+    assert.match(STYLE_PROMPT, /no outlines/iu);
+  });
+
+  test("describes the drawing that came back, not the one that was asked for", () => {
+    assert.match(STYLE_PROMPT, /solid flat colors/iu);
+    assert.match(STYLE_PROMPT, /limited muted palette/iu);
+    assert.match(STYLE_PROMPT, /soft shadow under the subject/iu);
+    // The old constant forbade shading outright, which is what produced a
+    // flat cut-out with nothing holding it to the ground.
+    assert.doesNotMatch(STYLE_PROMPT, /no shading/iu);
   });
 
   /*
@@ -165,22 +194,38 @@ describe("the rule each kind adds", () => {
   });
 
   /*
-   * 2026-09-19: the first two real images each invented their own person, and
-   * one changed its own shirt colour between the top and the bottom of the
-   * figure. The character is fixed only where a person is drawn.
+   * The rules used to describe one fixed man for pose and action. Tried on
+   * 2026-09-19 and abandoned the same day: three real generations came back
+   * with a chair and nobody in it, and two people matching neither the
+   * description nor each other. A text to image model keeps no identity
+   * between calls, and Seedream 4 takes no reference image to keep one with.
+   *
+   * This asserts the absence, so that nobody reintroduces two sentences per
+   * prompt that were measured not to work.
    */
-  test("fixes the character in pose and action, and only there", () => {
+  test("describes no fixed character, in any kind", () => {
+    for (const kind of ["photo", "pose", "action", "figure"]) {
+      const prompt = buildPrompt("a thing", kind);
+      assert.doesNotMatch(prompt, /always the same character/iu);
+      assert.doesNotMatch(prompt, /short dark hair/iu);
+      assert.doesNotMatch(prompt, /consistent across the whole figure/iu);
+    }
+  });
+
+  /*
+   * 2026-09-19: "sitting" took four attempts and the angle is what fixed it.
+   * A seated person drawn from the front does not read as seated; the bent
+   * knee in profile is what says it. Only where a body is drawn: a pen and a
+   * diagram have no posture to lose.
+   */
+  test("asks pose and action for the angle, and only them", () => {
     for (const kind of ["pose", "action"]) {
       const prompt = buildPrompt("a thing", kind);
-      assert.match(prompt, /always the same character/iu);
-      assert.match(prompt, /short dark hair/iu);
-      assert.match(prompt, /consistent across the whole figure/iu);
+      assert.match(prompt, /viewing angle is part of the meaning/iu);
+      assert.match(prompt, /draw the view the subject names/iu);
     }
     for (const kind of ["photo", "figure"]) {
-      assert.doesNotMatch(
-        buildPrompt("a thing", kind),
-        /always the same character/iu,
-      );
+      assert.doesNotMatch(buildPrompt("a thing", kind), /viewing angle/iu);
     }
   });
 

@@ -112,8 +112,14 @@ export function FilterDrawer({
             Bigger than the label it sits next to, because it is the thing
             being aimed at. Only the glyph grows: the whole chip removes the
             filter, so the target was never the cross.
+
+            The cross sits low on its own line box, so a pixel of padding
+            underneath lifts it onto the label's centre. Padding only: pinning
+            the height as well puts the box back in the middle and cancels the
+            nudge, which is the whole point of the padding. The chip gains a
+            pixel and that is the trade.
           */}
-          <span aria-hidden="true" className="text-base leading-none">
+          <span aria-hidden="true" className="pb-px text-base leading-none">
             ×
           </span>
         </Link>
@@ -126,7 +132,7 @@ export function FilterDrawer({
           className="border-rule text-muted hover:text-foreground flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors"
         >
           {draft.trim()}
-          <span aria-hidden="true" className="text-base leading-none">
+          <span aria-hidden="true" className="pb-px text-base leading-none">
             ×
           </span>
         </button>
