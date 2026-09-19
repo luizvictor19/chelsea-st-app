@@ -196,10 +196,28 @@ não guarda identidade entre chamadas, e o Seedream 4 não aceita imagem de refe
 era a única alavanca e ela não moveu nada. O assunto de um nome de pessoa também não precisa carregar
 traços fixos pelo mesmo motivo. O tema volta com a cena do tutor, com um modelo que aceite referência.
 
-**O ângulo é parte do sentido**, em Postura e em Ação. Pessoa sentada desenhada de frente não lê
-como sentada: o que comunica a postura é o joelho dobrado, de perfil. O assunto é onde o professor
-nomeia o ângulo, e a regra da categoria pede isso. Descoberto em 19/09/2026, depois de quatro
-tentativas em `sitting`.
+**O ângulo é parte do sentido**, em toda categoria que desenha. Pessoa sentada desenhada de frente
+não lê como sentada: o que comunica a postura é o joelho dobrado, de perfil. A instrução é onde o
+professor nomeia o ângulo. Descoberto em 19/09/2026, depois de quatro tentativas em `sitting`, e
+generalizado no mesmo dia: nasceu valendo só para Postura e Ação, e rodar a regra sobre sete
+palavras mostrou que caixa e bola leem de lado, e que a melhor das sete respostas foi um livro
+aberto visto de cima. Nomear o ponto de vista vale para qualquer coisa que seja desenhada; **qual**
+ponto de vista é o julgamento, e é para fazer esse julgamento que o professor edita a frase.
+
+**Escolha a vista com a silhueta mais reconhecível.** Livro fechado em pé voltou como caixa, como
+pasta e como cartão, porque os quatro têm o mesmo contorno; livro aberto não é confundível com nada.
+A escolha existe para quase todo objeto e custa uma palavra: tesoura aberta, porta entreaberta.
+Descoberto em 19/09/2026.
+
+**Palavra de estado não leva adjetivo.** Para `open`, `closed`, `empty`, `full`, o adjetivo pede ao
+modelo que subtraia, e ele não subtrai: faz média. "a closed cardboard box" voltou meio aberta e meio
+fechada nos dois modelos, porque a caixa de abas levantadas é a caixa que ele conhece. O que resolve
+é nomear um traço positivo que só existe naquele estado — "sealed with packing tape across the top"
+funcionou nos dois, porque fita não convive com aba levantada. Descoberto em 19/09/2026.
+
+As três regras estão escritas como instruções ao modelo em `src/lib/images/subject.ts`, exportadas em
+`LEARNED_RULES` e seguradas por teste, para que sumir do prompt seja uma falha e não uma imagem que
+volta a sair errada em silêncio.
 
 Postura e Ação se separam por **repouso contra atividade**, não pela seta. Teste prático: congele o
 desenho. Se ele continuar dizendo a palavra, é Postura; se virar outra palavra, é Ação.
@@ -216,7 +234,9 @@ coerentes com o que liam, e é isso que mostrou que faltava uma categoria, não 
 
 Uma constante só, não editável na tela, porque o ponto de ter um estilo é algumas centenas de
 imagens lerem como um conjunto em vez de como algumas centenas de decisões separadas. O professor
-escreve o assunto; o estilo entra sozinho.
+escreve a instrução; o estilo entra sozinho. O campo se chamava Assunto na tela até 19/09/2026, e
+passou a se chamar Instrução: o que o professor escreve ali é uma ordem para quem desenha, e "assunto"
+lia como o tema da palavra.
 
 O prompt abre pelo meio e pelo assunto ("Flat vector illustration of {subject}."), segue pela regra
 da categoria e fecha pelo resto do estilo:

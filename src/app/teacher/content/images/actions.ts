@@ -553,7 +553,7 @@ export async function suggestSubject(wordId: string): Promise<SubjectResult> {
     if (word.representation === null) {
       return {
         ok: false,
-        error: "Escolha o tipo da palavra antes de pedir um assunto.",
+        error: "Escolha o tipo da palavra antes de pedir uma instrução.",
       };
     }
 
@@ -569,7 +569,10 @@ export async function suggestSubject(wordId: string): Promise<SubjectResult> {
 
     const subject = parseSubject(text);
     if (subject === null) {
-      return { ok: false, error: "O modelo não devolveu um assunto legível." };
+      return {
+        ok: false,
+        error: "O modelo não devolveu uma instrução legível.",
+      };
     }
     return { ok: true, subject };
   } catch (cause) {
