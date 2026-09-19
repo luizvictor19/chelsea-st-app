@@ -1,0 +1,13 @@
+-- What the teacher typed, kept apart from what was sent.
+--
+-- image_attempts.prompt holds the whole prompt: the style constant, the
+-- subject, and the rule for the category. The subject cannot be recovered
+-- from it by string surgery, because the style constant changes over time and
+-- a prompt built last month no longer matches the pattern this month's code
+-- would look for. Storing the subject is the only way a past attempt can say
+-- what it was asked to draw.
+--
+-- Null on an upload, which had no subject, and null on every attempt made
+-- before this column existed. Backfilling from prompt would be guessing, and
+-- a guess written into a column is indistinguishable from a fact later.
+alter table image_attempts add column subject text;
