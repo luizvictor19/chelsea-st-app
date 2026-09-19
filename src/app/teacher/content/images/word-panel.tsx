@@ -8,6 +8,13 @@ import type {
   WordImage,
 } from "@/lib/content/queries";
 import {
+  POLL_INTERVAL_MS,
+  elapsedSeconds,
+  hasExpired,
+  isRunning,
+  runningAttempt,
+} from "@/lib/images/generation";
+import {
   IMAGE_MODELS,
   defaultModelFor,
   isImageModelId,
@@ -17,10 +24,11 @@ import { isDrawableKind } from "@/lib/images/style";
 
 import {
   approveAttempt,
-  generateImage,
+  pollAttempt,
   rejectAttempt,
   setRepresentation,
   setWordClass,
+  startGeneration,
   suggestSubject,
   uploadImage,
   type ActionResult,
@@ -87,7 +95,16 @@ export function WordPanel({
   const [modelPicked, setModelPicked] = useState(false);
   // Null is "nobody knows", not "free". Only Seedream has been measured.
   const credits = isImageModelId(model) ? modelCredits(model) : null;
-  const [elapsed, setElapsed] = useState(0);
+  /*
+   * The generation the row says is still open, or null. Taken from the list
+   * and not from a flag set on click, which is the whole difference: a flag
+   * dies with the page and a row does not, so a reload or a trip to another
+   * word finds the generation exactly where it was left.
+   */
+  const running = runningAttempt(shown);
+  const runningId = running?.id ?? null;
+  const runningStartedAt = running?.createdAt ?? null;
+  const [now, setNow] = useState(() => Date.now());
   const fileInput = useRef<HTMLInputElement>(null);
   const zoom = useRef<HTMLDialogElement>(null);
   const [zoomed, setZoomed] = useState<string | null>(null);
@@ -104,23 +121,72 @@ export function WordPanel({
   }
 
   /*
-   * Generating takes most of a minute, so the wait is counted out loud. The
-   * counter is only ever set from the interval callback; it is zeroed in the
-   * handler that starts the work, where the decision to start is actually made.
-   *
-   * The panel is mounted with key={word.id}, so moving to another word
-   * remounts it and the subject field, the error and this counter reset
-   * without an effect having to undo them.
+   * A generation took 8 to 21 seconds on 2026-09-19, which is long enough
+   * that the wait is counted out loud. The clock ticks only while something
+   * is running, and the count is worked out from the row's created_at, so it
+   * reads right on a generation started before this page was loaded.
    */
   useEffect(() => {
-    if (busy?.key !== "gerar") return;
-    const started = Date.now();
-    const timer = setInterval(
-      () => setElapsed(Math.floor((Date.now() - started) / 1000)),
-      1000,
-    );
+    if (runningId === null) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [busy]);
+  }, [runningId]);
+
+  /*
+   * The question the panel asks while a generation is open, every couple of
+   * seconds: how is it going. Each ask is a short call, which is the entire
+   * point — nothing on the path ever sees a request worth cutting.
+   *
+   * Sequential and not an interval: the last ask of a generation is the one
+   * that downloads the picture and puts it in the bucket, and two of those
+   * running at once would do the work twice.
+   *
+   * A call that does not come back is not an answer about the generation, so
+   * it is asked again rather than treated as a verdict; the row is still open
+   * at the provider either way. That stops when the row could no longer be
+   * alive, which is the same window the server judges it by, so no second
+   * number decides it.
+   */
+  useEffect(() => {
+    const attemptId = runningId;
+    const startedAt = runningStartedAt;
+    if (attemptId === null || startedAt === null) return;
+
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+
+    // The ids travel as arguments rather than as captured nulls-that-are-not,
+    // so nothing here needs an assertion to know they are there.
+    function again(id: string, from: string) {
+      timer = setTimeout(() => void ask(id, from), POLL_INTERVAL_MS);
+    }
+
+    async function ask(id: string, from: string) {
+      const result = await settle(() => pollAttempt(id));
+      if (stopped) return;
+      if ("attempts" in result && result.attempts !== undefined) {
+        setAnswered({ list: result.attempts, served: attempts });
+      }
+      if (!result.ok) {
+        if ("cause" in result) {
+          console.error(result.cause);
+          if (!hasExpired(from, Date.now())) {
+            again(id, from);
+            return;
+          }
+        }
+        setError(result.error);
+        return;
+      }
+      again(id, from);
+    }
+
+    again(attemptId, startedAt);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [runningId, runningStartedAt, attempts]);
 
   /*
    * Nothing on this screen moves before the server answers. A picture that
@@ -142,21 +208,20 @@ export function WordPanel({
     if (busy !== null) return;
     setBusy({ key });
     setError(null);
-    if (key === "gerar") setElapsed(0);
     const result = await settle(action);
     setBusy(null);
+    // Read before the branch: a refused generation leaves a 'failed' row, and
+    // the teacher should see the row as well as the reason. Absent means the
+    // action did not touch the list, not that the list is empty.
+    if ("attempts" in result && result.attempts !== undefined) {
+      setAnswered({ list: result.attempts, served: attempts });
+    }
     if (!result.ok) {
       setError(result.error);
       // The teacher reads a sentence in Portuguese that says what to do. The
       // reason is English and belongs in the console, which is where the next
       // diagnosis of this starts.
       if ("cause" in result) console.error(result.cause);
-      return;
-    }
-    // Absent means the action did not touch the list, not that the list is
-    // empty: leaving what is on screen alone is the right answer there.
-    if (result.attempts !== undefined) {
-      setAnswered({ list: result.attempts, served: attempts });
     }
   }
 
@@ -398,17 +463,23 @@ export function WordPanel({
                   ))}
                 </select>
               )}
+              {/*
+                Disabled while one is open, and the count is in the list
+                below rather than on this button. The wait belongs to the
+                attempt now, not to the press: the row is what is waiting, so
+                the row is where the seconds are shown.
+              */}
               <button
                 type="button"
-                disabled={working || subject.trim() === ""}
+                disabled={working || running !== null || subject.trim() === ""}
                 onClick={() =>
                   void run("gerar", () =>
-                    generateImage(word.id, subject, model),
+                    startGeneration(word.id, subject, model),
                   )
                 }
                 className="border-foreground bg-foreground text-background rounded-sm border px-4 py-2 text-sm font-semibold disabled:opacity-50"
               >
-                {busy?.key === "gerar" ? `gerando, ${elapsed}s` : "Gerar"}
+                {busy?.key === "gerar" ? "enviando" : "Gerar"}
               </button>
               <button
                 type="button"
@@ -501,6 +572,8 @@ export function WordPanel({
                   <div className="flex min-w-0 flex-1 flex-col gap-1">
                     <span className="font-mono text-xs">
                       {STATUS_LABELS[attempt.status] ?? attempt.status}
+                      {isRunning(attempt) &&
+                        `, ${elapsedSeconds(attempt.createdAt, now)}s`}
                       {attempt.model !== null && ` · ${attempt.model}`}
                       {attempt.creditsSpent !== null &&
                         ` · ${attempt.creditsSpent} créditos`}
@@ -529,7 +602,14 @@ export function WordPanel({
                       )}
                     </div>
                   </div>
-                  {attempt.status !== "rejected" && (
+                  {/*
+                    Not offered while the provider is still drawing. The
+                    credits are spent the moment the task opens, so discarding
+                    a running attempt would throw away a picture that has been
+                    paid for and is on its way, from behind an icon with no
+                    label. It comes back the moment the row settles.
+                  */}
+                  {attempt.status !== "rejected" && !isRunning(attempt) && (
                     <button
                       type="button"
                       disabled={working}

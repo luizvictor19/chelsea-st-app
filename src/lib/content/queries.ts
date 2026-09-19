@@ -391,7 +391,23 @@ export async function listWordAttempts(
   wordId: string,
 ): Promise<readonly ImageAttempt[]> {
   const { supabase } = await requireTeacher();
+  return readWordAttempts(supabase, wordId);
+}
 
+/**
+ * The same list, for a caller that already has a client.
+ *
+ * requireTeacher revalidates the token against the auth server, which is a
+ * network round trip: measured against this project on 2026-09-19, 70 to 90ms
+ * warm and 400 to 550ms on a cold connection. An action that has already paid
+ * for it and then calls listWordAttempts pays for it twice, which mattered
+ * little when a generation was one request and matters once a generation is a
+ * dozen of them.
+ */
+export async function readWordAttempts(
+  supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
+  wordId: string,
+): Promise<readonly ImageAttempt[]> {
   const { data: rows, error } = await supabase
     .from("image_attempts")
     .select(
