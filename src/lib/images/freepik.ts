@@ -29,20 +29,38 @@ const BASE_URL = "https://api.magnific.com";
 /**
  * How much of the reference's shape to keep, 0 to 100.
  *
- * The API's own default is 50, read from the Mystic POST reference on
- * 2026-09-19, and 50 is what we send. Sent rather than left out on purpose:
- * a picture has to be reproducible from what is stored, and if Freepik moves
- * their default then every image made until then becomes irreproducible in
- * silence and the record starts lying without anyone noticing. The value is
- * ours, constant, and visible in a diff the day it changes.
+ * 25, measured on 2026-09-19 against the same word, the same reference and
+ * the same instruction, with this number as the only thing that moved:
+ *
+ *   50, which is the API's own default as read from the Mystic POST
+ *   reference that day: the pen came out right, but rendered like a catalogue
+ *   photograph, on a grey background, with a reflection under it.
+ *
+ *   25: the style went back to flat, on the off-white background the style
+ *   constant asks for, and the barrel came out solid blue instead of
+ *   transparent.
+ *
+ * So the number is not "how much of the shape to keep" in practice so much as
+ * how much of the reference's own rendering comes with it. At 50 the
+ * photograph won over the style constant, which is the one thing the style
+ * constant exists to prevent: a few hundred pictures read as a set, and a
+ * reference that drags its own lighting in undoes that one word at a time.
+ * Approved at 25.
+ *
+ * Sent rather than left out: a picture has to be reproducible from what is
+ * stored, and if Freepik moves their default then every image made until then
+ * becomes irreproducible in silence and the record starts lying without
+ * anyone noticing. The value is ours, and visible in a diff the day it
+ * changes.
+ *
+ * It stays a constant while one number serves every word. The day one does
+ * not, it stops being a constant and becomes a column on the attempt, because
+ * a value that varies has to be stored next to the picture it made.
  *
  * It only takes effect alongside structure_reference, which is why it is set
  * in the same branch.
- *
- * A column for it when we start varying it per word. While it is one number
- * for every generation, a comment is where it belongs.
  */
-const STRUCTURE_STRENGTH = 50;
+const STRUCTURE_STRENGTH = 25;
 
 /**
  * What each model needs, since the three do not take the same request.
