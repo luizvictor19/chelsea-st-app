@@ -42,12 +42,13 @@ describe("IMAGE_MODELS", () => {
   });
 
   /*
-   * Kontext went in with its price undocumented and unmeasured. Null is the
-   * only honest answer, and it is what makes the screen say so instead of
-   * showing a number nobody read off the dashboard.
+   * Measured on the dashboard on 2026-09-19, 2830 to 2980 across one isolated
+   * generation. One sample, and it makes Kontext the dearest of the three.
    */
-  test("admits it does not know what Kontext costs", () => {
-    assert.equal(modelCredits("flux-kontext-pro"), null);
+  test("knows what Kontext costs, and that it is the dearest", () => {
+    assert.equal(modelCredits("flux-kontext-pro"), 150);
+    assert.equal(modelCredits("mystic"), 80);
+    assert.equal(modelCredits("seedream-v4"), 50);
   });
 
   /*
@@ -97,39 +98,48 @@ describe("takesReference", () => {
 
 describe("defaultReferenceModel", () => {
   /*
-   * What attaching a reference moves the selector to. Two conditions, and the
-   * second is the rule: attaching is the teacher asking the program to spend
-   * money on their behalf, and what it spends cannot be a number nobody has
-   * checked. Kontext is offered and is never the default while its price is
-   * unknown.
+   * Kontext since 2026-09-19, on one word. Same reference and same
+   * instruction on `pen`: it returned the only picture that was both legible
+   * and in the flat style, where Mystic at 50 came back like a catalogue
+   * photograph and at 25 lost the transparent barrel. The comment on the
+   * function carries that, and says out loud that it is a sample of one.
    */
-  test("takes a reference and has a measured price", () => {
-    const chosen = defaultReferenceModel();
-    assert.equal(chosen, "mystic");
-    assert.ok(chosen !== null && takesReference(chosen));
-    assert.notEqual(chosen === null ? null : modelCredits(chosen), null);
-  });
-
-  test("never lands on a model whose price nobody has measured", () => {
-    const chosen = defaultReferenceModel();
-    assert.notEqual(chosen, "flux-kontext-pro");
+  test("is the model marked for it", () => {
+    assert.equal(defaultReferenceModel(), "flux-kontext-pro");
   });
 
   /*
-   * Not "the first that takes one". Today that is the same answer by array
-   * order, and it would stop being the same the day the list is reordered for
-   * an unrelated reason, silently, with the default landing on a price nobody
-   * knows.
+   * The three invariants the flag has to keep, here rather than as a chain of
+   * conditions in the function: a failing test is louder than a silent
+   * fallback, and the third of them is the one that spends money.
    */
-  test("is not simply the first in the list that takes one", () => {
-    const firstThatTakesOne =
-      IMAGE_MODELS.find((model) => model.reference !== "none") ?? null;
+  test("exactly one model is marked", () => {
+    const marked = IMAGE_MODELS.filter((model) => model.preferredForReference);
+    assert.equal(marked.length, 1);
+  });
+
+  test("the marked one takes a reference", () => {
     const chosen = defaultReferenceModel();
-    assert.ok(
-      firstThatTakesOne === null ||
-        firstThatTakesOne.credits !== null ||
-        chosen !== firstThatTakesOne.id,
-    );
+    assert.ok(chosen !== null && takesReference(chosen));
+  });
+
+  test("the marked one has a price somebody measured", () => {
+    const chosen = defaultReferenceModel();
+    assert.ok(chosen !== null);
+    assert.notEqual(modelCredits(chosen), null);
+  });
+
+  /*
+   * Not array order. Once Kontext's price was measured, the old rule — first
+   * that takes a reference and has a measured price — was satisfied by both
+   * and went back to deciding by position, which is exactly what this used to
+   * warn about. The flag makes the choice survive a reorder.
+   */
+  test("does not change when the list is read in a different order", () => {
+    const marked = [...IMAGE_MODELS]
+      .reverse()
+      .find((model) => model.preferredForReference);
+    assert.equal(marked?.id, defaultReferenceModel());
   });
 });
 

@@ -97,24 +97,45 @@ export interface ImageProvider {
  * second window. Whether that was their service or the picture is not known,
  * which is exactly why one road was one too few.
  *
- * Kontext's own price is unknown too, and the screen says so rather than
- * showing a number nobody measured. That is the difference between a model
- * that is offered and one that is the default; see defaultReferenceModel.
+ * `preferredForReference` marks the one a new reference is generated on. It
+ * is a judgement and it has to be, so see defaultReferenceModel for what it
+ * was judged on and how thin the evidence is.
  */
 export const IMAGE_MODELS = [
-  { id: "seedream-v4", label: "Seedream 4", credits: 50, reference: "none" },
-  { id: "mystic", label: "Mystic", credits: 80, reference: "base64" },
   {
+    id: "seedream-v4",
+    label: "Seedream 4",
+    credits: 50,
+    reference: "none",
+    preferredForReference: false,
+  },
+  {
+    id: "mystic",
+    label: "Mystic",
+    credits: 80,
+    reference: "base64",
+    preferredForReference: false,
+  },
+  {
+    /**
+     * 150 credits, measured on 2026-09-19 on the Freepik dashboard, read
+     * immediately before and after one isolated generation: 2830 to 2980.
+     * One sample. It makes Kontext the dearest of the three — 50, 80, 150 —
+     * and it is still the one a reference is generated on; see
+     * defaultReferenceModel, where that is argued rather than assumed.
+     */
     id: "flux-kontext-pro",
     label: "Flux Kontext Pro",
-    credits: null,
+    credits: 150,
     reference: "url",
+    preferredForReference: true,
   },
 ] as const satisfies readonly {
   id: string;
   label: string;
   credits: number | null;
   reference: "none" | "base64" | "url";
+  preferredForReference: boolean;
 }[];
 
 /** How a model wants its reference handed over, or that it takes none. */
@@ -141,27 +162,32 @@ export function referenceDelivery(id: ImageModelId): ReferenceDelivery {
 }
 
 /**
- * The model attaching a reference moves to, or null when none will do.
+ * The model attaching a reference moves to, or null when none is marked.
  *
- * Two conditions and not one: it takes a reference, and what it costs has
- * been measured. The second is the whole rule. Attaching a reference is the
- * teacher saying "use this as the guide", and the program answering by
- * spending money on their behalf; what it spends cannot be a number nobody
- * has checked. Kontext is offered in the selector and is never the default
- * while its price is unknown.
+ * It used to be "the first that takes a reference and has a measured price".
+ * Once Kontext's price was measured both models satisfied that, and it
+ * quietly went back to deciding by array order, which is the thing its own
+ * test called fragile. So the choice is a flag on the model now, and the flag
+ * carries a reason.
  *
- * Read off the list rather than named, so the day Kontext's price is measured
- * this answers differently without being edited. Not "the first that takes
- * one" either: that would have been right by accident, on array order, and
- * would quietly stop being right the day somebody reordered the list for an
- * unrelated reason.
+ * THE REASON, and it is one word of evidence. On 2026-09-19, same reference
+ * and same instruction on `pen`: Kontext returned the only picture that was
+ * both legible and in the flat style. Mystic at structure_strength 50 came
+ * back rendered like a catalogue photograph, and at 25 it kept the style but
+ * lost the transparent barrel that makes a pen read as a pen.
+ *
+ * ONE WORD. That is a sample of one, and it is written here so a second word
+ * that disagrees can overturn it without anyone having to guess where the
+ * choice came from. It is also the dearest of the three at 150 credits
+ * against 80 and 50, so the disagreement is worth looking for.
+ *
+ * The invariants the flag has to keep — exactly one model marked, it takes a
+ * reference, its price is measured — are in the test rather than in a chain
+ * of conditions here. The default must never spend a price nobody checked,
+ * and a failing test says so louder than a silent fallback would.
  */
 export function defaultReferenceModel(): ImageModelId | null {
-  return (
-    IMAGE_MODELS.find(
-      (model) => model.reference !== "none" && model.credits !== null,
-    )?.id ?? null
-  );
+  return IMAGE_MODELS.find((model) => model.preferredForReference)?.id ?? null;
 }
 
 /** What one image costs on this model, or null when it is not known. */
