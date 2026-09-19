@@ -51,22 +51,20 @@ export const STYLE_PROMPT =
  *
  * Decided on 2026-09-19.
  */
-/**
- * The person in every pose and action, described the same way each time.
+/*
+ * There is no fixed character here, and the absence is the decision.
  *
- * 2026-09-19: the first two real images each invented their own person, and
- * one of them changed the colour of its own shirt between the top and the
- * bottom of the figure. Nothing in the style said the character was fixed,
- * so nothing kept it fixed.
+ * Tried on 2026-09-19: the rules described one man, in the same words every
+ * time, and three real generations came back with a chair and nobody in it
+ * and two people who matched neither the description nor each other. A text
+ * to image model keeps no identity between calls, and Seedream 4 takes no
+ * reference image to keep one with, so a description was the only lever and
+ * it did not move anything. What it did do was lengthen every pose and
+ * action prompt by two sentences.
  *
- * This is the minimum cast, one man, enough to make a set of pictures look
- * like one course. It gets replaced by the cast of the scene once
- * spec-tutor.md exists and says who the student is looking at.
+ * Character consistency waits for the tutor's scene, and for a model that
+ * accepts a reference image.
  */
-const CHARACTER =
-  "Always the same character: a man with short dark hair, a plain white " +
-  "t-shirt, blue trousers and brown shoes. Keep every color flat and " +
-  "consistent across the whole figure.";
 
 export const SUBJECT_RULES = {
   photo: "Single subject: show it on its own, with nothing around it.",
@@ -75,8 +73,7 @@ export const SUBJECT_RULES = {
   // subject that was sitting or lying.
   pose:
     "Show the whole person, and the object they are using when the subject " +
-    "names one. The posture clearly readable, and no movement. No arrow. " +
-    CHARACTER,
+    "names one. The posture clearly readable, and no movement. No arrow.",
   /*
    * The arrow is a drawing device, not what makes something an action. Plenty
    * of action words have no direction for one to point at (speak, listen,
@@ -87,8 +84,7 @@ export const SUBJECT_RULES = {
     "Show the whole person, and the object they are using when the subject " +
     "names one. The person is in the middle of the movement, the gesture at " +
     "its clearest moment. If the movement has a direction, add a simple " +
-    "arrow showing it; if it does not, no arrow. " +
-    CHARACTER,
+    "arrow showing it; if it does not, no arrow.",
   figure:
     "Draw it as a diagram, with no person in it. Only the objects the " +
     "subject names, and nothing else in the background.",

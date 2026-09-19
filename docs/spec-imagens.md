@@ -136,7 +136,7 @@ Aceitas em 18/09/2026, registradas para serem conhecidas em vez de esquecidas.
 Acrescentado em 19/09/2026. O critério geral é onde mora o sentido da palavra.
 
 - **Foto**: o objeto sozinho (pen, book, table). Nome de pessoa é Foto, porque o livro mostra a
-  pessoa; mesmo personagem sempre, com dois ou três traços fixos no assunto.
+  pessoa.
 - **Postura**: o corpo está em repouso e a posição dele é o sentido da palavra (standing, sitting,
   lying). Corpo inteiro.
 - **Ação**: a pessoa está fazendo alguma coisa (sit down, stand up, open, close, smile, speak,
@@ -147,6 +147,13 @@ Acrescentado em 19/09/2026. O critério geral é onde mora o sentido da palavra.
 - **Nada**: palavra funcional ou que o livro não ilustra; título sozinho (Mr, Mrs); nacionalidade e
   língua. Pronome pessoal também é Nada por enquanto, porque figura isolada não diz "him": a foto de
   um homem diz "man". Item aberto, ligado à cena do tutor.
+
+**Consistência de personagem fica de fora, por ora.** Tentada em 19/09/2026, como descrição fixa de
+um homem dentro das regras de Postura e Ação. Três gerações reais: uma devolveu uma cadeira sem
+ninguém, duas devolveram personagens diferentes entre si e da descrição. Modelo de texto para imagem
+não guarda identidade entre chamadas, e o Seedream 4 não aceita imagem de referência, então descrever
+era a única alavanca e ela não moveu nada. O assunto de um nome de pessoa também não precisa carregar
+traços fixos pelo mesmo motivo. O tema volta com a cena do tutor, com um modelo que aceite referência.
 
 Postura e Ação se separam por **repouso contra atividade**, não pela seta. Teste prático: congele o
 desenho. Se ele continuar dizendo a palavra, é Postura; se virar outra palavra, é Ação.

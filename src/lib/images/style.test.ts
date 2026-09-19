@@ -12,9 +12,10 @@ const SUBJECT = "a man sitting on a chair";
 
 describe("buildPrompt", () => {
   /*
-   * 2026-09-19, twice over. The character used to be the last sentence, after
-   * eleven style constraints, and a generation of "sitting" came back as an
-   * empty chair, so who is in the picture moved up next to the subject. That
+   * 2026-09-19, twice over. The description of who was in the picture used to
+   * be the last sentence, after eleven style constraints, and a generation of
+   * "sitting" came back as an empty chair, so it moved up next to the
+   * subject. That
    * pushed the medium to the seventh sentence, and an image model weighs its
    * opening, so the medium came back to the front and brought the subject
    * with it. What stayed in the tail is the part that can wait.
@@ -165,22 +166,21 @@ describe("the rule each kind adds", () => {
   });
 
   /*
-   * 2026-09-19: the first two real images each invented their own person, and
-   * one changed its own shirt colour between the top and the bottom of the
-   * figure. The character is fixed only where a person is drawn.
+   * The rules used to describe one fixed man for pose and action. Tried on
+   * 2026-09-19 and abandoned the same day: three real generations came back
+   * with a chair and nobody in it, and two people matching neither the
+   * description nor each other. A text to image model keeps no identity
+   * between calls, and Seedream 4 takes no reference image to keep one with.
+   *
+   * This asserts the absence, so that nobody reintroduces two sentences per
+   * prompt that were measured not to work.
    */
-  test("fixes the character in pose and action, and only there", () => {
-    for (const kind of ["pose", "action"]) {
+  test("describes no fixed character, in any kind", () => {
+    for (const kind of ["photo", "pose", "action", "figure"]) {
       const prompt = buildPrompt("a thing", kind);
-      assert.match(prompt, /always the same character/iu);
-      assert.match(prompt, /short dark hair/iu);
-      assert.match(prompt, /consistent across the whole figure/iu);
-    }
-    for (const kind of ["photo", "figure"]) {
-      assert.doesNotMatch(
-        buildPrompt("a thing", kind),
-        /always the same character/iu,
-      );
+      assert.doesNotMatch(prompt, /always the same character/iu);
+      assert.doesNotMatch(prompt, /short dark hair/iu);
+      assert.doesNotMatch(prompt, /consistent across the whole figure/iu);
     }
   });
 
