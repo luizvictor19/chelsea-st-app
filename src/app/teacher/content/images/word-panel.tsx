@@ -85,7 +85,11 @@ export function WordPanel({
     () => defaultModelFor(word.representation) ?? IMAGE_MODELS[0].id,
   );
   const [modelPicked, setModelPicked] = useState(false);
-  // Null is "nobody knows", not "free". Only Seedream has been measured.
+  /*
+   * Null is "nobody knows", not "free". Both models on the list are measured
+   * now, so nothing reaches it today: it is the guard for the model added
+   * next, which cannot be measured until it has generated once.
+   */
   const credits = isImageModelId(model) ? modelCredits(model) : null;
   const [elapsed, setElapsed] = useState(0);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -431,9 +435,13 @@ export function WordPanel({
               />
             </div>
             {/*
-              What this costs, or that nobody knows. Said outside the select,
-              because an option is only readable while the list is open, and
-              the number matters most at the moment of pressing Gerar.
+              What this costs. Said outside the select, because an option is
+              only readable while the list is open, and the number matters
+              most at the moment of pressing Gerar, where the two models are
+              50 credits against 80 and the choice is a price.
+
+              The other sentence is what an unmeasured model would say, and
+              neither of today's two can reach it.
             */}
             <p className="text-faint text-xs">
               {credits === null

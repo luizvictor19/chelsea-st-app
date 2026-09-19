@@ -26,14 +26,29 @@ describe("IMAGE_MODELS", () => {
   });
 
   /*
-   * Only Seedream has been measured, on the Freepik dashboard. Mystic is null
-   * and not a guess: the API reports no charge and the documented pricing
-   * page is a 404, so an assumed 50 would be a number the screen showed as if
-   * someone had checked.
+   * Both measured on the Freepik dashboard on 2026-09-19, each against "API
+   * keys spent". The numbers are here as well as in the constant because the
+   * comparison this phase exists for is read against them: Mystic costing 60%
+   * more is the thing its results have to pay for, and a silent edit to
+   * either number would move the bar without moving anything visible.
    */
-  test("knows what Seedream costs and admits it does not know Mystic", () => {
+  test("knows what both models cost, and how they differ", () => {
     assert.equal(modelCredits("seedream-v4"), 50);
-    assert.equal(modelCredits("mystic"), null);
+    assert.equal(modelCredits("mystic"), 80);
+  });
+
+  /*
+   * Null means nobody knows, and it is the only way to say that. A model
+   * added later arrives unmeasured, because measuring it takes one generation
+   * on it first, and zero must never stand in for that: the screen would show
+   * it as free, which is the one wrong answer that costs money.
+   */
+  test("says unknown with null, never with zero", () => {
+    for (const { id, credits } of IMAGE_MODELS) {
+      if (credits === null) continue;
+      assert.ok(Number.isInteger(credits), id);
+      assert.ok(credits > 0, id);
+    }
   });
 });
 

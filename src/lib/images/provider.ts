@@ -24,12 +24,27 @@ export interface ImageProvider {
  * The models the screen offers, provider neutral so the screen can name them
  * without importing the provider.
  *
- * `credits` is what one image costs, and null means nobody knows. Only
- * Seedream is measured: 50 credits, read off the Freepik dashboard on
- * 2026-09-19, where "API keys spent" went from 0 to 100 over two
- * generations. The API reports no charge and the documented pricing page is
- * a 404, so Mystic is unknown rather than assumed equal, and the screen says
- * so.
+ * `credits` is what one image costs, and null means nobody knows. Both models
+ * here are measured, and the Freepik dashboard is the only source for either:
+ * the API reports no charge and the documented pricing page is a 404.
+ *
+ *   Seedream 4, 50 credits. Read on 2026-09-19, where "API keys spent" went
+ *   from 0 to 100 over two generations.
+ *   Mystic, 80 credits. Read by Luiz on 2026-09-19, off the same "API keys
+ *   spent", immediately before and immediately after one isolated generation
+ *   of the word "pen".
+ *
+ * Mystic costing 60% more than Seedream is a fact the comparison now has to
+ * carry: a model only earns that by needing fewer attempts, and attempts per
+ * approval is exactly what image_attempts is kept for.
+ *
+ * Null stays in the type even with nothing using it today. A model added
+ * later arrives unmeasured, because measuring it takes one generation on it
+ * first, and the screen has to be able to say nobody knows rather than show a
+ * number someone assumed.
+ *
+ * Mystic returns PNG where Seedream returns JPG, which is why a stored image
+ * takes its extension from the response content type and never from the URL.
  *
  * Two models and not three. Flux 2 Pro was here and came out again: today's
  * question is Seedream against Mystic, and a third API shape to handle buys
@@ -47,7 +62,7 @@ export interface ImageProvider {
  */
 export const IMAGE_MODELS = [
   { id: "seedream-v4", label: "Seedream 4", credits: 50 },
-  { id: "mystic", label: "Mystic", credits: null },
+  { id: "mystic", label: "Mystic", credits: 80 },
 ] as const satisfies readonly {
   id: string;
   label: string;
