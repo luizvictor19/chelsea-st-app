@@ -1,19 +1,55 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { listWordsWithoutImage } from "@/lib/content/queries";
+import { listVocabularyImages, listWordAttempts } from "@/lib/content/queries";
 
 import { ProgressBar } from "../progress-bar";
+import { FILTERS, labelFor, matchesFilter } from "./representation";
+import { WordPanel } from "./word-panel";
 
 export const metadata: Metadata = {
   title: "Imagens do vocabulário · Chelsea St",
 };
 
-export default async function VocabularyImagesPage() {
-  const { words, progress } = await listWordsWithoutImage();
+/** Keeps the other parameter when one of them changes. */
+function href(params: { word?: string | null; filter?: string }): string {
+  const search = new URLSearchParams();
+  if (params.filter !== undefined && params.filter !== "todas") {
+    search.set("tipo", params.filter);
+  }
+  if (params.word) search.set("palavra", params.word);
+  const query = search.toString();
+  return query === "" ? "/teacher/content/images" : `?${query}`;
+}
+
+export default async function VocabularyImagesPage({
+  searchParams,
+}: {
+  readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  const filter = typeof params.tipo === "string" ? params.tipo : "todas";
+  const selectedId = typeof params.palavra === "string" ? params.palavra : null;
+
+  const { lessons, progress } = await listVocabularyImages();
+
+  const visible = lessons
+    .map((lesson) => ({
+      ...lesson,
+      words: lesson.words.filter((word) =>
+        matchesFilter(filter, word.representation),
+      ),
+    }))
+    .filter((lesson) => lesson.words.length > 0);
+
+  const selected =
+    lessons
+      .flatMap((lesson) => lesson.words)
+      .find((word) => word.id === selectedId) ?? null;
+  const attempts = selected === null ? [] : await listWordAttempts(selected.id);
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-3xl flex-col gap-8 p-6 py-12">
+    <section className="flex flex-col gap-8">
       <header className="flex flex-col gap-3">
         <Link
           href="/teacher/content"
@@ -24,46 +60,119 @@ export default async function VocabularyImagesPage() {
         <h1 className="text-3xl font-extrabold tracking-tight">
           Imagens do vocabulário
         </h1>
-        <ProgressBar progress={progress} label="Palavras com imagem" emphasis />
+        <ProgressBar progress={progress} label="Palavras resolvidas" emphasis />
       </header>
 
-      {words.length === 0 ? (
+      {progress.total === 0 ? (
         <p className="text-muted border-rule rounded-sm border border-dashed p-6">
-          {progress.total === 0
-            ? "Nenhuma palavra extraída ainda. Suba páginas em um livro primeiro."
-            : "Todas as palavras já têm imagem."}
+          Nenhuma palavra extraída ainda. Suba páginas em um livro primeiro.
         </p>
       ) : (
-        <section
-          aria-label="Palavras sem imagem"
-          className="flex flex-col gap-3"
-        >
-          <p className="text-muted text-sm">
-            {words.length} palavra(s) esperando imagem, na ordem em que aparecem
-            no curso.
-          </p>
-          <ul className="flex flex-col gap-2">
-            {words.map((word) => (
-              <li
-                key={word.id}
-                className="border-rule bg-surface flex flex-wrap items-center justify-between gap-3 rounded-sm border p-4"
+        <>
+          <nav aria-label="Filtros" className="flex flex-wrap gap-2">
+            {FILTERS.map((option) => (
+              <Link
+                key={option.key}
+                href={href({ filter: option.key, word: selectedId })}
+                aria-current={filter === option.key ? "true" : undefined}
+                className={
+                  filter === option.key
+                    ? "border-foreground bg-foreground text-background rounded-sm border px-3 py-1.5 text-sm font-semibold"
+                    : "border-rule hover:bg-surface rounded-sm border px-3 py-1.5 text-sm transition-colors"
+                }
               >
-                <div className="flex flex-col">
-                  <span className="font-semibold">{word.term}</span>
-                  {word.firstPointNumber !== null && (
-                    <span className="text-faint font-mono text-xs">
-                      ponto {word.firstPointNumber}
-                    </span>
-                  )}
-                </div>
-                <span className="text-faint text-sm">
-                  upload chega na próxima fase
-                </span>
-              </li>
+                {option.label}
+              </Link>
             ))}
-          </ul>
-        </section>
+          </nav>
+
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
+            <div className="flex flex-col gap-7">
+              {visible.length === 0 ? (
+                <p className="text-muted border-rule rounded-sm border border-dashed p-6">
+                  Nenhuma palavra neste filtro.
+                </p>
+              ) : (
+                visible.map((lesson) => (
+                  <section
+                    key={lesson.lessonNumber ?? "sem-licao"}
+                    className="flex flex-col gap-2"
+                  >
+                    <h2 className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
+                      {lesson.lessonNumber === null
+                        ? "Fora de lição"
+                        : `Lição ${lesson.lessonNumber}`}
+                    </h2>
+                    <ul className="flex flex-col">
+                      {lesson.words.map((word) => (
+                        <li key={word.id}>
+                          <Link
+                            href={href({ filter, word: word.id })}
+                            aria-current={
+                              selectedId === word.id ? "true" : undefined
+                            }
+                            className={
+                              selectedId === word.id
+                                ? "bg-surface border-rule flex items-center justify-between gap-3 rounded-sm border px-3 py-2"
+                                : "border-rule hover:bg-surface flex items-center justify-between gap-3 rounded-sm border border-transparent px-3 py-2 transition-colors"
+                            }
+                          >
+                            <span className="flex min-w-0 items-baseline gap-3">
+                              <span className="text-faint w-10 shrink-0 font-mono text-xs">
+                                {word.pointNumber ?? "·"}
+                              </span>
+                              <span className="truncate font-semibold">
+                                {word.term}
+                              </span>
+                            </span>
+                            <span className="flex shrink-0 items-center gap-2">
+                              {word.attempts > 0 && (
+                                <span className="text-faint font-mono text-xs">
+                                  {word.attempts}
+                                </span>
+                              )}
+                              <span
+                                className={
+                                  word.pending
+                                    ? "text-faint text-xs"
+                                    : "text-muted text-xs"
+                                }
+                              >
+                                {labelFor(word.representation)}
+                              </span>
+                            </span>
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))
+              )}
+            </div>
+
+            {/*
+              The panel scrolls on its own: with an approved image and a few
+              attempts it is taller than the screen, and sticky alone just
+              clipped the bottom of it. top-20 clears the sticky teacher nav,
+              and the height is what is left of the viewport below it.
+            */}
+            <div className="lg:sticky lg:top-20 lg:max-h-[calc(100dvh-6rem)] lg:self-start lg:overflow-y-auto">
+              {selected === null ? (
+                <p className="text-muted border-rule rounded-sm border border-dashed p-6">
+                  Escolha uma palavra na lista para decidir o tipo e cuidar da
+                  imagem.
+                </p>
+              ) : (
+                <WordPanel
+                  key={selected.id}
+                  word={selected}
+                  attempts={attempts}
+                />
+              )}
+            </div>
+          </div>
+        </>
       )}
-    </main>
+    </section>
   );
 }

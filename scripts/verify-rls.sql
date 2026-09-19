@@ -38,6 +38,7 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0005_block_source_page.sql
 \i supabase/migrations/0006_book_first_point.sql
 \i supabase/migrations/0008_vocabulary_images.sql
+\i supabase/migrations/0009_image_write_paths.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
@@ -113,5 +114,55 @@ begin
   end if;
 
   raise notice 'every table in public has row level security enabled';
+end;
+$$;
+
+-- Approving twice in a row leaves exactly one approved attempt and the word
+-- pointing at the second. This is the invariant the partial unique index
+-- holds, and the reason approve_image_attempt demotes before it promotes.
+do $$
+declare
+  v_word uuid;
+  v_first uuid;
+  v_second uuid;
+  v_approved integer;
+  v_pointer uuid;
+  v_path text;
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+
+  select id into v_word from vocabulary_items where term = 'a word';
+
+  insert into image_attempts (vocabulary_item_id, provider, status, storage_path)
+    values (v_word, 'upload', 'generated', v_word::text || '/first.png')
+    returning id into v_first;
+  insert into image_attempts (vocabulary_item_id, provider, status, storage_path)
+    values (v_word, 'upload', 'generated', v_word::text || '/second.png')
+    returning id into v_second;
+
+  perform approve_image_attempt(v_first);
+  perform approve_image_attempt(v_second);
+
+  select count(*) into v_approved
+    from image_attempts
+   where vocabulary_item_id = v_word and status = 'approved';
+
+  select approved_attempt_id, image_path into v_pointer, v_path
+    from vocabulary_items where id = v_word;
+
+  if v_approved <> 1 then
+    raise exception 'two approvals left % approved attempts, expected exactly 1', v_approved;
+  end if;
+
+  if v_pointer is distinct from v_second then
+    raise exception 'the word points at the wrong attempt after the second approval';
+  end if;
+
+  if v_path is distinct from v_word::text || '/second.png' then
+    raise exception 'image_path is %, expected the second attempt path', v_path;
+  end if;
+
+  raise notice 'approving twice leaves one approved attempt, pointed at the second';
 end;
 $$;

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/types";
 
 import type { LessonRange } from "./lesson-range";
 import {
@@ -235,40 +236,160 @@ export async function loadBook(position: number): Promise<BookDetail | null> {
   };
 }
 
-export type WordWithoutImage = {
+export type Representation = Database["public"]["Enums"]["representation_kind"];
+
+export type WordImage = {
   readonly id: string;
   readonly term: string;
-  readonly firstPointNumber: number | null;
+  readonly pointNumber: number | null;
+  readonly representation: Representation | null;
+  readonly imageUrl: string | null;
+  readonly attempts: number;
+  /** The rule the vocabulary_items_pending_image_idx predicate spells out. */
+  readonly pending: boolean;
 };
 
-export async function listWordsWithoutImage(): Promise<{
-  readonly words: readonly WordWithoutImage[];
+export type LessonWords = {
+  /** Null for a point that belongs to no lesson yet. */
+  readonly lessonNumber: number | null;
+  readonly words: readonly WordImage[];
+};
+
+export type ImageAttempt = {
+  readonly id: string;
+  readonly status: string;
+  readonly provider: string;
+  readonly model: string | null;
+  readonly imageUrl: string | null;
+  readonly error: string | null;
+  readonly creditsSpent: number | null;
+  readonly createdAt: string;
+};
+
+/** A word is waiting when it has no decision, or a decision it cannot meet yet. */
+function isPending(
+  representation: Representation | null,
+  imagePath: string | null,
+): boolean {
+  return (
+    representation === null || (representation !== "none" && imagePath === null)
+  );
+}
+
+function publicImageUrl(
+  supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
+  path: string | null,
+): string | null {
+  if (path === null) return null;
+  return supabase.storage.from("vocabulary-images").getPublicUrl(path).data
+    .publicUrl;
+}
+
+/**
+ * Every word with the state of its image, grouped by lesson and in the order
+ * the book introduces them.
+ *
+ * Sorted here rather than in the query: the ordering key lives two levels down
+ * (the lesson of the point of the word) and a few hundred rows cost nothing to
+ * sort, while a nested order in PostgREST is the kind of thing that quietly
+ * stops applying.
+ */
+export async function listVocabularyImages(): Promise<{
+  readonly lessons: readonly LessonWords[];
   readonly progress: Progress;
 }> {
   const { supabase } = await requireTeacher();
 
-  const { data: rows } = await supabase
+  /*
+   * image_attempts is named by its foreign key, not by its table. The two
+   * tables reference each other: an attempt points at its word, and a word
+   * points back at its approved attempt, so PostgREST finds two relationships
+   * and refuses to guess which one the embed means. The lesson generalises:
+   * whenever two tables reference each other, an embed needs the constraint
+   * name. Here it is the attempt-to-word direction; the other way round would
+   * be vocabulary_items_approved_attempt_id_fkey.
+   */
+  const { data: rows, error } = await supabase
     .from("vocabulary_items")
-    .select("id, term, image_path, points!inner(number)")
-    .order("term");
+    .select(
+      "id, term, representation, image_path, points!inner(number, lessons_content(number)), image_attempts!image_attempts_vocabulary_item_id_fkey(count)",
+    );
+  if (error) throw new Error(error.message);
 
-  const all = rows ?? [];
-  const missing = all
-    .filter((row) => row.image_path === null)
-    .map((row) => ({
+  const all = (rows ?? []).map((row) => ({
+    lessonNumber: row.points?.lessons_content?.number ?? null,
+    pointNumber: row.points?.number ?? null,
+    word: {
       id: row.id,
       term: row.term,
-      firstPointNumber: row.points?.number ?? null,
-    }));
+      pointNumber: row.points?.number ?? null,
+      representation: row.representation,
+      imageUrl: publicImageUrl(supabase, row.image_path),
+      // An array now, and correctly so: naming the attempt-to-word key makes
+      // this the to-many side. Unhinted, the generated type resolved to the
+      // to-one approved_attempt_id relationship, so this read a count that was
+      // never the number of attempts.
+      attempts: row.image_attempts?.[0]?.count ?? 0,
+      pending: isPending(row.representation, row.image_path),
+    } satisfies WordImage,
+  }));
 
-  const withImage = all.length - missing.length;
+  all.sort((a, b) => {
+    // A point with no lesson sorts last: it is not part of the book's order yet.
+    const lessonA = a.lessonNumber ?? Number.MAX_SAFE_INTEGER;
+    const lessonB = b.lessonNumber ?? Number.MAX_SAFE_INTEGER;
+    if (lessonA !== lessonB) return lessonA - lessonB;
+    const pointA = a.pointNumber ?? Number.MAX_SAFE_INTEGER;
+    const pointB = b.pointNumber ?? Number.MAX_SAFE_INTEGER;
+    if (pointA !== pointB) return pointA - pointB;
+    return a.word.term.localeCompare(b.word.term, "en");
+  });
+
+  const lessons: LessonWords[] = [];
+  for (const entry of all) {
+    const last = lessons.at(-1);
+    if (last === undefined || last.lessonNumber !== entry.lessonNumber) {
+      lessons.push({ lessonNumber: entry.lessonNumber, words: [entry.word] });
+    } else {
+      (last.words as WordImage[]).push(entry.word);
+    }
+  }
+
+  const resolved = all.filter((entry) => !entry.word.pending).length;
   return {
-    words: missing,
+    lessons,
     progress: {
-      filled: withImage,
+      filled: resolved,
       total: all.length,
-      remaining: all.length - withImage,
-      fraction: all.length === 0 ? 0 : withImage / all.length,
+      remaining: all.length - resolved,
+      fraction: all.length === 0 ? 0 : resolved / all.length,
     },
   };
+}
+
+/** Every attempt for one word, newest first, for the panel on the right. */
+export async function listWordAttempts(
+  wordId: string,
+): Promise<readonly ImageAttempt[]> {
+  const { supabase } = await requireTeacher();
+
+  const { data: rows, error } = await supabase
+    .from("image_attempts")
+    .select(
+      "id, status, provider, model, storage_path, error, credits_spent, created_at",
+    )
+    .eq("vocabulary_item_id", wordId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+
+  return (rows ?? []).map((row) => ({
+    id: row.id,
+    status: row.status,
+    provider: row.provider,
+    model: row.model,
+    imageUrl: publicImageUrl(supabase, row.storage_path),
+    error: row.error,
+    creditsSpent: row.credits_spent,
+    createdAt: row.created_at,
+  }));
 }
