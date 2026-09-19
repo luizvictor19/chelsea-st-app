@@ -75,4 +75,17 @@ body {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
+
+  /*
+   * Text fields focus in neutral grey instead. The accent is this product's
+   * alarm colour, used for errors and for a model's proposal, and a field
+   * that turns red the moment the cursor lands in it reads as a field with
+   * something wrong in it. Buttons and links keep the accent, where it says
+   * "here you are" rather than "look out".
+   */
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline-color: var(--faint);
+  }
 }

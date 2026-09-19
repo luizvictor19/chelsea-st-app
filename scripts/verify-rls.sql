@@ -40,6 +40,7 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0008_vocabulary_images.sql
 \i supabase/migrations/0009_image_write_paths.sql
 \i supabase/migrations/0010_pose_representation.sql
+\i supabase/migrations/0011_attempt_subject.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),

@@ -243,6 +243,7 @@ export type Database = {
           provider_request_id: string | null;
           status: string;
           storage_path: string | null;
+          subject: string | null;
           vocabulary_item_id: string;
         };
         Insert: {
@@ -257,6 +258,7 @@ export type Database = {
           provider_request_id?: string | null;
           status: string;
           storage_path?: string | null;
+          subject?: string | null;
           vocabulary_item_id: string;
         };
         Update: {
@@ -271,6 +273,7 @@ export type Database = {
           provider_request_id?: string | null;
           status?: string;
           storage_path?: string | null;
+          subject?: string | null;
           vocabulary_item_id?: string;
         };
         Relationships: [

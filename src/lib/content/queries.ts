@@ -264,6 +264,8 @@ export type ImageAttempt = {
   readonly status: string;
   readonly provider: string;
   readonly model: string | null;
+  /** What the teacher asked for. Null on an upload and on old attempts. */
+  readonly subject: string | null;
   readonly imageUrl: string | null;
   readonly error: string | null;
   readonly creditsSpent: number | null;
@@ -386,7 +388,7 @@ export async function listWordAttempts(
   const { data: rows, error } = await supabase
     .from("image_attempts")
     .select(
-      "id, status, provider, model, storage_path, error, credits_spent, created_at",
+      "id, status, provider, model, subject, storage_path, error, credits_spent, created_at",
     )
     .eq("vocabulary_item_id", wordId)
     .order("created_at", { ascending: false });
@@ -397,6 +399,7 @@ export async function listWordAttempts(
     status: row.status,
     provider: row.provider,
     model: row.model,
+    subject: row.subject,
     imageUrl: publicImageUrl(supabase, row.storage_path),
     error: row.error,
     creditsSpent: row.credits_spent,
