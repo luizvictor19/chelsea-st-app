@@ -44,17 +44,17 @@ export const FILTER_GROUPS = [
     })),
   },
   {
-    key: "classe",
-    label: "Classe",
-    options: WORD_CLASS_LABELS.map(({ value, label }) => ({
+    key: "situacao",
+    label: "Situação",
+    options: SITUATIONS.map(({ value, label }) => ({
       value: value as string,
       label,
     })),
   },
   {
-    key: "situacao",
-    label: "Situação",
-    options: SITUATIONS.map(({ value, label }) => ({
+    key: "classe",
+    label: "Classe",
+    options: WORD_CLASS_LABELS.map(({ value, label }) => ({
       value: value as string,
       label,
     })),

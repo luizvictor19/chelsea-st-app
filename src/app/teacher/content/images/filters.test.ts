@@ -213,12 +213,14 @@ describe("activeChips", () => {
       classe: ["noun"],
       situacao: ["com-imagem"],
     });
+    // In the order the drawer lists the axes, so the chips read in the same
+    // order as the controls that set them.
     assert.deepEqual(
       chips.map((chip) => [chip.key, chip.value, chip.label]),
       [
         ["tipo", "photo", "Foto"],
-        ["classe", "noun", "Substantivo"],
         ["situacao", "com-imagem", "Com imagem"],
+        ["classe", "noun", "Substantivo"],
       ],
     );
   });
