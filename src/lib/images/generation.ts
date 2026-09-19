@@ -190,3 +190,29 @@ export const REFERENCE_MAX_SIDE = 1536;
 
 /** The JPEG quality the reduction uses. */
 export const REFERENCE_QUALITY = 0.85;
+
+/**
+ * The size a reference is drawn at, given what it arrived as.
+ *
+ * Never larger than it came: enlarging a small picture would cost bytes and
+ * add nothing, because the pixels to fill it with do not exist. Below the
+ * limit it is left exactly alone, so a reference that was already small is
+ * re-encoded at the same size rather than resampled for no reason.
+ *
+ * The aspect ratio is kept, and the shorter side never rounds to zero: a
+ * picture 4000 by 3 is absurd, and it still has to come out as an image
+ * rather than as a canvas one pixel tall that throws.
+ */
+export function fitWithin(
+  width: number,
+  height: number,
+  maxSide: number,
+): { readonly width: number; readonly height: number } {
+  const longest = Math.max(width, height);
+  if (longest <= maxSide) return { width, height };
+  const scale = maxSide / longest;
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}

@@ -8,7 +8,9 @@ import type {
   WordImage,
 } from "@/lib/content/queries";
 import {
+  MAX_REFERENCE_BYTES,
   POLL_INTERVAL_MS,
+  REFERENCE_TOO_BIG,
   elapsedSeconds,
   generationSeconds,
   hasExpired,
@@ -18,28 +20,37 @@ import {
 import {
   IMAGE_MODELS,
   defaultModelFor,
+  firstModelWithStructureReference,
   isImageModelId,
   modelCredits,
+  modelLabel,
 } from "@/lib/images/provider";
 import { isDrawableKind } from "@/lib/images/style";
 
 import {
   approveAttempt,
+  clearReference,
   pollAttempt,
   rejectAttempt,
+  setReference,
   setRepresentation,
   setWordClass,
   startGeneration,
   suggestSubject,
-  uploadImage,
   type ActionResult,
 } from "./actions";
+import { NotAPicture, shrinkReference } from "./shrink-reference";
 import { attemptsToShow, settle, type LastAnswer } from "./panel-state";
 import { REPRESENTATIONS, disagreement, labelFor } from "./representation";
 import { WORD_CLASS_LABELS } from "./word-class";
 
 /** Which control is waiting on the server, so only that one shows it. */
 type Busy = { readonly key: string } | null;
+
+/** The models that can be handed a picture to take the shape from. */
+const ACCEPT_REFERENCE = IMAGE_MODELS.filter(
+  (option) => option.structureReference,
+);
 
 const STATUS_LABELS: Record<string, string> = {
   pending: "gerando",
@@ -90,10 +101,32 @@ export function WordPanel({
    * undo on someone's behalf, and the panel remounts per word, so a choice
    * lives exactly as long as the word is open.
    */
-  const [model, setModel] = useState<string>(
-    () => defaultModelFor(word.representation) ?? IMAGE_MODELS[0].id,
+  const [model, setModel] = useState<string>(() => {
+    const forKind = defaultModelFor(word.representation) ?? IMAGE_MODELS[0].id;
+    /*
+     * A word that already has a reference opens on a model that can use it.
+     * Without this the panel would come up in the one state the rules
+     * forbid — a reference attached and a model that ignores it — on every
+     * word whose kind starts on Seedream.
+     */
+    if (word.referenceUrl === null) return forKind;
+    return firstModelWithStructureReference() ?? forKind;
+  });
+  /*
+   * A reference decides the model, so a word that opens with one opens with
+   * the model already decided: changing the kind must not move it back.
+   */
+  const [modelPicked, setModelPicked] = useState(word.referenceUrl !== null);
+  /*
+   * The structure reference, seeded from the server and then owned here.
+   * Nothing else on the page changes it, and the panel remounts per word, so
+   * the prop is always fresh exactly when it is read.
+   */
+  const [reference, setReferenceUrl] = useState<string | null>(
+    word.referenceUrl,
   );
-  const [modelPicked, setModelPicked] = useState(false);
+  /** Said once, right after attaching a reference moved the model. */
+  const [modelNote, setModelNote] = useState<string | null>(null);
   /*
    * Null is "nobody knows", not "free". Both models on the list are measured
    * now, so nothing reaches it today: it is the guard for the model added
@@ -110,7 +143,7 @@ export function WordPanel({
   const runningId = running?.id ?? null;
   const runningStartedAt = running?.createdAt ?? null;
   const [now, setNow] = useState(() => Date.now());
-  const fileInput = useRef<HTMLInputElement>(null);
+  const referenceInput = useRef<HTMLInputElement>(null);
   const zoom = useRef<HTMLDialogElement>(null);
   const [zoomed, setZoomed] = useState<string | null>(null);
 
@@ -221,6 +254,12 @@ export function WordPanel({
     if ("attempts" in result && result.attempts !== undefined) {
       setAnswered({ list: result.attempts, served: attempts });
     }
+    // Absent means untouched, a string is the one the word now has, and null
+    // is "there is none any more". Read before the branch for the same reason
+    // the list is.
+    if ("reference" in result && result.reference !== undefined) {
+      setReferenceUrl(result.reference);
+    }
     if (!result.ok) {
       setError(result.error);
       // The teacher reads a sentence in Portuguese that says what to do. The
@@ -228,6 +267,65 @@ export function WordPanel({
       // diagnosis of this starts.
       if ("cause" in result) console.error(result.cause);
     }
+  }
+
+  /*
+   * With a reference attached the selector offers only the models that can
+   * use one. One rule and no impossible state: to go back to the others, take
+   * the reference off. Taking it off does not put the model back where it
+   * was — the model is where the last explicit choice left it, and moving it
+   * on its own would be the program guessing again. The price stays on the
+   * option and in the line under it either way.
+   */
+  const modelOptions =
+    reference !== null && ACCEPT_REFERENCE.length > 0
+      ? ACCEPT_REFERENCE
+      : IMAGE_MODELS;
+
+  /*
+   * Which model accepts a reference is knowledge the program has and the
+   * teacher should not need. So attaching one says what it wants — use this
+   * as the guide — and the program moves the model and says so. Declared
+   * choice, not silent guesswork.
+   */
+  function moveModelToTakeReference() {
+    const target = firstModelWithStructureReference();
+    if (target === null || target === model) {
+      setModelNote(null);
+      return;
+    }
+    setModel(target);
+    setModelPicked(true);
+    setModelNote(
+      ACCEPT_REFERENCE.length === 1
+        ? `Mudei para ${modelLabel(target)}, o único modelo que aceita referência.`
+        : `Mudei para ${modelLabel(target)}, que aceita referência.`,
+    );
+  }
+
+  function attachReference(file: File) {
+    void run("referencia", async () => {
+      let ready: File;
+      try {
+        // Shrunk here so the teacher never has to think about file size, and
+        // so the body that leaves the browser is a few hundred KB.
+        ready = await shrinkReference(file);
+      } catch (cause) {
+        if (cause instanceof NotAPicture) {
+          return {
+            ok: false,
+            error: "Não consegui ler esse arquivo como imagem.",
+          };
+        }
+        throw cause;
+      }
+      if (ready.size > MAX_REFERENCE_BYTES) {
+        return { ok: false, error: REFERENCE_TOO_BIG };
+      }
+      const result = await setReference(word.id, ready);
+      if (result.ok) moveModelToTakeReference();
+      return result;
+    });
   }
 
   const working = busy !== null;
@@ -447,6 +545,90 @@ export function WordPanel({
               O estilo é fixo e entra sozinho. Aqui vai só o que a imagem
               mostra.
             </p>
+
+            {/*
+              Always offered, on every kind that draws. Which model can use a
+              reference is the program's business: the teacher says "use this
+              as the guide" and the program moves the model and says so.
+              Hiding the field until the right model happened to be chosen
+              would ask them to know the answer before they could ask the
+              question.
+            */}
+            <div className="flex flex-col gap-2 pt-2">
+              <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
+                Referência
+              </span>
+              {reference === null ? (
+                <div>
+                  <button
+                    type="button"
+                    disabled={working}
+                    onClick={() => referenceInput.current?.click()}
+                    className="border-rule hover:bg-background rounded-sm border px-4 py-2 text-sm transition-colors disabled:opacity-50"
+                  >
+                    {busy?.key === "referencia" ? "subindo" : "Anexar imagem"}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3">
+                  <button
+                    type="button"
+                    onClick={() => openZoom(reference)}
+                    title="Ver grande"
+                    className="border-rule shrink-0 rounded-sm border"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element -- as above */}
+                    <img
+                      src={reference}
+                      alt={`Referência de ${word.term}`}
+                      className="size-20 rounded-sm object-cover"
+                    />
+                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={working}
+                      onClick={() => referenceInput.current?.click()}
+                      className="border-rule hover:bg-background rounded-sm border px-3 py-1 text-xs transition-colors disabled:opacity-50"
+                    >
+                      {busy?.key === "referencia" ? "subindo" : "Trocar"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={working}
+                      onClick={() =>
+                        void run("tirar-referencia", async () => {
+                          const result = await clearReference(word.id);
+                          // The model stays where the last explicit choice
+                          // left it; only the note about it goes.
+                          if (result.ok) setModelNote(null);
+                          return result;
+                        })
+                      }
+                      className="border-rule hover:bg-background rounded-sm border px-3 py-1 text-xs transition-colors disabled:opacity-50"
+                    >
+                      {busy?.key === "tirar-referencia" ? "tirando" : "Tirar"}
+                    </button>
+                  </div>
+                </div>
+              )}
+              <input
+                ref={referenceInput}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) attachReference(file);
+                }}
+              />
+              <p className="text-faint text-xs">
+                A imagem entra como guia de forma, não de estilo. O estilo
+                continua vindo do prompt, que é o mesmo para todas.
+              </p>
+            </div>
+
             <div className="flex flex-wrap items-center gap-2">
               {IMAGE_MODELS.length > 1 && (
                 <select
@@ -458,7 +640,7 @@ export function WordPanel({
                   }}
                   className="border-rule bg-background rounded-sm border px-3 py-2 text-sm"
                 >
-                  {IMAGE_MODELS.map((option) => (
+                  {modelOptions.map((option) => (
                     <option key={option.id} value={option.id}>
                       {option.label}
                       {option.credits === null
@@ -486,26 +668,20 @@ export function WordPanel({
               >
                 {busy?.key === "gerar" ? "enviando" : "Gerar"}
               </button>
-              <button
-                type="button"
-                disabled={working}
-                onClick={() => fileInput.current?.click()}
-                className="border-rule hover:bg-background rounded-sm border px-4 py-2 text-sm transition-colors disabled:opacity-50"
-              >
-                {busy?.key === "subir" ? "subindo" : "Subir arquivo"}
-              </button>
-              <input
-                ref={fileInput}
-                type="file"
-                accept="image/*"
-                hidden
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.target.value = "";
-                  if (file) void run("subir", () => uploadImage(word.id, file));
-                }}
-              />
             </div>
+
+            {/*
+              One line for what the reference just did, or for the rule it
+              puts the selector under while it is attached. The same slot for
+              both: they never apply at once, and two lines here would be two
+              lines of screen saying the same thing twice.
+            */}
+            {(modelNote !== null || reference !== null) && (
+              <p className="text-faint text-xs">
+                {modelNote ??
+                  "Com uma referência anexada, só os modelos que aceitam uma. Tire a referência para escolher os outros."}
+              </p>
+            )}
             {/*
               What this costs. Said outside the select, because an option is
               only readable while the list is open, and the number matters

@@ -140,65 +140,6 @@ export async function rejectAttempt(attemptId: string): Promise<ActionResult> {
 }
 
 /**
- * Upload a finished picture, skipping the generation entirely.
- *
- * On its way out: the button that reaches it is replaced by the structure
- * reference in the next commit, and this goes with the button. Kept here so
- * this commit is a state the screen still compiles against.
- */
-export async function uploadImage(
-  wordId: string,
-  file: File,
-): Promise<ActionResult> {
-  try {
-    if (file.size === 0) return { ok: false, error: "O arquivo está vazio." };
-    const { supabase } = await requireTeacher();
-
-    // Inserted before the upload because the path is built from the attempt
-    // id, and left pending until the file is actually in the bucket: a
-    // 'generated' row with no storage_path is one the approve function
-    // refuses, so it must never exist even briefly.
-    const { data: attempt, error: insertError } = await supabase
-      .from("image_attempts")
-      .insert({
-        vocabulary_item_id: wordId,
-        provider: "upload",
-        status: "pending",
-      })
-      .select("id")
-      .single();
-    if (insertError) return { ok: false, error: insertError.message };
-
-    const extension = extensionFor(
-      file.type,
-      file.name.split(".").pop() ?? "png",
-    );
-    const path = `${wordId}/${attempt.id}.${extension}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from(BUCKET)
-      .upload(path, file, { contentType: file.type || undefined });
-    if (uploadError) {
-      return recordFailure(supabase, attempt.id, wordId, uploadError.message);
-    }
-
-    // An upload leaves 'pending' too, so it stamps completed_at like any
-    // other attempt: the column means the same thing on every row or it means
-    // nothing.
-    const { error: doneError } = await finish(supabase, attempt.id, {
-      status: "generated",
-      storage_path: path,
-    });
-    if (doneError !== null) return { ok: false, error: doneError };
-
-    revalidatePath(SCREEN);
-    return { ok: true, attempts: await readWordAttempts(supabase, wordId) };
-  } catch (cause) {
-    return failure(cause);
-  }
-}
-
-/**
  * Attach a structure reference to a word, or replace the one it has.
  *
  * The file is kept and the column points at it, so the teacher uploads once

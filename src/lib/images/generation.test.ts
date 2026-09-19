@@ -4,7 +4,9 @@ import { describe, test } from "node:test";
 import {
   GENERATION_WINDOW_MS,
   POLL_INTERVAL_MS,
+  REFERENCE_MAX_SIDE,
   elapsedSeconds,
+  fitWithin,
   generationSeconds,
   hasExpired,
   isRunning,
@@ -250,5 +252,62 @@ describe("generationSeconds", () => {
 
   test("a generation that ended at once is zero, not nothing", () => {
     assert.equal(generationSeconds(finished({ completedAt: started })), 0);
+  });
+});
+
+describe("fitWithin", () => {
+  test("shrinks a landscape picture by its longest side", () => {
+    assert.deepEqual(fitWithin(4000, 3000, 1536), {
+      width: 1536,
+      height: 1152,
+    });
+  });
+
+  test("shrinks a portrait one by its longest side too", () => {
+    assert.deepEqual(fitWithin(3000, 4000, 1536), {
+      width: 1152,
+      height: 1536,
+    });
+  });
+
+  test("a square comes out square", () => {
+    assert.deepEqual(fitWithin(4096, 4096, 1536), {
+      width: 1536,
+      height: 1536,
+    });
+  });
+
+  /*
+   * Enlarging would cost bytes and add nothing: the pixels to fill the extra
+   * space with do not exist. Below the limit the size is left exactly alone,
+   * so a small reference is re-encoded rather than resampled for no reason.
+   */
+  test("never enlarges, and leaves a small one untouched", () => {
+    assert.deepEqual(fitWithin(800, 600, 1536), { width: 800, height: 600 });
+    assert.deepEqual(fitWithin(1, 1, 1536), { width: 1, height: 1 });
+  });
+
+  test("exactly at the limit is not touched", () => {
+    assert.deepEqual(fitWithin(1536, 1000, 1536), {
+      width: 1536,
+      height: 1000,
+    });
+    assert.deepEqual(fitWithin(1537, 1000, 1536), { width: 1536, height: 999 });
+  });
+
+  /*
+   * A picture 4000 by 3 is absurd and someone will upload one. The short side
+   * must still come out at least a pixel, or the canvas is zero tall and
+   * drawing into it throws.
+   */
+  test("the short side never rounds away to nothing", () => {
+    const fitted = fitWithin(4000, 3, REFERENCE_MAX_SIDE);
+    assert.equal(fitted.width, REFERENCE_MAX_SIDE);
+    assert.ok(fitted.height >= 1);
+  });
+
+  test("the ratio survives the shrink", () => {
+    const { width, height } = fitWithin(3024, 4032, REFERENCE_MAX_SIDE);
+    assert.ok(Math.abs(width / height - 3024 / 4032) < 0.01);
   });
 });
