@@ -150,7 +150,13 @@ export default async function VocabularyImagesPage({
               )}
             </div>
 
-            <div className="lg:sticky lg:top-20 lg:self-start">
+            {/*
+              The panel scrolls on its own: with an approved image and a few
+              attempts it is taller than the screen, and sticky alone just
+              clipped the bottom of it. top-20 clears the sticky teacher nav,
+              and the height is what is left of the viewport below it.
+            */}
+            <div className="lg:sticky lg:top-20 lg:max-h-[calc(100dvh-6rem)] lg:self-start lg:overflow-y-auto">
               {selected === null ? (
                 <p className="text-muted border-rule rounded-sm border border-dashed p-6">
                   Escolha uma palavra na lista para decidir o tipo e cuidar da
