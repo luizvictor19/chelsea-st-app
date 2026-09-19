@@ -251,7 +251,7 @@ export function WordPanel({
           <img
             src={word.imageUrl}
             alt={`Imagem aprovada de ${word.term}`}
-            className="border-rule w-full max-w-64 rounded-sm border"
+            className="border-rule w-full max-w-[200px] rounded-sm border"
           />
         </div>
       )}
