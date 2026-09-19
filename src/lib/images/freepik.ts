@@ -25,9 +25,14 @@ if (typeof window !== "undefined") {
 
 const BASE_URL = "https://api.magnific.com";
 
-/** Each model is its own endpoint, and polling goes back to the same one. */
+/**
+ * Each model is its own endpoint, and polling goes back to the same one.
+ *
+ * Mystic came out with the model list. A handle stored before that says
+ * "mystic:" and no longer decodes, which reaches nothing: polling happens
+ * inside the generating request, so no attempt is ever polled after the fact.
+ */
 const ENDPOINTS: Record<ImageModelId, string> = {
-  mystic: "/v1/ai/mystic",
   "seedream-v4": "/v1/ai/text-to-image/seedream-v4",
 };
 

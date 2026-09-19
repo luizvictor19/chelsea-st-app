@@ -176,18 +176,25 @@ export function WordPanel({
               mostra.
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              <select
-                aria-label="Modelo"
-                value={model}
-                onChange={(event) => setModel(event.target.value)}
-                className="border-rule bg-background rounded-sm border px-3 py-2 text-sm"
-              >
-                {IMAGE_MODELS.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+              {/*
+                One model means nothing to choose, so the control is left out
+                rather than shown with a single option. It comes back on its
+                own the day IMAGE_MODELS has a second entry.
+              */}
+              {IMAGE_MODELS.length > 1 && (
+                <select
+                  aria-label="Modelo"
+                  value={model}
+                  onChange={(event) => setModel(event.target.value)}
+                  className="border-rule bg-background rounded-sm border px-3 py-2 text-sm"
+                >
+                  {IMAGE_MODELS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              )}
               <button
                 type="button"
                 disabled={working || subject.trim() === ""}
