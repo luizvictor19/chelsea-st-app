@@ -4,10 +4,10 @@
  * matters: the deployed project keeps pgcrypto in the extensions schema, and
  * generating from there silently drops its functions out of this file.
  *
- * Regenerate after adding a migration, against a throwaway Postgres that
- * scripts/verify-rls.sql has applied the migrations to:
- *   supabase gen types typescript --db-url "<url>" --schema public \
- *     > src/lib/supabase/types.ts
+ * Regenerate with scripts/gen-types.sh, which is the whole procedure in one
+ * call. Never run the generator on its own: it writes the whole file, so the
+ * comment you are reading is destroyed by any generation that does not put it
+ * back, and putting it back is a step someone eventually forgets.
  *
  * Hand edits are lost on the next run.
  */
