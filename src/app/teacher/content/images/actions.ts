@@ -473,12 +473,15 @@ export async function startGeneration(
      * has not been measured, and it is not zero.
      *
      * Here and not at the insert, because here is the first moment a charge
-     * can exist: the provider has taken the task and given back a handle. A
-     * request refused at the door leaves the row with no cost, which is the
-     * truth about it. Whether a task that was accepted and then failed is
-     * charged anyway is not known — and that is exactly what comparing this
-     * sum against the dashboard will answer, now that a failed attempt stays
-     * a failed attempt instead of being reclassified as rejected.
+     * can exist: the provider has taken the task and given back a handle.
+     *
+     * And here is also exactly the right line, which is now measured rather
+     * than assumed. On 2026-09-19 the backfill summed to 3130 against a
+     * dashboard reading of 3130, to the credit, with every accepted task
+     * charged — including one that ran past the 90 second window — and only
+     * the request refused at the door costing nothing. So a handle is the
+     * line between charged and not, and credits_spent is a statement of what
+     * was spent rather than a ceiling on it.
      */
     const { error: handleError } = await supabase
       .from("image_attempts")

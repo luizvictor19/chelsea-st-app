@@ -34,11 +34,24 @@ export interface ImageProvider {
  * here are measured, and the Freepik dashboard is the only source for either:
  * the API reports no charge and the documented pricing page is a 404.
  *
- *   Seedream 4, 50 credits. Read on 2026-09-19, where "API keys spent" went
- *   from 0 to 100 over two generations.
- *   Mystic, 80 credits. Read by Luiz on 2026-09-19, off the same "API keys
- *   spent", immediately before and immediately after one isolated generation
- *   of the word "pen".
+ *   Seedream 4, 50 credits.
+ *   Mystic, 80 credits. Read by Luiz on 2026-09-19, off "API keys spent",
+ *   immediately before and immediately after one isolated generation of the
+ *   word "pen".
+ *
+ * Seedream's 50 was first read off a jump from 0 to 100 on the evening of
+ * 18/09, taken at the time to be two Seedream generations. It was one
+ * Seedream and one Mystic. The number survived the correction and is now
+ * held by something stronger than that reading: with every attempt carrying
+ * its own price, the table sums to exactly what the dashboard says, and 50 is
+ * what makes it.
+ *
+ * Which also means Mystic cost 50 that evening and 80 from 19/09 on. Either
+ * the price moved or that first call reached a different variant; nothing
+ * here can say which. Migration 0015 carries the date rule that writes the
+ * old figure onto the one row it applies to. If a Mystic generation ever
+ * comes back measuring something other than 80, this is the place it has
+ * happened before.
  *
  * Mystic costing 60% more than Seedream is a fact the comparison now has to
  * carry: a model only earns that by needing fewer attempts, and attempts per
