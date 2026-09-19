@@ -137,3 +137,26 @@ export function parseSuggestions(
 
   return { suggestions, rejected };
 }
+
+/**
+ * Whether re-suggesting a lesson would throw away suggestions that are
+ * already there, and how many.
+ *
+ * Takes the lesson's words rather than a number, because the count has to be
+ * of the whole lesson and not of whatever the type filter happens to be
+ * showing. Handing this function the list makes that the caller's obvious job.
+ *
+ * Only a stored suggestion counts. A decided word with no suggestion has
+ * nothing to lose, and a decision is never at risk either way: the pass writes
+ * suggested_representation and nothing else.
+ */
+export function overwriteWarning(
+  words: readonly {
+    readonly suggestedRepresentation: Representation | null;
+  }[],
+): { confirm: boolean; existing: number } {
+  const existing = words.filter(
+    (word) => word.suggestedRepresentation !== null,
+  ).length;
+  return { confirm: existing > 0, existing };
+}

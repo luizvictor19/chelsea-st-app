@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import {
   SUGGESTION_KINDS,
   buildSuggestionPrompt,
+  overwriteWarning,
   parseSuggestions,
 } from "./suggest.ts";
 
@@ -183,5 +184,30 @@ describe("parseSuggestions", () => {
     const { suggestions, rejected } = parseSuggestions(text, IDS);
     assert.deepEqual(suggestions, [{ id: IDS[1], kind: "action" }]);
     assert.equal(rejected, 3);
+  });
+});
+
+describe("overwriteWarning", () => {
+  const withSuggestion = { suggestedRepresentation: "photo" } as const;
+  const without = { suggestedRepresentation: null } as const;
+
+  test("no suggestions stored means no confirmation, so the click goes straight through", () => {
+    assert.deepEqual(overwriteWarning([]), { confirm: false, existing: 0 });
+    assert.deepEqual(overwriteWarning([without, without]), {
+      confirm: false,
+      existing: 0,
+    });
+  });
+
+  test("one stored suggestion is enough to ask first", () => {
+    assert.deepEqual(overwriteWarning([without, withSuggestion, without]), {
+      confirm: true,
+      existing: 1,
+    });
+  });
+
+  test("counts every stored suggestion, which is the number the teacher is shown", () => {
+    const words = [withSuggestion, withSuggestion, without, withSuggestion];
+    assert.deepEqual(overwriteWarning(words), { confirm: true, existing: 3 });
   });
 });

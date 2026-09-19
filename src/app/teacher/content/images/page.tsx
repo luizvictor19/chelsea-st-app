@@ -4,6 +4,8 @@ import Link from "next/link";
 import { listVocabularyImages, listWordAttempts } from "@/lib/content/queries";
 
 import { ProgressBar } from "../progress-bar";
+import { overwriteWarning } from "@/lib/images/suggest";
+
 import { FILTERS, labelFor, matchesFilter } from "./representation";
 import { SuggestButton } from "./suggest-button";
 import { WordPanel } from "./word-panel";
@@ -39,7 +41,10 @@ export default async function VocabularyImagesPage({
       ...lesson,
       // The whole lesson, kept apart from the filtered view of it: the
       // suggestion button acts on the lesson, not on what the filter shows.
+      // Both the count it is disabled by and the count it warns with are
+      // taken here, before the filter, for the same reason.
       totalWords: lesson.words.length,
+      existingSuggestions: overwriteWarning(lesson.words).existing,
       words: lesson.words.filter((word) =>
         matchesFilter(filter, word.representation),
       ),
@@ -122,6 +127,7 @@ export default async function VocabularyImagesPage({
                         <SuggestButton
                           lessonContentId={lesson.lessonContentId}
                           words={lesson.totalWords}
+                          existingSuggestions={lesson.existingSuggestions}
                         />
                       )}
                     </div>
