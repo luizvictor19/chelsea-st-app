@@ -40,7 +40,12 @@ import {
   type ActionResult,
 } from "./actions";
 import { NotAPicture, shrinkReference } from "./shrink-reference";
-import { attemptsToShow, settle, type LastAnswer } from "./panel-state";
+import {
+  attemptsToShow,
+  discardWarning,
+  settle,
+  type LastAnswer,
+} from "./panel-state";
 import { REPRESENTATIONS, disagreement, labelFor } from "./representation";
 import { WORD_CLASS_LABELS } from "./word-class";
 
@@ -169,6 +174,15 @@ export function WordPanel({
   const referenceInput = useRef<HTMLInputElement>(null);
   const zoom = useRef<HTMLDialogElement>(null);
   const [zoomed, setZoomed] = useState<string | null>(null);
+  /*
+   * Which attempt the bin is asking about. The bin destroys a picture that
+   * has been paid for and the file does not come back, so unlike the
+   * suggestion dialog — which lets a lesson with nothing to overwrite go
+   * straight through — this one always has something to say, and always says
+   * it. What it says is the number; see discardWarning.
+   */
+  const discard = useRef<HTMLDialogElement>(null);
+  const [discarding, setDiscarding] = useState<ImageAttempt | null>(null);
 
   /*
    * The native dialog again, the same one the confirmation uses: showModal
@@ -179,6 +193,12 @@ export function WordPanel({
   function openZoom(url: string) {
     setZoomed(url);
     zoom.current?.showModal();
+  }
+
+  /** The same native dialog, for the one control that destroys something. */
+  function askToDiscard(attempt: ImageAttempt) {
+    setDiscarding(attempt);
+    discard.current?.showModal();
   }
 
   /*
@@ -848,11 +868,7 @@ export function WordPanel({
                         disabled={working}
                         aria-label="Descartar esta tentativa e apagar o arquivo"
                         title="Descartar e apagar o arquivo"
-                        onClick={() =>
-                          void run(`descartar-${attempt.id}`, () =>
-                            rejectAttempt(attempt.id),
-                          )
-                        }
+                        onClick={() => askToDiscard(attempt)}
                         className="text-faint hover:text-accent shrink-0 self-start rounded-sm p-1.5 transition-colors disabled:opacity-40"
                       >
                         {busy?.key === `descartar-${attempt.id}` ? (
@@ -881,6 +897,65 @@ export function WordPanel({
           </ul>
         )}
       </div>
+
+      {/*
+        The one control on this panel that destroys something, so the one
+        confirmation. The suggestion dialog next door is skipped when a lesson
+        has no suggestions to overwrite, because a confirmation with nothing
+        to warn about is one people learn to click past; this one is the
+        opposite case and never skipped, because the file is always gone
+        afterwards.
+
+        It says the number rather than "tem certeza". What stops a person is
+        knowing what they are throwing away, and the row now carries it.
+      */}
+      <dialog
+        ref={discard}
+        aria-labelledby="descartar-titulo"
+        onClose={() => setDiscarding(null)}
+        className="border-rule bg-surface text-foreground m-auto max-w-sm rounded-sm border p-6 backdrop:bg-black/40"
+      >
+        {discarding !== null && (
+          <div className="flex flex-col gap-4">
+            <h2
+              id="descartar-titulo"
+              className="text-base font-extrabold tracking-tight"
+            >
+              Descartar esta imagem?
+            </h2>
+            <p className="text-muted text-sm">
+              {discardWarning(discarding.creditsSpent)} A tentativa continua na
+              lista, com o que ela custou.
+            </p>
+            <div className="flex flex-wrap justify-end gap-2">
+              {/*
+                Cancel closes and calls nothing. The form method keeps Esc and
+                this button on the same path out.
+              */}
+              <form method="dialog">
+                <button
+                  type="submit"
+                  className="border-rule hover:bg-background rounded-sm border px-3 py-1.5 text-sm transition-colors"
+                >
+                  Cancelar
+                </button>
+              </form>
+              <button
+                type="button"
+                onClick={() => {
+                  // Bound before the close, because closing clears it.
+                  const id = discarding.id;
+                  discard.current?.close();
+                  void run(`descartar-${id}`, () => rejectAttempt(id));
+                }}
+                className="border-accent text-accent hover:bg-background rounded-sm border px-3 py-1.5 text-sm font-semibold transition-colors"
+              >
+                Descartar e apagar
+              </button>
+            </div>
+          </div>
+        )}
+      </dialog>
 
       {/*
         Esc closes it, and so does clicking outside the picture. A click on

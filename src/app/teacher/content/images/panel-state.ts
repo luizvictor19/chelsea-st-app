@@ -82,3 +82,27 @@ export function attemptsToShow<T>(
   if (answered === null) return served;
   return answered.served === served ? answered.list : served;
 }
+
+/**
+ * What the confirmation says before an attempt is discarded.
+ *
+ * The number and not "are you sure". The bin is irreversible now — it removes
+ * the file from the bucket — and what makes a person stop is knowing what
+ * they are about to throw away, which here is a picture that has already been
+ * paid for. So the sentence carries the credits the row recorded, and says
+ * the file does not come back.
+ *
+ * A null cost says so. credits_spent is null on a model whose price has never
+ * been measured, and on every attempt made before the cost was written down
+ * at all; inventing a figure to fill the sentence would be putting a number
+ * in front of the teacher that nobody checked, at the exact moment they are
+ * deciding with it.
+ */
+export function discardWarning(creditsSpent: number | null): string {
+  const gone = "O arquivo não volta.";
+  if (creditsSpent === null) {
+    return `O custo desta imagem não foi registrado. ${gone}`;
+  }
+  const credits = creditsSpent === 1 ? "1 crédito" : `${creditsSpent} créditos`;
+  return `Esta imagem custou ${credits}. ${gone}`;
+}
