@@ -2,12 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { Constants } from "../../../../lib/supabase/types.ts";
-import {
-  FILTERS,
-  REPRESENTATIONS,
-  disagreement,
-  matchesFilter,
-} from "./representation.ts";
+import { REPRESENTATIONS, disagreement } from "./representation.ts";
 
 const ENUM = Constants.public.Enums.representation_kind;
 
@@ -36,36 +31,6 @@ describe("REPRESENTATIONS", () => {
     const labels = REPRESENTATIONS.map((item) => item.label);
     assert.ok(labels.every((label) => label.trim() !== ""));
     assert.equal(new Set(labels).size, labels.length);
-  });
-});
-
-describe("FILTERS", () => {
-  test("offers one filter per kind, plus Todas and Sem decidir", () => {
-    assert.equal(FILTERS.length, ENUM.length + 2);
-    for (const kind of ENUM) {
-      assert.ok(
-        FILTERS.some((filter) => filter.key === kind),
-        kind,
-      );
-    }
-  });
-
-  /*
-   * pose has to behave like any other kind here. It arrived last, and the
-   * cost of it being special would be a filter that silently shows nothing.
-   */
-  test("matches each kind against itself and nothing else", () => {
-    for (const kind of ENUM) {
-      assert.ok(matchesFilter(kind, kind));
-      for (const other of ENUM) {
-        if (other !== kind) assert.ok(!matchesFilter(kind, other));
-      }
-      assert.ok(!matchesFilter(kind, null));
-      assert.ok(matchesFilter("todas", kind));
-      assert.ok(!matchesFilter("sem-decidir", kind));
-    }
-    assert.ok(matchesFilter("sem-decidir", null));
-    assert.ok(matchesFilter("todas", null));
   });
 });
 

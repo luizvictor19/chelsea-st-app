@@ -7,11 +7,16 @@ import { ProgressBar } from "../progress-bar";
 import { overwriteWarning } from "@/lib/images/suggest";
 
 import {
-  FILTERS,
-  disagreement,
-  labelFor,
-  matchesFilter,
-} from "./representation";
+  FILTER_GROUPS,
+  matchesSelection,
+  parseSelection,
+  situationOf,
+  toggled,
+  type FilterKey,
+  type Selection,
+  type Situation,
+} from "./filters";
+import { disagreement, labelFor } from "./representation";
 import { SuggestButton } from "./suggest-button";
 import { WordPanel } from "./word-panel";
 
@@ -19,15 +24,58 @@ export const metadata: Metadata = {
   title: "Imagens do vocabulário · Chelsea St",
 };
 
-/** Keeps the other parameter when one of them changes. */
-function href(params: { word?: string | null; filter?: string }): string {
+/**
+ * The whole state of the screen as a link: three filter axes and the selected
+ * word. Every control is a link, so the back button walks the filters and a
+ * view can be pasted to someone.
+ */
+function href(selection: Selection, word: string | null): string {
   const search = new URLSearchParams();
-  if (params.filter !== undefined && params.filter !== "todas") {
-    search.set("tipo", params.filter);
+  for (const { key } of FILTER_GROUPS) {
+    const chosen = selection[key];
+    if (chosen.length > 0) search.set(key, chosen.join(","));
   }
-  if (params.word) search.set("palavra", params.word);
+  if (word) search.set("palavra", word);
   const query = search.toString();
   return query === "" ? "/teacher/content/images" : `?${query}`;
+}
+
+/** The tick, the waiting circle, or nothing. */
+function StatusMark({ situation }: { readonly situation: Situation }) {
+  if (situation === "com-imagem") {
+    return (
+      <svg
+        viewBox="0 0 16 16"
+        className="text-foreground size-3.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        role="img"
+        aria-label="com imagem"
+      >
+        <path d="M3 8.5l3.5 3.5L13 4.5" />
+      </svg>
+    );
+  }
+  if (situation === "sem-imagem") {
+    return (
+      <svg
+        viewBox="0 0 16 16"
+        className="text-faint size-3.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeDasharray="2.5 2"
+        role="img"
+        aria-label="sem imagem ainda"
+      >
+        <circle cx="8" cy="8" r="5.25" />
+      </svg>
+    );
+  }
+  return <span className="size-3.5" aria-hidden="true" />;
 }
 
 export default async function VocabularyImagesPage({
@@ -36,7 +84,11 @@ export default async function VocabularyImagesPage({
   readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
-  const filter = typeof params.tipo === "string" ? params.tipo : "todas";
+  const selection: Selection = {
+    tipo: parseSelection(params.tipo),
+    classe: parseSelection(params.classe),
+    situacao: parseSelection(params.situacao),
+  };
   const selectedId = typeof params.palavra === "string" ? params.palavra : null;
 
   const { lessons, progress } = await listVocabularyImages();
@@ -49,10 +101,9 @@ export default async function VocabularyImagesPage({
       // Both the count it is disabled by and the count it warns with are
       // taken here, before the filter, for the same reason.
       totalWords: lesson.words.length,
+      withImage: lesson.words.filter((word) => word.imageUrl !== null).length,
       overwrite: overwriteWarning(lesson.words),
-      words: lesson.words.filter((word) =>
-        matchesFilter(filter, word.representation),
-      ),
+      words: lesson.words.filter((word) => matchesSelection(word, selection)),
     }))
     .filter((lesson) => lesson.words.length > 0);
 
@@ -93,20 +144,48 @@ export default async function VocabularyImagesPage({
         </p>
       ) : (
         <>
-          <nav aria-label="Filtros" className="flex flex-wrap gap-2">
-            {FILTERS.map((option) => (
-              <Link
-                key={option.key}
-                href={href({ filter: option.key, word: selectedId })}
-                aria-current={filter === option.key ? "true" : undefined}
-                className={
-                  filter === option.key
-                    ? "border-foreground bg-foreground text-background rounded-sm border px-3 py-1.5 text-sm font-semibold"
-                    : "border-rule hover:bg-surface rounded-sm border px-3 py-1.5 text-sm transition-colors"
-                }
+          {/*
+            Three axes, each a labelled group, multi select inside a group and
+            all three required at once. Every option is a link, so the whole
+            state is the query string: the back button walks the filters and a
+            view can be handed to someone as a URL.
+          */}
+          <nav aria-label="Filtros" className="flex flex-col gap-2">
+            {FILTER_GROUPS.map((group) => (
+              <div
+                key={group.key}
+                className="flex flex-wrap items-baseline gap-2"
               >
-                {option.label}
-              </Link>
+                <span className="text-faint w-16 shrink-0 font-mono text-xs tracking-[0.16em] uppercase">
+                  {group.label}
+                </span>
+                {group.options.map((option) => {
+                  const on = selection[group.key as FilterKey].includes(
+                    option.value,
+                  );
+                  return (
+                    <Link
+                      key={option.value}
+                      href={href(
+                        toggled(
+                          selection,
+                          group.key as FilterKey,
+                          option.value,
+                        ),
+                        selectedId,
+                      )}
+                      aria-pressed={on}
+                      className={
+                        on
+                          ? "border-foreground bg-foreground text-background rounded-sm border px-2.5 py-1 text-xs font-semibold"
+                          : "border-rule hover:bg-surface rounded-sm border px-2.5 py-1 text-xs transition-colors"
+                      }
+                    >
+                      {option.label}
+                    </Link>
+                  );
+                })}
+              </div>
             ))}
           </nav>
 
@@ -122,12 +201,25 @@ export default async function VocabularyImagesPage({
                     key={lesson.lessonNumber ?? "sem-licao"}
                     className="flex flex-col gap-2"
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <h2 className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
+                    <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                      <h2 className="text-faint mr-auto font-mono text-xs tracking-[0.16em] uppercase">
                         {lesson.lessonNumber === null
                           ? "Fora de lição"
                           : `Lição ${lesson.lessonNumber}`}
                       </h2>
+                      {/*
+                        The two counts read left to right and the button sits
+                        after them: how much of the lesson is done, how much
+                        has been proposed, and then the control that changes
+                        the second number.
+                      */}
+                      <span className="text-faint text-xs whitespace-nowrap">
+                        {lesson.withImage}/{lesson.totalWords} com imagem
+                      </span>
+                      <span className="text-faint text-xs whitespace-nowrap">
+                        {lesson.overwrite.suggestions}/{lesson.totalWords} com
+                        sugestão
+                      </span>
                       {lesson.lessonContentId !== null && (
                         <SuggestButton
                           lessonContentId={lesson.lessonContentId}
@@ -141,7 +233,7 @@ export default async function VocabularyImagesPage({
                       {lesson.words.map((word) => (
                         <li key={word.id}>
                           <Link
-                            href={href({ filter, word: word.id })}
+                            href={href(selection, word.id)}
                             aria-current={
                               selectedId === word.id ? "true" : undefined
                             }
@@ -160,11 +252,20 @@ export default async function VocabularyImagesPage({
                               </span>
                             </span>
                             <span className="flex shrink-0 items-center gap-2">
-                              {word.attempts > 0 && (
-                                <span className="text-faint font-mono text-xs">
-                                  {word.attempts}
-                                </span>
-                              )}
+                              {/*
+                                Where the word stands, as a mark rather than a
+                                number: a tick once the picture exists, a
+                                hollow circle while one is owed, and nothing
+                                at all for a word that is undecided or will
+                                never have one. Silence is the right answer
+                                twice here, for opposite reasons.
+                              */}
+                              <StatusMark
+                                situation={situationOf(
+                                  word.representation,
+                                  word.imageUrl,
+                                )}
+                              />
                               {/*
                                 A decision reads as settled, a suggestion on an
                                 undecided word reads as the accent colour
@@ -180,7 +281,7 @@ export default async function VocabularyImagesPage({
                                     word.representation,
                                     word.suggestedRepresentation,
                                   ) !== null && (
-                                    <span className="text-accent/60">
+                                    <span className="text-warning/90">
                                       {" "}
                                       ·{" "}
                                       {labelFor(
