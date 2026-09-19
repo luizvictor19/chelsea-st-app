@@ -24,9 +24,9 @@ export interface ImageProvider {
  * The models the screen offers, provider neutral so the screen can name them
  * without importing the provider.
  *
- * Seedream 4 is the only one, and so the default. Decided on 2026-09-19 from
- * one sample against Mystic; the comparison is written up in
- * claude/modelos.md. Attempts already recorded with model 'mystic' stay as
+ * Seedream 4 is the only one, and so the default: chosen on 2026-09-19 after
+ * a one-sample comparison against Mystic 2.5. Attempts already recorded with
+ * model 'mystic' stay as
  * they are: model is a plain text column and what a past attempt was drawn
  * with is a fact about that attempt, not a setting to migrate.
  *

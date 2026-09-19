@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
-  SUGGESTION_KINDS,
+  REPRESENTATION_KINDS,
   buildSuggestionPrompt,
   overwriteWarning,
   parseSuggestions,
@@ -17,7 +17,7 @@ const IDS = WORDS.map((word) => word.id);
 describe("buildSuggestionPrompt", () => {
   test("names every kind, so the model is told the whole enum", () => {
     const { system } = buildSuggestionPrompt(WORDS);
-    for (const kind of SUGGESTION_KINDS) {
+    for (const kind of REPRESENTATION_KINDS) {
       assert.ok(system.includes(kind), `missing ${kind}`);
     }
   });
@@ -73,6 +73,19 @@ describe("buildSuggestionPrompt", () => {
     const { system } = buildSuggestionPrompt(WORDS);
     assert.match(system, /country or a city is figure/iu);
     assert.match(system, /nationality or a language is none/iu);
+  });
+
+  /*
+   * The boundary the sixth kind exists for. Pose came out of the blind
+   * measurement of lesson 2, where the only two misses were sitting and
+   * standing: decided Figure, suggested Action, and both readings defensible
+   * because neither kind described a person held in a position.
+   */
+  test("states that the arrow is what separates pose from action", () => {
+    const { system } = buildSuggestionPrompt(WORDS);
+    assert.match(system, /Pose is still and action is moving/iu);
+    assert.match(system, /arrow is what separates them/iu);
+    assert.match(system, /sitting from sit down/iu);
   });
 
   test("states that a colour is a figure", () => {

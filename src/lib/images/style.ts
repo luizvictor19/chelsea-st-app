@@ -4,8 +4,8 @@
  * one is that a few hundred pictures read as one set instead of as a few
  * hundred separate decisions.
  *
- * Decided on 2026-09-18, style 1 of three proposed; measurement in
- * claude/modelos.md.
+ * Decided on 2026-09-18, style 1 of three proposed. The comparison that
+ * settled it is not in this repository.
  */
 export const STYLE_PROMPT =
   "Flat vector illustration of {subject}. Single subject, centered, bold " +

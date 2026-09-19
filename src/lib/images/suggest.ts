@@ -9,17 +9,20 @@
  * these suggestions gets measured.
  */
 
-import type { Database } from "@/lib/supabase/types";
+// A relative specifier, not the @/ alias: this module is imported by a
+// node:test file, and node resolves neither tsconfig paths nor a missing
+// extension.
+import { Constants, type Database } from "../supabase/types.ts";
 
 type Representation = Database["public"]["Enums"]["representation_kind"];
 
-export const SUGGESTION_KINDS = [
-  "photo",
-  "symbol",
-  "figure",
-  "action",
-  "none",
-] as const satisfies readonly Representation[];
+/**
+ * The kinds, taken from the generated enum rather than written out again.
+ * A hand kept copy of an enum is a list that goes stale in silence: the
+ * database grows a value, the parser keeps refusing it, and nothing says so.
+ */
+export const REPRESENTATION_KINDS: readonly Representation[] =
+  Constants.public.Enums.representation_kind;
 
 export type Suggestion = {
   readonly id: string;
@@ -37,10 +40,11 @@ export type Suggestion = {
  */
 const SYSTEM = `You sort English vocabulary words by the kind of picture each one needs.
 
-The five kinds:
+The six kinds:
 - photo: a concrete object, a living thing, or a named person, where one image is enough. Examples: apple, dog, table, Jack, Mr Brown.
-- action: a verb or a gesture, shown as a person doing it. Examples: run, point, sit.
-- figure: something drawn as a simple diagram rather than photographed. A spatial or quantity relation, a place on a map, or a colour as one filled shape. Examples: in, on, under, many, big, England, London, red.
+- pose: a person standing still, whole body, where the position of the body is the meaning. Examples: standing, sitting, lying.
+- action: a person in the middle of a movement, with an arrow showing which way it goes. Examples: sit down, stand up, open, close.
+- figure: something drawn as a simple diagram rather than photographed, with no person in it. A spatial or quantity relation, a place on a map, or a colour as one filled shape. Examples: in, on, under, many, big, England, London, red.
 - symbol: the word is the character itself. Examples: six, question mark, first.
 - none: grammatical or functional, with nothing to draw. Examples: a, the, is, this, yes, Mr, English.
 
@@ -49,9 +53,10 @@ The pairs that are easy to confuse:
 - A country or a city is figure, drawn as a map: England, Brazil, London.
 - A nationality or a language is none: English, Brazilian, French.
 - A colour is figure, drawn as one filled shape: red, blue, green.
+- Pose is still and action is moving. Pose is a body held in a position: standing, sitting, lying. Action is a body part way through a movement, and it is drawn with an arrow for the direction: sit down, stand up, open, close. The arrow is what separates them, because a still picture without one cannot tell sitting from sit down.
 
 Answer with json only, in exactly this shape:
-{"suggestions": [{"id": "the id you were given", "kind": "photo|symbol|figure|action|none"}]}
+{"suggestions": [{"id": "the id you were given", "kind": "photo|pose|action|figure|symbol|none"}]}
 
 Give one entry for every word you were sent, using the id exactly as it was given to you. No prose, no explanation.`;
 
@@ -72,7 +77,7 @@ export function buildSuggestionPrompt(
 function isRepresentation(value: unknown): value is Representation {
   return (
     typeof value === "string" &&
-    (SUGGESTION_KINDS as readonly string[]).includes(value)
+    (REPRESENTATION_KINDS as readonly string[]).includes(value)
   );
 }
 

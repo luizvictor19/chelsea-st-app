@@ -682,7 +682,8 @@ export type Database = {
         | "revision_exercise"
         | "chart_ref";
       lesson_status: "scheduled" | "done" | "cancelled" | "no_show";
-      representation_kind: "photo" | "symbol" | "figure" | "action" | "none";
+      representation_kind:
+        "photo" | "symbol" | "figure" | "action" | "pose" | "none";
       user_role: "student" | "teacher";
     };
     CompositeTypes: {
@@ -821,7 +822,14 @@ export const Constants = {
         "chart_ref",
       ],
       lesson_status: ["scheduled", "done", "cancelled", "no_show"],
-      representation_kind: ["photo", "symbol", "figure", "action", "none"],
+      representation_kind: [
+        "photo",
+        "symbol",
+        "figure",
+        "action",
+        "pose",
+        "none",
+      ],
       user_role: ["student", "teacher"],
     },
   },
