@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import type {
@@ -26,6 +25,7 @@ import {
   uploadImage,
   type ActionResult,
 } from "./actions";
+import { attemptsToShow, settle, type LastAnswer } from "./panel-state";
 import { REPRESENTATIONS, disagreement, labelFor } from "./representation";
 import { WORD_CLASS_LABELS } from "./word-class";
 
@@ -62,9 +62,17 @@ export function WordPanel({
   readonly word: WordImage;
   readonly attempts: readonly ImageAttempt[];
 }) {
-  const router = useRouter();
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
+  /*
+   * The list the last action answered with, shown only until the server sends
+   * one of its own. See attemptsToShow: this is not optimism, it is the
+   * answer, and nothing is put here before the action has given it.
+   */
+  const [answered, setAnswered] = useState<LastAnswer<ImageAttempt> | null>(
+    null,
+  );
+  const shown = attemptsToShow(attempts, answered);
   const [subject, setSubject] = useState(() => lastSubject(attempts));
   /*
    * The model starts on whatever this kind of word starts on, and stays put
@@ -118,24 +126,37 @@ export function WordPanel({
    * Nothing on this screen moves before the server answers. A picture that
    * appears and then vanishes because the upload failed is worse than one that
    * takes a second to appear.
+   *
+   * What happens after it answers used to be router.refresh(). It is not any
+   * more, for two reasons that are really one. The action has already called
+   * revalidatePath, so its own response carries the re-render and a refresh
+   * asked for the same page a second time. And refresh() returns void: the
+   * request it sends belongs to nobody, so when it failed there was nobody to
+   * tell, and the screen stayed a refresh behind with an unowned rejection on
+   * the window. That is 19/09/2026.
+   *
+   * In its place the action answers with the list, and settle makes sure this
+   * ends either way. A call that never comes back is an answer too.
    */
-  async function run(
-    key: string,
-    action: () => Promise<ActionResult>,
-    // An action that wrote nothing has nothing to reread, and refreshing
-    // over a field the teacher is editing is worse than doing nothing.
-    { refresh = true }: { refresh?: boolean } = {},
-  ) {
+  async function run(key: string, action: () => Promise<ActionResult>) {
     if (busy !== null) return;
     setBusy({ key });
     setError(null);
     if (key === "gerar") setElapsed(0);
-    const result = await action();
+    const result = await settle(action);
     setBusy(null);
-    if (result.ok) {
-      if (refresh) router.refresh();
-    } else {
+    if (!result.ok) {
       setError(result.error);
+      // The teacher reads a sentence in Portuguese that says what to do. The
+      // reason is English and belongs in the console, which is where the next
+      // diagnosis of this starts.
+      if ("cause" in result) console.error(result.cause);
+      return;
+    }
+    // Absent means the action did not touch the list, not that the list is
+    // empty: leaving what is on screen alone is the right answer there.
+    if (result.attempts !== undefined) {
+      setAnswered({ list: result.attempts, served: attempts });
     }
   }
 
@@ -323,17 +344,13 @@ export function WordPanel({
                 aria-label="Sugerir assunto"
                 title="Sugerir um assunto para esta palavra"
                 onClick={() =>
-                  void run(
-                    "assunto",
-                    async () => {
-                      const result = await suggestSubject(word.id);
-                      if (result.ok) setSubject(result.subject);
-                      return result.ok
-                        ? { ok: true }
-                        : { ok: false, error: result.error };
-                    },
-                    { refresh: false },
-                  )
+                  void run("assunto", async () => {
+                    const result = await suggestSubject(word.id);
+                    if (result.ok) setSubject(result.subject);
+                    return result.ok
+                      ? { ok: true }
+                      : { ok: false, error: result.error };
+                  })
                 }
                 className="text-faint hover:text-foreground absolute top-1/2 right-1.5 -translate-y-1/2 rounded-sm p-1.5 transition-colors disabled:opacity-40"
               >
@@ -449,15 +466,15 @@ export function WordPanel({
       */}
       <div className="flex flex-col gap-3">
         <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
-          Tentativas ({attempts.length})
+          Tentativas ({shown.length})
         </span>
         {/*
           No empty state: the heading already says zero, and a sentence
           repeating it is a line of screen saying nothing twice.
         */}
-        {attempts.length > 0 && (
+        {shown.length > 0 && (
           <ul className="flex flex-col gap-3">
-            {attempts.map((attempt) => {
+            {shown.map((attempt) => {
               // Bound out of the property so the narrowing survives into the
               // click handler, which it does not do through a closure.
               const imageUrl = attempt.imageUrl;

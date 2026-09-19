@@ -2,7 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 
-import { requireTeacher } from "@/lib/content/queries";
+import {
+  listWordAttempts,
+  requireTeacher,
+  type ImageAttempt,
+} from "@/lib/content/queries";
 import { createFreepikProvider } from "@/lib/images/freepik";
 import { type ImageModelId, isImageModelId } from "@/lib/images/provider";
 import { buildPrompt } from "@/lib/images/style";
@@ -13,7 +17,21 @@ import type { Database } from "@/lib/supabase/types";
 
 type Representation = Database["public"]["Enums"]["representation_kind"];
 
-export type ActionResult = { ok: true } | { ok: false; error: string };
+/**
+ * What an action answers with.
+ *
+ * `attempts` is the list of the word as the action left it, and it is there
+ * because the call returning is the only proof the panel has that anything at
+ * all reached the browser. The re-render that `revalidatePath` triggers
+ * travels in the same response, but nothing proves that half of it landed: on
+ * 19/09/2026 it twice did not, after a generation that had taken 8s and 21s.
+ *
+ * Only the actions that rewrite the list say so. Absent means "I changed
+ * nothing there", and the panel keeps what it has.
+ */
+export type ActionResult =
+  | { ok: true; attempts?: readonly ImageAttempt[] }
+  | { ok: false; error: string };
 
 const BUCKET = "vocabulary-images";
 const SCREEN = "/teacher/content/images";
@@ -146,7 +164,7 @@ export async function uploadImage(
     if (doneError) return { ok: false, error: doneError.message };
 
     revalidatePath(SCREEN);
-    return { ok: true };
+    return { ok: true, attempts: await listWordAttempts(wordId) };
   } catch (cause) {
     return failure(cause);
   }
@@ -204,7 +222,11 @@ export async function generateImage(
 
     const result = await runGeneration(supabase, attempt.id, prompt, model);
     revalidatePath(SCREEN);
-    return result;
+    // Read back rather than assembled here: the panel then shows the same
+    // rows the page would show, ordered by the same rule, and a status the
+    // generation reached on the way is never invented from the return value.
+    if (!result.ok) return result;
+    return { ok: true, attempts: await listWordAttempts(wordId) };
   } catch (cause) {
     return failure(cause);
   }
