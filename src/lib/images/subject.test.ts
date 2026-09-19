@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { buildSubjectPrompt, parseSubject } from "./subject.ts";
+import { LEARNED_RULES, buildSubjectPrompt, parseSubject } from "./subject.ts";
 
 describe("buildSubjectPrompt", () => {
   test("names the word it is asking about", () => {
@@ -34,6 +34,44 @@ describe("buildSubjectPrompt", () => {
     assert.match(buildSubjectPrompt("x", "action").user, /doing/iu);
     assert.match(buildSubjectPrompt("x", "figure").user, /no person/iu);
     assert.match(buildSubjectPrompt("x", "photo").user, /on its own/iu);
+  });
+
+  /*
+   * The three rules bought with real generations on 2026-09-19. Held by
+   * identity against LEARNED_RULES and not by matching a phrase, so a rule
+   * cannot be dropped from the prompt while a test that looks like it covers
+   * it goes on passing.
+   */
+  test("carries every rule that was learned, whatever the kind", () => {
+    for (const kind of ["photo", "pose", "action", "figure"]) {
+      const { system } = buildSubjectPrompt("book", kind);
+      for (const rule of LEARNED_RULES) {
+        assert.ok(system.includes(rule), `${kind} is missing: ${rule}`);
+      }
+    }
+  });
+
+  test("there are three of them, numbered, and each says something", () => {
+    assert.equal(LEARNED_RULES.length, 3);
+    const { system } = buildSubjectPrompt("book", "photo");
+    for (const [index, rule] of LEARNED_RULES.entries()) {
+      assert.ok(rule.trim().length > 80, `rule ${index + 1} is too thin`);
+      assert.ok(
+        system.includes(`${index + 1}. ${rule}`),
+        `rule ${index + 1} is unnumbered`,
+      );
+    }
+  });
+
+  /*
+   * Each rule named by the thing it is about, so that losing one is a failure
+   * here rather than a picture that quietly goes back to being wrong.
+   */
+  test("names the angle, the silhouette and the trap of the adjective", () => {
+    const { system } = buildSubjectPrompt("closed", "photo");
+    assert.match(system, /seen from the side/iu);
+    assert.match(system, /silhouette/iu);
+    assert.match(system, /do not use the adjective/iu);
   });
 
   test("asks for json and caps the length", () => {

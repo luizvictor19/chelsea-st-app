@@ -1,6 +1,6 @@
 /**
  * Proposing the subject line for one word: the few English words the teacher
- * would otherwise type into the Assunto field.
+ * would otherwise type into the Instrução field.
  *
  * What comes back is a proposal and nothing else. It fills the field, it is
  * stored nowhere, and the teacher edits it before anything is generated. The
@@ -30,6 +30,47 @@ const SUBJECT_SHAPE: Record<DrawableKind, string> = {
 /** How long a subject may be before it stops being a subject. */
 const MAX_WORDS = 12;
 
+/**
+ * Three rules, each of them bought with real generations on 2026-09-19.
+ *
+ * They are here and not in style.ts because they are about what to ask for,
+ * not about how to draw it. The image model draws whatever it is handed; what
+ * these fix is the handing.
+ *
+ * Their provenance, in order, all of it from that day:
+ *
+ * 1. The angle. `sitting` took four attempts. Drawn from the front a seated
+ *    person does not read as seated: what says the posture is the bent knee,
+ *    and from the front the knee points at the viewer and disappears. "seen
+ *    from the side" is what made it come out right, and it is only ever the
+ *    subject that can say so, because the style constant is fixed and the
+ *    category rule is the same for every word in the category.
+ *
+ * 2. The silhouette. A closed book standing up came back as a box, a folder
+ *    and a card, because all four share an outline. An open book is not
+ *    mistakable for anything. The same choice exists for most objects and it
+ *    is nearly free to make: scissors open, a door ajar.
+ *
+ * 3. State words. "a closed cardboard box" came back half open and half
+ *    closed on both models. The box with its flaps up is the box the model
+ *    knows, and asked for a closed one it averages the two. "sealed with
+ *    packing tape across the top" fixed it on both, because tape cannot
+ *    coexist with a raised flap. The lesson generalises past boxes: an
+ *    adjective asks the model to subtract, and it does not subtract, it
+ *    averages. A positive feature that exists in one state and not the other
+ *    leaves it nothing to average.
+ *
+ * Exported so the test can hold the prompt to naming all three, rather than
+ * to matching a sentence someone can quietly delete.
+ */
+export const LEARNED_RULES = [
+  `Angle is part of the meaning. For a pose or an action, the phrase must name the point of view, because the same body drawn from the wrong side stops saying the word. A seated person seen from the front does not read as seated: write "seen from the side".`,
+
+  `Choose the view or the state with the most recognisable silhouette. A closed book standing up could be a box, a folder or a card; an open book could be nothing else. Scissors open, not shut. A door ajar, not flat in its frame.`,
+
+  `For a word that names a state (open, closed, empty, full), do not use the adjective. Name a positive feature that exists only in that state. "a closed cardboard box" comes back halfway open, because the model knows the box with its flaps up and averages the two. "sealed with packing tape across the top" does not, because tape cannot sit on a raised flap.`,
+] as const;
+
 export function buildSubjectPrompt(
   term: string,
   kind: string,
@@ -51,6 +92,10 @@ Answer with json only, in exactly this shape:
 {"subject": "the phrase"}
 
 Describe only what is in the picture. The background, the colours and the drawing style are already fixed elsewhere, so saying anything about them either repeats that or argues with it.
+
+Three rules, learned from pictures that came out wrong:
+
+${LEARNED_RULES.map((rule, index) => `${index + 1}. ${rule}`).join("\n\n")}
 
 No prose, no explanation, no quotation marks inside the phrase.`,
     user: `The word is "${word}" and it is a ${kind}, so the subject describes ${SUBJECT_SHAPE[kind]}. Write the subject in English.`,

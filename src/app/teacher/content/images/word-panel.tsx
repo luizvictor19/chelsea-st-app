@@ -50,7 +50,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 /**
- * What to put in the Assunto field when a word is opened: what the approved
+ * What to put in the Instrução field when a word is opened: what the approved
  * attempt was drawn from, and failing that the most recent attempt that had a
  * subject at all.
  *
@@ -392,7 +392,7 @@ export function WordPanel({
               htmlFor="assunto"
               className="text-faint font-mono text-xs tracking-[0.16em] uppercase"
             >
-              Assunto
+              Instrução
             </label>
             {/*
               The suggest control sits inside the field rather than beside it:
@@ -411,8 +411,8 @@ export function WordPanel({
               <button
                 type="button"
                 disabled={working}
-                aria-label="Sugerir assunto"
-                title="Sugerir um assunto para esta palavra"
+                aria-label="Sugerir instrução"
+                title="Sugerir uma instrução para esta palavra"
                 onClick={() =>
                   void run("assunto", async () => {
                     const result = await suggestSubject(word.id);
