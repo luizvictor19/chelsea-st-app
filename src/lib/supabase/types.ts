@@ -603,6 +603,7 @@ export type Database = {
             Database["public"]["Enums"]["representation_kind"] | null;
           suggested_representation:
             Database["public"]["Enums"]["representation_kind"] | null;
+          suggestion_run_id: string | null;
           term: string;
           word_class: Database["public"]["Enums"]["word_class"] | null;
         };
@@ -618,6 +619,7 @@ export type Database = {
             Database["public"]["Enums"]["representation_kind"] | null;
           suggested_representation?:
             Database["public"]["Enums"]["representation_kind"] | null;
+          suggestion_run_id?: string | null;
           term: string;
           word_class?: Database["public"]["Enums"]["word_class"] | null;
         };
@@ -633,6 +635,7 @@ export type Database = {
             Database["public"]["Enums"]["representation_kind"] | null;
           suggested_representation?:
             Database["public"]["Enums"]["representation_kind"] | null;
+          suggestion_run_id?: string | null;
           term?: string;
           word_class?: Database["public"]["Enums"]["word_class"] | null;
         };
@@ -702,7 +705,14 @@ export type Database = {
       image_style: "flat" | "realistic";
       lesson_status: "scheduled" | "done" | "cancelled" | "no_show";
       representation_kind:
-        "photo" | "symbol" | "figure" | "action" | "pose" | "none";
+        | "photo"
+        | "symbol"
+        | "figure"
+        | "action"
+        | "pose"
+        | "usage"
+        | "metalanguage"
+        | "none";
       user_role: "student" | "teacher";
       word_class:
         | "noun"
@@ -861,6 +871,8 @@ export const Constants = {
         "figure",
         "action",
         "pose",
+        "usage",
+        "metalanguage",
         "none",
       ],
       user_role: ["student", "teacher"],

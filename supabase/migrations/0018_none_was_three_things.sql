@@ -1,0 +1,125 @@
+-- Two values, and nothing else in this file.
+--
+-- `none` was carrying three different answers under one name, and only one of
+-- them was "there is nothing to show". The other two are words that do have a
+-- presentation, just not a drawn one:
+--
+--   usage         the word appears inside a sentence about the world that
+--                 uses it: a, the, or, this, me, him, yes, where.
+--   metalanguage  the word names a part of the language, and the sentence
+--                 that shows it is about the language rather than about the
+--                 world: contraction, vowel, plural, imperative, non-specific.
+--   none          nothing is shown at all: a language, a nationality.
+--
+-- What separates the first two is **what the sentence is about**, not whether
+-- there is an example. A metalanguage word has examples too, and they are the
+-- heart of how it is taught: "Are there any books on the table?" is what shows
+-- `non-specific`. It is only that such a sentence is about English, while "It's
+-- a pen." is about a pen. Read the pair as usage-against-metalanguage, never as
+-- example-against-no-example.
+--
+-- They join representation_kind rather than arriving as a second column,
+-- because the type was never about pictures. `symbol` already means "the screen
+-- renders the character" and `none` already means "nothing is shown", and
+-- neither names a file: the axis has always been how a word is presented, and
+-- photo, figure, pose and action are the cases of that axis that happen to need
+-- an image. A second column would be a copy of an axis that already exists,
+-- free to disagree with it, and would open a state nothing forbids —
+-- representation 'photo' with a presentation of 'usage'. 0017 refused a second
+-- column for the same reason, and the repository spent 2026-09-19 closing
+-- impossible states with checks rather than opening one.
+--
+-- It is also the shape that has already worked here twice: a taxonomy missing a
+-- name was repaired with a new value, not a new column. Colour reading as
+-- symbol, and posture reading as action, which became `pose` in 0010.
+--
+-- Measured against the project on 2026-09-20, before this was written:
+--
+--   select enumsortorder, enumlabel from pg_enum e
+--     join pg_type t on t.oid = e.enumtypid
+--    where t.typname = 'representation_kind' order by enumsortorder;
+--   ->  photo 1, symbol 2, figure 3, action 4, pose 4.5, none 5
+--
+--   select count(*) from vocabulary_items where representation = 'none';
+--   ->  22
+--
+-- Those 22 rows are what the next migration re-decides, one by one and by
+-- name. Nineteen of them are usage, `contraction` is metalanguage, and `Mr`
+-- and `Mrs` join usage as well — "Mr Brown is a man." is the sentence they
+-- need, and the line in docs/spec-imagens.md that made a bare title `none` was
+-- written when the only choices were an image or nothing.
+--
+-- `none` does not empty out. English, French, German and Italian arrive at
+-- point 32 and are still undecided today; the rule that puts a language and a
+-- nationality in `none` is untouched by this.
+--
+-- And metalanguage is not one stray word. `contraction`, the one already
+-- decided, is the first of a class the book uses throughout. Nineteen more are
+-- still undecided on 2026-09-20, with the point that introduces them: plural
+-- (14), letter, alphabet, vowel, consonant (18), number (21), imperative (25),
+-- cardinal, ordinal (29), action, sentence, verb, word (36), pronounce (38),
+-- specific, non-specific, negative (50), positive, for example (51). Twenty
+-- words counting `contraction`, spread across the whole book, because this is
+-- the vocabulary the book uses to talk about English. Which of them is
+-- metalanguage and which is an ordinary noun is the teacher's call, one word at
+-- a time, in the panel; the count is here to say the value is a class and not
+-- an exception.
+
+-- Both statements name `none`, which already exists, rather than chaining the
+-- second onto the first. `after 'usage'` would name a label added in the same
+-- transaction, and whether the catalog lookup in an AFTER clause counts as the
+-- unsafe use that 0010 ran into is a question this file does not need to ask.
+-- The resulting order is the same: pose, usage, metalanguage, none.
+--
+-- `none` stays last on purpose. It is the end of the scale, and an ordering
+-- that reads photo … usage, metalanguage, none puts "nothing is shown" where a
+-- reader expects it.
+alter type representation_kind add value if not exists 'usage' before 'none';
+alter type representation_kind add value if not exists 'metalanguage' before 'none';
+
+-- Nothing else can enter this file. `alter type ... add value` does not allow
+-- the new value to be used in the transaction that adds it, so every statement
+-- naming 'usage' or 'metalanguage' waits for the next migration. This is the
+-- rule 0010 was caught by and recorded.
+--
+-- What waits there, named rather than left to be remembered. Until it lands,
+-- the two values exist and nothing reads them, which is why this file is safe
+-- to apply on its own:
+--
+--   * the backfill of the 22 rows, one by one and by name;
+--   * `vocabulary_items_pending_image_idx` (0008), whose predicate reads
+--     `representation <> 'none'` and would hold every usage and metalanguage
+--     word in the pending-image list forever;
+--   * `clear_word_representation` (0009), which undoes an approval only under
+--     `if p_kind = 'none'`. Usage and metalanguage mean the same thing about a
+--     picture, so reclassifying a word that already has one would leave
+--     image_path and approved_attempt_id pointing at a file no screen shows,
+--     with the approved-pair check silent because the two columns stay paired.
+--     That leftover is exactly what the comment on that function says it is
+--     there to prevent;
+--   * `isPending` (src/lib/content/queries.ts), the TypeScript twin of the
+--     index predicate, with the same `representation !== "none"`. It feeds
+--     progress.remaining, so leaving it behind means a finished lesson that
+--     never stops counting as pending;
+--   * `suggest.ts`, whose SYSTEM prompt announces "The six kinds" and whose
+--     parser allow-list is read from the generated enum. Stale, it keeps
+--     suggesting 'none' for words now decided as usage, and every one of them
+--     is reported as a model-teacher disagreement;
+--   * `representation.ts`, for the two labels the teacher's screen shows;
+--   * src/lib/supabase/types.ts, regenerated by scripts/gen-types.sh. Note
+--     that representation.test.ts compares the screen's list against that
+--     generated file and not against the database, so the drift between them
+--     does not turn the gate red on its own. The gate will not remember this;
+--     this line is where it is remembered;
+--   * docs/spec-imagens.md, which still documents six kinds, still reproduces
+--     the old index predicate, and still says a bare title is `none`. That
+--     last line was written when the only choices were an image or nothing.
+--
+-- Three of those spell out the same idea separately — which kinds are drawn —
+-- in an index predicate, in a function, and in TypeScript. Whether that stays
+-- three spellings or becomes one is a decision for the next migration, not for
+-- this one.
+--
+-- No RLS statement, and that is not an omission: no table is created here. The
+-- rule about row level security in the same migration is about creating a
+-- table, and this one adds two labels to a type.
