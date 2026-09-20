@@ -43,7 +43,9 @@ import {
 import { NotAPicture, shrinkReference } from "./shrink-reference";
 import {
   attemptsToShow,
+  asksBeforeReclassifying,
   discardWarning,
+  reclassifyWarning,
   settle,
   type LastAnswer,
 } from "./panel-state";
@@ -184,6 +186,22 @@ export function WordPanel({
    */
   const discard = useRef<HTMLDialogElement>(null);
   const [discarding, setDiscarding] = useState<ImageAttempt | null>(null);
+  /*
+   * Which kind the type buttons are asking about, when pressing it would take
+   * an approved picture off the word.
+   *
+   * Only then. Moving between kinds that draw takes nothing off anything, and
+   * a confirmation that never has something to warn about is one people learn
+   * to click through without reading. Which kinds those are is asked of
+   * isDrawableKind rather than written out here: the pending-image index, the
+   * function in the database and that predicate are held to one answer by
+   * scripts/drawable-kinds.test.ts, and a fourth copy on this screen would be
+   * outside it.
+   */
+  const reclassify = useRef<HTMLDialogElement>(null);
+  const [reclassifying, setReclassifying] = useState<Representation | null>(
+    null,
+  );
 
   /*
    * The native dialog again, the same one the confirmation uses: showModal
@@ -200,6 +218,36 @@ export function WordPanel({
   function askToDiscard(attempt: ImageAttempt) {
     setDiscarding(attempt);
     discard.current?.showModal();
+  }
+
+  /** Save the kind, and move the model along with it when nobody chose one. */
+  function saveKind(kind: Representation) {
+    void run(`tipo-${kind}`, async () => {
+      const result = await setRepresentation(word.id, kind);
+      if (result.ok && !modelPicked) {
+        setModel(defaultModelFor(kind) ?? model);
+      }
+      return result;
+    });
+  }
+
+  /**
+   * Pressing a type: straight through, unless it would take an approved
+   * picture off the word.
+   *
+   * The picture is not destroyed by this — from 0021 it goes back to being a
+   * candidate with its file — so the question is not the bin's. It is still
+   * worth asking, because eight one-click buttons with no dialog between them
+   * and a word's picture is exactly the control AGENTS.md puts in the high
+   * column: a save that drops work without saying so.
+   */
+  function pressKind(kind: Representation) {
+    if (!asksBeforeReclassifying(kind, word.imageUrl)) {
+      saveKind(kind);
+      return;
+    }
+    setReclassifying(kind);
+    reclassify.current?.showModal();
   }
 
   /*
@@ -482,15 +530,7 @@ export function WordPanel({
               key={kind}
               type="button"
               disabled={working}
-              onClick={() =>
-                void run(`tipo-${kind}`, async () => {
-                  const result = await setRepresentation(word.id, kind);
-                  if (result.ok && !modelPicked) {
-                    setModel(defaultModelFor(kind) ?? model);
-                  }
-                  return result;
-                })
-              }
+              onClick={() => pressKind(kind)}
               className={kindClass(kind)}
             >
               {busy?.key === `tipo-${kind}` ? "salvando" : label}
@@ -963,6 +1003,56 @@ export function WordPanel({
         It says the number rather than "tem certeza". What stops a person is
         knowing what they are throwing away, and the row now carries it.
       */}
+      {/*
+        Asked only when a type that carries no picture would take an approved
+        one off the word. It is not the bin: nothing is destroyed here, and
+        the second sentence says so, because a teacher who reads only the
+        first will go and generate a replacement for a picture still sitting
+        in the list.
+      */}
+      <dialog
+        ref={reclassify}
+        aria-labelledby="reclassificar-titulo"
+        onClose={() => setReclassifying(null)}
+        className="border-rule bg-surface text-foreground m-auto max-w-sm rounded-sm border p-6 backdrop:bg-black/40"
+      >
+        {reclassifying !== null && (
+          <div className="flex flex-col gap-4">
+            <h2
+              id="reclassificar-titulo"
+              className="text-base font-extrabold tracking-tight"
+            >
+              Tirar a imagem desta palavra?
+            </h2>
+            <p className="text-muted text-sm">
+              {reclassifyWarning(labelFor(reclassifying))}
+            </p>
+            <div className="flex flex-wrap justify-end gap-2">
+              <form method="dialog">
+                <button
+                  type="submit"
+                  className="border-rule hover:bg-background rounded-sm border px-3 py-1.5 text-sm transition-colors"
+                >
+                  Cancelar
+                </button>
+              </form>
+              <button
+                type="button"
+                onClick={() => {
+                  // Bound before the close, because closing clears it.
+                  const kind = reclassifying;
+                  reclassify.current?.close();
+                  saveKind(kind);
+                }}
+                className="border-foreground bg-foreground text-background rounded-sm border px-3 py-1.5 text-sm font-semibold"
+              >
+                Trocar o tipo
+              </button>
+            </div>
+          </div>
+        )}
+      </dialog>
+
       <dialog
         ref={discard}
         aria-labelledby="descartar-titulo"

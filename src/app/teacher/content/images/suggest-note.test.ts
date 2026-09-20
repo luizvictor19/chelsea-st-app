@@ -1,25 +1,44 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { suggestNote } from "./suggest-note.ts";
+import { restingNote, suggestNote } from "./suggest-note.ts";
 
 describe("suggestNote", () => {
-  test("counts the lesson out while it walks it", () => {
+  /*
+   * The batch in flight, not the words already done. The note is written
+   * before the call goes out, so what it can honestly name is what is being
+   * asked for, and that is also the more useful of the two: a run that stops
+   * here stopped on these words.
+   */
+  test("names the batch it is waiting on", () => {
     assert.equal(
-      suggestNote({ kind: "running", covered: 20, total: 60 }),
-      "20 de 60",
+      suggestNote({ kind: "running", from: 11, to: 20, total: 60 }),
+      "Sugerindo 11 a 20 de 60",
+    );
+    assert.equal(
+      suggestNote({ kind: "running", from: 1, to: 10, total: 60 }),
+      "Sugerindo 1 a 10 de 60",
     );
   });
 
-  test("says what a finished run wrote", () => {
+  /* A last batch of one should not read "Sugerindo 60 a 60 de 60". */
+  test("does not write a range when the batch is one word", () => {
     assert.equal(
-      suggestNote({ kind: "done", suggested: 60, rejected: 0 }),
-      "60 sugeridas",
+      suggestNote({ kind: "running", from: 60, to: 60, total: 60 }),
+      "Sugerindo 60 de 60",
     );
-    assert.equal(
-      suggestNote({ kind: "done", suggested: 58, rejected: 2 }),
-      "58 sugeridas, 2 recusadas",
-    );
+  });
+});
+
+describe("restingNote", () => {
+  /*
+   * What the screen says when nothing is running, which since 2026-09-20 is
+   * most of the time: this sentence replaced the count that used to sit in
+   * the lesson header, so it is the only place the state is written.
+   */
+  test("says how many of the lesson's words carry a suggestion", () => {
+    assert.equal(restingNote(60, 0), "60 sugeridas");
+    assert.equal(restingNote(58, 2), "58 sugeridas, 2 sem resposta");
   });
 
   /*
@@ -27,19 +46,34 @@ describe("suggestNote", () => {
    * problem that is not there.
    */
   test("mentions refusals only when there were any", () => {
-    assert.doesNotMatch(
-      suggestNote({ kind: "done", suggested: 60, rejected: 0 }),
-      /recusad/u,
-    );
+    assert.doesNotMatch(restingNote(60, 0), /sem resposta/u);
+  });
+
+  /*
+   * The number the teacher needs when a word comes back with nothing. It is
+   * sent minus suggested and not the parser's refusals: a word the model
+   * leaves out of its reply is counted in neither of the parser's lists, and
+   * before this sentence existed it was mentioned nowhere at all.
+   */
+  test("counts a word the model never answered for", () => {
+    assert.equal(restingNote(9, 1), "9 sugeridas, 1 sem resposta");
+    assert.equal(restingNote(50, 10), "50 sugeridas, 10 sem resposta");
   });
 
   test("counts one in the singular, on both halves", () => {
-    assert.equal(
-      suggestNote({ kind: "done", suggested: 1, rejected: 1 }),
-      "1 sugerida, 1 recusada",
-    );
+    assert.equal(restingNote(1, 1), "1 sugerida, 1 sem resposta");
   });
 
+  /*
+   * A lesson nobody has suggested yet is where the button matters most, and
+   * an empty space there would read as a screen that had not loaded.
+   */
+  test("writes the zero out rather than saying nothing", () => {
+    assert.equal(restingNote(0, 0), "0 sugeridas");
+  });
+});
+
+describe("suggestNote, a run that stopped", () => {
   /*
    * The case the batching created. A run that stops partway leaves the lesson
    * half suggested, which is allowed — but silence there would leave the
@@ -49,8 +83,6 @@ describe("suggestNote", () => {
     assert.equal(
       suggestNote({
         kind: "stalled",
-        suggested: 20,
-        rejected: 0,
         covered: 20,
         total: 60,
         error: "A resposta do servidor não chegou.",
@@ -62,8 +94,6 @@ describe("suggestNote", () => {
   test("a run that stopped before the first batch says so too", () => {
     const said = suggestNote({
       kind: "stalled",
-      suggested: 0,
-      rejected: 0,
       covered: 0,
       total: 60,
       error: "sem chave",
@@ -76,8 +106,6 @@ describe("suggestNote", () => {
     assert.match(
       suggestNote({
         kind: "stalled",
-        suggested: 59,
-        rejected: 0,
         covered: 59,
         total: 60,
         error: "x",
@@ -94,8 +122,6 @@ describe("suggestNote", () => {
     assert.match(
       suggestNote({
         kind: "stalled",
-        suggested: 0,
-        rejected: 0,
         covered: 70,
         total: 60,
         error: "x",
@@ -108,8 +134,6 @@ describe("suggestNote", () => {
     assert.match(
       suggestNote({
         kind: "stalled",
-        suggested: 1,
-        rejected: 0,
         covered: 10,
         total: 60,
         error: "motivo exato",

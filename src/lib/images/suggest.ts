@@ -37,33 +37,40 @@ export type Suggestion = {
 };
 
 /**
- * The five kinds come from docs/spec-imagens.md, so the model is asked the
- * same question the teacher answers. The boundary rules underneath them were
- * decided on 2026-09-19, from the pairs the book actually puts next to each
- * other: a named person against a bare title, a country against a
- * nationality. The word "json" has to appear for DeepSeek to accept
- * response_format json_object, and the example below is what the docs ask for
- * as well.
+ * The kinds come from docs/spec-imagens.md, so the model is asked the same
+ * question the teacher answers. Their count is not repeated here: it was
+ * written as "five" while the prompt said six, and a number in a comment that
+ * has to be kept in step with a list below it is a third copy nobody updates.
+ *
+ * The boundary rules underneath them were decided on 2026-09-19, from the
+ * pairs the book actually puts next to each other: a named person against a
+ * bare title, a country against a nationality. Usage against metalanguage
+ * joined them on 2026-09-20. The word "json" has to appear for DeepSeek to
+ * accept response_format json_object, and the example below is what the docs
+ * ask for as well.
  */
 const SYSTEM = `You sort English vocabulary words by the kind of picture each one needs.
 
-The six kinds:
+The eight kinds:
 - photo: a concrete object, a living thing, or a named person, where one image is enough. Examples: apple, dog, table, Jack, Mr Brown.
 - pose: the body is at rest, and the position it is held in is what the word means. Examples: standing, sitting, lying.
 - action: the person is doing something. Examples: sit down, stand up, open, close, smile, speak, write.
 - figure: something drawn as a simple diagram rather than photographed, with no person in it. A spatial or quantity relation, a place on a map, or a colour as one filled shape. Examples: in, on, under, many, big, England, London, red.
 - symbol: the word is the character itself. Examples: six, question mark, first.
-- none: grammatical or functional, with nothing to draw. Examples: a, the, is, this, yes, Mr, English.
+- usage: grammatical or functional, with nothing to draw, but with a meaning that a sentence about the world shows in use. Examples: a, the, or, this, yes, where, him, Mr.
+- metalanguage: the word names a part of the language itself, so what shows it is a sentence about English rather than about the world. Examples: contraction, vowel, plural, imperative, specific, non-specific.
+- none: nothing is shown at all. Examples: English, French, Brazilian.
 
 The pairs that are easy to confuse:
-- A person's name is photo, because the book shows that person: Jack, Mr Brown, Mrs Smith. A title on its own is none: Mr, Mrs, Miss.
+- Usage against metalanguage is what the sentence is about, not whether there is an example: both have one. "It's a pen." shows a and is about a pen. "Are there any books on the table?" shows non-specific and is about English.
+- A person's name is photo, because the book shows that person: Jack, Mr Brown, Mrs Smith. A title on its own is usage: Mr, Mrs, Miss.
 - A country or a city is figure, drawn as a map: England, Brazil, London.
 - A nationality or a language is none: English, Brazilian, French.
 - A colour is figure, drawn as one filled shape: red, blue, green.
 - Pose against action is rest against activity. In pose the body is at rest and the position it is held in is the meaning of the word: standing, sitting, lying. In action the person is doing something: sit down, stand up, open, close, smile, speak, write. The practical test is to freeze the drawing: if it still says the word, it is pose; if it becomes a different word, it is action. An arrow is a consequence of drawing and not what tells the two apart: it goes in when the movement has a direction and stays out when it has none, which is why smile is an action with no arrow.
 
 Answer with json only, in exactly this shape:
-{"suggestions": [{"id": "the id you were given", "kind": "photo|pose|action|figure|symbol|none", "class": "noun|verb|adjective|adverb|pronoun|preposition|determiner|conjunction|numeral|question_word|interjection|phrase"}]}
+{"suggestions": [{"id": "the id you were given", "kind": "photo|pose|action|figure|symbol|usage|metalanguage|none", "class": "noun|verb|adjective|adverb|pronoun|preposition|determiner|conjunction|numeral|question_word|interjection|phrase"}]}
 
 The class is the part of speech, and it is a fact about the word rather than a judgement about the picture. For a term of more than one word:
 - a verb that keeps its particle is verb: putting on, taking from.

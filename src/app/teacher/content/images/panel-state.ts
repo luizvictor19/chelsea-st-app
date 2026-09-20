@@ -1,3 +1,7 @@
+// Relative, with the extension: this is a value import, and panel-state.test.ts
+// runs under node, which resolves neither the @/ alias nor a missing extension.
+import { isDrawableKind } from "../../../../lib/images/style.ts";
+
 /**
  * What the panel does once an action has answered.
  *
@@ -105,4 +109,52 @@ export function discardWarning(creditsSpent: number | null): string {
   }
   const credits = creditsSpent === 1 ? "1 crédito" : `${creditsSpent} créditos`;
   return `Esta imagem custou ${credits}. ${gone}`;
+}
+
+/**
+ * Whether pressing a type has to ask first.
+ *
+ * Only when the kind carries no picture and the word has one approved: moving
+ * between kinds that draw takes nothing off anything, and a confirmation that
+ * never has something to warn about is one people learn to click through
+ * without reading.
+ *
+ * Which kinds those are is asked of isDrawableKind and not listed here. That
+ * predicate, the pending-image index and clear_word_representation are held to
+ * naming one set by scripts/drawable-kinds.test.ts; a list written out on this
+ * screen would be a fourth copy, outside the one thing that keeps them honest,
+ * and the day it drifted the dialog would stop appearing for exactly the kind
+ * that had started discarding pictures.
+ */
+export function asksBeforeReclassifying(
+  kind: string,
+  imageUrl: string | null,
+): boolean {
+  return !isDrawableKind(kind) && imageUrl !== null;
+}
+
+/**
+ * What the confirmation says before a word is moved to a kind that carries no
+ * picture, while it has one approved.
+ *
+ * Two sentences because there are two true things, and the second one is the
+ * one that saves work. The picture does come off the word: that is what the
+ * teacher is about to do and they should see it said. But it is not thrown
+ * away — from 0021 it goes back to being a candidate, with its file, ready to
+ * be approved again the day the word is drawn after all. A warning that
+ * mentioned only the loss would send a teacher off to generate a replacement
+ * for a picture that is still sitting in the list, and one of the twenty
+ * pictures on a word today took fifteen attempts to get.
+ *
+ * Only ever shown when there is an approved image to speak about. A
+ * confirmation that has nothing to warn about, every time, is one people learn
+ * to click through without reading — which is the same reason the suggestion
+ * dialog lets a lesson with no suggestions go straight past.
+ */
+export function reclassifyWarning(label: string): string {
+  return (
+    `A imagem sai desta palavra, porque ${label.toLowerCase()} não leva imagem. ` +
+    "Ela continua na lista como candidata, com o arquivo, e pode ser aprovada " +
+    "de novo se você mudar o tipo outra vez."
+  );
 }

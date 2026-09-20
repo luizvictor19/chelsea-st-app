@@ -667,6 +667,65 @@ async function storeGenerated(
   return { ok: true, attempts: await readWordAttempts(supabase, wordId) };
 }
 
+/**
+ * A lesson's words, in the order the screen shows them.
+ *
+ * One function and two callers, which is the point of it rather than tidiness.
+ * The suggestion pass slices this list into batches, and the witness below has
+ * to slice it exactly the same way to be able to say whether a batch was
+ * written: two sorts written separately would agree until the day they did
+ * not, and the day they did not the witness would answer about the wrong ten
+ * words.
+ *
+ * Sorted the way the screen sorts, with the shared comparator, and then
+ * sliced. Two reasons it is not by id. Paging needs a total order or a batch
+ * can skip one word and send another twice — but a uuid order would also cut
+ * the lesson into stretches that match nothing the teacher can see, and when a
+ * batch fails for good they need to be able to say which words were left out.
+ * In this order, "the third batch" is a region of the list in front of them.
+ *
+ * Re-read and re-sorted per call rather than paged in the database, for the
+ * reason listVocabularyImages already gives about nested ordering in
+ * PostgREST, and because sixty rows cost nothing.
+ */
+async function lessonWords(
+  supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
+  lessonContentId: string,
+): Promise<
+  | {
+      ok: true;
+      words: readonly {
+        id: string;
+        term: string;
+        suggestionRunId: string | null;
+      }[];
+    }
+  | { ok: false; error: string }
+> {
+  const { data: rows, error } = await supabase
+    .from("vocabulary_items")
+    .select(
+      "id, term, suggestion_run_id, points!inner(number, lesson_content_id)",
+    )
+    .eq("points.lesson_content_id", lessonContentId);
+  if (error) return { ok: false, error: error.message };
+
+  const words = (rows ?? [])
+    .map((row) => ({
+      id: row.id,
+      term: row.term,
+      suggestionRunId: row.suggestion_run_id,
+      pointNumber: row.points?.number ?? null,
+    }))
+    .sort((a, b) =>
+      compareWords(
+        { lessonNumber: null, pointNumber: a.pointNumber, term: a.term },
+        { lessonNumber: null, pointNumber: b.pointNumber, term: b.term },
+      ),
+    );
+  return { ok: true, words };
+}
+
 export type SuggestResult =
   | {
       ok: true;
@@ -716,47 +775,49 @@ export type SuggestResult =
 export async function suggestRepresentations(
   lessonContentId: string,
   offset = 0,
+  runId: string | null = null,
 ): Promise<SuggestResult> {
-  try {
-    const { supabase } = await requireTeacher();
-
-    const { data: rows, error: readError } = await supabase
-      .from("vocabulary_items")
-      .select("id, term, points!inner(number, lesson_content_id)")
-      .eq("points.lesson_content_id", lessonContentId);
-    if (readError) return { ok: false, error: readError.message };
-
+  const started = performance.now();
+  const marks = {
+    authMs: 0,
+    readMs: 0,
+    modelMs: 0,
+    writeMs: 0,
+    words: 0,
+    writes: 0,
+    rejected: 0,
+    total: 0,
+    model: null as string | null,
     /*
-     * Sorted the way the screen sorts, with the shared comparator, and then
-     * sliced. Two reasons it is not by id. Paging needs a total order or a
-     * batch can skip one word and send another twice — but a uuid order would
-     * also cut the lesson into stretches that match nothing the teacher can
-     * see, and when a batch fails for good they need to be able to say which
-     * words were left out. In this order, "the third batch" is a region of
-     * the list in front of them.
-     *
-     * Re-read and re-sorted per batch rather than paged in the database, for
-     * the reason listVocabularyImages already gives about nested ordering in
-     * PostgREST, and because sixty rows cost nothing.
+     * Where the batch stopped, and it is set last on purpose: every early
+     * return sets its own, and anything that escapes them all was thrown.
      */
-    const all = (rows ?? [])
-      .map((row) => ({
-        id: row.id,
-        term: row.term,
-        pointNumber: row.points?.number ?? null,
-      }))
-      .sort((a, b) =>
-        compareWords(
-          { lessonNumber: null, pointNumber: a.pointNumber, term: a.term },
-          { lessonNumber: null, pointNumber: b.pointNumber, term: b.term },
-        ),
-      );
+    outcome: "threw",
+  };
+
+  try {
+    const beforeAuth = performance.now();
+    const { supabase } = await requireTeacher();
+    marks.authMs = Math.round(performance.now() - beforeAuth);
+
+    const beforeRead = performance.now();
+    const lesson = await lessonWords(supabase, lessonContentId);
+    if (!lesson.ok) {
+      marks.readMs = Math.round(performance.now() - beforeRead);
+      marks.outcome = "read_failed";
+      return { ok: false, error: lesson.error };
+    }
+    const all = lesson.words;
+    marks.readMs = Math.round(performance.now() - beforeRead);
 
     const total = all.length;
     const words = suggestionBatch(all, offset);
+    marks.total = total;
+    marks.words = words.length;
     // An empty lesson is not a failure, and it is not worth a request. Nor is
     // an offset past the end, which is how a caller asks "is there more".
     if (words.length === 0) {
+      marks.outcome = "empty";
       return {
         ok: true,
         suggested: 0,
@@ -768,17 +829,28 @@ export async function suggestRepresentations(
     }
 
     const { system, user } = buildSuggestionPrompt(words);
-    const { text } = await createDeepSeekProvider().complete({
+    const beforeModel = performance.now();
+    const { text, model } = await createDeepSeekProvider().complete({
       system,
       user,
       json: true,
     });
+    marks.modelMs = Math.round(performance.now() - beforeModel);
+    marks.model = model;
 
     const { suggestions, rejected } = parseSuggestions(
       text,
       words.map((word) => word.id),
     );
+    marks.rejected = rejected;
 
+    /*
+     * One round trip per word, and the loop is timed as a whole because that
+     * is the shape of the question: ten sequential updates either are or are
+     * not a meaningful part of the wall clock, and writeMs divided by writes
+     * answers it without a timer inside the loop.
+     */
+    const beforeWrite = performance.now();
     for (const suggestion of suggestions) {
       const { error } = await supabase
         .from("vocabulary_items")
@@ -790,10 +862,25 @@ export async function suggestRepresentations(
           ...(suggestion.wordClass === null
             ? {}
             : { word_class: suggestion.wordClass }),
+          /*
+           * Stamped in the same update as the suggestion, so that a word
+           * carrying this run's id and a word this run wrote are the same
+           * word. Written even when the run id is null, which is a caller
+           * that predates the witness rather than a word to leave marked
+           * with somebody else's run.
+           */
+          suggestion_run_id: runId,
         })
         .eq("id", suggestion.id);
-      if (error) return { ok: false, error: error.message };
+      if (error) {
+        marks.writeMs = Math.round(performance.now() - beforeWrite);
+        marks.outcome = "write_failed";
+        return { ok: false, error: error.message };
+      }
+      marks.writes += 1;
     }
+    marks.writeMs = Math.round(performance.now() - beforeWrite);
+    marks.outcome = "ok";
 
     /*
      * Every batch and not only the last. A run that stops halfway — because a
@@ -811,6 +898,94 @@ export async function suggestRepresentations(
       words: words.length,
       total,
       done: offset + words.length >= total,
+    };
+  } catch (cause) {
+    return { ok: false, error: errorMessage(cause) };
+  } finally {
+    /*
+     * One line per batch, whatever happened to it, and in a finally so that
+     * no return path can leave without one. The batch that matters most is
+     * the one that took 28 seconds and reached a browser that had already
+     * given up: the server answered 200, so from the outside it is a success
+     * with no duration attached to anything.
+     *
+     * JSON on one line rather than console.time, because console.time writes
+     * a sentence to a terminal that does not exist in production. This
+     * survives into the Vercel function log, where it can be grepped by the
+     * event name and summed.
+     *
+     * The phases, and not just the total. Twenty-eight seconds is a different
+     * problem depending on whether it was the model, the ten sequential
+     * updates or the auth round trip, and the residual — totalMs minus the
+     * four — is the runtime's own, which is worth seeing rather than
+     * assuming.
+     */
+    console.log(
+      JSON.stringify({
+        event: "suggest_batch",
+        lessonContentId,
+        offset,
+        ...marks,
+        totalMs: Math.round(performance.now() - started),
+      }),
+    );
+  }
+}
+
+export type RunCountResult =
+  | {
+      ok: true;
+      /** Words of this exact batch already carrying this run's id. */
+      stampedInBatch: number;
+      /** Words the batch covers, so the caller can tell part from whole. */
+      batchWords: number;
+      total: number;
+    }
+  | { ok: false; error: string };
+
+/**
+ * Whether a batch was written, asked of the batch itself.
+ *
+ * The witness. One caller: the button, after a batch whose answer never came
+ * back, deciding whether to move on or ask the model again. The action writes
+ * its rows before it returns, so a lost answer says nothing about the words —
+ * and until suggestion_run_id there was no way to find out, because a word
+ * skipped in a lesson that already had suggestions looks exactly like a word
+ * written, the old value sitting in the column either way.
+ *
+ * It answers about the batch and not about a running total, which is the
+ * difference between a question with one answer and a question whose answer
+ * depends on the asker's bookkeeping being right. A client counting writes as
+ * it goes drifts from the database the moment a batch runs twice: the two
+ * attempts can write different ids, the database keeps the union, and the
+ * client's sum is short. Then the next lost batch reads as progress and ten
+ * words are skipped in silence.
+ *
+ * It slices the lesson with the same function the write path uses, over the
+ * same list from the same reader, so the ten words it counts are the ten words
+ * that were sent.
+ *
+ * Reads and nothing else: no write, no revalidate. It runs at the worst
+ * possible moment, right after a request has died, on a fresh request of its
+ * own.
+ */
+export async function countSuggestionRun(
+  lessonContentId: string,
+  runId: string,
+  offset: number,
+): Promise<RunCountResult> {
+  try {
+    const { supabase } = await requireTeacher();
+    const lesson = await lessonWords(supabase, lessonContentId);
+    if (!lesson.ok) return { ok: false, error: lesson.error };
+
+    const batch = suggestionBatch(lesson.words, offset);
+    return {
+      ok: true,
+      stampedInBatch: batch.filter((word) => word.suggestionRunId === runId)
+        .length,
+      batchWords: batch.length,
+      total: lesson.words.length,
     };
   } catch (cause) {
     return { ok: false, error: errorMessage(cause) };

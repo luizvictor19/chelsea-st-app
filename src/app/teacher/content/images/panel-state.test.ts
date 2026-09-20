@@ -3,8 +3,10 @@ import { describe, test } from "node:test";
 
 import {
   LOST_RESPONSE,
+  asksBeforeReclassifying,
   attemptsToShow,
   discardWarning,
+  reclassifyWarning,
   settle,
   type LastAnswer,
 } from "./panel-state.ts";
@@ -166,5 +168,84 @@ describe("discardWarning", () => {
 
   test("counts one credit in the singular", () => {
     assert.match(discardWarning(1), /custou 1 crédito\./u);
+  });
+});
+
+/*
+ * The word-panel offers eight one-click type buttons, and since 0019 four of
+ * them take an approved picture off the word. One of the twenty pictures on a
+ * word today cost fifteen attempts, so what this sentence says is the
+ * difference between a teacher cancelling, accepting, or accepting and then
+ * regenerating something they still have.
+ */
+describe("reclassifyWarning", () => {
+  test("says the picture comes off the word", () => {
+    assert.match(reclassifyWarning("Símbolo"), /sai desta palavra/u);
+  });
+
+  /*
+   * The half that saves the work. From 0021 the attempt goes back to being a
+   * candidate with its file rather than being refused, and a warning that
+   * mentioned only the loss would send the teacher off to generate a
+   * replacement for a picture still sitting in the list.
+   */
+  test("says the picture is not lost", () => {
+    const text = reclassifyWarning("Uso");
+    assert.match(text, /candidata/u);
+    assert.match(text, /aprovada\s+de novo/u);
+  });
+
+  test("names the kind being chosen, in lower case", () => {
+    assert.match(reclassifyWarning("Metalinguagem"), /metalinguagem/u);
+    assert.doesNotMatch(reclassifyWarning("Metalinguagem"), /Metalinguagem/u);
+  });
+});
+
+/*
+ * The rule that decides whether the teacher is asked at all. Since 0019 four
+ * of the eight one-click type buttons take an approved picture off the word,
+ * and before this they did it with no dialog and no visible undo.
+ */
+describe("asksBeforeReclassifying", () => {
+  test("asks when a kind that carries no picture would take one off", () => {
+    for (const kind of ["symbol", "usage", "metalanguage", "none"]) {
+      assert.equal(
+        asksBeforeReclassifying(kind, "https://x/y.jpg"),
+        true,
+        kind,
+      );
+    }
+  });
+
+  /* Nothing to warn about, so nothing is asked. */
+  test("does not ask when the word has no approved picture", () => {
+    for (const kind of ["symbol", "usage", "metalanguage", "none"]) {
+      assert.equal(asksBeforeReclassifying(kind, null), false, kind);
+    }
+  });
+
+  /*
+   * Moving between kinds that draw keeps the picture, so asking would be a
+   * dialog with nothing to say — which is the kind people learn to click
+   * through, and then click through on the one that mattered.
+   */
+  test("does not ask between kinds that draw", () => {
+    for (const kind of ["photo", "pose", "action", "figure"]) {
+      assert.equal(
+        asksBeforeReclassifying(kind, "https://x/y.jpg"),
+        false,
+        kind,
+      );
+    }
+  });
+
+  /*
+   * The list comes from isDrawableKind and not from a copy here, so a kind
+   * added to the enum and to nothing else falls on the asking side. That is
+   * the safe way round: a needless dialog is a nuisance, a missing one is a
+   * picture gone.
+   */
+  test("an unknown kind is treated as one that carries no picture", () => {
+    assert.equal(asksBeforeReclassifying("sketch", "https://x/y.jpg"), true);
   });
 });
