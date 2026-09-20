@@ -1,0 +1,55 @@
+-- Which of the two style sets a word is drawn in.
+--
+-- A room and a ceiling are not objects with an outline to cut out, and flat
+-- vector gives them nothing to be. They need a photograph, and the style is
+-- not the teacher's to type: it comes from constants in src/lib/images/style.ts
+-- so that a few hundred pictures read as one set. So the choice between the
+-- sets is a column, one value per word.
+--
+-- An enum and not a boolean. A boolean would name the second style in its own
+-- column name and have nowhere to put a third, and this project has already
+-- had to add a sixth value to a list that looked closed (0010, pose). Adding
+-- 'sketch' here later is one ALTER TYPE ... ADD VALUE and no column, no
+-- backfill and no rewriting of what the true and false of a boolean meant.
+--
+-- Creating the type and using it in the same migration is fine; the rule that
+-- caught 0010 was about ALTER TYPE ... ADD VALUE, whose new value cannot be
+-- used in the transaction that adds it. CREATE TYPE has no such restriction,
+-- as 0012 also relies on.
+create type image_style as enum ('flat', 'realistic');
+
+-- NOT NULL with a default, and the default is not a guess about what a word
+-- should be: it is what every word already is. Measured against the project
+-- on 2026-09-20, before this was written:
+--
+--   select count(*) from image_attempts;                     ->  73
+--   select count(*) from image_attempts where prompt is not null;
+--                                                            ->  73
+--   select count(*) from image_attempts
+--    where prompt like 'Flat vector illustration of%';        ->  73
+--
+-- Every attempt ever made, including the 13 approved onto a word, opened on
+-- the flat medium, because until today there was no other. Backfilling 'flat'
+-- states that, it does not assume it.
+--
+-- NOT NULL rather than a nullable column meaning "not chosen yet", because
+-- there is no such state to hold: a word that nobody has thought about is
+-- drawn flat, which is exactly what it was drawn as yesterday. Null would add
+-- a third case that every reader would have to collapse back to 'flat'.
+alter table vocabulary_items
+  add column image_style image_style not null default 'flat';
+
+-- No column on image_attempts, on purpose. image_attempts.prompt already
+-- holds the whole composed prompt, medium and category rule and style, as one
+-- string: actions.ts builds it with buildPrompt and inserts that exact value,
+-- and the 73 rows counted above are all of it. The style an attempt used is
+-- therefore already recorded, literally and in the words that were sent,
+-- which is a better record than the name of a constant whose text moves. A
+-- column would be a second copy of something already written down, free to
+-- disagree with it.
+--
+-- No RLS statement either, and that is not an omission. This adds a column to
+-- a table that already has row level security and a policy covering every
+-- operation (vocabulary_items_teacher_all, from 0004); a new column inherits
+-- both. The rule about RLS in the same migration is about creating a table,
+-- and no table is created here.
