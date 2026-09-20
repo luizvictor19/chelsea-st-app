@@ -243,6 +243,8 @@ export type Representation = Database["public"]["Enums"]["representation_kind"];
 
 export type WordClass = Database["public"]["Enums"]["word_class"];
 
+export type ImageStyle = Database["public"]["Enums"]["image_style"];
+
 export type WordImage = {
   readonly id: string;
   readonly term: string;
@@ -252,6 +254,15 @@ export type WordImage = {
   readonly suggestedRepresentation: Representation | null;
   /** A fact about the word, not a decision about the picture. One column. */
   readonly wordClass: WordClass | null;
+  /**
+   * Which set of style constants the next generation of this word uses.
+   *
+   * Never null: the column is not null with a default of 'flat', because a
+   * word nobody has thought about is drawn the way every word was drawn
+   * before there was a choice. It says nothing about the pictures already in
+   * the bucket, whose style is recorded in the prompt of their attempt.
+   */
+  readonly imageStyle: ImageStyle;
   readonly imageUrl: string | null;
   /**
    * The structure reference this word is set up to generate from, as a URL
@@ -337,7 +348,7 @@ export async function listVocabularyImages(): Promise<{
   const { data: rows, error } = await supabase
     .from("vocabulary_items")
     .select(
-      "id, term, representation, suggested_representation, word_class, image_path, reference_path, points!inner(number, lessons_content(id, number)), image_attempts!image_attempts_vocabulary_item_id_fkey(count)",
+      "id, term, representation, suggested_representation, word_class, image_style, image_path, reference_path, points!inner(number, lessons_content(id, number)), image_attempts!image_attempts_vocabulary_item_id_fkey(count)",
     );
   if (error) throw new Error(error.message);
 
@@ -352,6 +363,7 @@ export async function listVocabularyImages(): Promise<{
       representation: row.representation,
       suggestedRepresentation: row.suggested_representation,
       wordClass: row.word_class,
+      imageStyle: row.image_style,
       imageUrl: publicImageUrl(supabase, row.image_path),
       referenceUrl: publicImageUrl(supabase, row.reference_path),
       // An array now, and correctly so: naming the attempt-to-word key makes

@@ -13,7 +13,7 @@
 // The extension is required: isDrawableKind is a value, so this import
 // survives into the runtime, and node resolves neither a bare specifier nor a
 // missing extension the way the bundler does.
-import { type DrawableKind, isDrawableKind } from "./style.ts";
+import { type DrawableKind, type ImageStyle, isDrawableKind } from "./style.ts";
 
 /**
  * What the subject has to describe for each kind. Close to SUBJECT_RULES in
@@ -46,13 +46,16 @@ const MAX_WORDS = 12;
  * not about how to draw it. The image model draws whatever it is handed; what
  * these fix is the handing.
  *
+ * Two of them hold whatever the picture is made of, and are below as
+ * constants. The middle one does not, and is a pair; see RECOGNITION.
+ *
  * Their provenance, in order, all of it from that day:
  *
  * 1. The angle. `sitting` took four attempts. Drawn from the front a seated
  *    person does not read as seated: what says the posture is the bent knee,
  *    and from the front the knee points at the viewer and disappears. "seen
  *    from the side" is what made it come out right, and it is only ever the
- *    subject that can say so, because the style constant is fixed and the
+ *    subject that can say so, because the style constants are fixed and the
  *    category rule is the same for every word in the category.
  *
  *    It was written for a pose and an action, and generalised the same day
@@ -62,10 +65,8 @@ const MAX_WORDS = 12;
  *    anything that gets drawn; which point of view is the judgement, and that
  *    is exactly the judgement the teacher is editing the phrase to make.
  *
- * 2. The silhouette. A closed book standing up came back as a box, a folder
- *    and a card, because all four share an outline. An open book is not
- *    mistakable for anything. The same choice exists for most objects and it
- *    is nearly free to make: scissors open, a door ajar.
+ * 2. Recognisability, which is the one that is not the same question twice.
+ *    See RECOGNITION.
  *
  * 3. State words. "a closed cardboard box" came back half open and half
  *    closed on both models. The box with its flaps up is the box the model
@@ -75,21 +76,59 @@ const MAX_WORDS = 12;
  *    adjective asks the model to subtract, and it does not subtract, it
  *    averages. A positive feature that exists in one state and not the other
  *    leaves it nothing to average.
+ */
+const ANGLE_RULE = `Angle is part of the meaning. Name the point of view, whatever the word is: the same thing drawn from the wrong side stops saying it. A seated person seen from the front does not read as seated, because the bent knee points at the viewer and disappears, so write "seen from the side". A box or a ball reads from the side; an open book reads from above.`;
+
+const STATE_RULE = `For a word that names a state (open, closed, empty, full), do not use the adjective. Name a positive feature that exists only in that state. "a closed cardboard box" comes back halfway open, because the model knows the box with its flaps up and averages the two. "sealed with packing tape across the top" does not, because tape cannot sit on a raised flap.`;
+
+/**
+ * What makes a picture recognisable, which is a different question in each
+ * style, so this rule is a pair where the other two are constants.
+ *
+ * The flat one is from 2026-09-19 and is a measurement: a closed book
+ * standing up came back as a box, a folder and a card, because all four share
+ * an outline, and an open book is not mistakable for anything. In a flat
+ * vector there is nothing else for it to be recognised by. No texture, no
+ * light, no depth: the outline is the whole picture, so choosing the view
+ * with the clearest outline is choosing whether the word arrives at all.
+ *
+ * The realistic one is from 2026-09-20 and is NOT a measurement. It is a
+ * reading of what the flat rule assumes, made when the second style went in.
+ * Two things are wrong with sending the flat rule to a photograph. It asks
+ * for the wrong criterion: a photograph is recognised by material, by scale
+ * against something familiar and by context, and the outline is the least of
+ * it. And on the words the realistic style exists for, it asks for something
+ * that does not exist, because a room and a ceiling have no silhouette. A
+ * model told to find the most recognisable outline of a room has one obvious
+ * way out, which is to answer with an object standing in the room, and that
+ * is the failure the style was added to stop.
+ *
+ * Which of those two is real gets settled by a generation and not here.
+ */
+const RECOGNITION: Record<ImageStyle, string> = {
+  flat: `Choose the view or the state with the most recognisable silhouette. A closed book standing up could be a box, a folder or a card; an open book could be nothing else. Scissors open, not shut. A door ajar, not flat in its frame.`,
+
+  realistic: `Recognition comes from material, scale and context, not from the outline. A photograph is known by the surface a thing is made of, by its size next to something familiar, and by where it sits, so name whichever of the three the word turns on. Some words have no outline to choose a view for at all: a room, a ceiling, a wall. Do not hunt for one, and never let an object standing inside a place stand in for the place.`,
+};
+
+/**
+ * The three rules for one style, in the order they are numbered to the model.
+ *
+ * A function rather than a constant per style, so the two that do not depend
+ * on the style are written once: a rule bought with a real generation should
+ * not be sitting in two places waiting for one of them to be edited.
  *
  * Exported so the test can hold the prompt to naming all three, rather than
  * to matching a sentence someone can quietly delete.
  */
-export const LEARNED_RULES = [
-  `Angle is part of the meaning. Name the point of view, whatever the word is: the same thing drawn from the wrong side stops saying it. A seated person seen from the front does not read as seated, because the bent knee points at the viewer and disappears, so write "seen from the side". A box or a ball reads from the side; an open book reads from above.`,
-
-  `Choose the view or the state with the most recognisable silhouette. A closed book standing up could be a box, a folder or a card; an open book could be nothing else. Scissors open, not shut. A door ajar, not flat in its frame.`,
-
-  `For a word that names a state (open, closed, empty, full), do not use the adjective. Name a positive feature that exists only in that state. "a closed cardboard box" comes back halfway open, because the model knows the box with its flaps up and averages the two. "sealed with packing tape across the top" does not, because tape cannot sit on a raised flap.`,
-] as const;
+export function learnedRules(style: ImageStyle): readonly string[] {
+  return [ANGLE_RULE, RECOGNITION[style], STATE_RULE];
+}
 
 export function buildSubjectPrompt(
   term: string,
   kind: string,
+  style: ImageStyle,
 ): { system: string; user: string } {
   const word = term.trim();
   if (word === "") {
@@ -107,11 +146,15 @@ The subject is a short phrase in English, at most ${MAX_WORDS} words, describing
 Answer with json only, in exactly this shape:
 {"subject": "the phrase"}
 
-Describe only what is in the picture. The background, the colours and the drawing style are already fixed elsewhere, so saying anything about them either repeats that or argues with it.
+Describe what is in the picture, never how it is made. The medium and the colours are decided elsewhere, so naming them either repeats that or argues with it: do not write drawing, illustration, photograph, render or painting, and do not choose a palette.
+
+Where the thing is, is a different matter. When the word names a place, or names something that only means anything in one, the surroundings are part of what the picture has to show, so describe them. When the word names a thing that could sit anywhere, leave the surroundings out: a book needs no background, and naming one argues with the setting that is already fixed.
 
 Three rules, learned from pictures that came out wrong:
 
-${LEARNED_RULES.map((rule, index) => `${index + 1}. ${rule}`).join("\n\n")}
+${learnedRules(style)
+  .map((rule, index) => `${index + 1}. ${rule}`)
+  .join("\n\n")}
 
 No prose, no explanation, no quotation marks inside the phrase.`,
     user: `The word is "${word}" and it is a ${kind}, so the subject describes ${SUBJECT_SHAPE[kind]}. Write the subject in English.`,
@@ -126,8 +169,9 @@ No prose, no explanation, no quotation marks inside the phrase.`,
  * refusal leaves the teacher typing, which is what they were doing anyway.
  *
  * A full stop at the end is dropped, for the same reason the stray quotes
- * are. MEDIUM_PROMPT is "Flat vector illustration of {subject}." and brings
- * its own, so a phrase that ends in one produces two. Seen on 2026-09-19:
+ * are. Every medium in STYLES ends in one of its own ("Flat vector
+ * illustration of {subject}.", "Photograph of {subject}."), so a phrase that
+ * ends in a stop produces two. Seen on 2026-09-19:
  * "A ball directly beneath a raised horizontal bar, seen from the side."
  *
  * The capital at the front is left exactly where it is. Lowercasing it would

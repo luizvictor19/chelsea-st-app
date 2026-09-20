@@ -123,6 +123,25 @@ export const IMAGE_MODELS = [
     preferredForReference: false,
   },
   {
+    /**
+     * 80 credits, and see the table comment above for why that number moved.
+     *
+     * OUT OF SERVICE, reported by Luiz on 2026-09-20. Since 21:40 on 19/09
+     * Mystic has returned 500 in about a second, consistently and in a row,
+     * on the word `large`, with no reference attached as well as with one.
+     * The same word generated normally on Seedream in the same minutes.
+     *
+     * So it is the provider, not us: a failure that fast is refused before
+     * anything is drawn, it does not depend on the reference, and the other
+     * model on the same account and the same key is answering. The 500 on the
+     * way in on the evening of 19/09, two paragraphs down, is now the second
+     * time this has been seen rather than a one-off.
+     *
+     * Nothing in the code is conditioned on this and nothing should be:
+     * Mystic is still the default for a photo word, which means the panel
+     * opens on it for exactly the words the realistic style was added for.
+     * Pick Seedream by hand until the provider is answering again.
+     */
     id: "mystic",
     label: "Mystic",
     credits: 80,
