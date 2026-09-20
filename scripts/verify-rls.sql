@@ -47,6 +47,10 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0015_backfill_credits_spent.sql
 \i supabase/migrations/0016_replacing_is_not_rejecting.sql
 \i supabase/migrations/0017_image_style.sql
+\i supabase/migrations/0018_none_was_three_things.sql
+\i supabase/migrations/0019_not_drawn_is_not_nothing.sql
+\i supabase/migrations/0020_suggestion_run_id.sql
+\i supabase/migrations/0021_reclassifying_is_not_rejecting.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
@@ -191,5 +195,73 @@ begin
 
   raise notice 'approving twice leaves one approved attempt, pointed at the second';
   raise notice 'and the replaced one is a candidate again, not a refusal';
+end;
+$$;
+
+-- Reclassifying is not rejecting, since 0021. Moving a word to a kind that
+-- carries no picture takes the picture off the word — and leaves the attempt
+-- a candidate with its file, rather than marking it refused.
+--
+-- Both halves are asserted because both are promised. The first is what the
+-- teacher is about to do; the second is what the confirmation dialog tells
+-- them, in as many words, so that they do not go and generate a replacement
+-- for a picture that is still in the list. A screen that says "continua na
+-- lista como candidata" over a function that writes 'rejected' — which this
+-- product reads as "discarded, and the file is gone" — would be a false
+-- sentence the teacher acts on, about the one thing here that can cost
+-- fifteen attempts to get back.
+do $$
+declare
+  v_word uuid;
+  v_attempt uuid;
+  v_status text;
+  v_decided timestamptz;
+  v_stored text;
+  v_pointer uuid;
+  v_path text;
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+
+  insert into vocabulary_items (term, first_point_id)
+    values ('a reclassified word', (select id from points where number = 54))
+    returning id into v_word;
+
+  insert into image_attempts (vocabulary_item_id, provider, status, storage_path)
+    values (v_word, 'upload', 'generated', v_word::text || '/only.png')
+    returning id into v_attempt;
+
+  perform approve_image_attempt(v_attempt);
+  -- Any kind that carries no picture; usage is one of the two 0018 added.
+  perform clear_word_representation(v_word, 'usage');
+
+  select status, decided_at, storage_path
+    into v_status, v_decided, v_stored
+    from image_attempts where id = v_attempt;
+
+  select approved_attempt_id, image_path into v_pointer, v_path
+    from vocabulary_items where id = v_word;
+
+  if v_pointer is not null or v_path is not null then
+    raise exception 'reclassified word still points at an image: % / %',
+      v_pointer, v_path;
+  end if;
+
+  if v_status <> 'generated' then
+    raise exception 'the reclassified attempt is %, expected generated', v_status;
+  end if;
+
+  if v_decided is not null then
+    raise exception 'the reclassified attempt kept a decided_at of %', v_decided;
+  end if;
+
+  -- The file is what makes approving it again possible at all, so losing it
+  -- would make the dialog's second sentence untrue by another road.
+  if v_stored is null then
+    raise exception 'the reclassified attempt lost its storage_path';
+  end if;
+
+  raise notice 'reclassifying a word takes the picture off the word';
+  raise notice 'and leaves the attempt a candidate, with its file: reclassifying is not rejecting';
 end;
 $$;

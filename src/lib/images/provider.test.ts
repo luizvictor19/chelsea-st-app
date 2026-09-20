@@ -11,6 +11,7 @@ import {
   referenceDelivery,
   takesReference,
 } from "./provider.ts";
+import { isDrawableKind } from "./style.ts";
 
 const KINDS = Constants.public.Enums.representation_kind;
 
@@ -167,6 +168,8 @@ describe("defaultModelFor", () => {
 
   test("gives none to the kinds that generate nothing", () => {
     assert.equal(defaultModelFor("symbol"), null);
+    assert.equal(defaultModelFor("usage"), null);
+    assert.equal(defaultModelFor("metalanguage"), null);
     assert.equal(defaultModelFor("none"), null);
     assert.equal(defaultModelFor(null), null);
     assert.equal(defaultModelFor("nonsense"), null);
@@ -175,12 +178,18 @@ describe("defaultModelFor", () => {
   /*
    * Every kind in the database is answered one way or the other, so a kind
    * added later cannot silently fall through to no model at all.
+   *
+   * Which kinds are drawn is asked of isDrawableKind rather than written out
+   * here. It was written out here, as everything but symbol and none, and
+   * that was one more copy of the set: when 0018 split none into usage and
+   * metalanguage this test claimed the two new ones should have a model.
+   * scripts/drawable-kinds.test.ts holds the copies that are left to one
+   * answer, and this is not one of them any more.
    */
   test("answers for every kind the database has", () => {
     for (const kind of KINDS) {
       const model = defaultModelFor(kind);
-      const drawable = !["symbol", "none"].includes(kind);
-      assert.equal(model !== null, drawable, kind);
+      assert.equal(model !== null, isDrawableKind(kind), kind);
     }
   });
 });

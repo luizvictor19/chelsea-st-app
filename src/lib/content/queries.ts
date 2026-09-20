@@ -2,6 +2,10 @@ import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
 
+// Relative, with the extension: this is a value import and has to resolve
+// outside the bundler as well, the same reason filters.ts gives for its own.
+import { isDrawableKind } from "../images/style.ts";
+
 import { approvedFirst } from "./attempt-order";
 import { compareWords } from "./word-order";
 import type { Database } from "@/lib/supabase/types";
@@ -302,14 +306,32 @@ export type ImageAttempt = {
   readonly completedAt: string | null;
 };
 
-/** A word is waiting when it has no decision, or a decision it cannot meet yet. */
+/**
+ * A word is waiting when it has no decision, or a decision it cannot meet yet.
+ *
+ * The twin of the predicate on vocabulary_items_pending_image_idx, and it asks
+ * isDrawableKind rather than naming the kinds a third time. It used to read
+ * `representation !== "none"`, which was the whole truth while `none` was the
+ * only decision that carried no picture; 0018 split it into usage and
+ * metalanguage, and every word of those two would have counted as pending
+ * forever, so progress.remaining below would never have reached zero.
+ * scripts/drawable-kinds.test.ts holds this, the index and the function to one
+ * answer.
+ *
+ * It also changes the answer for `symbol`, which the old condition counted as
+ * pending while situationOf on the same screen already showed it as taking no
+ * picture. The two disagreed, and this side was the wrong one. Measured on
+ * 2026-09-20: ten words are decided `symbol` and none of them has an image, so
+ * progress.remaining drops by exactly ten the first time this runs. That is a
+ * number moving on a screen with no work behind it, which is worth knowing
+ * before it is noticed.
+ */
 function isPending(
   representation: Representation | null,
   imagePath: string | null,
 ): boolean {
-  return (
-    representation === null || (representation !== "none" && imagePath === null)
-  );
+  if (representation === null) return true;
+  return isDrawableKind(representation) && imagePath === null;
 }
 
 function publicImageUrl(

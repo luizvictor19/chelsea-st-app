@@ -1,0 +1,61 @@
+-- Which pass wrote this word's suggestion.
+--
+-- A witness, and it exists because there was none. The suggestion button walks
+-- a lesson in batches, and on 2026-09-20 a batch was seen doing all its work
+-- and never being able to say so:
+--
+--   POST /teacher/content/images  200 in 31.6s      (no action line at all)
+--   suggest_batch_lost  attempt 1  clientMs 31610
+--   {"event":"suggest_batch","offset":10,...,"totalMs":33325,"writes":8,"outcome":"ok"}
+--   {"event":"suggest_batch","offset":10,...,"totalMs":29825,"writes":8,"outcome":"ok"}
+--
+-- The action ran, called the model and wrote its eight words at 33,325ms — two
+-- seconds after the connection had died at 31.6s and the browser had given up
+-- at 31,610ms. The client, having no way to tell, repeated the batch: a second
+-- call to the model, paid for, writing the same eight words again. In the same
+-- pass the same offset of another lesson took a 31.6s POST with a 31,099ms
+-- action and arrived whole, so the difference is not the duration but whether
+-- the action finishes inside the window of its own request. It is not a fixed
+-- ceiling either: 12.1s once, 31.6s twice.
+--
+-- What closes the connection is not known and is not what this fixes. What
+-- this fixes is the dependency. The action writes before it returns, so a lost
+-- answer is a screen problem and not a data problem — but only if the screen
+-- can find out. It could not: a word skipped in a lesson that already carried
+-- suggestions looks exactly like a word written, because the old suggestion is
+-- still sitting in the column either way. There was no signal in the data at
+-- all, which is what this column is.
+--
+-- Nullable, and no backfill. Null means "suggested before this was tracked",
+-- which is true of every one of the 78 rows that carry a suggestion today and
+-- is not worth inventing an id for. Measured on 2026-09-20, before this was
+-- written:
+--
+--   select count(*) from vocabulary_items
+--    where suggested_representation is not null or word_class is not null;
+--   ->  78
+--
+-- No default either. A default would put an id on rows nobody suggested, and
+-- the question this column answers is "did the pass I am running now write
+-- this word", to which an id from nowhere is a wrong answer rather than a
+-- missing one.
+--
+-- No foreign key and no table of runs. A pass is not a thing the product has,
+-- it is a click that walks a lesson; the id is generated in the browser with
+-- crypto.randomUUID() and is meaningful only for as long as that click lasts.
+-- A runs table would be a row per click, written for nobody to read.
+--
+-- No index, and that is measured rather than assumed. The one query that reads
+-- this counts the words of one lesson carrying one id, and a lesson is sixty
+-- rows at its largest: the filter on lesson_content_id already narrows to that
+-- before this column is looked at. An index here would be maintained on every
+-- suggestion write to save nothing.
+--
+-- RLS: no table is created, so there is nothing to enable and nothing to grant.
+-- vocabulary_items has row level security from 0001 and a policy covering every
+-- operation from 0004, and a new column inherits both. The rule about RLS in
+-- the same migration is about creating a table.
+alter table vocabulary_items add column suggestion_run_id uuid;
+
+comment on column vocabulary_items.suggestion_run_id is
+  'The suggestion pass that last wrote this word, generated per click in the browser. Null when the suggestion predates the column. Read to tell a batch that was written from one that was not, when the answer never reached the screen.';

@@ -171,18 +171,18 @@ export default async function VocabularyImagesPage({
                           : `Lição ${lesson.lessonNumber}`}
                       </h2>
                       {/*
-                        The two counts read left to right and the button sits
-                        after them: how much of the lesson is done, how much
-                        has been proposed, and then the control that changes
-                        the second number.
+                        One count here and not two. The suggestion count used
+                        to sit beside this one, and the button carried a note
+                        of its own once a run had happened: the state and the
+                        last thing that happened to it, side by side, never
+                        quite agreeing. The suggestion side lives on the
+                        button now, beside its bar, where the number and the
+                        control that changes it are the same object. What is
+                        left here is the count nothing on this row changes.
                       */}
                       <span className="text-faint text-xs whitespace-nowrap">
                         {lesson.images.withImage}/{lesson.images.takesImage} com
                         imagem
-                      </span>
-                      <span className="text-faint text-xs whitespace-nowrap">
-                        {lesson.overwrite.suggested}/{lesson.totalWords} com
-                        sugestão
                       </span>
                       {lesson.lessonContentId !== null && (
                         <SuggestButton

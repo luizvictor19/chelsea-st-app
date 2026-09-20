@@ -190,4 +190,106 @@ body {
       }
     }
   }
+
+  /*
+   * The suggestion bar's fill, in two widths, because the bar shows two
+   * different things and only one of them is a fact.
+   *
+   * `--confirmed` is how many of the lesson's words carry a suggestion, which
+   * is what aria-valuenow reads out and what the count beside the bar says.
+   * `--racing` is where the fill may creep to while a batch is in flight,
+   * which is an estimate and is read out to nobody.
+   *
+   * The race exists because a batch cannot be estimated. Fourteen batches of
+   * ten words, timed on the screen in seconds of model time: 2.5, 3.1, 3.4,
+   * 4.6, 5.6, 5.6, 9.3, 12.5, 19.4, 26.4, 26.8, 30.4, 32.8, 59.6. A median
+   * near 11s and a tail to 60s — a factor of twenty-four between the fastest
+   * and the slowest, with everything else in a batch under a second. No
+   * predicted duration would be right often enough to show.
+   *
+   * So the curve is fitted to where the batches actually fall rather than
+   * chosen for its shape: its output approximates the measured distribution,
+   * which gives the fill a meaning it can keep. Half way along is the median
+   * batch, and about as far as it gets is the slowest one ever seen.
+   *
+   *     batch     curve   measured
+   *      2.5s      0.12     0.04
+   *      3.1s      0.15     0.11
+   *      3.4s      0.17     0.18
+   *      4.6s      0.23     0.25
+   *      5.6s      0.29     0.36
+   *      9.3s      0.44     0.46
+   *     12.5s      0.53     0.54
+   *     19.4s      0.65     0.61
+   *     26.4s      0.72     0.68
+   *     26.8s      0.73     0.75
+   *     30.4s      0.76     0.82
+   *     32.8s      0.77     0.89
+   *     59.6s      0.90     0.96
+   *
+   * The two previous attempts at this are worth keeping, because both were
+   * wrong in ways that looked right. The first, cubic-bezier(.12,.9,.25,1)
+   * over 60s, was justified with a comment saying the fill was "a little over
+   * four tenths of the way" at 26 seconds. That confused the fraction of the
+   * duration elapsed, 26/60, with the output of the curve, which is 0.94 at
+   * that point: it passed half its travel at 5.4s and then crawled. And 60s
+   * was the whole duration, so the fill stopped dead exactly at the worst
+   * batch anyone had measured.
+   *
+   * 120s, so that the slowest batch ever seen lands at 0.90 and there is
+   * still travel left under it.
+   */
+  .suggest-fill {
+    width: var(--confirmed);
+  }
+
+  /*
+   * The zero a pass starts from, and it carries no transition on purpose.
+   *
+   * Without it the second run over a lesson began wrong: the fill was left at
+   * 100% wearing is-settling, so putting covered back to zero animated a
+   * 220ms descent, and the forced layout that is supposed to fix zero as the
+   * value to come from read a point half way down it instead. The race then
+   * started from the middle of a retreat. The first run of a page load looked
+   * right only because there was nothing to descend from.
+   *
+   * So every pass starts from the same place, first or fifth: no transition
+   * for one frame, a forced layout, and only then the race.
+   */
+  .suggest-fill.is-instant {
+    width: var(--confirmed);
+    transition: none;
+  }
+
+  .suggest-fill.is-racing {
+    width: var(--racing);
+    transition: width 120s cubic-bezier(0.1, 0.5, 0, 0.9);
+  }
+
+  /*
+   * The duration comes from SETTLE_MS in suggestion-bar.ts, through the
+   * property the component sets, because the loop waits exactly this long for
+   * the settle to be seen. The fallback is only for a fill rendered without
+   * it, which nothing does today.
+   */
+  .suggest-fill.is-settling {
+    width: var(--confirmed);
+    transition: width var(--settle, 220ms) ease-out;
+  }
+
+  /*
+   * Asked for no motion, the fill stops estimating rather than animating the
+   * estimate more gently. The race is the one part of this bar that draws
+   * something nobody measured, so it is the part that goes; what is left is
+   * the jump from one confirmed number to the next.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    .suggest-fill,
+    .suggest-fill.is-instant,
+    .suggest-fill.is-racing,
+    .suggest-fill.is-settling {
+      width: var(--confirmed);
+      transition: none;
+    }
+  }
 }

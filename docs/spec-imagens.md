@@ -1,7 +1,7 @@
 # Imagens do vocabulário: o que é gravado
 
-Decidido em 18/09/2026, com o sexto tipo acrescentado em 19/09/2026. Rigor alto: define forma de
-dado gravado, bucket e políticas. A migration é
+Decidido em 18/09/2026, com o sexto tipo acrescentado em 19/09/2026 e `none` separado em três em
+20/09/2026. Rigor alto: define forma de dado gravado, bucket e políticas. A migration é
 `supabase/migrations/0008_vocabulary_images.sql`, e é ela a fonte se algum dia divergir deste texto.
 
 ## O que existe hoje
@@ -22,10 +22,10 @@ do livro. RLS: só professor lê e escreve; aluna alcança zero linhas.
 
 ## Decisões
 
-- **Tipo de representação** por palavra: `photo`, `pose`, `action`, `figure`, `symbol`, `none`. `none` é "não
-  leva imagem" e conta como resolvida. Sugestão do modelo e decisão do professor ficam em colunas
-  separadas: sugestão nunca vira decisão sozinha, e a diferença entre as duas é a medição da
-  qualidade da sugestão.
+- **Tipo de representação** por palavra: `photo`, `pose`, `action`, `figure`, `symbol`, `usage`,
+  `metalanguage`, `none`. Os três últimos não levam imagem e contam como resolvidos. Sugestão do
+  modelo e decisão do professor ficam em colunas separadas: sugestão nunca vira decisão sozinha, e a
+  diferença entre as duas é a medição da qualidade da sugestão.
 - **Toda tentativa é guardada**, gerada ou enviada à mão, aprovada ou recusada. É de onde sai
   "tentativas até aprovação" por modelo. Limpeza de arquivos recusados é tarefa futura, não desta
   entrega.
@@ -122,6 +122,8 @@ alter table vocabulary_items
 create index vocabulary_items_pending_image_idx on vocabulary_items (first_point_id)
   where representation is null
      or (representation <> 'none' and image_path is null);
+-- Este predicado foi refeito pela 0019: passa a nomear os tipos que são
+-- desenhados, porque 'none' deixou de ser a única decisão sem imagem.
 drop index vocabulary_items_without_image_idx;
 
 alter table image_attempts enable row level security;
@@ -155,8 +157,12 @@ tabela com RLS" já cobre a tabela nova.
   índice único parcial não é adiável, então promover antes de rebaixar levanta violação no meio da
   transação.
 - **Recusar**: marca `rejected`, `decided_at`. Arquivo fica.
-- **Escolher `none`**: grava `representation`, e se havia aprovada, ela vira `rejected` e os dois
-  campos da palavra voltam a nulo.
+- **Escolher um tipo que não leva imagem** (`symbol`, `usage`, `metalanguage`, `none`): grava
+  `representation`, e se havia aprovada, ela vira `rejected` e os dois campos da palavra voltam a
+  nulo. Era só `none` até 20/09/2026; `symbol` entrou junto pela 0019, e isso é mudança de
+  comportamento — imagem aprovada numa palavra cujo caractere a tela desenha é o mesmo pendurado que
+  a regra existe para impedir. Nada foi afetado: medido em 20/09/2026, nenhuma palavra `symbol` ou
+  `none` tinha imagem.
 - **Upload à mão**: cria tentativa `provider = 'upload'`, `status = 'generated'`, e segue o mesmo
   aprovar.
 - **Sugestão do modelo**: grava `suggested_representation`, nunca `representation`.
@@ -185,9 +191,31 @@ Acrescentado em 19/09/2026. O critério geral é onde mora o sentido da palavra.
 - **Figura**: diagrama, sem pessoa. Relação e posição são caixa e bola; cor é uma forma fixa
   preenchida, a mesma para todas; país e cidade são a silhueta do mapa.
 - **Símbolo**: não gera imagem, a tela renderiza o caractere.
-- **Nada**: palavra funcional ou que o livro não ilustra; título sozinho (Mr, Mrs); nacionalidade e
-  língua. Pronome pessoal também é Nada por enquanto, porque figura isolada não diz "him": a foto de
-  um homem diz "man". Item aberto, ligado à cena do tutor.
+- **Uso**: palavra funcional, sem nada para desenhar, mas com sentido que uma frase sobre o mundo
+  mostra em uso (`a`, `the`, `or`, `this`, `yes`, `where`, `him`). Título sozinho (Mr, Mrs) entra
+  aqui: "Mr Brown is a man." é a frase de que ele precisa.
+- **Metalinguagem**: a palavra nomeia uma parte da própria língua, e o que a mostra é uma frase sobre
+  o inglês, não sobre o mundo (`contraction`, `vowel`, `plural`, `imperative`, `non-specific`).
+- **Nada**: não se exibe coisa alguma — nacionalidade e língua.
+
+**Os três nasceram de um só, em 20/09/2026.** `none` estava carregando três respostas sob um nome, e
+só uma delas era "não há o que mostrar". O que separa Uso de Metalinguagem é **sobre o que a frase
+fala**, e não se há exemplo: metalinguagem também tem exemplo, e o exemplo é o coração de como ela é
+ensinada — "Are there any books on the table?" é o que mostra `non-specific`. Migrations
+`0018_none_was_three_things.sql` (só os dois valores) e `0019_not_drawn_is_not_nothing.sql` (as 22
+linhas, o índice e a função).
+
+Duas coisas caem junto. A linha que punha **título sozinho em Nada** foi escrita quando as únicas
+opções eram imagem ou nada, e o mecanismo novo dissolve a premissa. E o **pronome pessoal**, que
+estava aqui como item aberto preso à cena do tutor porque figura isolada não diz "him": ele é Uso, e
+não precisa de cena nem de desenho, precisa de uma frase que o use.
+
+**Metalinguagem é cobrada da aluna**, não só entendida. O ponto do livro pergunta "What's the
+difference between 'any' and 'some'?" e a resposta esperada traz o jargão inteiro. Disso sai uma
+regra de apresentação: ela é ancorada no **primeiro ponto em que é possível**, e não no ponto em que
+a palavra aparece — `non-specific` entra no 50 e `any`, que ela rotula, no 51, então cobrar no 50
+seria fazer uma pergunta cuja resposta exige palavra que a aluna ainda não viu. A coluna que guarda
+essa âncora e o trigger que a segura não são desta entrega.
 
 **Consistência de personagem fica de fora, por ora.** Tentada em 19/09/2026, como descrição fixa de
 um homem dentro das regras de Postura e Ação. Três gerações reais: uma devolveu uma cadeira sem
