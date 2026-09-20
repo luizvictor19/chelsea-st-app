@@ -398,9 +398,19 @@ export async function startGeneration(
       };
     }
 
+    /*
+     * Flat named here, and only until the column exists.
+     *
+     * 2026-09-20: the styles are two from today, but vocabulary_items.image_style
+     * is written and not yet applied, so there is nothing to read the word's
+     * choice from. Naming it here keeps the prompt exactly what it was, which
+     * is what every one of the 73 attempts in the table was generated with,
+     * and it is a line that has to change: once the column is applied and the
+     * types are regenerated, this reads the word like representation above.
+     */
     // Before anything is inserted or paid for: an empty subject and a kind
     // that has no picture both throw here.
-    const prompt = buildPrompt(subject, word.representation);
+    const prompt = buildPrompt(subject, word.representation, "flat");
 
     /*
      * The word's reference is only this attempt's reference if the model can

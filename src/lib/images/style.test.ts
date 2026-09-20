@@ -2,54 +2,120 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
-  MEDIUM_PROMPT,
-  STYLE_PROMPT,
+  type ImageStyle,
+  STYLES,
   SUBJECT_RULES,
   buildPrompt,
 } from "./style.ts";
 
 const SUBJECT = "a man sitting on a chair";
 
+const KINDS = ["photo", "pose", "action", "figure"] as const;
+const STYLE_NAMES = Object.keys(STYLES) as ImageStyle[];
+
+/**
+ * The words that name each medium, for counting how often it is said.
+ *
+ * Written out rather than derived from the constant: what these assert is
+ * that the medium is announced once and in the opening, and a token computed
+ * from the same string it is checked against would assert nothing.
+ *
+ * "photograph of" and not "photograph", because the realistic tail ends in
+ * "the photograph fills the entire image" and that is not a second
+ * announcement of the medium.
+ */
+const MEDIUM_WORDS: Record<ImageStyle, string> = {
+  flat: "flat vector illustration",
+  realistic: "photograph of",
+};
+
 describe("buildPrompt", () => {
   /*
    * 2026-09-19, twice over. The description of who was in the picture used to
    * be the last sentence, after eleven style constraints, and a generation of
    * "sitting" came back as an empty chair, so it moved up next to the
-   * subject. That
-   * pushed the medium to the seventh sentence, and an image model weighs its
-   * opening, so the medium came back to the front and brought the subject
-   * with it. What stayed in the tail is the part that can wait.
+   * subject. That pushed the medium to the seventh sentence, and an image
+   * model weighs its opening, so the medium came back to the front and
+   * brought the subject with it. What stayed in the tail is the part that can
+   * wait.
+   *
+   * True of both styles, and that is the point of the loop: the ordering was
+   * bought with flat generations, and a second style inherits it rather than
+   * getting to rediscover it.
    */
-  test("says the medium and subject, then the rule, then the rest of the style", () => {
-    const prompt = buildPrompt(SUBJECT, "pose");
-    const ruleAt = prompt.indexOf(SUBJECT_RULES.pose);
-    const styleAt = prompt.indexOf(STYLE_PROMPT);
-    assert.ok(
-      prompt.startsWith(
-        "Flat vector illustration of a man sitting on a chair.",
-      ),
-      "the medium and the subject open together",
-    );
-    assert.ok(prompt.indexOf("chair") < ruleAt, "the rule follows the subject");
-    assert.ok(ruleAt < styleAt, "the rest of the style comes last");
-    assert.ok(prompt.endsWith(STYLE_PROMPT));
+  test("says the medium and subject, then the rule, then the rest", () => {
+    for (const style of STYLE_NAMES) {
+      const prompt = buildPrompt(SUBJECT, "pose", style);
+      const ruleAt = prompt.indexOf(SUBJECT_RULES.pose);
+      const restAt = prompt.indexOf(STYLES[style].rest);
+      assert.ok(
+        prompt.startsWith(STYLES[style].medium.replace("{subject}", SUBJECT)),
+        `${style}: the medium and the subject open together`,
+      );
+      assert.ok(
+        prompt.indexOf("chair") < ruleAt,
+        `${style}: rule after subject`,
+      );
+      assert.ok(ruleAt < restAt, `${style}: the rest of the style comes last`);
+      assert.ok(prompt.endsWith(STYLES[style].rest), style);
+    }
   });
 
-  test("names the medium once, and in the first words", () => {
-    for (const kind of ["photo", "pose", "action", "figure"]) {
-      const prompt = buildPrompt("a red apple", kind);
-      assert.ok(prompt.startsWith("Flat vector illustration of a red apple."));
-      const occurrences =
-        prompt.toLowerCase().split("flat vector illustration").length - 1;
-      assert.equal(occurrences, 1, `${kind} repeats the medium`);
+  test("names its medium once, in the first words, and no other medium", () => {
+    for (const style of STYLE_NAMES) {
+      for (const kind of KINDS) {
+        const prompt = buildPrompt("a red apple", kind, style).toLowerCase();
+        const mine = MEDIUM_WORDS[style];
+        assert.ok(prompt.startsWith(mine), `${style}/${kind} opens elsewhere`);
+        assert.equal(
+          prompt.split(mine).length - 1,
+          1,
+          `${style}/${kind} repeats the medium`,
+        );
+        for (const other of STYLE_NAMES) {
+          if (other === style) continue;
+          assert.ok(
+            !prompt.includes(MEDIUM_WORDS[other]),
+            `${style}/${kind} also says it is ${other}`,
+          );
+        }
+      }
+      // The tail is the rest of the style, not a second announcement of it.
+      assert.ok(
+        !STYLES[style].rest.toLowerCase().includes(MEDIUM_WORDS[style]),
+      );
     }
-    assert.doesNotMatch(STYLE_PROMPT, /flat vector illustration/iu);
-    assert.match(MEDIUM_PROMPT, /flat vector illustration/iu);
   });
 
   test("the style is the same for every kind", () => {
-    for (const kind of ["photo", "pose", "action", "figure"]) {
-      assert.ok(buildPrompt(SUBJECT, kind).includes(STYLE_PROMPT), kind);
+    for (const style of STYLE_NAMES) {
+      for (const kind of KINDS) {
+        assert.ok(
+          buildPrompt(SUBJECT, kind, style).includes(STYLES[style].rest),
+          `${style}/${kind}`,
+        );
+      }
+    }
+  });
+
+  test("every style forbids a frame and fills the image", () => {
+    for (const style of STYLE_NAMES) {
+      for (const kind of KINDS) {
+        const prompt = buildPrompt("a thing", kind, style);
+        assert.match(prompt, /no frame, no border/iu, `${style}/${kind}`);
+        assert.match(prompt, /fills the entire image/iu, `${style}/${kind}`);
+      }
+    }
+  });
+
+  test("every style forbids text in the picture", () => {
+    for (const style of STYLE_NAMES) {
+      const prompt = buildPrompt("a thing", "photo", style);
+      assert.match(
+        prompt,
+        /no text, no letters, no numbers, no watermark/iu,
+        style,
+      );
     }
   });
 
@@ -59,16 +125,40 @@ describe("buildPrompt", () => {
    * one the opening sentence already ends with.
    */
   test("trims the subject and drops a trailing stop", () => {
-    const plain = buildPrompt("a cat", "photo");
-    assert.equal(buildPrompt("  a cat  ", "photo"), plain);
-    assert.equal(buildPrompt("a cat.", "photo"), plain);
-    assert.equal(buildPrompt("a cat . ", "photo"), plain);
+    for (const style of STYLE_NAMES) {
+      const plain = buildPrompt("a cat", "photo", style);
+      assert.equal(buildPrompt("  a cat  ", "photo", style), plain);
+      assert.equal(buildPrompt("a cat.", "photo", style), plain);
+      assert.equal(buildPrompt("a cat . ", "photo", style), plain);
+    }
   });
 
   test("refuses an empty subject instead of paying for nothing", () => {
-    assert.throws(() => buildPrompt("", "photo"), /subject/);
-    assert.throws(() => buildPrompt("   ", "photo"), /subject/);
-    assert.throws(() => buildPrompt(".", "photo"), /subject/);
+    for (const style of STYLE_NAMES) {
+      assert.throws(() => buildPrompt("", "photo", style), /subject/);
+      assert.throws(() => buildPrompt("   ", "photo", style), /subject/);
+      assert.throws(() => buildPrompt(".", "photo", style), /subject/);
+    }
+  });
+
+  test("symbol and none have no prompt to build, in any style", () => {
+    for (const style of STYLE_NAMES) {
+      assert.throws(() => buildPrompt(SUBJECT, "symbol", style), /symbol/);
+      assert.throws(() => buildPrompt(SUBJECT, "none", style), /none/);
+    }
+  });
+});
+
+/*
+ * The flat style is the one that was paid for, generation by generation, on
+ * 2026-09-19. These assert the decisions of that day and they name flat on
+ * purpose: a second style must not be able to drag the first one's wording
+ * along with it, and a rewrite of flat must not be able to put back what was
+ * measured out of it.
+ */
+describe("the flat style, as it was bought", () => {
+  test("opens on flat vector illustration", () => {
+    assert.equal(STYLES.flat.medium, "Flat vector illustration of {subject}.");
   });
 
   /*
@@ -81,22 +171,22 @@ describe("buildPrompt", () => {
    * drawing nobody wants, the result is a toss-up between two styles, which
    * is what had already happened between "book" and "sitting".
    */
-  test("asks for no outlines, in every prompt", () => {
-    for (const kind of ["photo", "pose", "action", "figure"]) {
-      const prompt = buildPrompt("a thing", kind);
+  test("asks for no outlines", () => {
+    for (const kind of KINDS) {
+      const prompt = buildPrompt("a thing", kind, "flat");
       assert.match(prompt, /no outlines/iu);
       assert.doesNotMatch(prompt, /bold outlines/iu);
     }
-    assert.match(STYLE_PROMPT, /no outlines/iu);
+    assert.match(STYLES.flat.rest, /no outlines/iu);
   });
 
   test("describes the drawing that came back, not the one that was asked for", () => {
-    assert.match(STYLE_PROMPT, /solid flat colors/iu);
-    assert.match(STYLE_PROMPT, /limited muted palette/iu);
-    assert.match(STYLE_PROMPT, /soft shadow under the subject/iu);
+    assert.match(STYLES.flat.rest, /solid flat colors/iu);
+    assert.match(STYLES.flat.rest, /limited muted palette/iu);
+    assert.match(STYLES.flat.rest, /soft shadow under the subject/iu);
     // The old constant forbade shading outright, which is what produced a
     // flat cut-out with nothing holding it to the ground.
-    assert.doesNotMatch(STYLE_PROMPT, /no shading/iu);
+    assert.doesNotMatch(STYLES.flat.rest, /no shading/iu);
   });
 
   /*
@@ -104,12 +194,56 @@ describe("buildPrompt", () => {
    * style asked for a plain background and never said the background was the
    * whole image, so a border broke no rule that had been written down.
    */
-  test("forbids a frame, in every prompt", () => {
-    for (const kind of ["photo", "pose", "action", "figure"]) {
-      const prompt = buildPrompt("a thing", kind);
-      assert.match(prompt, /no frame, no border/iu);
-      assert.match(prompt, /background fills the entire image/iu);
-    }
+  test("says the background is the whole image", () => {
+    assert.match(STYLES.flat.rest, /background fills the entire image/iu);
+  });
+});
+
+/*
+ * The realistic style, 2026-09-20. Nothing here is a measurement: no picture
+ * has been generated in it yet. What these hold is the shape a style has to
+ * have to be one, and the one wording decision that was made on purpose.
+ */
+describe("the realistic style, as proposed", () => {
+  test("opens on a photograph", () => {
+    assert.equal(STYLES.realistic.medium, "Photograph of {subject}.");
+  });
+
+  test("asks for light, materials and focus", () => {
+    assert.match(STYLES.realistic.rest, /natural light/iu);
+    assert.match(STYLES.realistic.rest, /realistic materials and depth/iu);
+    assert.match(STYLES.realistic.rest, /plain uncluttered setting/iu);
+    assert.match(STYLES.realistic.rest, /sharp focus/iu);
+  });
+
+  /*
+   * "the photograph fills the entire image", not "the image fills the entire
+   * frame". The sentence forbids a frame two clauses earlier, and one word
+   * cannot be the thing forbidden and the picture itself in the same breath.
+   */
+  test("does not use frame for both the border and the picture", () => {
+    assert.match(
+      STYLES.realistic.rest,
+      /the photograph fills the entire image/iu,
+    );
+    assert.doesNotMatch(STYLES.realistic.rest, /fills the entire frame/iu);
+  });
+
+  /*
+   * A flat illustration of a room is the reason this style exists, so the
+   * pairing that must work is a photo word in the realistic style.
+   */
+  test("a place reads as a photograph of itself", () => {
+    const prompt = buildPrompt(
+      "an empty room seen from the doorway",
+      "photo",
+      "realistic",
+    );
+    assert.ok(
+      prompt.startsWith("Photograph of an empty room seen from the doorway."),
+    );
+    assert.match(prompt, /on its own/iu);
+    assert.doesNotMatch(prompt, /vector/iu);
   });
 });
 
@@ -119,8 +253,10 @@ describe("how many things are in the frame", () => {
    * category. Asked for a man sitting on a chair under it, the model drew the
    * chair and left the man out. Each category answers the question now.
    */
-  test("the style no longer decides it for everyone", () => {
-    assert.doesNotMatch(STYLE_PROMPT, /single subject/iu);
+  test("no style decides it for everyone", () => {
+    for (const style of STYLE_NAMES) {
+      assert.doesNotMatch(STYLES[style].rest, /single subject/iu, style);
+    }
   });
 
   test("photo is the only one that asks for a single subject", () => {
@@ -145,8 +281,30 @@ describe("how many things are in the frame", () => {
 });
 
 describe("the rule each kind adds", () => {
+  /*
+   * 2026-09-20, and the reason the rules could stay shared between two
+   * styles. They used to say draw: "Draw it as a diagram" and "draw the view
+   * the subject names", written when there was one medium and it was a
+   * drawing. Under "Photograph of a room." that contradicts the first
+   * sentence of the prompt.
+   *
+   * The medium is named once, by the style, and these say what is in the
+   * picture rather than how it is made. This is the guard on that: a rule
+   * added with a verb of its own turns red here instead of arguing with the
+   * opening of every realistic prompt.
+   */
+  test("no rule names a technique", () => {
+    for (const [kind, rule] of Object.entries(SUBJECT_RULES)) {
+      assert.doesNotMatch(
+        rule,
+        /\b(draw|draws|drawn|drawing|paint|painted|render|rendered|shoot|shot|photograph|photographed|illustrate|illustration)\b/iu,
+        `the ${kind} rule names a technique, which belongs to the style`,
+      );
+    }
+  });
+
   test("photo asks for the subject alone", () => {
-    const prompt = buildPrompt(SUBJECT, "photo");
+    const prompt = buildPrompt(SUBJECT, "photo", "flat");
     assert.match(prompt, /on its own/iu);
     assert.doesNotMatch(prompt, /arrow/iu);
   });
@@ -157,7 +315,7 @@ describe("the rule each kind adds", () => {
    * a picture that reads as sitting and one that reads as sit down.
    */
   test("pose asks for a still body and forbids the arrow", () => {
-    const prompt = buildPrompt(SUBJECT, "pose");
+    const prompt = buildPrompt(SUBJECT, "pose", "flat");
     assert.match(prompt, /posture clearly readable/iu);
     assert.match(prompt, /no movement/iu);
     assert.match(prompt, /No arrow/u);
@@ -174,12 +332,15 @@ describe("the rule each kind adds", () => {
   });
 
   test("the subject still carries the posture through untouched", () => {
-    assert.match(buildPrompt(SUBJECT, "pose"), /man sitting on a chair/u);
+    assert.match(
+      buildPrompt(SUBJECT, "pose", "flat"),
+      /man sitting on a chair/u,
+    );
   });
 
   test("action always asks for the middle of the movement", () => {
     assert.match(
-      buildPrompt("a man standing up", "action"),
+      buildPrompt("a man standing up", "action", "flat"),
       /middle of the movement/iu,
     );
   });
@@ -203,40 +364,40 @@ describe("the rule each kind adds", () => {
    * This asserts the absence, so that nobody reintroduces two sentences per
    * prompt that were measured not to work.
    */
-  test("describes no fixed character, in any kind", () => {
-    for (const kind of ["photo", "pose", "action", "figure"]) {
-      const prompt = buildPrompt("a thing", kind);
-      assert.doesNotMatch(prompt, /always the same character/iu);
-      assert.doesNotMatch(prompt, /short dark hair/iu);
-      assert.doesNotMatch(prompt, /consistent across the whole figure/iu);
+  test("describes no fixed character, in any kind or style", () => {
+    for (const style of STYLE_NAMES) {
+      for (const kind of KINDS) {
+        const prompt = buildPrompt("a thing", kind, style);
+        assert.doesNotMatch(prompt, /always the same character/iu);
+        assert.doesNotMatch(prompt, /short dark hair/iu);
+        assert.doesNotMatch(prompt, /consistent across the whole figure/iu);
+      }
     }
   });
 
   /*
    * 2026-09-19: "sitting" took four attempts and the angle is what fixed it.
    * A seated person drawn from the front does not read as seated; the bent
-   * knee in profile is what says it. Only where a body is drawn: a pen and a
-   * diagram have no posture to lose.
+   * knee in profile is what says it. Only where a body is in the picture: a
+   * pen and a diagram have no posture to lose.
    */
   test("asks pose and action for the angle, and only them", () => {
     for (const kind of ["pose", "action"]) {
-      const prompt = buildPrompt("a thing", kind);
+      const prompt = buildPrompt("a thing", kind, "flat");
       assert.match(prompt, /viewing angle is part of the meaning/iu);
-      assert.match(prompt, /draw the view the subject names/iu);
+      assert.match(prompt, /show the view the subject names/iu);
     }
     for (const kind of ["photo", "figure"]) {
-      assert.doesNotMatch(buildPrompt("a thing", kind), /viewing angle/iu);
+      assert.doesNotMatch(
+        buildPrompt("a thing", kind, "flat"),
+        /viewing angle/iu,
+      );
     }
-  });
-
-  test("symbol and none have no prompt to build", () => {
-    assert.throws(() => buildPrompt(SUBJECT, "symbol"), /symbol/);
-    assert.throws(() => buildPrompt(SUBJECT, "none"), /none/);
   });
 
   test("every drawable kind carries its own rule and no other", () => {
     for (const [kind, rule] of Object.entries(SUBJECT_RULES)) {
-      const prompt = buildPrompt(SUBJECT, kind);
+      const prompt = buildPrompt(SUBJECT, kind, "flat");
       assert.ok(prompt.includes(rule), kind);
       for (const [other, otherRule] of Object.entries(SUBJECT_RULES)) {
         if (other !== kind) assert.ok(!prompt.includes(otherRule), other);

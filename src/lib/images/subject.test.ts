@@ -120,9 +120,9 @@ describe("parseSubject", () => {
    * anyway, so nothing here throws.
    */
   /*
-   * MEDIUM_PROMPT is "Flat vector illustration of {subject}." and brings its
-   * own full stop, so a phrase that ends in one produces two. The example is
-   * what deepseek-flash actually answered for `under` on 2026-09-19.
+   * Every medium in STYLES brings a full stop of its own, so a phrase that
+   * ends in one produces two. The example is what deepseek-flash actually
+   * answered for `under` on 2026-09-19.
    */
   test("drops a full stop the medium prompt is about to add again", () => {
     assert.equal(

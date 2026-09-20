@@ -126,8 +126,9 @@ No prose, no explanation, no quotation marks inside the phrase.`,
  * refusal leaves the teacher typing, which is what they were doing anyway.
  *
  * A full stop at the end is dropped, for the same reason the stray quotes
- * are. MEDIUM_PROMPT is "Flat vector illustration of {subject}." and brings
- * its own, so a phrase that ends in one produces two. Seen on 2026-09-19:
+ * are. Every medium in STYLES ends in one of its own ("Flat vector
+ * illustration of {subject}.", "Photograph of {subject}."), so a phrase that
+ * ends in a stop produces two. Seen on 2026-09-19:
  * "A ball directly beneath a raised horizontal bar, seen from the side."
  *
  * The capital at the front is left exactly where it is. Lowercasing it would
