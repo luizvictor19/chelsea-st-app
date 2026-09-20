@@ -597,6 +597,7 @@ export type Database = {
           first_point_id: string;
           id: string;
           image_path: string | null;
+          image_style: Database["public"]["Enums"]["image_style"];
           reference_path: string | null;
           representation:
             Database["public"]["Enums"]["representation_kind"] | null;
@@ -611,6 +612,7 @@ export type Database = {
           first_point_id: string;
           id?: string;
           image_path?: string | null;
+          image_style?: Database["public"]["Enums"]["image_style"];
           reference_path?: string | null;
           representation?:
             Database["public"]["Enums"]["representation_kind"] | null;
@@ -625,6 +627,7 @@ export type Database = {
           first_point_id?: string;
           id?: string;
           image_path?: string | null;
+          image_style?: Database["public"]["Enums"]["image_style"];
           reference_path?: string | null;
           representation?:
             Database["public"]["Enums"]["representation_kind"] | null;
@@ -696,6 +699,7 @@ export type Database = {
         | "dictation"
         | "revision_exercise"
         | "chart_ref";
+      image_style: "flat" | "realistic";
       lesson_status: "scheduled" | "done" | "cancelled" | "no_show";
       representation_kind:
         "photo" | "symbol" | "figure" | "action" | "pose" | "none";
@@ -849,6 +853,7 @@ export const Constants = {
         "revision_exercise",
         "chart_ref",
       ],
+      image_style: ["flat", "realistic"],
       lesson_status: ["scheduled", "done", "cancelled", "no_show"],
       representation_kind: [
         "photo",

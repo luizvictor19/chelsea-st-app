@@ -387,7 +387,7 @@ export async function startGeneration(
      */
     const { data: word, error: wordError } = await supabase
       .from("vocabulary_items")
-      .select("representation, reference_path")
+      .select("representation, reference_path, image_style")
       .eq("id", wordId)
       .single();
     if (wordError) return { ok: false, error: wordError.message };
@@ -399,18 +399,14 @@ export async function startGeneration(
     }
 
     /*
-     * Flat named here, and only until the column exists.
-     *
-     * 2026-09-20: the styles are two from today, but vocabulary_items.image_style
-     * is written and not yet applied, so there is nothing to read the word's
-     * choice from. Naming it here keeps the prompt exactly what it was, which
-     * is what every one of the 73 attempts in the table was generated with,
-     * and it is a line that has to change: once the column is applied and the
-     * types are regenerated, this reads the word like representation above.
+     * The style comes from the row for the same reason the kind does: it is a
+     * decision the teacher saved, and the screen could be a refresh behind.
+     * The column is not null with a default of 'flat', so there is no absent
+     * case to invent a style for.
      */
     // Before anything is inserted or paid for: an empty subject and a kind
     // that has no picture both throw here.
-    const prompt = buildPrompt(subject, word.representation, "flat");
+    const prompt = buildPrompt(subject, word.representation, word.image_style);
 
     /*
      * The word's reference is only this attempt's reference if the model can
@@ -883,6 +879,32 @@ export async function setWordClass(
     const { error } = await supabase
       .from("vocabulary_items")
       .update({ word_class: wordClass })
+      .eq("id", wordId);
+    if (error) return { ok: false, error: error.message };
+    revalidatePath(SCREEN);
+    return { ok: true };
+  } catch (cause) {
+    return failure(cause);
+  }
+}
+
+/**
+ * The teacher choosing which set of style constants this word is drawn in.
+ *
+ * One column, so one write, like the class above. It changes nothing that
+ * already exists: the pictures in the bucket were generated under the style
+ * the prompt of their attempt records, and that row goes on being true about
+ * them. What this decides is the next generation.
+ */
+export async function setImageStyle(
+  wordId: string,
+  style: Database["public"]["Enums"]["image_style"],
+): Promise<ActionResult> {
+  try {
+    const { supabase } = await requireTeacher();
+    const { error } = await supabase
+      .from("vocabulary_items")
+      .update({ image_style: style })
       .eq("id", wordId);
     if (error) return { ok: false, error: error.message };
     revalidatePath(SCREEN);

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { Constants } from "../supabase/types.ts";
+
 import {
   type ImageStyle,
   STYLES,
@@ -28,6 +30,33 @@ const MEDIUM_WORDS: Record<ImageStyle, string> = {
   flat: "flat vector illustration",
   realistic: "photograph of",
 };
+
+describe("STYLES and the database", () => {
+  /*
+   * The styles are constants here and a column there, and buildPrompt is
+   * handed the column's value straight from the row. A style added to the
+   * enum and forgotten here would be a word the teacher can set and nothing
+   * can generate: STYLES[style] would come back undefined and the prompt
+   * would be built out of it, so the failure is a picture in no style rather
+   * than an error. This is where that turns red.
+   */
+  test("covers the image_style enum exactly", () => {
+    const known = Object.keys(STYLES);
+    for (const style of Constants.public.Enums.image_style) {
+      assert.ok(known.includes(style), `no style constants for ${style}`);
+    }
+    assert.equal(known.length, Constants.public.Enums.image_style.length);
+  });
+
+  /*
+   * The default the column carries, which is what every one of the 283 words
+   * has until the teacher ticks the box. It is not a neutral choice: it is
+   * the style all 73 attempts were generated in before there was a second.
+   */
+  test("flat is the style the column defaults to", () => {
+    assert.ok("flat" in STYLES);
+  });
+});
 
 describe("buildPrompt", () => {
   /*
