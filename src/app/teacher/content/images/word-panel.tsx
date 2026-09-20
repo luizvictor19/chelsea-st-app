@@ -529,6 +529,49 @@ export function WordPanel({
       */}
       {drawable ? (
         <>
+          {/*
+            Above the Instrução field, and the order is not a matter of
+            layout. The style decides which rules the suggest button asks
+            under: what makes a picture recognisable is the outline in a flat
+            vector and the material, the scale and the context in a
+            photograph. Chosen after the instruction has been written, it
+            leaves a phrase composed under the rules of the other style, and
+            nothing on the screen would say so. Things go in the order they
+            are used.
+
+            The style belongs to the word, not to the press. Ticked here it is
+            saved on the word, so it survives a reload, a change of model and
+            a dozen attempts: "room is realistic" becomes a decision rather
+            than something to remember to repeat every time.
+
+            Nothing already generated moves. The pictures in the bucket were
+            made under the style written into the prompt of their attempt, and
+            that row goes on being true about them; this decides the next
+            generation.
+          */}
+          <div className="flex flex-col gap-2">
+            <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
+              Estilo
+            </span>
+            <label className="flex w-fit items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={word.imageStyle === "realistic"}
+                disabled={working}
+                onChange={(event) => {
+                  const style = event.target.checked ? "realistic" : "flat";
+                  void run("estilo", () => setImageStyle(word.id, style));
+                }}
+                className="accent-foreground size-4"
+              />
+              {busy?.key === "estilo" ? "salvando" : "Realista"}
+            </label>
+            <p className="text-faint text-xs">
+              Vetor chapado por padrão. Realista é para o que não tem silhueta
+              para recortar, como um cômodo ou um teto.
+            </p>
+          </div>
+
           <div className="flex flex-col gap-2">
             <label
               htmlFor="assunto"
@@ -587,36 +630,7 @@ export function WordPanel({
             </div>
             <p className="text-faint text-xs">
               Aqui vai só o que a imagem mostra. O estilo não se escreve aqui:
-              ele entra sozinho, no formato que a caixa abaixo escolher.
-            </p>
-
-            {/*
-              The style belongs to the word, not to the press. Ticked here it
-              is saved on the word, so it survives a reload, a change of model
-              and a dozen attempts: "room is realistic" becomes a decision
-              rather than something to remember to repeat every time.
-
-              Nothing already generated moves. The pictures in the bucket were
-              made under the style written into the prompt of their attempt,
-              and that row goes on being true about them; this decides the
-              next generation.
-            */}
-            <label className="flex w-fit items-center gap-2 pt-1 text-sm">
-              <input
-                type="checkbox"
-                checked={word.imageStyle === "realistic"}
-                disabled={working}
-                onChange={(event) => {
-                  const style = event.target.checked ? "realistic" : "flat";
-                  void run("estilo", () => setImageStyle(word.id, style));
-                }}
-                className="accent-foreground size-4"
-              />
-              {busy?.key === "estilo" ? "salvando" : "Realista"}
-            </label>
-            <p className="text-faint text-xs">
-              Vetor chapado por padrão. Realista é para o que não tem silhueta
-              para recortar, como um cômodo ou um teto.
+              ele entra sozinho, no formato que a caixa acima escolher.
             </p>
 
             {/*
