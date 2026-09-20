@@ -33,6 +33,7 @@ import {
   pollAttempt,
   rejectAttempt,
   setReference,
+  setImageStyle,
   setRepresentation,
   setWordClass,
   startGeneration,
@@ -585,8 +586,37 @@ export function WordPanel({
               </button>
             </div>
             <p className="text-faint text-xs">
-              O estilo é fixo e entra sozinho. Aqui vai só o que a imagem
-              mostra.
+              Aqui vai só o que a imagem mostra. O estilo não se escreve aqui:
+              ele entra sozinho, no formato que a caixa abaixo escolher.
+            </p>
+
+            {/*
+              The style belongs to the word, not to the press. Ticked here it
+              is saved on the word, so it survives a reload, a change of model
+              and a dozen attempts: "room is realistic" becomes a decision
+              rather than something to remember to repeat every time.
+
+              Nothing already generated moves. The pictures in the bucket were
+              made under the style written into the prompt of their attempt,
+              and that row goes on being true about them; this decides the
+              next generation.
+            */}
+            <label className="flex w-fit items-center gap-2 pt-1 text-sm">
+              <input
+                type="checkbox"
+                checked={word.imageStyle === "realistic"}
+                disabled={working}
+                onChange={(event) => {
+                  const style = event.target.checked ? "realistic" : "flat";
+                  void run("estilo", () => setImageStyle(word.id, style));
+                }}
+                className="accent-foreground size-4"
+              />
+              {busy?.key === "estilo" ? "salvando" : "Realista"}
+            </label>
+            <p className="text-faint text-xs">
+              Vetor chapado por padrão. Realista é para o que não tem silhueta
+              para recortar, como um cômodo ou um teto.
             </p>
 
             {/*
@@ -668,7 +698,8 @@ export function WordPanel({
               />
               <p className="text-faint text-xs">
                 A imagem entra como guia de forma, não de estilo. O estilo
-                continua vindo do prompt, que é o mesmo para todas.
+                continua vindo do prompt, no formato escolhido para esta
+                palavra.
               </p>
             </div>
 
