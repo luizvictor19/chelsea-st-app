@@ -45,6 +45,7 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0013_attempt_completed_at.sql
 \i supabase/migrations/0014_structure_reference.sql
 \i supabase/migrations/0015_backfill_credits_spent.sql
+\i supabase/migrations/0016_replacing_is_not_rejecting.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
@@ -126,6 +127,11 @@ $$;
 -- Approving twice in a row leaves exactly one approved attempt and the word
 -- pointing at the second. This is the invariant the partial unique index
 -- holds, and the reason approve_image_attempt demotes before it promotes.
+--
+-- And the first attempt goes back to being a candidate rather than a
+-- refusal: 'generated' with no decided_at, since 0016. Being replaced is not
+-- the teacher having looked and said no, and the screen now reads 'rejected'
+-- as "discarded, and the file is gone".
 do $$
 declare
   v_word uuid;
@@ -134,6 +140,8 @@ declare
   v_approved integer;
   v_pointer uuid;
   v_path text;
+  v_first_status text;
+  v_first_decided timestamptz;
 begin
   perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
   set local role authenticated;
@@ -157,6 +165,9 @@ begin
   select approved_attempt_id, image_path into v_pointer, v_path
     from vocabulary_items where id = v_word;
 
+  select status, decided_at into v_first_status, v_first_decided
+    from image_attempts where id = v_first;
+
   if v_approved <> 1 then
     raise exception 'two approvals left % approved attempts, expected exactly 1', v_approved;
   end if;
@@ -169,6 +180,15 @@ begin
     raise exception 'image_path is %, expected the second attempt path', v_path;
   end if;
 
+  if v_first_status <> 'generated' then
+    raise exception 'the replaced attempt is %, expected generated', v_first_status;
+  end if;
+
+  if v_first_decided is not null then
+    raise exception 'the replaced attempt kept a decided_at of %', v_first_decided;
+  end if;
+
   raise notice 'approving twice leaves one approved attempt, pointed at the second';
+  raise notice 'and the replaced one is a candidate again, not a refusal';
 end;
 $$;
