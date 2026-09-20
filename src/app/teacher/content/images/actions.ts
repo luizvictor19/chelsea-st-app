@@ -834,7 +834,7 @@ export async function suggestSubject(wordId: string): Promise<SubjectResult> {
 
     const { data: word, error: readError } = await supabase
       .from("vocabulary_items")
-      .select("term, representation")
+      .select("term, representation, image_style")
       .eq("id", wordId)
       .single();
     if (readError) return { ok: false, error: readError.message };
@@ -846,9 +846,19 @@ export async function suggestSubject(wordId: string): Promise<SubjectResult> {
       };
     }
 
+    /*
+     * The style goes with it, because two of the three rules the proposal
+     * carries are the same whatever the picture is made of and one is not:
+     * what makes a thing recognisable is its outline in a flat vector and its
+     * material, its scale and its context in a photograph. See RECOGNITION.
+     */
     // Throws for a kind that has no picture, which the screen already hides
     // the button for; this is the same refusal one layer down.
-    const { system, user } = buildSubjectPrompt(word.term, word.representation);
+    const { system, user } = buildSubjectPrompt(
+      word.term,
+      word.representation,
+      word.image_style,
+    );
 
     const { text } = await createDeepSeekProvider().complete({
       system,
