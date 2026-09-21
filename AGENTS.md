@@ -36,6 +36,18 @@ Postgres, Auth and Storage. Deployed on Vercel.
 - No `any` without a comment explaining why.
 - A bug fix starts with a failing test.
 - Never commit, push or deploy unless asked.
+- DDL only through a migration. Write migrations, never apply them: Luiz
+  applies with `supabase db push`.
+- Never choose a migration number yourself. Use the number given in the
+  prompt; if none was given, ask. Parallel branches share one sequence.
+- After writing a migration and before it is applied, the regenerated
+  `types.ts` describes a database that does not exist yet, and the gate stays
+  green anyway. Apply before running or deploying.
+- Types come from `./scripts/gen-types.sh`, never from the live project.
+- Any script that pays for external calls writes each result as it arrives
+  (JSONL, append mode). A measurement that lives only in memory is lost whole
+  on interruption.
+- No em dash in any text. The separator is ·.
 
 ## Where rigor goes
 
@@ -54,15 +66,37 @@ Postgres, Auth and Storage. Deployed on Vercel.
   MCP server is configured and read-only: query it. A migration file in
   `supabase/migrations` only proves the file exists. "Not applied" without a
   query is not a finding, it is a guess.
+- **Review follows the same columns.** Run code-review once per delivery, over
+  the whole diff, in exactly these cases: before Luiz applies a migration;
+  before opening a PR that touches payments, webhooks, auth or RLS; after
+  fixing a bug in a high-rigor area. Never for layout, screen copy, docs or
+  tests only.
 
 ## Git
 
 - Branches: `feat/<scope>`, `fix/<scope>`, `chore/<scope>`, `docs/<scope>`.
 - Conventional Commits: `feat(auth): add magic link sign-in`.
 - One commit per logical unit.
+- Before the first commit, check the current branch. Never commit on `main`.
+  If on `main`, create a branch first. A hook in `.claude/settings.json`
+  enforces this; the rule stands without it.
+- No amend. A second commit instead.
+- When Luiz asks, commit, push and open the PR yourself. Write the PR body to
+  a file and use `gh pr create --body-file`; never pass a long body inline.
+- Never merge: merging is Luiz's.
 - Squash merge a messy branch. A branch deliberately sliced so that every commit
   is a valid state is merged whole: the slicing is the information, and squashing
   it would put a broken intermediate state in history as if it had never existed.
+
+## Parallel work
+
+- One stream is one branch, one git worktree, one Claude Code session.
+- Stay inside the files the prompt assigns to the stream. Touching a file
+  another stream owns is a question for Luiz, not a decision.
+- The dev server of each worktree runs on the port given in the prompt.
+- `merge` and `rebase` are denied to you on purpose. Bringing `main` into a
+  branch is Luiz's; after he does, `./scripts/gen-types.sh` resolves
+  `types.ts`.
 
 ## Verifying
 
@@ -73,3 +107,6 @@ npx tsc --noEmit
 npm test
 npm run build
 ```
+
+Run `./scripts/gen-types.sh` before the gate whenever a migration was added or
+changed, and after Luiz brings `main` into a branch.
