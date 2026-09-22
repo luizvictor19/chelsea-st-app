@@ -31,12 +31,17 @@
    * order, cycling. None of the tokens above could serve: the accent is the
    * alarm and amber is the model, and a set is neither. Six hues kept clear
    * of both, each read against the surface in its own theme.
+   *
+   * The order is the point: sets next to each other in the list take
+   * consecutive tokens, so a cold hue always sits between two warm ones,
+   * the 6th back to the 1st included. src/app/set-palette.test.ts holds
+   * the distance between neighbours and the contrast with the ground.
    */
   --set-1: #0f766e;
-  --set-2: #2563eb;
-  --set-3: #7c3aed;
-  --set-4: #db2777;
-  --set-5: #4d7c0f;
+  --set-2: #db2777;
+  --set-3: #2563eb;
+  --set-4: #4d7c0f;
+  --set-5: #7c3aed;
   --set-6: #8b5e34;
 }
 
@@ -53,10 +58,10 @@
     --accent-foreground: #180405;
     --warning: #e0a33c;
     --set-1: #2dd4bf;
-    --set-2: #60a5fa;
-    --set-3: #a78bfa;
-    --set-4: #f472b6;
-    --set-5: #a3e635;
+    --set-2: #f472b6;
+    --set-3: #60a5fa;
+    --set-4: #a3e635;
+    --set-5: #a78bfa;
     --set-6: #d4a373;
   }
 }
