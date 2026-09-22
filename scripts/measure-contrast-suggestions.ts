@@ -60,6 +60,13 @@
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  buildContrastPrompt,
+  parseContrastSuggestions,
+  type CandidateWord,
+  type ContrastMode,
+  type ContrastUnit,
+} from "../src/lib/images/contrast-suggest.ts";
 import { createDeepSeekProvider } from "../src/lib/text/deepseek.ts";
 
 const args = process.argv.slice(2);
@@ -85,7 +92,7 @@ const SELF_CHECK = args.includes("--self-check");
  * point: one call per point of the book, and a point with fewer than two
  * words that get a picture is skipped, since no set can form there.
  */
-const MODE = option("mode", "lesson");
+const MODE = option("mode", "lesson") as ContrastMode;
 /* Prints the calls a run would make, prompts whole, and makes none. */
 const PLAN = args.includes("--plan");
 if (MODE !== "lesson" && MODE !== "point") {
@@ -126,57 +133,31 @@ function fixture(): { lessons: readonly Lesson[]; sets: readonly GoldSet[] } {
 }
 
 /*
- * The prompt. No word of the gold is in it: the examples of what a set is
- * (hot and cold, the days of the week) and of what it is not (apple and
- * banana) come from outside lessons 1 and 2.
- *
- * Two things in it are choices that move the result, and are named in the
- * report. The kinds with no picture are ruled out, because a set exists to
- * show pictures side by side. And in lesson mode the point is offered as a
- * hint, not a rule: every gold set sits inside one point, but the migration
- * keeps that from being a rule because later lessons carry families on. In
- * point mode the hint goes, since every word in the call shares the point.
- *
- * The lesson text is kept exactly as it was for the first batch, 2026-09-22,
- * so that batch can be run again and still be the same measurement.
+ * The prompt and the parser are the screen's own, from
+ * src/lib/images/contrast-suggest.ts, so what is measured here is what the
+ * button asks. Moved there on 2026-09-23; --plan still prints, character for
+ * character, the prompts of the two batches recorded below.
  */
 const PICTURELESS = new Set(["usage", "metalanguage", "none"]);
 
-function systemPrompt(mode: string): string {
-  const hint =
-    mode === "lesson"
-      ? "\n- Words first taught at the same point are more likely to form a set together. This is a hint, not a rule."
-      : "";
-  return `You help an English teacher prepare picture cards for a beginners' course.
-
-A contrast set is a small group of words from the same lesson whose meanings are learnt by comparing them. Each word gets its own picture, and the pictures are shown side by side, so that the difference between them carries the meaning. A pair of opposites is a contrast set (hot, cold). So is a short series from one closed family where each member is understood against the others (the days of the week).
-
-You are given the words of one ${mode}. Each line has an id, the word, the point of the book where it is first taught, the kind of picture it gets, and its word class, separated by tabs.
-
-Rules:
-- Only words that get a picture can be in a set. The kinds usage, metalanguage and none get no picture: never put them in a set.
-- Every member of a set must contrast with the others along the same dimension. Sharing a topic or a word class is not enough: apple and banana are both fruit, and that is not a contrast.
-- A set has two or more words. A word is in at most one set.
-- Most words belong to no set. Leave them out rather than force them in.${hint}
-
-Answer in json, and only in json, with this shape:
-{"sets": [{"members": ["<id>", "<id>"], "reason": "<one short sentence>"}]}
-List the members of each set in the order they should be shown. Use only ids from the list.`;
+function asCandidates(words: readonly Word[]): readonly CandidateWord[] {
+  // The fixture's kinds are the enum's values as text; the prompt only
+  // prints them, so nothing is lost by taking them as they are.
+  return words.map((w) => ({
+    id: w.id,
+    term: w.term,
+    point: w.point,
+    kind: w.kind as CandidateWord["kind"],
+    wordClass: w.wordClass,
+  }));
 }
 
-/** What one call is asked about: a whole lesson, or one point of it. */
-type Unit = {
-  readonly lesson: number;
-  readonly point: number | null;
-  readonly words: readonly Word[];
-};
-
-function units(mode: string): readonly Unit[] {
+function units(mode: ContrastMode): readonly ContrastUnit[] {
   if (mode === "lesson") {
     return lessons.map((l) => ({
       lesson: l.number,
       point: null,
-      words: l.words,
+      words: asCandidates(l.words),
     }));
   }
   return lessons.flatMap((l) => {
@@ -187,101 +168,14 @@ function units(mode: string): readonly Unit[] {
       .map((point) => ({
         lesson: l.number,
         point,
-        words: l.words.filter((w) => w.point === point),
+        words: asCandidates(l.words.filter((w) => w.point === point)),
       }))
       .filter(
         (unit) =>
-          unit.words.filter((w) => !PICTURELESS.has(w.kind)).length >= 2,
+          unit.words.filter((w) => !PICTURELESS.has(w.kind ?? "none")).length >=
+          2,
       );
   });
-}
-
-function buildPrompt(
-  unit: Unit,
-  mode: string,
-): { system: string; user: string } {
-  const lines = unit.words
-    .map((w) => [w.id, w.term, w.point, w.kind, w.wordClass].join("\t"))
-    .join("\n");
-  const where =
-    unit.point === null
-      ? `Lesson ${unit.lesson}`
-      : `Lesson ${unit.lesson}, point ${unit.point}`;
-  return {
-    system: systemPrompt(mode),
-    user: `${where}. Find the contrast sets among these ${unit.words.length} words:\n\n${lines}`,
-  };
-}
-
-type Parsed = {
-  readonly sets: readonly (readonly string[])[];
-  /** Members that were not an id from the lesson. */
-  readonly unknown: number;
-  /** Members dropped because an earlier set already held the word. */
-  readonly repeated: number;
-  /** Sets left with fewer than two members once cleaned. */
-  readonly tooSmall: number;
-  readonly unreadable: boolean;
-};
-
-/**
- * The model's answer is untrusted, as in parseSuggestions: an id outside the
- * lesson is counted and dropped, a word already placed is counted and dropped
- * from the later set, and a set left with one member is counted and dropped.
- * Nothing is repaired by guessing.
- */
-function parse(text: string, words: readonly Word[]): Parsed {
-  const allowed = new Set(words.map((w) => w.id));
-  const unfenced = text
-    .trim()
-    .replace(/^```(?:json)?\s*/iu, "")
-    .replace(/\s*```$/u, "");
-  let body: unknown;
-  try {
-    body = JSON.parse(unfenced);
-  } catch {
-    return { sets: [], unknown: 0, repeated: 0, tooSmall: 0, unreadable: true };
-  }
-  const raw =
-    typeof body === "object" && body !== null
-      ? (body as { sets?: unknown }).sets
-      : null;
-  if (!Array.isArray(raw)) {
-    return { sets: [], unknown: 0, repeated: 0, tooSmall: 0, unreadable: true };
-  }
-
-  const placed = new Set<string>();
-  const sets: string[][] = [];
-  let unknown = 0;
-  let repeated = 0;
-  let tooSmall = 0;
-  for (const entry of raw) {
-    const members =
-      typeof entry === "object" && entry !== null
-        ? (entry as { members?: unknown }).members
-        : null;
-    if (!Array.isArray(members)) {
-      tooSmall += 1;
-      continue;
-    }
-    const kept: string[] = [];
-    for (const id of members) {
-      if (typeof id !== "string" || !allowed.has(id)) {
-        unknown += 1;
-      } else if (placed.has(id) || kept.includes(id)) {
-        repeated += 1;
-      } else {
-        kept.push(id);
-      }
-    }
-    if (kept.length < 2) {
-      tooSmall += 1;
-      continue;
-    }
-    for (const id of kept) placed.add(id);
-    sets.push(kept);
-  }
-  return { sets, unknown, repeated, tooSmall, unreadable: false };
 }
 
 const key = (members: readonly string[]) => [...members].sort().join(",");
@@ -462,8 +356,8 @@ function report(lines: readonly Line[]): void {
           call.point == null
             ? lesson.words
             : lesson.words.filter((w) => w.point === call.point);
-        const parsed = parse(call.text, words);
-        sets.push(...parsed.sets);
+        const parsed = parseContrastSuggestions(call.text, asCandidates(words));
+        sets.push(...parsed.sets.map((set) => set.members));
         dropped.unknown += parsed.unknown;
         dropped.repeated += parsed.repeated;
         dropped.tooSmall += parsed.tooSmall;
@@ -568,7 +462,7 @@ if (SELF_CHECK) {
       JSON.stringify({
         lesson: unit.lesson,
         point: unit.point,
-        ...buildPrompt(unit, MODE),
+        ...buildContrastPrompt(unit, MODE),
       }) + "\n",
     );
   }
@@ -584,7 +478,7 @@ if (SELF_CHECK) {
 
   for (let run = 1; run <= RUNS; run++) {
     for (const unit of plan) {
-      const { system, user } = buildPrompt(unit, MODE);
+      const { system, user } = buildContrastPrompt(unit, MODE);
       const started = Date.now();
       let text: string | null = null;
       let model: string | null = null;
