@@ -89,10 +89,19 @@ const MAX_WORDS = 12;
  *    reads nothing about sets: a word that is in none gets one subject too.
  *    A preposition still relates two things (a ball on a table), and the rule
  *    says so, because that second thing is the meaning and not a yardstick.
+ *
+ *    The frame, added the same day: one subject alone let "one huge cube"
+ *    and "a single tiny cube" both fill the frame, and side by side in a set
+ *    two pictures that fill the frame the same way show no difference. So
+ *    for size and length the frame is the yardstick: the large or long thing
+ *    fills it or crosses it, the small or short one sits small in the middle
+ *    of a nearly empty one. RECOGNITION.realistic used to say a photograph is
+ *    read "by its size next to something familiar", which invited the second
+ *    object back, and now reads size against the frame too.
  */
 const ANGLE_RULE = `Angle is part of the meaning. Name the point of view, whatever the word is: the same thing drawn from the wrong side stops saying it. A seated person seen from the front does not read as seated, because the bent knee points at the viewer and disappears, so write "seen from the side". A box or a ball reads from the side; an open book reads from above.`;
 
-const ONE_SUBJECT_RULE = `One subject, showing only this word's side of it. Show the word once, never beside its opposite or a different degree of it, and never add a second object only to measure it against: for large, one huge cube; for small, one tiny cube; never both in the same scene. A second thing belongs in the picture only when the word itself relates two things, as a ball resting on a table does for on.`;
+const ONE_SUBJECT_RULE = `One subject, showing only this word's side of it. Show the word once, never beside its opposite or a different degree of it, and never add a second object only to measure it against: never both in the same scene. For size and length, the frame is the yardstick: a large or long thing fills almost the whole frame, or runs from edge to edge; a small or short thing takes up a small part in the middle of a nearly empty frame. So for large, one huge cube that fills almost the whole frame; for small, one tiny cube in the middle of a nearly empty frame. A second thing belongs in the picture only when the word itself relates two things, as a ball resting on a table does for on.`;
 
 const STATE_RULE = `For a word that names a state (open, closed, empty, full), do not use the adjective. Name a positive feature that exists only in that state. "a closed cardboard box" comes back halfway open, because the model knows the box with its flaps up and averages the two. "sealed with packing tape across the top" does not, because tape cannot sit on a raised flap.`;
 
@@ -123,7 +132,7 @@ const STATE_RULE = `For a word that names a state (open, closed, empty, full), d
 const RECOGNITION: Record<ImageStyle, string> = {
   flat: `Choose the view or the state with the most recognisable silhouette. A closed book standing up could be a box, a folder or a card; an open book could be nothing else. Scissors open, not shut. A door ajar, not flat in its frame.`,
 
-  realistic: `Recognition comes from material, scale and context, not from the outline. A photograph is known by the surface a thing is made of, by its size next to something familiar, and by where it sits, so name whichever of the three the word turns on. Some words have no outline to choose a view for at all: a room, a ceiling, a wall. Do not hunt for one, and never let an object standing inside a place stand in for the place.`,
+  realistic: `Recognition comes from material, scale and context, not from the outline. A photograph is known by the surface a thing is made of, by its size, read from how much of the frame it takes up and never from an object placed beside it for scale, and by where it sits, so name whichever of the three the word turns on. Some words have no outline to choose a view for at all: a room, a ceiling, a wall. Do not hunt for one, and never let an object standing inside a place stand in for the place.`,
 };
 
 /**

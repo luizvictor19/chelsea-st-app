@@ -118,6 +118,43 @@ describe("buildSubjectPrompt", () => {
   });
 
   /*
+   * 2026-09-22, the same day: one subject alone lets "one huge cube" and "a
+   * single tiny cube" come out as the same picture, each filling the frame,
+   * and side by side in a set they would show no difference. With no second
+   * object to measure against, the frame is the yardstick.
+   */
+  test("lets the frame carry size and length, in every kind and style", () => {
+    for (const style of STYLES) {
+      for (const kind of KINDS) {
+        const { system } = buildSubjectPrompt("small", kind, style);
+        assert.match(
+          system,
+          /the frame is the yardstick/iu,
+          `${style}/${kind}`,
+        );
+        assert.match(
+          system,
+          /fills almost the whole frame/iu,
+          `${style}/${kind}`,
+        );
+        assert.match(system, /nearly empty frame/iu, `${style}/${kind}`);
+      }
+    }
+  });
+
+  /*
+   * The realistic recognition rule said a photograph is known "by its size
+   * next to something familiar", which invites the very reference object the
+   * one subject rule forbids. Scale is still how a photograph reads; what it
+   * is read against is the frame.
+   */
+  test("never asks the realistic style for a familiar object beside it", () => {
+    const { system } = buildSubjectPrompt("large", "figure", "realistic");
+    assert.doesNotMatch(system, /next to something familiar/iu);
+    assert.match(system, /never from an object placed beside it/iu);
+  });
+
+  /*
    * 2026-09-20, and a reading rather than a measurement.
    *
    * The silhouette rule is right about a flat vector, where there is no
