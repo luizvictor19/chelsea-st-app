@@ -25,11 +25,35 @@
  * it paid for. The scores are then worked out from that file, not from
  * memory, and --score recomputes them from it later without paying again.
  *
+ * LESSON OR POINT, AND WHY LESSON.
+ *
+ * Measured on 2026-09-22, 3 runs each, against the 14 gold sets, batches
+ * 2026-09-22T23:04:34.347Z (lesson) and 2026-09-22T23:14:47.630Z (point):
+ *
+ *                          lesson    point
+ *   calls per run               2       11
+ *   precision by pair         90%      85%
+ *   recall by pair            98%      89%
+ *   identical sets          35/42    38/42
+ *   median call             30.8s     4.1s
+ *   worst call              58.0s    59.6s
+ *   whole run, sequential  62-74s  111-123s
+ *
+ * Point mode kept boy/girl and man/woman apart every time, where lesson mode
+ * merged them in two runs of three. But alone with the objects of a room
+ * (point 2, no gold set) it forced sets among them (ceiling/wall/floor,
+ * door/window), and once it answered point 5 without one...five. The screen
+ * uses lesson mode: a missed set is worse than an extra one, because the
+ * teacher has to remember to build it by hand, while an extra one is a
+ * proposal she refuses. putting on/taking from was missed in both modes.
+ *
  * Sequential, one call at a time. At the defaults it is 6 calls: 2 lessons,
- * 3 runs.
+ * 3 runs. Point mode is 33: 11 points, 3 runs.
  *
  *   node --env-file=.env.local scripts/measure-contrast-suggestions.ts
  *   node --env-file=.env.local scripts/measure-contrast-suggestions.ts --runs 5
+ *   node --env-file=.env.local scripts/measure-contrast-suggestions.ts --mode point
+ *   node scripts/measure-contrast-suggestions.ts --mode point --plan
  *   node scripts/measure-contrast-suggestions.ts --score <batch>
  *   node scripts/measure-contrast-suggestions.ts --self-check
  */
@@ -56,6 +80,17 @@ const OUT = option("out", join(ROOT, "fixtures", "contrast-runs.jsonl"));
 const RUNS = Number(option("runs", "3"));
 const SCORE = option("score", "");
 const SELF_CHECK = args.includes("--self-check");
+/*
+ * lesson: one call per lesson, the words of the whole lesson at once.
+ * point: one call per point of the book, and a point with fewer than two
+ * words that get a picture is skipped, since no set can form there.
+ */
+const MODE = option("mode", "lesson");
+/* Prints the calls a run would make, prompts whole, and makes none. */
+const PLAN = args.includes("--plan");
+if (MODE !== "lesson" && MODE !== "point") {
+  throw new Error(`--mode is lesson or point, not ${MODE}`);
+}
 
 type Word = {
   readonly id: string;
@@ -97,34 +132,84 @@ function fixture(): { lessons: readonly Lesson[]; sets: readonly GoldSet[] } {
  *
  * Two things in it are choices that move the result, and are named in the
  * report. The kinds with no picture are ruled out, because a set exists to
- * show pictures side by side. And the point is offered as a hint, not a rule:
- * every gold set sits inside one point, but the migration keeps that from
- * being a rule because later lessons carry families on.
+ * show pictures side by side. And in lesson mode the point is offered as a
+ * hint, not a rule: every gold set sits inside one point, but the migration
+ * keeps that from being a rule because later lessons carry families on. In
+ * point mode the hint goes, since every word in the call shares the point.
+ *
+ * The lesson text is kept exactly as it was for the first batch, 2026-09-22,
+ * so that batch can be run again and still be the same measurement.
  */
-const SYSTEM = `You help an English teacher prepare picture cards for a beginners' course.
+const PICTURELESS = new Set(["usage", "metalanguage", "none"]);
+
+function systemPrompt(mode: string): string {
+  const hint =
+    mode === "lesson"
+      ? "\n- Words first taught at the same point are more likely to form a set together. This is a hint, not a rule."
+      : "";
+  return `You help an English teacher prepare picture cards for a beginners' course.
 
 A contrast set is a small group of words from the same lesson whose meanings are learnt by comparing them. Each word gets its own picture, and the pictures are shown side by side, so that the difference between them carries the meaning. A pair of opposites is a contrast set (hot, cold). So is a short series from one closed family where each member is understood against the others (the days of the week).
 
-You are given the words of one lesson. Each line has an id, the word, the point of the book where it is first taught, the kind of picture it gets, and its word class, separated by tabs.
+You are given the words of one ${mode}. Each line has an id, the word, the point of the book where it is first taught, the kind of picture it gets, and its word class, separated by tabs.
 
 Rules:
 - Only words that get a picture can be in a set. The kinds usage, metalanguage and none get no picture: never put them in a set.
 - Every member of a set must contrast with the others along the same dimension. Sharing a topic or a word class is not enough: apple and banana are both fruit, and that is not a contrast.
 - A set has two or more words. A word is in at most one set.
-- Most words belong to no set. Leave them out rather than force them in.
-- Words first taught at the same point are more likely to form a set together. This is a hint, not a rule.
+- Most words belong to no set. Leave them out rather than force them in.${hint}
 
 Answer in json, and only in json, with this shape:
 {"sets": [{"members": ["<id>", "<id>"], "reason": "<one short sentence>"}]}
 List the members of each set in the order they should be shown. Use only ids from the list.`;
+}
 
-function buildPrompt(lesson: Lesson): { system: string; user: string } {
-  const lines = lesson.words
+/** What one call is asked about: a whole lesson, or one point of it. */
+type Unit = {
+  readonly lesson: number;
+  readonly point: number | null;
+  readonly words: readonly Word[];
+};
+
+function units(mode: string): readonly Unit[] {
+  if (mode === "lesson") {
+    return lessons.map((l) => ({
+      lesson: l.number,
+      point: null,
+      words: l.words,
+    }));
+  }
+  return lessons.flatMap((l) => {
+    const points = [...new Set(l.words.map((w) => w.point))].sort(
+      (a, b) => a - b,
+    );
+    return points
+      .map((point) => ({
+        lesson: l.number,
+        point,
+        words: l.words.filter((w) => w.point === point),
+      }))
+      .filter(
+        (unit) =>
+          unit.words.filter((w) => !PICTURELESS.has(w.kind)).length >= 2,
+      );
+  });
+}
+
+function buildPrompt(
+  unit: Unit,
+  mode: string,
+): { system: string; user: string } {
+  const lines = unit.words
     .map((w) => [w.id, w.term, w.point, w.kind, w.wordClass].join("\t"))
     .join("\n");
+  const where =
+    unit.point === null
+      ? `Lesson ${unit.lesson}`
+      : `Lesson ${unit.lesson}, point ${unit.point}`;
   return {
-    system: SYSTEM,
-    user: `Lesson ${lesson.number}. Find the contrast sets among these ${lesson.words.length} words:\n\n${lines}`,
+    system: systemPrompt(mode),
+    user: `${where}. Find the contrast sets among these ${unit.words.length} words:\n\n${lines}`,
   };
 }
 
@@ -145,8 +230,8 @@ type Parsed = {
  * from the later set, and a set left with one member is counted and dropped.
  * Nothing is repaired by guessing.
  */
-function parse(text: string, lesson: Lesson): Parsed {
-  const allowed = new Set(lesson.words.map((w) => w.id));
+function parse(text: string, words: readonly Word[]): Parsed {
+  const allowed = new Set(words.map((w) => w.id));
   const unfenced = text
     .trim()
     .replace(/^```(?:json)?\s*/iu, "")
@@ -284,8 +369,11 @@ function score(
 
 type Line = {
   readonly batch: string;
+  /** Absent on the lines of the first batch, which were all lesson mode. */
+  readonly mode?: string;
   readonly run: number;
   readonly lesson: number;
+  readonly point?: number | null;
   readonly at: string;
   readonly ms: number;
   readonly model: string | null;
@@ -315,79 +403,126 @@ function goldFor(lesson: number): readonly (readonly string[])[] {
   return goldSets.filter((s) => s.lesson === lesson).map((s) => s.members);
 }
 
+function median(values: readonly number[]): number {
+  const sorted = [...values].sort((x, y) => x - y);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1
+    ? sorted[mid]
+    : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * Scores a batch lesson by lesson. In point mode the answers of every point
+ * of a lesson are put together first, so both modes are scored against the
+ * same gold, the lesson's sets, in the same way.
+ */
 function report(lines: readonly Line[]): void {
+  const mode = lines[0]?.mode ?? "lesson";
+  const timed = lines.filter((line) => line.ms > 0).map((line) => line.ms);
+  if (timed.length > 0) {
+    process.stdout.write(
+      `\n${mode} mode: ${lines.length} calls, ${lines.filter((l) => l.text === null).length} failed, median ${(median(timed) / 1000).toFixed(1)}s, worst ${(Math.max(...timed) / 1000).toFixed(1)}s\n`,
+    );
+  }
   process.stdout.write(
     "\nrun lesson  sets  exact  order  wrong  missed   pairs ok/sug/gold  precision  recall  dropped\n",
   );
-  const totals = { right: 0, suggested: 0, gold: 0 };
+  const totals = { right: 0, suggested: 0, gold: 0, exact: 0, goldSets: 0 };
   const seen = new Map<
     string,
     { lesson: number; runs: Set<number>; members: readonly string[] }
   >();
-  const runs = new Set<number>();
+  const runs = [...new Set(lines.map((line) => line.run))].sort(
+    (a, b) => a - b,
+  );
 
-  for (const line of lines) {
-    runs.add(line.run);
-    const lesson = lessons.find((l) => l.number === line.lesson);
-    if (lesson === undefined) continue;
-    if (line.text === null) {
-      process.stdout.write(
-        `${String(line.run).padStart(3)} ${String(line.lesson).padStart(6)}  FAILED: ${line.error}\n`,
+  for (const run of runs) {
+    for (const lesson of lessons) {
+      const calls = lines.filter(
+        (line) => line.run === run && line.lesson === lesson.number,
       );
-      continue;
-    }
-    const parsed = parse(line.text, lesson);
-    const result = score(parsed.sets, goldFor(line.lesson));
-    totals.right += result.pairsRight;
-    totals.suggested += result.pairsSuggested;
-    totals.gold += result.pairsGold;
-    for (const set of parsed.sets) {
-      const k = `${line.lesson}:${key(set)}`;
-      const entry = seen.get(k) ?? {
-        lesson: line.lesson,
-        runs: new Set(),
-        members: set,
+      if (calls.length === 0) continue;
+      const sets: (readonly string[])[] = [];
+      const dropped = {
+        unknown: 0,
+        repeated: 0,
+        tooSmall: 0,
+        unreadable: 0,
+        failed: 0,
       };
-      entry.runs.add(line.run);
-      seen.set(k, entry);
-    }
-    const dropped = parsed.unreadable
-      ? "unreadable"
-      : `${parsed.unknown}u ${parsed.repeated}r ${parsed.tooSmall}s`;
-    process.stdout.write(
-      [
-        String(line.run).padStart(3),
-        String(line.lesson).padStart(7),
-        String(result.suggested).padStart(6),
-        String(result.exact).padStart(7),
-        String(result.sameOrder).padStart(7),
-        String(result.wrong.length).padStart(7),
-        String(result.missed.length).padStart(8),
-        `${result.pairsRight}/${result.pairsSuggested}/${result.pairsGold}`.padStart(
-          19,
-        ),
-        pct(result.pairsRight, result.pairsSuggested).padStart(11),
-        pct(result.pairsRight, result.pairsGold).padStart(8),
-        `  ${dropped}`,
-      ].join("") + "\n",
-    );
-    for (const w of result.wrong) {
+      for (const call of calls) {
+        if (call.text === null) {
+          dropped.failed += 1;
+          process.stdout.write(
+            `  run ${run} lesson ${lesson.number}${call.point == null ? "" : ` point ${call.point}`} FAILED: ${call.error}\n`,
+          );
+          continue;
+        }
+        const words =
+          call.point == null
+            ? lesson.words
+            : lesson.words.filter((w) => w.point === call.point);
+        const parsed = parse(call.text, words);
+        sets.push(...parsed.sets);
+        dropped.unknown += parsed.unknown;
+        dropped.repeated += parsed.repeated;
+        dropped.tooSmall += parsed.tooSmall;
+        if (parsed.unreadable) dropped.unreadable += 1;
+      }
+
+      const result = score(sets, goldFor(lesson.number));
+      totals.right += result.pairsRight;
+      totals.suggested += result.pairsSuggested;
+      totals.gold += result.pairsGold;
+      totals.exact += result.exact;
+      totals.goldSets += result.gold;
+      for (const set of sets) {
+        const k = `${lesson.number}:${key(set)}`;
+        const entry = seen.get(k) ?? {
+          lesson: lesson.number,
+          runs: new Set(),
+          members: set,
+        };
+        entry.runs.add(run);
+        seen.set(k, entry);
+      }
       process.stdout.write(
-        `        wrong (${w.verdict}): ${show(w.members)}\n`,
+        [
+          String(run).padStart(3),
+          String(lesson.number).padStart(7),
+          String(result.suggested).padStart(6),
+          String(result.exact).padStart(7),
+          String(result.sameOrder).padStart(7),
+          String(result.wrong.length).padStart(7),
+          String(result.missed.length).padStart(8),
+          `${result.pairsRight}/${result.pairsSuggested}/${result.pairsGold}`.padStart(
+            19,
+          ),
+          pct(result.pairsRight, result.pairsSuggested).padStart(11),
+          pct(result.pairsRight, result.pairsGold).padStart(8),
+          `  ${dropped.unknown}u ${dropped.repeated}r ${dropped.tooSmall}s ${dropped.unreadable}x ${dropped.failed}f`,
+        ].join("") + "\n",
       );
-    }
-    for (const m of result.missed) {
-      process.stdout.write(`        missed: ${show(m)}\n`);
+      for (const w of result.wrong) {
+        process.stdout.write(
+          `        wrong (${w.verdict}): ${show(w.members)}\n`,
+        );
+      }
+      for (const m of result.missed) {
+        process.stdout.write(`        missed: ${show(m)}\n`);
+      }
     }
   }
 
   process.stdout.write(
-    `\nall runs, by pair: precision ${pct(totals.right, totals.suggested).trim()}, recall ${pct(totals.right, totals.gold).trim()}\n`,
+    `\nall runs, by pair: precision ${pct(totals.right, totals.suggested).trim()}, recall ${pct(totals.right, totals.gold).trim()}; identical sets ${totals.exact}/${totals.goldSets}\n`,
   );
 
   // How much the answer moves between runs: each distinct set proposed, and
   // in how many of the runs it came back.
-  process.stdout.write(`\nsets proposed, in how many of ${runs.size} runs:\n`);
+  process.stdout.write(
+    `\nsets proposed, in how many of ${runs.length} runs:\n`,
+  );
   const goldKeys = new Set(
     goldSets.map((s) => `${s.lesson}:${key(s.members)}`),
   );
@@ -395,7 +530,7 @@ function report(lines: readonly Line[]): void {
     (a, b) => a[1].lesson - b[1].lesson || b[1].runs.size - a[1].runs.size,
   )) {
     process.stdout.write(
-      `  ${entry.runs.size}/${runs.size}  L${entry.lesson}  ${goldKeys.has(k) ? "gold " : "     "} ${show(entry.members)}\n`,
+      `  ${entry.runs.size}/${runs.length}  L${entry.lesson}  ${goldKeys.has(k) ? "gold " : "     "} ${show(entry.members)}\n`,
     );
   }
 }
@@ -427,18 +562,29 @@ if (SELF_CHECK) {
     error: null,
   }));
   report(lines);
+} else if (PLAN) {
+  for (const unit of units(MODE)) {
+    process.stdout.write(
+      JSON.stringify({
+        lesson: unit.lesson,
+        point: unit.point,
+        ...buildPrompt(unit, MODE),
+      }) + "\n",
+    );
+  }
 } else if (SCORE !== "") {
   report(readBatch(SCORE));
 } else {
   const batch = new Date().toISOString();
   const provider = createDeepSeekProvider();
+  const plan = units(MODE);
   process.stdout.write(
-    `batch ${batch}: ${RUNS} runs over lessons ${lessons.map((l) => `${l.number} (${l.words.length} words, ${goldFor(l.number).length} sets)`).join(", ")}\nappending to ${OUT}\n`,
+    `batch ${batch}: ${MODE} mode, ${RUNS} runs of ${plan.length} calls over lessons ${lessons.map((l) => `${l.number} (${l.words.length} words, ${goldFor(l.number).length} sets)`).join(", ")}\nappending to ${OUT}\n`,
   );
 
   for (let run = 1; run <= RUNS; run++) {
-    for (const lesson of lessons) {
-      const { system, user } = buildPrompt(lesson);
+    for (const unit of plan) {
+      const { system, user } = buildPrompt(unit, MODE);
       const started = Date.now();
       let text: string | null = null;
       let model: string | null = null;
@@ -455,8 +601,10 @@ if (SELF_CHECK) {
       const ms = Date.now() - started;
       const line: Line = {
         batch,
+        mode: MODE,
         run,
-        lesson: lesson.number,
+        lesson: unit.lesson,
+        point: unit.point,
         at: new Date().toISOString(),
         ms,
         model,
@@ -468,7 +616,7 @@ if (SELF_CHECK) {
       // Written before anything else is done with the answer.
       appendFileSync(OUT, JSON.stringify(line) + "\n");
       process.stdout.write(
-        `  run ${run} lesson ${lesson.number}: ${(ms / 1000).toFixed(1)}s${error === null ? "" : ` FAILED ${error}`}\n`,
+        `  run ${run} lesson ${unit.lesson}${unit.point === null ? "" : ` point ${unit.point}`}: ${(ms / 1000).toFixed(1)}s${error === null ? "" : ` FAILED ${error}`}\n`,
       );
     }
   }
