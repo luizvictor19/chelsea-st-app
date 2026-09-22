@@ -6,6 +6,9 @@ import { listVocabularyImages, listWordAttempts } from "@/lib/content/queries";
 import { ProgressBar } from "../progress-bar";
 import { overwriteWarning } from "@/lib/images/suggest";
 
+import { ContrastSetSection } from "./contrast-set-section";
+import { readContrastRows } from "./contrast-rows";
+import type { SetWord } from "./contrast-sets";
 import { FilterDrawer } from "./filter-drawer";
 import {
   filterHref,
@@ -106,6 +109,30 @@ export default async function VocabularyImagesPage({
       .flatMap((lesson) => lesson.words)
       .find((word) => word.id === selectedId) ?? null;
   const attempts = selected === null ? [] : await listWordAttempts(selected.id);
+
+  // Every word, for the contrast set picker: a set may reach across lessons
+  // (the colours run from lesson 1 to lesson 3), so the filter does not apply.
+  const setWords: readonly SetWord[] = lessons.flatMap((lesson) =>
+    lesson.words.map((word) => ({
+      id: word.id,
+      term: word.term,
+      pointNumber: word.pointNumber,
+      lessonNumber: lesson.lessonNumber,
+    })),
+  );
+  const contrastRows = selected === null ? [] : await readContrastRows();
+  // Remounts the section when the saved set changes, so a save lands as the
+  // new starting draft instead of leaving the old one marked unsaved.
+  const savedSet = contrastRows.find(
+    (row) => row.vocabulary_item_id === selected?.id,
+  )?.set_id;
+  const contrastKey = [
+    selected?.id,
+    ...contrastRows
+      .filter((row) => row.set_id === savedSet)
+      .sort((a, b) => a.position - b.position)
+      .map((row) => row.vocabulary_item_id),
+  ].join(":");
 
   return (
     /*
@@ -287,11 +314,26 @@ export default async function VocabularyImagesPage({
                   imagem.
                 </p>
               ) : (
-                <WordPanel
-                  key={selected.id}
-                  word={selected}
-                  attempts={attempts}
-                />
+                <>
+                  <WordPanel
+                    key={selected.id}
+                    word={selected}
+                    attempts={attempts}
+                  />
+                  <ContrastSetSection
+                    key={contrastKey}
+                    word={
+                      setWords.find((word) => word.id === selected.id) ?? {
+                        id: selected.id,
+                        term: selected.term,
+                        pointNumber: selected.pointNumber,
+                        lessonNumber: null,
+                      }
+                    }
+                    words={setWords}
+                    rows={contrastRows}
+                  />
+                </>
               )}
             </div>
           </div>

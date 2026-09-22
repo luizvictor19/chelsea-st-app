@@ -31,6 +31,8 @@ import {
 import { createDeepSeekProvider } from "@/lib/text/deepseek";
 import type { Database } from "@/lib/supabase/types";
 
+import { contrastError } from "./contrast-sets";
+
 type Representation = Database["public"]["Enums"]["representation_kind"];
 
 /**
@@ -1092,6 +1094,57 @@ export async function setImageStyle(
       .update({ image_style: style })
       .eq("id", wordId);
     if (error) return { ok: false, error: error.message };
+    revalidatePath(SCREEN);
+    return { ok: true };
+  } catch (cause) {
+    return failure(cause);
+  }
+}
+
+/**
+ * Saves a contrast set whole: its members, in order of presentation. A null
+ * set id creates one. One call, because save_contrast_set replaces the
+ * members and renumbers them in a single transaction, and the database
+ * refuses fewer than two or a word already in another set on its own.
+ *
+ * `expected` is the membership the screen loaded. The database saves an
+ * existing set only while it still has exactly those members, so a draft
+ * made from an old view cannot undo a save made elsewhere in between.
+ */
+export async function saveContrastSet(
+  items: readonly string[],
+  set: { readonly id: string; readonly expected: readonly string[] } | null,
+): Promise<ActionResult> {
+  try {
+    const { supabase } = await requireTeacher();
+    const { error } = await supabase.rpc("save_contrast_set", {
+      p_items: [...items],
+      ...(set === null
+        ? {}
+        : { p_set_id: set.id, p_expected: [...set.expected] }),
+    });
+    if (error) {
+      return { ok: false, error: contrastError(error.message, error.code) };
+    }
+    revalidatePath(SCREEN);
+    return { ok: true };
+  } catch (cause) {
+    return failure(cause);
+  }
+}
+
+/** Dissolves a contrast set. The words and their pictures stay as they are. */
+export async function dissolveContrastSet(
+  setId: string,
+): Promise<ActionResult> {
+  try {
+    const { supabase } = await requireTeacher();
+    const { error } = await supabase.rpc("dissolve_contrast_set", {
+      p_set_id: setId,
+    });
+    if (error) {
+      return { ok: false, error: contrastError(error.message, error.code) };
+    }
     revalidatePath(SCREEN);
     return { ok: true };
   } catch (cause) {
