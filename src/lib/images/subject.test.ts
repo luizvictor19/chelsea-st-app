@@ -62,10 +62,10 @@ describe("buildSubjectPrompt", () => {
     }
   });
 
-  test("there are three of them, numbered, and each says something", () => {
+  test("there are four of them, numbered, and each says something", () => {
     for (const style of STYLES) {
       const rules = learnedRules(style);
-      assert.equal(rules.length, 3, style);
+      assert.equal(rules.length, 4, style);
       const { system } = buildSubjectPrompt("book", "photo", style);
       for (const [index, rule] of rules.entries()) {
         assert.ok(
@@ -94,6 +94,64 @@ describe("buildSubjectPrompt", () => {
       assert.match(system, /seen from the side/iu, style);
       assert.match(system, /do not use the adjective/iu, style);
     }
+  });
+
+  /*
+   * 2026-09-22: large, small, long and short came back as two objects in one
+   * scene in 12 answers of 12 ("a tiny cube beside a giant cube"), a leftover
+   * of solving contrast inside one picture. Contrast is between pictures now
+   * (0022), so every subject shows one thing, whatever the word, the kind or
+   * the style, and nothing here reads contrast_sets.
+   */
+  test("asks for one subject and never a comparison, in every kind and style", () => {
+    for (const style of STYLES) {
+      for (const kind of KINDS) {
+        const { system } = buildSubjectPrompt("large", kind, style);
+        assert.match(system, /one subject/iu, `${style}/${kind}`);
+        assert.match(
+          system,
+          /never both in the same scene/iu,
+          `${style}/${kind}`,
+        );
+      }
+    }
+  });
+
+  /*
+   * 2026-09-22, the same day: one subject alone lets "one huge cube" and "a
+   * single tiny cube" come out as the same picture, each filling the frame,
+   * and side by side in a set they would show no difference. With no second
+   * object to measure against, the frame is the yardstick.
+   */
+  test("lets the frame carry size and length, in every kind and style", () => {
+    for (const style of STYLES) {
+      for (const kind of KINDS) {
+        const { system } = buildSubjectPrompt("small", kind, style);
+        assert.match(
+          system,
+          /the frame is the yardstick/iu,
+          `${style}/${kind}`,
+        );
+        assert.match(
+          system,
+          /fills almost the whole frame/iu,
+          `${style}/${kind}`,
+        );
+        assert.match(system, /nearly empty frame/iu, `${style}/${kind}`);
+      }
+    }
+  });
+
+  /*
+   * The realistic recognition rule said a photograph is known "by its size
+   * next to something familiar", which invites the very reference object the
+   * one subject rule forbids. Scale is still how a photograph reads; what it
+   * is read against is the frame.
+   */
+  test("never asks the realistic style for a familiar object beside it", () => {
+    const { system } = buildSubjectPrompt("large", "figure", "realistic");
+    assert.doesNotMatch(system, /next to something familiar/iu);
+    assert.match(system, /never from an object placed beside it/iu);
   });
 
   /*
