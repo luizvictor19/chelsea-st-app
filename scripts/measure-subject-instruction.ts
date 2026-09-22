@@ -21,6 +21,7 @@
  *
  *   node --env-file=.env.local scripts/measure-subject-instruction.ts --label before
  *   node --env-file=.env.local scripts/measure-subject-instruction.ts --label after
+ *   node --env-file=.env.local scripts/measure-subject-instruction.ts --label after --words size
  *   node scripts/measure-subject-instruction.ts --compare <batch> <batch>
  */
 import { appendFileSync, readFileSync } from "node:fs";
@@ -43,6 +44,12 @@ const ROOT = join(import.meta.dirname, "..");
 const OUT = option("out", join(ROOT, "fixtures", "subject-instruction.jsonl"));
 const RUNS = Number(option("runs", "3"));
 const LABEL = option("label", "");
+/*
+ * all: the eight words and the five controls, each in the style the project
+ * has for it. size: the four size and length words in both styles, where the
+ * framing has to carry the difference, and the same five controls.
+ */
+const SET = option("words", "all");
 
 type Word = {
   readonly term: string;
@@ -66,6 +73,23 @@ const WORDS: readonly Word[] = [
   { term: "clock", kind: "photo", style: "flat", control: true },
   { term: "on", kind: "figure", style: "flat", control: true },
 ];
+
+const CONTROLS = WORDS.filter((word) => word.control);
+const SIZE_WORDS: readonly Word[] = ["large", "small", "long", "short"].flatMap(
+  (term) =>
+    (["flat", "realistic"] as const).map((style) => ({
+      term,
+      kind: "figure",
+      style,
+      control: false,
+    })),
+);
+
+function wordsFor(set: string): readonly Word[] {
+  if (set === "all") return WORDS;
+  if (set === "size") return [...SIZE_WORDS, ...CONTROLS];
+  throw new Error(`--words is all or size, not ${set}`);
+}
 
 type Line = {
   readonly batch: string;
@@ -101,15 +125,26 @@ function read(batch: string): Line[] {
 
 if (args[0] === "--compare") {
   const [before, after] = [read(args[1]), read(args[2])];
-  for (const word of WORDS) {
+  // Grouped by what was asked, word and style, in the order it was asked.
+  const asked = [
+    ...new Map(
+      [...before, ...after].map((l) => [`${l.term}/${l.style}`, l]),
+    ).values(),
+  ];
+  for (const word of asked) {
+    const control = WORDS.find(
+      (w) => w.term === word.term && w.style === word.style,
+    )?.control;
     process.stdout.write(
-      `\n${word.term} (${word.kind}, ${word.style})${word.control ? " control" : ""}\n`,
+      `\n${word.term} (${word.kind}, ${word.style})${control === true ? " control" : ""}\n`,
     );
     for (const [label, lines] of [
       ["before", before],
       ["after", after],
     ] as const) {
-      for (const line of lines.filter((l) => l.term === word.term)) {
+      for (const line of lines.filter(
+        (l) => l.term === word.term && l.style === word.style,
+      )) {
         const phrase =
           line.subject ?? `(no subject: ${line.error ?? line.text})`;
         const flag = COMPARISON.test(phrase) ? "?" : " ";
@@ -124,7 +159,7 @@ if (args[0] === "--compare") {
   const provider = createDeepSeekProvider();
   process.stdout.write(`batch ${batch}, appending to ${OUT}\n`);
   for (let run = 1; run <= RUNS; run++) {
-    for (const word of WORDS) {
+    for (const word of wordsFor(SET)) {
       const { system, user } = buildSubjectPrompt(
         word.term,
         word.kind,
