@@ -7,6 +7,7 @@ import {
   isChanged,
   moveMember,
   sectionKey,
+  setColours,
   setsByWord,
   type SetWord,
 } from "./contrast-sets.ts";
@@ -187,5 +188,58 @@ describe("contrastError", () => {
       /alterado em outro lugar/,
     );
     assert.equal(contrastError("anything", "P0001"), "anything");
+  });
+});
+
+describe("setColours", () => {
+  // Book order: large, small, long at point 3, in at 5, behind at 9. Three
+  // sets whose first members appear in that order.
+  const ORDER = ["l", "s", "g", "i", "b"];
+  const ROWS = [
+    { set_id: "sizes", vocabulary_item_id: "s", position: 1 },
+    { set_id: "sizes", vocabulary_item_id: "l", position: 0 },
+    { set_id: "length", vocabulary_item_id: "g", position: 0 },
+    { set_id: "preps", vocabulary_item_id: "i", position: 0 },
+    { set_id: "preps", vocabulary_item_id: "b", position: 1 },
+  ];
+
+  test("gives every member of a set the same colour and number", () => {
+    const marks = setColours(ORDER, ROWS, 6);
+    assert.deepEqual(marks.get("l"), marks.get("s"));
+    assert.deepEqual(marks.get("i"), marks.get("b"));
+  });
+
+  test("numbers sets by first appearance in book order, not by row", () => {
+    const marks = setColours(ORDER, ROWS, 6);
+    assert.deepEqual(
+      ORDER.map((id) => marks.get(id)?.ordinal),
+      [1, 1, 2, 3, 3],
+    );
+  });
+
+  test("gives neighbouring sets different colours", () => {
+    const marks = setColours(ORDER, ROWS, 6);
+    assert.notEqual(marks.get("l")?.colour, marks.get("g")?.colour);
+    assert.notEqual(marks.get("g")?.colour, marks.get("i")?.colour);
+  });
+
+  test("starts the cycle again after the last colour", () => {
+    const marks = setColours(ORDER, ROWS, 2);
+    assert.deepEqual(
+      ORDER.map((id) => marks.get(id)?.colour),
+      [0, 0, 1, 0, 0],
+    );
+    // The number goes on counting, so two sets sharing a colour still differ.
+    assert.equal(marks.get("i")?.ordinal, 3);
+  });
+
+  test("leaves out words in no set, and rows for words not in the list", () => {
+    const marks = setColours(
+      ["l", "g"],
+      [...ROWS, { set_id: "gone", vocabulary_item_id: "x", position: 0 }],
+      6,
+    );
+    assert.deepEqual([...marks.keys()], ["l", "g"]);
+    assert.equal(setColours(ORDER, [], 6).size, 0);
   });
 });

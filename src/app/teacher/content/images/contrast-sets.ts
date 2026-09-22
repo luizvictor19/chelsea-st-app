@@ -184,3 +184,46 @@ export function sectionKey(
       .map((row) => row.vocabulary_item_id),
   ].join(":");
 }
+
+/** How a word in the list is marked as a member of a set. */
+export type SetMark = {
+  readonly setId: string;
+  /** The set's number in book order, from 1. Keeps counting past the palette. */
+  readonly ordinal: number;
+  /** Index into the palette, from 0. */
+  readonly colour: number;
+};
+
+/**
+ * A colour and a number for every word in a set, by the order the sets first
+ * appear in `order` (the book's order): the first set to appear takes colour
+ * 0, the next colour 1, and past the last colour the cycle starts again, so
+ * neighbouring sets never share one. Worked out on each render; nothing about
+ * it is stored.
+ */
+export function setColours(
+  order: readonly string[],
+  rows: readonly ContrastRow[],
+  paletteSize: number,
+): ReadonlyMap<string, SetMark> {
+  const setOf = new Map(
+    rows.map((row) => [row.vocabulary_item_id, row.set_id]),
+  );
+  const bySet = new Map<string, SetMark>();
+  const result = new Map<string, SetMark>();
+  for (const id of order) {
+    const setId = setOf.get(id);
+    if (setId === undefined) continue;
+    let mark = bySet.get(setId);
+    if (mark === undefined) {
+      mark = {
+        setId,
+        ordinal: bySet.size + 1,
+        colour: bySet.size % paletteSize,
+      };
+      bySet.set(setId, mark);
+    }
+    result.set(id, mark);
+  }
+  return result;
+}
