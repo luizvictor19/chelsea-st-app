@@ -26,6 +26,23 @@
    * something broken. Amber says look, red says stop.
    */
   --warning: #9a5b06;
+  /*
+   * Contrast sets in the images list, one colour per set in the book's
+   * order, cycling. None of the tokens above could serve: the accent is the
+   * alarm and amber is the model, and a set is neither. Six hues kept clear
+   * of both, each read against the surface in its own theme.
+   *
+   * The order is the point: sets next to each other in the list take
+   * consecutive tokens, so a cold hue always sits between two warm ones,
+   * the 6th back to the 1st included. src/app/set-palette.test.ts holds
+   * the distance between neighbours and the contrast with the ground.
+   */
+  --set-1: #0f766e;
+  --set-2: #db2777;
+  --set-3: #2563eb;
+  --set-4: #4d7c0f;
+  --set-5: #7c3aed;
+  --set-6: #8b5e34;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -40,6 +57,12 @@
     --accent: #ff5a5f;
     --accent-foreground: #180405;
     --warning: #e0a33c;
+    --set-1: #2dd4bf;
+    --set-2: #f472b6;
+    --set-3: #60a5fa;
+    --set-4: #a3e635;
+    --set-5: #a78bfa;
+    --set-6: #d4a373;
   }
 }
 
@@ -53,6 +76,12 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-warning: var(--warning);
+  --color-set-1: var(--set-1);
+  --color-set-2: var(--set-2);
+  --color-set-3: var(--set-3);
+  --color-set-4: var(--set-4);
+  --color-set-5: var(--set-5);
+  --color-set-6: var(--set-6);
   --font-sans: var(--font-archivo);
   --font-mono: var(--font-plex-mono);
 }

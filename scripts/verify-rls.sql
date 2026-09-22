@@ -51,6 +51,7 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0019_not_drawn_is_not_nothing.sql
 \i supabase/migrations/0020_suggestion_run_id.sql
 \i supabase/migrations/0021_reclassifying_is_not_rejecting.sql
+\i supabase/migrations/0022_contrast_is_between_pictures.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
@@ -263,5 +264,434 @@ begin
 
   raise notice 'reclassifying a word takes the picture off the word';
   raise notice 'and leaves the attempt a candidate, with its file: reclassifying is not rejecting';
+end;
+$$;
+
+-- Contrast sets, since 0022. Seven words at point 55 and two sets saved the
+-- way the screen saves them, through save_contrast_set: a pair (large,
+-- small) and a trio (in, on, under). black and white stay free for the
+-- blocks that try to build a set the database must refuse.
+--
+-- Most blocks below force the deferred checks with `set constraints all
+-- immediate`, so a refusal surfaces inside the block that provoked it, with
+-- its own message, rather than at the commit of the whole statement.
+insert into vocabulary_items (term, first_point_id)
+select term, (select id from points where number = 55)
+  from unnest(array['large', 'small', 'in', 'on', 'under', 'black', 'white']) as term;
+
+do $$
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+
+  perform save_contrast_set(array(
+    select id from vocabulary_items where term in ('large', 'small') order by term));
+  perform save_contrast_set(array(
+    select id from vocabulary_items where term in ('in', 'on', 'under')
+     order by array_position(array['in', 'on', 'under'], term)));
+end;
+$$;
+
+-- The student reads no contrast set and no member, and is not refused for
+-- trying: the same case as vocabulary_items, one teacher policy and nothing
+-- for her. The teacher's counts come first, so a zero from the student
+-- cannot be a zero from an empty table.
+do $$
+declare
+  v_sets integer;
+  v_items integer;
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+  select count(*) into v_sets from contrast_sets;
+  select count(*) into v_items from contrast_set_items;
+  if v_sets <> 2 or v_items <> 5 then
+    raise exception 'the teacher sees % sets and % members, expected 2 and 5', v_sets, v_items;
+  end if;
+
+  perform set_config('test.uid', '22222222-2222-2222-2222-222222222222', false);
+  select count(*) into v_sets from contrast_sets;
+  select count(*) into v_items from contrast_set_items;
+  if v_sets <> 0 or v_items <> 0 then
+    raise exception 'the student sees % contrast sets and % members, expected none', v_sets, v_items;
+  end if;
+
+  raise notice 'the student reads no contrast set and no member';
+end;
+$$;
+
+-- A set with one member is refused, whatever path wrote it. Written here
+-- straight into the tables, not through save_contrast_set, because the
+-- function refuses it first and would hide whether the trigger does.
+do $$
+declare
+  v_set uuid;
+  v_refused boolean := false;
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+
+  begin
+    insert into contrast_sets default values returning id into v_set;
+    insert into contrast_set_items (vocabulary_item_id, set_id, position)
+      values ((select id from vocabulary_items where term = 'black'), v_set, 0);
+    set constraints all immediate;
+  exception when check_violation then
+    if sqlerrm not like '%needs at least two%' then
+      raise;
+    end if;
+    v_refused := true;
+  end;
+
+  if not v_refused then
+    raise exception 'a contrast set with one member was accepted';
+  end if;
+
+  raise notice 'a contrast set with one member is refused';
+end;
+$$;
+
+-- A set with no members is refused too. It fires nothing on
+-- contrast_set_items, which is why contrast_sets carries a trigger of its own.
+do $$
+declare
+  v_refused boolean := false;
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+
+  begin
+    insert into contrast_sets default values;
+    set constraints all immediate;
+  exception when check_violation then
+    if sqlerrm not like '%has 0 member(s)%' then
+      raise;
+    end if;
+    v_refused := true;
+  end;
+
+  if not v_refused then
+    raise exception 'a contrast set with no members was accepted';
+  end if;
+
+  raise notice 'a contrast set with no members is refused';
+end;
+$$;
+
+-- A word is in at most one set. Straight into the tables again: small already
+-- belongs to the pair, and save_contrast_set would refuse it by name before
+-- the key had a say.
+do $$
+declare
+  v_set uuid;
+  v_refused boolean := false;
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+
+  begin
+    insert into contrast_sets default values returning id into v_set;
+    insert into contrast_set_items (vocabulary_item_id, set_id, position) values
+      ((select id from vocabulary_items where term = 'black'), v_set, 0),
+      ((select id from vocabulary_items where term = 'small'), v_set, 1);
+    set constraints all immediate;
+  exception when unique_violation then
+    v_refused := true;
+  end;
+
+  if not v_refused then
+    raise exception 'a word was accepted into a second contrast set';
+  end if;
+
+  raise notice 'a word already in a contrast set cannot join a second one';
+end;
+$$;
+
+-- A word in a set cannot be deleted: it has to leave its set first. Tried on
+-- a member of the trio, where a cascade would leave two members and pass
+-- every other check, so only the restrict stands between the delete and a
+-- set that shrank without anyone deciding it.
+do $$
+declare
+  v_refused boolean := false;
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+
+  begin
+    delete from vocabulary_items where term = 'under';
+    set constraints all immediate;
+  exception when foreign_key_violation then
+    v_refused := true;
+  end;
+
+  if not v_refused then
+    raise exception 'a word in a contrast set was deleted';
+  end if;
+
+  raise notice 'a word in a contrast set cannot be deleted';
+end;
+$$;
+
+-- save_contrast_set reorders a set and writes the positions 0 to n - 1 in
+-- the order given. And a swap in place, in one statement, is accepted: the
+-- unique on (set_id, position) is deferred, and without that every reorder
+-- written as an update collides with itself halfway.
+do $$
+declare
+  v_set uuid;
+  v_large integer;
+  v_small integer;
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+
+  select set_id into v_set from contrast_set_items
+   where vocabulary_item_id = (select id from vocabulary_items where term = 'large');
+
+  perform save_contrast_set(
+    array[
+      (select id from vocabulary_items where term = 'small'),
+      (select id from vocabulary_items where term = 'large')],
+    v_set,
+    -- What is there, read the way the screen reads it before saving.
+    array(select vocabulary_item_id from contrast_set_items
+           where set_id = v_set order by position));
+  set constraints all immediate;
+
+  select position into v_small from contrast_set_items
+   where vocabulary_item_id = (select id from vocabulary_items where term = 'small');
+  select position into v_large from contrast_set_items
+   where vocabulary_item_id = (select id from vocabulary_items where term = 'large');
+  if v_small is distinct from 0 or v_large is distinct from 1 then
+    raise exception 'after saving (small, large) the positions are small=% large=%, expected 0 and 1',
+      v_small, v_large;
+  end if;
+
+  update contrast_set_items set position = 1 - position where set_id = v_set;
+  set constraints all immediate;
+
+  select position into v_small from contrast_set_items
+   where vocabulary_item_id = (select id from vocabulary_items where term = 'small');
+  select position into v_large from contrast_set_items
+   where vocabulary_item_id = (select id from vocabulary_items where term = 'large');
+  if v_small is distinct from 1 or v_large is distinct from 0 then
+    raise exception 'after the swap the positions are small=% large=%, expected 1 and 0',
+      v_small, v_large;
+  end if;
+
+  raise notice 'save_contrast_set reorders a set and writes positions 0 to n - 1';
+  raise notice 'and two positions swap in place in one statement';
+end;
+$$;
+
+-- Positions are dense: a gap is refused, whatever path wrote it.
+do $$
+declare
+  v_refused boolean := false;
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+
+  begin
+    update contrast_set_items set position = 5
+     where vocabulary_item_id = (select id from vocabulary_items where term = 'small');
+    set constraints all immediate;
+  exception when check_violation then
+    if sqlerrm not like '%must run 0 to%' then
+      raise;
+    end if;
+    v_refused := true;
+  end;
+
+  if not v_refused then
+    raise exception 'a contrast set with a gap in its positions was accepted';
+  end if;
+
+  raise notice 'a gap in the positions of a contrast set is refused';
+end;
+$$;
+
+-- Saving from a stale view is refused, and nothing is written. The pair is
+-- (large, small) here, after the swap above; a screen still showing it as
+-- (small, large), which is what it was before the swap, tries to save. Were
+-- this accepted, a save made in one tab would silently undo whatever another
+-- tab saved in between. Saving an existing set without saying what was
+-- loaded is refused the same way: there is no saving blind.
+--
+-- Only CS001 is caught. Any other error means the save was refused for some
+-- other reason, which is not what this proves, so it stops the script.
+--
+-- No `set constraints all immediate` here, unlike the blocks above: CS001 is
+-- raised before anything is written, so there is nothing deferred to force,
+-- and immediate mode would outlive a save that wrongly succeeded and make the
+-- next one fail on its own delete, hiding the real finding.
+do $$
+declare
+  v_set uuid;
+  v_large uuid;
+  v_small uuid;
+  v_members uuid[];
+  v_stale boolean := false;
+  v_blind boolean := false;
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+
+  select id into v_large from vocabulary_items where term = 'large';
+  select id into v_small from vocabulary_items where term = 'small';
+  select set_id into v_set from contrast_set_items where vocabulary_item_id = v_large;
+
+  begin
+    perform save_contrast_set(array[v_small, v_large], v_set, array[v_small, v_large]);
+  exception when sqlstate 'CS001' then
+    v_stale := true;
+  end;
+
+  begin
+    perform save_contrast_set(array[v_small, v_large], v_set);
+  exception when sqlstate 'CS001' then
+    v_blind := true;
+  end;
+
+  v_members := array(
+    select vocabulary_item_id from contrast_set_items
+     where set_id = v_set order by position);
+
+  if not v_stale then
+    raise exception 'a save made from a stale view of the set was accepted';
+  end if;
+
+  if not v_blind then
+    raise exception 'a save of an existing set with no expected members was accepted';
+  end if;
+
+  if v_members is distinct from array[v_large, v_small] then
+    raise exception 'the refused saves changed the set anyway';
+  end if;
+
+  raise notice 'saving a contrast set from a stale view is refused, and the set is untouched';
+  raise notice 'and saving an existing set without the expected members is refused too';
+end;
+$$;
+
+-- Dissolving a set takes its members with it, and the trigger does not hold
+-- the deleted set to having two. The words themselves stay.
+do $$
+declare
+  v_set uuid;
+  v_members integer;
+  v_words integer;
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+
+  select set_id into v_set from contrast_set_items
+   where vocabulary_item_id = (select id from vocabulary_items where term = 'in');
+
+  perform dissolve_contrast_set(v_set);
+  set constraints all immediate;
+
+  select count(*) into v_members from contrast_set_items where set_id = v_set;
+  select count(*) into v_words from vocabulary_items where term in ('in', 'on', 'under');
+
+  if exists (select 1 from contrast_sets where id = v_set) or v_members <> 0 then
+    raise exception 'the dissolved set is still there, with % members', v_members;
+  end if;
+
+  if v_words <> 3 then
+    raise exception 'dissolving the set took % of its 3 words with it', 3 - v_words;
+  end if;
+
+  raise notice 'dissolving a contrast set takes its members and leaves the words';
+end;
+$$;
+
+-- The student calling save_contrast_set writes nothing: the function, being
+-- security invoker, gives her no way to write that she lacks outside it.
+--
+-- What refuses her here is visibility, not the write policies: she sees no
+-- word, so the function stops at "not a known vocabulary item" before any
+-- insert. That is why this block proves the function and not the policies,
+-- and why the block after it goes to the tables directly.
+do $$
+declare
+  v_before integer;
+  v_after integer;
+  v_refused boolean := false;
+  v_words uuid[];
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+  select count(*) into v_before from contrast_sets;
+  -- Read as the teacher: the student sees no word, and a call made with ids
+  -- she invented would be refused for that reason alone.
+  v_words := array(select id from vocabulary_items where term in ('black', 'white'));
+
+  perform set_config('test.uid', '22222222-2222-2222-2222-222222222222', false);
+  begin
+    perform save_contrast_set(v_words);
+    set constraints all immediate;
+  exception when others then
+    v_refused := true;
+  end;
+
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  select count(*) into v_after from contrast_sets;
+
+  if not v_refused or v_after <> v_before then
+    raise exception 'the student saved a contrast set: % sets before, % after', v_before, v_after;
+  end if;
+
+  raise notice 'the student cannot save a contrast set';
+end;
+$$;
+
+-- The write policies themselves: the student inserting straight into each
+-- table is refused by row level security. Only insufficient_privilege (42501)
+-- is caught; any other error, a foreign key or the trigger, would mean the
+-- insert got past the policy, and stops the script.
+--
+-- The ids are read as the teacher first, so the member row she tries to
+-- insert is one that would be valid in every other respect: black, joining
+-- the pair at its next free position.
+do $$
+declare
+  v_set uuid;
+  v_black uuid;
+  v_set_refused boolean := false;
+  v_item_refused boolean := false;
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+  select id into v_black from vocabulary_items where term = 'black';
+  select set_id into v_set from contrast_set_items
+   where vocabulary_item_id = (select id from vocabulary_items where term = 'large');
+
+  perform set_config('test.uid', '22222222-2222-2222-2222-222222222222', false);
+
+  begin
+    insert into contrast_sets default values;
+  exception when insufficient_privilege then
+    v_set_refused := true;
+  end;
+
+  begin
+    insert into contrast_set_items (vocabulary_item_id, set_id, position)
+      values (v_black, v_set, 2);
+  exception when insufficient_privilege then
+    v_item_refused := true;
+  end;
+
+  if not v_set_refused then
+    raise exception 'the student inserted a contrast set';
+  end if;
+
+  if not v_item_refused then
+    raise exception 'the student inserted a contrast set member';
+  end if;
+
+  raise notice 'the student cannot insert a contrast set';
+  raise notice 'nor a contrast set member';
 end;
 $$;

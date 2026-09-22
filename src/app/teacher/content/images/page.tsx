@@ -6,6 +6,16 @@ import { listVocabularyImages, listWordAttempts } from "@/lib/content/queries";
 import { ProgressBar } from "../progress-bar";
 import { overwriteWarning } from "@/lib/images/suggest";
 
+import { ContrastSetSection } from "./contrast-set-section";
+import { readContrastRows } from "./contrast-rows";
+import {
+  sectionKey,
+  setColours,
+  setsByWord,
+  type ContrastSet,
+  type SetMark,
+  type SetWord,
+} from "./contrast-sets";
 import { FilterDrawer } from "./filter-drawer";
 import {
   filterHref,
@@ -63,6 +73,48 @@ function StatusMark({ situation }: { readonly situation: Situation }) {
   return <span className="size-3.5" aria-hidden="true" />;
 }
 
+/*
+ * The set palette, one class per token in globals.css. Spelled out whole so
+ * Tailwind finds every class in the source.
+ */
+const SET_COLOURS = [
+  "bg-set-1",
+  "bg-set-2",
+  "bg-set-3",
+  "bg-set-4",
+  "bg-set-5",
+  "bg-set-6",
+] as const;
+
+/**
+ * A word's contrast set in the list. The colour ties a set together at a
+ * glance and the number says the same to anyone who cannot tell the colours
+ * apart; the title names the members.
+ */
+function SetBadge({
+  mark,
+  set,
+}: {
+  readonly mark: SetMark | undefined;
+  readonly set: ContrastSet | undefined;
+}) {
+  if (mark === undefined) return null;
+  const members = (set?.members ?? []).map((member) => member.term).join(", ");
+  return (
+    <span
+      title={`Conjunto ${mark.ordinal}: ${members}`}
+      aria-label={`conjunto ${mark.ordinal}: ${members}`}
+      className="text-faint flex shrink-0 items-center gap-1 self-center font-mono text-xs"
+    >
+      <span
+        aria-hidden="true"
+        className={`${SET_COLOURS[mark.colour]} size-2.5 rounded-full`}
+      />
+      <span aria-hidden="true">{mark.ordinal}</span>
+    </span>
+  );
+}
+
 export default async function VocabularyImagesPage({
   searchParams,
 }: {
@@ -106,6 +158,28 @@ export default async function VocabularyImagesPage({
       .flatMap((lesson) => lesson.words)
       .find((word) => word.id === selectedId) ?? null;
   const attempts = selected === null ? [] : await listWordAttempts(selected.id);
+
+  // Every word, for the contrast set picker: a set may reach across lessons
+  // (the colours run from lesson 1 to lesson 3), so the filter does not apply.
+  const setWords: readonly SetWord[] = lessons.flatMap((lesson) =>
+    lesson.words.map((word) => ({
+      id: word.id,
+      term: word.term,
+      pointNumber: word.pointNumber,
+      lessonNumber: lesson.lessonNumber,
+    })),
+  );
+  // One read of every membership, for the marks on the whole list and for
+  // the open word's section alike.
+  const contrastRows = await readContrastRows();
+  // Numbered over the whole book, not the filtered view, so a set keeps its
+  // colour and number whatever the filter hides.
+  const marks = setColours(
+    setWords.map((word) => word.id),
+    contrastRows,
+    SET_COLOURS.length,
+  );
+  const sets = setsByWord(contrastRows, setWords);
 
   return (
     /*
@@ -213,6 +287,10 @@ export default async function VocabularyImagesPage({
                               <span className="truncate font-semibold">
                                 {word.term}
                               </span>
+                              <SetBadge
+                                mark={marks.get(word.id)}
+                                set={sets.get(word.id)}
+                              />
                             </span>
                             <span className="flex shrink-0 items-center gap-2">
                               {/*
@@ -287,11 +365,26 @@ export default async function VocabularyImagesPage({
                   imagem.
                 </p>
               ) : (
-                <WordPanel
-                  key={selected.id}
-                  word={selected}
-                  attempts={attempts}
-                />
+                <>
+                  <WordPanel
+                    key={selected.id}
+                    word={selected}
+                    attempts={attempts}
+                  />
+                  <ContrastSetSection
+                    key={sectionKey(selected.id, contrastRows)}
+                    word={
+                      setWords.find((word) => word.id === selected.id) ?? {
+                        id: selected.id,
+                        term: selected.term,
+                        pointNumber: selected.pointNumber,
+                        lessonNumber: null,
+                      }
+                    }
+                    words={setWords}
+                    rows={contrastRows}
+                  />
+                </>
               )}
             </div>
           </div>

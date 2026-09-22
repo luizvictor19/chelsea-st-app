@@ -230,6 +230,54 @@ export type Database = {
         };
         Relationships: [];
       };
+      contrast_set_items: {
+        Row: {
+          position: number;
+          set_id: string;
+          vocabulary_item_id: string;
+        };
+        Insert: {
+          position: number;
+          set_id: string;
+          vocabulary_item_id: string;
+        };
+        Update: {
+          position?: number;
+          set_id?: string;
+          vocabulary_item_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "contrast_set_items_set_id_fkey";
+            columns: ["set_id"];
+            isOneToOne: false;
+            referencedRelation: "contrast_sets";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "contrast_set_items_vocabulary_item_id_fkey";
+            columns: ["vocabulary_item_id"];
+            isOneToOne: true;
+            referencedRelation: "vocabulary_items";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      contrast_sets: {
+        Row: {
+          created_at: string;
+          id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+        };
+        Relationships: [];
+      };
       image_attempts: {
         Row: {
           completed_at: string | null;
@@ -673,6 +721,7 @@ export type Database = {
         Returns: undefined;
       };
       dearmor: { Args: { "": string }; Returns: string };
+      dissolve_contrast_set: { Args: { p_set_id: string }; Returns: undefined };
       gen_random_uuid: { Args: never; Returns: string };
       gen_salt: { Args: { "": string }; Returns: string };
       is_teacher: { Args: never; Returns: boolean };
@@ -691,6 +740,10 @@ export type Database = {
       pgp_armor_headers: {
         Args: { "": string };
         Returns: Record<string, unknown>[];
+      };
+      save_contrast_set: {
+        Args: { p_expected?: string[]; p_items: string[]; p_set_id?: string };
+        Returns: string;
       };
     };
     Enums: {
