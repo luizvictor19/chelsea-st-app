@@ -6,6 +6,7 @@ import {
   contrastError,
   isChanged,
   moveMember,
+  sectionKey,
   setsByWord,
   type SetWord,
 } from "./contrast-sets.ts";
@@ -114,6 +115,56 @@ describe("candidates", () => {
     // free to come back.
     const fromLarge = candidates(LARGE, ["l"], WORDS, sets, "x", "");
     assert.equal(fromLarge.find((c) => c.word.id === "s")?.takenBy, null);
+  });
+
+  test("never offers the open word to link with itself", () => {
+    const sets = setsByWord(
+      [
+        { set_id: "x", vocabulary_item_id: "l", position: 0 },
+        { set_id: "x", vocabulary_item_id: "s", position: 1 },
+      ],
+      WORDS,
+    );
+    // Editing set x from large with large itself taken out of the draft.
+    for (const search of ["", "lar"]) {
+      const offered = candidates(LARGE, ["s"], WORDS, sets, "x", search);
+      assert.equal(
+        offered.some((c) => c.word.id === "l"),
+        false,
+        `search ${JSON.stringify(search)}`,
+      );
+    }
+  });
+});
+
+describe("sectionKey", () => {
+  // The section is a sibling of WordPanel, keyed by the word's id. With no
+  // saved set the key used to be that id alone, and React saw two children
+  // with the same key.
+  test("never equals the open word's id, set or no set", () => {
+    assert.notEqual(sectionKey("l", []), "l");
+    assert.notEqual(
+      sectionKey("l", [
+        { set_id: "x", vocabulary_item_id: "l", position: 0 },
+        { set_id: "x", vocabulary_item_id: "s", position: 1 },
+      ]),
+      "l",
+    );
+  });
+
+  test("changes when the saved set changes, order included", () => {
+    const pair = [
+      { set_id: "x", vocabulary_item_id: "l", position: 0 },
+      { set_id: "x", vocabulary_item_id: "s", position: 1 },
+    ];
+    const swapped = [
+      { set_id: "x", vocabulary_item_id: "l", position: 1 },
+      { set_id: "x", vocabulary_item_id: "s", position: 0 },
+    ];
+    const other = [{ set_id: "y", vocabulary_item_id: "g", position: 0 }];
+    assert.notEqual(sectionKey("l", pair), sectionKey("l", []));
+    assert.notEqual(sectionKey("l", pair), sectionKey("l", swapped));
+    assert.equal(sectionKey("l", [...pair, ...other]), sectionKey("l", pair));
   });
 });
 

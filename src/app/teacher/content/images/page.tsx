@@ -8,7 +8,7 @@ import { overwriteWarning } from "@/lib/images/suggest";
 
 import { ContrastSetSection } from "./contrast-set-section";
 import { readContrastRows } from "./contrast-rows";
-import type { SetWord } from "./contrast-sets";
+import { sectionKey, type SetWord } from "./contrast-sets";
 import { FilterDrawer } from "./filter-drawer";
 import {
   filterHref,
@@ -121,18 +121,6 @@ export default async function VocabularyImagesPage({
     })),
   );
   const contrastRows = selected === null ? [] : await readContrastRows();
-  // Remounts the section when the saved set changes, so a save lands as the
-  // new starting draft instead of leaving the old one marked unsaved.
-  const savedSet = contrastRows.find(
-    (row) => row.vocabulary_item_id === selected?.id,
-  )?.set_id;
-  const contrastKey = [
-    selected?.id,
-    ...contrastRows
-      .filter((row) => row.set_id === savedSet)
-      .sort((a, b) => a.position - b.position)
-      .map((row) => row.vocabulary_item_id),
-  ].join(":");
 
   return (
     /*
@@ -321,7 +309,7 @@ export default async function VocabularyImagesPage({
                     attempts={attempts}
                   />
                   <ContrastSetSection
-                    key={contrastKey}
+                    key={sectionKey(selected.id, contrastRows)}
                     word={
                       setWords.find((word) => word.id === selected.id) ?? {
                         id: selected.id,

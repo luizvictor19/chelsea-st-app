@@ -100,7 +100,9 @@ export function isChanged(
  * Without a search, only the words of the same point: every set measured
  * before 0022 had its first members there. With one, every word whose term
  * contains it, the same point first. Words already in the draft are left
- * out; words that belong to another set are listed with that set, so the
+ * out, and so is the open word itself, even once it is taken out of the
+ * draft of a saved set: a word cannot be linked with itself, and putting it
+ * back is Voltar ao salvo. Words that belong to another set are listed with that set, so the
  * teacher sees why they cannot be picked instead of not finding them.
  */
 export function candidates(
@@ -117,7 +119,7 @@ export function candidates(
     other.pointNumber !== null && other.pointNumber === word.pointNumber;
 
   return words
-    .filter((other) => !inDraft.has(other.id))
+    .filter((other) => other.id !== word.id && !inDraft.has(other.id))
     .filter((other) =>
       query === ""
         ? samePoint(other)
@@ -156,4 +158,29 @@ export function contrastError(message: string, code?: string): string {
     return "Este conjunto não existe mais. Recarregue a página.";
   }
   return message;
+}
+
+/**
+ * The key the section mounts under: the open word and its saved set in
+ * order, so a save lands as the new starting draft instead of leaving the
+ * old one marked unsaved.
+ *
+ * Prefixed, because the section is a sibling of WordPanel, which is keyed by
+ * the bare word id: with no saved set, an unprefixed key was that same id.
+ */
+export function sectionKey(
+  wordId: string,
+  rows: readonly ContrastRow[],
+): string {
+  const savedSet = rows.find(
+    (row) => row.vocabulary_item_id === wordId,
+  )?.set_id;
+  return [
+    "contrast",
+    wordId,
+    ...rows
+      .filter((row) => row.set_id === savedSet)
+      .sort((a, b) => a.position - b.position)
+      .map((row) => row.vocabulary_item_id),
+  ].join(":");
 }
