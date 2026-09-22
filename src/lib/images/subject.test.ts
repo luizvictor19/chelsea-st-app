@@ -62,10 +62,10 @@ describe("buildSubjectPrompt", () => {
     }
   });
 
-  test("there are three of them, numbered, and each says something", () => {
+  test("there are four of them, numbered, and each says something", () => {
     for (const style of STYLES) {
       const rules = learnedRules(style);
-      assert.equal(rules.length, 3, style);
+      assert.equal(rules.length, 4, style);
       const { system } = buildSubjectPrompt("book", "photo", style);
       for (const [index, rule] of rules.entries()) {
         assert.ok(
@@ -93,6 +93,27 @@ describe("buildSubjectPrompt", () => {
       const { system } = buildSubjectPrompt("closed", "photo", style);
       assert.match(system, /seen from the side/iu, style);
       assert.match(system, /do not use the adjective/iu, style);
+    }
+  });
+
+  /*
+   * 2026-09-22: large, small, long and short came back as two objects in one
+   * scene in 12 answers of 12 ("a tiny cube beside a giant cube"), a leftover
+   * of solving contrast inside one picture. Contrast is between pictures now
+   * (0022), so every subject shows one thing, whatever the word, the kind or
+   * the style, and nothing here reads contrast_sets.
+   */
+  test("asks for one subject and never a comparison, in every kind and style", () => {
+    for (const style of STYLES) {
+      for (const kind of KINDS) {
+        const { system } = buildSubjectPrompt("large", kind, style);
+        assert.match(system, /one subject/iu, `${style}/${kind}`);
+        assert.match(
+          system,
+          /never both in the same scene/iu,
+          `${style}/${kind}`,
+        );
+      }
     }
   });
 
