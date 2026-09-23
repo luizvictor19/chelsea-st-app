@@ -28,6 +28,12 @@ import {
   parseContrastSuggestions,
 } from "@/lib/images/contrast-suggest";
 import { buildPrompt } from "@/lib/images/style";
+import {
+  SNIFF_BYTES,
+  refuseUpload,
+  sniffImageType,
+  uploadExtension,
+} from "@/lib/images/upload";
 import { withHeartbeat, type Heartbeat } from "@/lib/heartbeat";
 import { buildSubjectPrompt, parseSubject } from "@/lib/images/subject";
 import {
@@ -271,6 +277,95 @@ export async function setReference(
 
     revalidatePath(SCREEN);
     return { ok: true, reference: publicReferenceUrl(supabase, path) };
+  } catch (cause) {
+    return failure(cause);
+  }
+}
+
+/**
+ * Send a finished picture, made outside the platform, as an attempt of the
+ * word.
+ *
+ * Not a reference: that one guides a generation and lives under its own
+ * prefix. This is the picture itself, stored where a generated one is, and it
+ * waits in the list to be approved like any other. Nothing here approves it.
+ *
+ * The file goes in first and the row after, as with a reference. The row is
+ * written once, already 'generated' and with its path, so there is never an
+ * upload row in 'pending': nothing polls an upload, and one left there by a
+ * failed file would wait forever. The attempt id is made here so the path can
+ * name it before the row exists.
+ */
+export async function uploadFinishedImage(
+  wordId: string,
+  file: File,
+): Promise<ActionResult> {
+  try {
+    const { supabase } = await requireTeacher();
+
+    // The kind from the row, as startGeneration reads it: the screen could be
+    // a refresh behind the teacher's last decision.
+    const { data: word, error: wordError } = await supabase
+      .from("vocabulary_items")
+      .select("representation")
+      .eq("id", wordId)
+      .single();
+    if (wordError) return { ok: false, error: wordError.message };
+
+    // The panel asked this already. Asked again here because the panel is not
+    // the only way to reach an action.
+    const refusal = refuseUpload({
+      size: file.size,
+      type: file.type,
+      kind: word.representation,
+    });
+    if (refusal !== null) return { ok: false, error: refusal };
+
+    // The bytes, not the name, say what the file is. It is stored under the
+    // type they give, which is what the student's browser will decode.
+    const head = new Uint8Array(await file.slice(0, SNIFF_BYTES).arrayBuffer());
+    const type = sniffImageType(head);
+    if (type === null) {
+      return {
+        ok: false,
+        error: "Não consegui ler esse arquivo como PNG, JPEG ou WebP.",
+      };
+    }
+
+    const attemptId = crypto.randomUUID();
+    const path = `${wordId}/${attemptId}.${uploadExtension(type)}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(BUCKET)
+      .upload(path, file, { contentType: type });
+    if (uploadError) return { ok: false, error: uploadError.message };
+
+    const { error: insertError } = await supabase
+      .from("image_attempts")
+      .insert({
+        id: attemptId,
+        vocabulary_item_id: wordId,
+        provider: "upload",
+        status: "generated",
+        storage_path: path,
+        // Zero and not null: null means nobody knows what an attempt cost, and
+        // an upload is known to have cost nothing. 0025 holds this with a check.
+        credits_spent: 0,
+        source_filename: file.name === "" ? null : file.name,
+        // Stamped although an upload never waited: null on completed_at is what
+        // "still running" looks like, and this row is not.
+        completed_at: new Date().toISOString(),
+      });
+    if (insertError) {
+      // A file no row names would sit in a public bucket with nothing to
+      // find it by. Removing it is the best effort there is; if that fails
+      // too, the error the teacher sees is still the one that matters.
+      await supabase.storage.from(BUCKET).remove([path]);
+      return { ok: false, error: insertError.message };
+    }
+
+    revalidatePath(SCREEN);
+    return { ok: true, attempts: await readWordAttempts(supabase, wordId) };
   } catch (cause) {
     return failure(cause);
   }
