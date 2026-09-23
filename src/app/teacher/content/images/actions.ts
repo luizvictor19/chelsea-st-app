@@ -21,7 +21,14 @@ import {
   referenceDelivery,
   takesReference,
 } from "@/lib/images/provider";
+import {
+  buildContrastPrompt,
+  contrastCandidates,
+  inBookOrder,
+  parseContrastSuggestions,
+} from "@/lib/images/contrast-suggest";
 import { buildPrompt } from "@/lib/images/style";
+import { withHeartbeat, type Heartbeat } from "@/lib/heartbeat";
 import { buildSubjectPrompt, parseSubject } from "@/lib/images/subject";
 import {
   buildSuggestionPrompt,
@@ -1150,4 +1157,188 @@ export async function dissolveContrastSet(
   } catch (cause) {
     return failure(cause);
   }
+}
+
+/** A proposed contrast set, as the screen shows it. Stored nowhere. */
+export type ContrastProposal = {
+  /** In book order, not the model's: see inBookOrder. */
+  readonly members: readonly {
+    readonly id: string;
+    readonly term: string;
+    readonly point: number | null;
+  }[];
+  readonly reason: string;
+};
+
+export type ContrastSuggestResult =
+  | {
+      ok: true;
+      /** Words sent to the model: with a picture and in no set. */
+      sent: number;
+      proposals: readonly ContrastProposal[];
+      /** Members the parser dropped, for the console and the note. */
+      dropped: number;
+    }
+  | { ok: false; error: string };
+
+/**
+ * Asks the model which of a lesson's words form contrast sets.
+ *
+ * Writes nothing. A proposal becomes a set only when the teacher accepts it,
+ * through saveContrastSet, which is what keeps sets declared by her and never
+ * by the model. That is also what makes a lost answer safe to ask again.
+ *
+ * One call for the whole lesson, the way it was measured on 2026-09-22
+ * (scripts/measure-contrast-suggestions.ts): 30.8s median and 58.0s worst on
+ * lesson 1. Only the lesson's words with a picture that are in no set yet are
+ * sent, read here and not taken from the caller, so a set saved in another
+ * tab since the page loaded is not proposed again. Fewer than two is not a
+ * failure and not worth a request.
+ */
+async function proposeContrastSets(
+  lessonContentId: string,
+): Promise<ContrastSuggestResult> {
+  const started = performance.now();
+  const marks = {
+    sent: 0,
+    proposals: 0,
+    dropped: 0,
+    unreadable: false,
+    modelMs: 0,
+    outcome: "threw",
+  };
+  try {
+    const { supabase } = await requireTeacher();
+    const { data: rows, error } = await supabase
+      .from("vocabulary_items")
+      .select(
+        "id, term, representation, word_class, points!inner(number, lesson_content_id, lessons_content(number))",
+      )
+      .eq("points.lesson_content_id", lessonContentId);
+    if (error) {
+      marks.outcome = "read_failed";
+      return { ok: false, error: error.message };
+    }
+
+    const words = (rows ?? []).map((row) => ({
+      id: row.id,
+      term: row.term,
+      point: row.points?.number ?? null,
+      kind: row.representation,
+      wordClass: row.word_class,
+    }));
+    /*
+     * Membership read from contrast_set_items itself, the way the page reads
+     * it, and not embedded in the word: an embed that came back as a list
+     * where an object was expected would be non-null for every word, mark
+     * the whole lesson as taken and answer "nothing to suggest" in silence.
+     */
+    const taken = await supabase
+      .from("contrast_set_items")
+      .select("vocabulary_item_id")
+      .in(
+        "vocabulary_item_id",
+        words.map((word) => word.id),
+      );
+    if (taken.error) {
+      marks.outcome = "read_failed";
+      return { ok: false, error: taken.error.message };
+    }
+    const inASet = new Set(taken.data.map((row) => row.vocabulary_item_id));
+    const sent = contrastCandidates(words, inASet);
+    marks.sent = sent.length;
+    if (sent.length < 2) {
+      marks.outcome = "nothing_to_send";
+      return { ok: true, sent: sent.length, proposals: [], dropped: 0 };
+    }
+
+    // Read with the words rather than asked for again: every row of the
+    // lesson carries the same number.
+    const lessonNumber = rows?.[0]?.points?.lessons_content?.number ?? null;
+    if (lessonNumber === null) {
+      marks.outcome = "read_failed";
+      return { ok: false, error: "A lição não foi encontrada." };
+    }
+
+    const { system, user } = buildContrastPrompt(
+      { lesson: lessonNumber, point: null, words: sent },
+      "lesson",
+    );
+    const beforeModel = performance.now();
+    const { text } = await createDeepSeekProvider().complete({
+      system,
+      user,
+      json: true,
+    });
+    marks.modelMs = Math.round(performance.now() - beforeModel);
+
+    const parsed = parseContrastSuggestions(text, sent);
+    marks.unreadable = parsed.unreadable;
+    marks.dropped = parsed.unknown + parsed.repeated;
+    if (parsed.unreadable) {
+      marks.outcome = "unreadable";
+      return {
+        ok: false,
+        error: "O modelo não devolveu uma resposta legível. Tente de novo.",
+      };
+    }
+
+    const byId = new Map(sent.map((word) => [word.id, word]));
+    const proposals = parsed.sets.map((set) => ({
+      members: inBookOrder(set.members, sent).map((id) => {
+        const word = byId.get(id);
+        // Every kept member is a sent id; the fallback is for the type only.
+        return {
+          id,
+          term: word?.term ?? id,
+          point: word?.point ?? null,
+        };
+      }),
+      reason: set.reason,
+    }));
+    marks.proposals = proposals.length;
+    marks.outcome = "ok";
+    return {
+      ok: true,
+      sent: sent.length,
+      proposals,
+      dropped: marks.dropped,
+    };
+  } catch (cause) {
+    return { ok: false, error: errorMessage(cause) };
+  } finally {
+    // One line per call, as suggest_batch does, for the function log.
+    console.log(
+      JSON.stringify({
+        event: "suggest_contrast",
+        lessonContentId,
+        ...marks,
+        totalMs: Math.round(performance.now() - started),
+      }),
+    );
+  }
+}
+
+/*
+ * A beat every 5s. The drops measured on 2026-09-23 came as early as 8237ms
+ * (see src/lib/heartbeat.ts), and 10s between beats was enough in that test
+ * only because no drop landed inside a gap; 5s leaves no gap that long.
+ */
+const CONTRAST_BEAT_MS = 5000;
+
+/**
+ * The same proposal, streamed with a heartbeat so the connection is never
+ * quiet for more than CONTRAST_BEAT_MS while the model thinks: 30.8s median
+ * and 58.0s worst for a lesson, where a silent connection was dropped at a
+ * random moment in 5 of 9 tries. The work and its suggest_contrast log line
+ * are proposeContrastSets, untouched; this only carries its answer.
+ *
+ * The screen reads it with readHeartbeat, and keeps askTwiceIfLost around
+ * it: whoever drops quiet connections is not known, so a drop is still
+ * possible, and asking again stays safe because nothing is written.
+ */
+export async function suggestContrastSets(
+  lessonContentId: string,
+): Promise<AsyncGenerator<Heartbeat<ContrastSuggestResult>>> {
+  return withHeartbeat(proposeContrastSets(lessonContentId), CONTRAST_BEAT_MS);
 }
