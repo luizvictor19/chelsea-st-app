@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { BODY_SIZE_LIMIT_BYTES, MAX_FILE_BYTES } from "./body-limit.ts";
 import {
   MAX_UPLOAD_BYTES,
+  UPLOAD_LIMIT_LABEL,
+  afterWrite,
+  megabytes,
   refuseUpload,
   sniffImageType,
+  storageBody,
   tooBig,
   uploadExtension,
+  uploadFilename,
 } from "./upload.ts";
 
 /** The first bytes of each format, padded to the twelve the sniffer reads. */
@@ -112,5 +118,76 @@ describe("uploadExtension", () => {
     assert.equal(uploadExtension("image/png"), "png");
     assert.equal(uploadExtension("image/jpeg"), "jpg");
     assert.equal(uploadExtension("image/webp"), "webp");
+  });
+});
+
+describe("the limit, said once", () => {
+  test("an upload is held to the one file cap the reference shares", () => {
+    assert.equal(MAX_UPLOAD_BYTES, MAX_FILE_BYTES);
+  });
+
+  test("the cap sits under the action body limit, with room for the form", () => {
+    // The multipart wrapping around the file is a few hundred bytes; 64 KiB
+    // of room says the cap can never be what makes Next answer 413.
+    assert.ok(MAX_FILE_BYTES + 64 * 1024 <= BODY_SIZE_LIMIT_BYTES);
+  });
+
+  test("the sentence and the label are read off the constant", () => {
+    assert.equal(UPLOAD_LIMIT_LABEL, `${megabytes(MAX_UPLOAD_BYTES)} MB`);
+    assert.ok(
+      tooBig(MAX_UPLOAD_BYTES + 1).endsWith(
+        `O limite é ${UPLOAD_LIMIT_LABEL}.`,
+      ),
+    );
+  });
+
+  test("megabytes drops a trailing zero and uses a comma", () => {
+    assert.equal(megabytes(2 * 1024 * 1024), "2");
+    assert.equal(megabytes(2.5 * 1024 * 1024), "2,5");
+  });
+});
+
+describe("uploadFilename", () => {
+  test("keeps the name the file came with", () => {
+    assert.equal(uploadFilename("anna-final.png"), "anna-final.png");
+  });
+
+  test("an empty name, or the one FormData gives a bare Blob, is no name", () => {
+    assert.equal(uploadFilename(""), null);
+    assert.equal(uploadFilename("   "), null);
+    assert.equal(uploadFilename("blob"), null);
+  });
+});
+
+describe("storageBody", () => {
+  test("hands storage the bytes, never the File", async () => {
+    // storage-js wraps a Blob in FormData and drops the contentType given
+    // with it, so the type read off the bytes would never reach the bucket.
+    const file = new File([new Uint8Array(PNG)], "renamed.jpg", {
+      type: "image/jpeg",
+    });
+    const body = await storageBody(file);
+    assert.ok(!(body instanceof Blob));
+    assert.deepEqual([...new Uint8Array(body)], PNG);
+  });
+});
+
+describe("afterWrite", () => {
+  test("answers with the list when it can be read", async () => {
+    assert.deepEqual(await afterWrite(async () => ["a"]), {
+      ok: true,
+      attempts: ["a"],
+    });
+  });
+
+  test("a list that cannot be read is not a failed upload", async () => {
+    // The file and the row are already written. Saying it failed would have
+    // the teacher send it again, and the attempt would be there twice.
+    assert.deepEqual(
+      await afterWrite(async () => {
+        throw new Error("fetch failed");
+      }),
+      { ok: true },
+    );
   });
 });

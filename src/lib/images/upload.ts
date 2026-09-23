@@ -12,22 +12,20 @@
 
 // The extension is required: isDrawableKind is a value, and this file is also
 // loaded by node --test, which resolves no bare specifiers.
+import { MAX_FILE_BYTES } from "./body-limit.ts";
 import { isDrawableKind } from "./style.ts";
 
 /**
- * The largest file accepted, 2 MB.
+ * The largest file accepted, the cap body-limit.ts holds every file to.
  *
  * The files expected are square PNGs of up to about 1800px and about 1 MB, so
- * this is twice what is expected. It sits under serverActions.bodySizeLimit,
- * 3 MB in next.config.ts, on purpose: above that Next refuses with a 413,
- * which reaches the panel as "A resposta do servidor não chegou", the
- * sentence for a lost connection. The limit that says no has to be ours.
+ * the 2 MB there is twice what is expected.
  *
  * Nothing is shrunk in the browser. A reference is silhouette and can lose
  * resolution; this is the picture the student sees, and re-encoding it would
  * change the thing the teacher finished by hand.
  */
-export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = MAX_FILE_BYTES;
 
 /**
  * The formats accepted, by content type, with the extension each is stored
@@ -84,14 +82,39 @@ export function sniffImageType(bytes: Uint8Array): UploadType | null {
   return null;
 }
 
+/** A size in megabytes as the screen writes it: "2", "2,5". */
+export function megabytes(bytes: number): string {
+  const value = Math.round((bytes / (1024 * 1024)) * 10) / 10;
+  return String(value).replace(".", ",");
+}
+
+/**
+ * The limit as the panel and the refusal say it, read off the constant so the
+ * sentence cannot go on saying 2 MB after the number has moved.
+ */
+export const UPLOAD_LIMIT_LABEL = `${megabytes(MAX_UPLOAD_BYTES)} MB`;
+
 /** The sentence for a file over the limit, with its size, never rounded down. */
 export function tooBig(size: number): string {
   // Up to the next tenth, so a file just over the limit never reads as the
   // limit. The epsilon keeps an exact tenth from being pushed up a step by
   // floating point.
-  const megabytes = Math.ceil((size / (1024 * 1024)) * 10 - 1e-9) / 10;
-  const shown = megabytes.toFixed(1).replace(".", ",");
-  return `Arquivo grande demais (${shown} MB). O limite é 2 MB.`;
+  const tenths = Math.ceil((size / (1024 * 1024)) * 10 - 1e-9) / 10;
+  const shown = tenths.toFixed(1).replace(".", ",");
+  return `Arquivo grande demais (${shown} MB). O limite é ${UPLOAD_LIMIT_LABEL}.`;
+}
+
+/**
+ * The name to record for a file, or null when it came with none.
+ *
+ * "blob" is the name FormData gives a Blob that had none, so it names no file
+ * the teacher could recognise, and recording it would put "enviada · blob"
+ * on a row where there is nothing honest to say.
+ */
+export function uploadFilename(name: string): string | null {
+  const trimmed = name.trim();
+  if (trimmed === "" || trimmed === "blob") return null;
+  return trimmed;
 }
 
 /**
@@ -122,4 +145,36 @@ export function refuseUpload(file: {
     return "Este tipo de palavra não leva imagem.";
   }
   return null;
+}
+
+/**
+ * The body to hand storage for a file: its bytes, never the File itself.
+ *
+ * storage-js wraps a Blob in FormData and sends it with the type the browser
+ * declared, dropping the contentType it was given (index.mjs, uploadOrUpdate,
+ * read on 2026-09-23). Bytes go out with the contentType as the header, so
+ * the bucket serves the type sniffImageType read, not the one the name
+ * implied.
+ */
+export async function storageBody(file: Blob): Promise<ArrayBuffer> {
+  return file.arrayBuffer();
+}
+
+/**
+ * What an action answers once its write has landed.
+ *
+ * The list is read again so the panel has proof the call came back. If only
+ * that read fails, the upload still happened: answering with a failure would
+ * have the teacher send the file again and find it there twice. So the
+ * answer is a success without a list, which the panel reads as "keep what
+ * you have", and the re-render revalidatePath sends brings the new row.
+ */
+export async function afterWrite<T>(
+  read: () => Promise<T>,
+): Promise<{ ok: true; attempts?: T }> {
+  try {
+    return { ok: true, attempts: await read() };
+  } catch {
+    return { ok: true };
+  }
 }
