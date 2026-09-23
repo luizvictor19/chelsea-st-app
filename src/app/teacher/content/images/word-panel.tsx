@@ -26,7 +26,11 @@ import {
   modelLabel,
 } from "@/lib/images/provider";
 import { isDrawableKind } from "@/lib/images/style";
-import { UPLOAD_ACCEPT, refuseUpload } from "@/lib/images/upload";
+import {
+  UPLOAD_ACCEPT,
+  UPLOAD_LIMIT_LABEL,
+  refuseUpload,
+} from "@/lib/images/upload";
 
 import {
   approveAttempt,
@@ -44,6 +48,7 @@ import {
 } from "./actions";
 import { NotAPicture, shrinkReference } from "./shrink-reference";
 import {
+  attemptCredits,
   attemptOrigin,
   attemptsToShow,
   asksBeforeReclassifying,
@@ -881,8 +886,8 @@ export function WordPanel({
                 }}
               />
               <p className="text-faint text-xs">
-                PNG, JPEG ou WebP de até 2 MB, enviado como está. Entra nas
-                tentativas e espera a sua aprovação.
+                PNG, JPEG ou WebP de até {UPLOAD_LIMIT_LABEL}, enviado como
+                está. Entra nas tentativas e espera a sua aprovação.
               </p>
             </div>
           </div>
@@ -946,6 +951,8 @@ export function WordPanel({
               // stamp existed. See generationSeconds for why each of those
               // shows nothing rather than a zero.
               const took = generationSeconds(attempt);
+              const origin = attemptOrigin(attempt);
+              const cost = attemptCredits(attempt);
               return (
                 <li
                   key={attempt.id}
@@ -973,11 +980,9 @@ export function WordPanel({
                       {STATUS_LABELS[attempt.status] ?? attempt.status}
                       {isRunning(attempt) &&
                         `, ${elapsedSeconds(attempt.createdAt, now)}s`}
-                      {attemptOrigin(attempt) !== null &&
-                        ` · ${attemptOrigin(attempt)}`}
+                      {origin !== null && ` · ${origin}`}
                       {took !== null && ` · ${took}s`}
-                      {attempt.creditsSpent !== null &&
-                        ` · ${attempt.creditsSpent} créditos`}
+                      {cost !== null && ` · ${cost}`}
                     </span>
                     {attempt.error !== null && (
                       <span className="text-muted text-xs">
@@ -1132,10 +1137,7 @@ export function WordPanel({
             >
               Descartar esta imagem?
             </h2>
-            <p className="text-muted text-sm">
-              {discardWarning(discarding.creditsSpent)} A tentativa continua na
-              lista, com o que ela custou.
-            </p>
+            <p className="text-muted text-sm">{discardWarning(discarding)}</p>
             <div className="flex flex-wrap justify-end gap-2">
               {/*
                 Cancel closes and calls nothing. The form method keeps Esc and

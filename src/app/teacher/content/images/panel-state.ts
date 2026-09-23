@@ -101,14 +101,45 @@ export function attemptsToShow<T>(
  * at all; inventing a figure to fill the sentence would be putting a number
  * in front of the teacher that nobody checked, at the exact moment they are
  * deciding with it.
+ *
+ * An upload is the other way round. It cost nothing, and "custou 0 créditos"
+ * would read as nothing to lose, when the bucket holds the only copy the
+ * platform has of a picture the teacher finished by hand. So it says that,
+ * and how to get it back.
  */
-export function discardWarning(creditsSpent: number | null): string {
+export function discardWarning(attempt: {
+  readonly provider: string;
+  readonly creditsSpent: number | null;
+}): string {
   const gone = "O arquivo não volta.";
-  if (creditsSpent === null) {
-    return `O custo desta imagem não foi registrado. ${gone}`;
+  if (attempt.provider === "upload") {
+    return `Esta imagem foi enviada por você, e esta é a única cópia dela na plataforma. ${gone} Para tê-la de novo, envie o arquivo de novo.`;
   }
-  const credits = creditsSpent === 1 ? "1 crédito" : `${creditsSpent} créditos`;
-  return `Esta imagem custou ${credits}. ${gone}`;
+  const kept = "A tentativa continua na lista, com o que ela custou.";
+  const credits = attemptCredits(attempt);
+  if (credits === null) {
+    return `O custo desta imagem não foi registrado. ${gone} ${kept}`;
+  }
+  return `Esta imagem custou ${credits}. ${gone} ${kept}`;
+}
+
+/**
+ * What an attempt cost, as the list line says it, or null for nothing to say.
+ *
+ * Null on an unknown cost, for the reason above, and on an upload: its zero is
+ * true and stays in the row, but on the line it would set a provider's charge
+ * beside a file no provider was asked for.
+ */
+export function attemptCredits(attempt: {
+  readonly provider: string;
+  readonly creditsSpent: number | null;
+}): string | null {
+  if (attempt.provider === "upload" || attempt.creditsSpent === null) {
+    return null;
+  }
+  return attempt.creditsSpent === 1
+    ? "1 crédito"
+    : `${attempt.creditsSpent} créditos`;
 }
 
 /**
