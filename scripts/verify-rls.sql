@@ -734,6 +734,28 @@ begin
   v_refused := false;
   begin
     insert into image_attempts (vocabulary_item_id, provider, status, credits_spent)
+      values (v_word, 'upload', 'pending', 0);
+  exception when check_violation then
+    v_refused := true;
+  end;
+  if not v_refused then
+    raise exception 'a pending upload was accepted';
+  end if;
+
+  v_refused := false;
+  begin
+    insert into image_attempts (vocabulary_item_id, provider, status, credits_spent)
+      values (v_word, 'upload', 'failed', 0);
+  exception when check_violation then
+    v_refused := true;
+  end;
+  if not v_refused then
+    raise exception 'a failed upload was accepted';
+  end if;
+
+  v_refused := false;
+  begin
+    insert into image_attempts (vocabulary_item_id, provider, status, credits_spent)
       values (v_word, 'upload', 'generated', 50);
   exception when check_violation then
     v_refused := true;
@@ -808,6 +830,7 @@ begin
   end if;
 
   raise notice 'an upload with a null cost is refused';
+  raise notice 'a pending upload is refused, and a failed one';
   raise notice 'an upload that cost credits is refused';
   raise notice 'an upload naming a model or a provider task is refused';
   raise notice 'a source_filename on a generated attempt is refused';

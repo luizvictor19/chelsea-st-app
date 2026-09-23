@@ -27,21 +27,31 @@ alter table image_attempts
     source_filename is null or provider = 'upload'
   );
 
--- An upload names no model and no provider task, and it cost nothing. Zero,
--- not null: null on credits_spent means "nobody knows what this cost" (see
--- 0015), and the cost of an upload is known.
+-- What an upload is, as a positive list.
 --
--- IS NOT DISTINCT FROM, and not "credits_spent = 0". A check passes when its
--- expression is null, and "null = 0" is null, so the plain comparison would
--- accept an upload with no cost at all. scripts/verify-rls.sql asserts that
--- case.
+-- Its status is generated, approved or rejected, never pending or failed.
+-- Either the file went into the bucket and the row is written after it, or
+-- nothing is written: there is no provider to wait on, so nothing ever polls
+-- an upload, and a pending one would wait forever. A list of what it may be
+-- rather than of what it may not, so a status added later is refused for
+-- uploads until someone decides otherwise.
+--
+-- It names no model and no provider task, and it cost nothing. Zero, not
+-- null: null on credits_spent means "nobody knows what this cost" (see 0015),
+-- and the cost of an upload is known.
+--
+-- coalesce(credits_spent, -1) = 0, and not "credits_spent = 0". A check passes
+-- when its expression is null, and "null = 0" is null, so the plain
+-- comparison would accept an upload with no cost at all. The status list has
+-- no such hole: status is not null. scripts/verify-rls.sql asserts each case.
 alter table image_attempts
   add constraint image_attempts_upload_shape check (
     provider <> 'upload'
     or (
-      model is null
+      status in ('generated', 'approved', 'rejected')
+      and model is null
       and provider_request_id is null
-      and credits_spent is not distinct from 0
+      and coalesce(credits_spent, -1) = 0
     )
   );
 
