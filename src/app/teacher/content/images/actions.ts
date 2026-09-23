@@ -28,6 +28,7 @@ import {
   parseContrastSuggestions,
 } from "@/lib/images/contrast-suggest";
 import { buildPrompt } from "@/lib/images/style";
+import { withHeartbeat, type Heartbeat } from "@/lib/heartbeat";
 import { buildSubjectPrompt, parseSubject } from "@/lib/images/subject";
 import {
   buildSuggestionPrompt,
@@ -1194,7 +1195,7 @@ export type ContrastSuggestResult =
  * tab since the page loaded is not proposed again. Fewer than two is not a
  * failure and not worth a request.
  */
-export async function suggestContrastSets(
+async function proposeContrastSets(
   lessonContentId: string,
 ): Promise<ContrastSuggestResult> {
   const started = performance.now();
@@ -1316,4 +1317,28 @@ export async function suggestContrastSets(
       }),
     );
   }
+}
+
+/*
+ * A beat every 5s. The drops measured on 2026-09-23 came as early as 8237ms
+ * (see src/lib/heartbeat.ts), and 10s between beats was enough in that test
+ * only because no drop landed inside a gap; 5s leaves no gap that long.
+ */
+const CONTRAST_BEAT_MS = 5000;
+
+/**
+ * The same proposal, streamed with a heartbeat so the connection is never
+ * quiet for more than CONTRAST_BEAT_MS while the model thinks: 30.8s median
+ * and 58.0s worst for a lesson, where a silent connection was dropped at a
+ * random moment in 5 of 9 tries. The work and its suggest_contrast log line
+ * are proposeContrastSets, untouched; this only carries its answer.
+ *
+ * The screen reads it with readHeartbeat, and keeps askTwiceIfLost around
+ * it: whoever drops quiet connections is not known, so a drop is still
+ * possible, and asking again stays safe because nothing is written.
+ */
+export async function suggestContrastSets(
+  lessonContentId: string,
+): Promise<AsyncGenerator<Heartbeat<ContrastSuggestResult>>> {
+  return withHeartbeat(proposeContrastSets(lessonContentId), CONTRAST_BEAT_MS);
 }

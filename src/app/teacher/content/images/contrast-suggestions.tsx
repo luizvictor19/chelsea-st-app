@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { readHeartbeat } from "@/lib/heartbeat";
+
 import { saveContrastSet, suggestContrastSets } from "./actions";
 import {
   addMember,
@@ -98,7 +100,9 @@ export function ContrastSuggestions({
     const { answer } = await askTwiceIfLost(() => {
       if (!first) setStatus({ kind: "asking", since, retrying: true });
       first = false;
-      return suggestContrastSets(lessonContentId);
+      // The answer arrives as a stream of beats with the result at the end;
+      // a drop on the way throws, and askTwiceIfLost asks once more.
+      return readHeartbeat(suggestContrastSets(lessonContentId));
     });
 
     if (!answer.ok) {
