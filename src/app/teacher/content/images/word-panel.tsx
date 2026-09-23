@@ -26,6 +26,7 @@ import {
   modelLabel,
 } from "@/lib/images/provider";
 import { isDrawableKind } from "@/lib/images/style";
+import { UPLOAD_ACCEPT, refuseUpload } from "@/lib/images/upload";
 
 import {
   approveAttempt,
@@ -38,10 +39,12 @@ import {
   setWordClass,
   startGeneration,
   suggestSubject,
+  uploadFinishedImage,
   type ActionResult,
 } from "./actions";
 import { NotAPicture, shrinkReference } from "./shrink-reference";
 import {
+  attemptOrigin,
   attemptsToShow,
   asksBeforeReclassifying,
   discardWarning,
@@ -175,6 +178,7 @@ export function WordPanel({
   const runningStartedAt = running?.createdAt ?? null;
   const [now, setNow] = useState(() => Date.now());
   const referenceInput = useRef<HTMLInputElement>(null);
+  const finishedInput = useRef<HTMLInputElement>(null);
   const zoom = useRef<HTMLDialogElement>(null);
   const [zoomed, setZoomed] = useState<string | null>(null);
   /*
@@ -417,6 +421,25 @@ export function WordPanel({
       const result = await setReference(word.id, ready);
       if (result.ok) moveModelToTakeReference();
       return result;
+    });
+  }
+
+  function sendFinished(file: File) {
+    void run("enviar-pronta", async () => {
+      /*
+       * Asked here before a byte leaves the browser, and again in the action.
+       * The size above all: over serverActions.bodySizeLimit Next refuses
+       * with a 413, which reaches this panel as a lost connection, so a file
+       * that is merely too big has to be stopped where the sentence can say
+       * so. Nothing is shrunk: this is the picture itself, not a guide.
+       */
+      const refusal = refuseUpload({
+        size: file.size,
+        type: file.type,
+        kind: word.representation,
+      });
+      if (refusal !== null) return { ok: false, error: refusal };
+      return uploadFinishedImage(word.id, file);
     });
   }
 
@@ -823,6 +846,45 @@ export function WordPanel({
                 ? "O custo deste modelo ainda não foi medido no painel do Freepik."
                 : `${credits} créditos por imagem, medido no painel do Freepik.`}
             </p>
+
+            {/*
+              Apart from the reference on purpose. That one guides a
+              generation; this is a picture finished outside the platform,
+              and it goes into the list below as an attempt, to be approved
+              like any other.
+            */}
+            <div className="flex flex-col gap-2 pt-2">
+              <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
+                Imagem pronta
+              </span>
+              <div>
+                <button
+                  type="button"
+                  disabled={working}
+                  onClick={() => finishedInput.current?.click()}
+                  className="border-rule hover:bg-background rounded-sm border px-4 py-2 text-sm transition-colors disabled:opacity-50"
+                >
+                  {busy?.key === "enviar-pronta"
+                    ? "enviando"
+                    : "Enviar imagem pronta"}
+                </button>
+              </div>
+              <input
+                ref={finishedInput}
+                type="file"
+                accept={UPLOAD_ACCEPT}
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) sendFinished(file);
+                }}
+              />
+              <p className="text-faint text-xs">
+                PNG, JPEG ou WebP de até 2 MB, enviado como está. Entra nas
+                tentativas e espera a sua aprovação.
+              </p>
+            </div>
           </div>
         </>
       ) : (
@@ -905,11 +967,14 @@ export function WordPanel({
                     </button>
                   )}
                   <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <span className="font-mono text-xs">
+                    {/* wrap-anywhere: an uploaded file's name has no spaces
+                        to break at, and would run out of the panel. */}
+                    <span className="font-mono text-xs wrap-anywhere">
                       {STATUS_LABELS[attempt.status] ?? attempt.status}
                       {isRunning(attempt) &&
                         `, ${elapsedSeconds(attempt.createdAt, now)}s`}
-                      {attempt.model !== null && ` · ${attempt.model}`}
+                      {attemptOrigin(attempt) !== null &&
+                        ` · ${attemptOrigin(attempt)}`}
                       {took !== null && ` · ${took}s`}
                       {attempt.creditsSpent !== null &&
                         ` · ${attempt.creditsSpent} créditos`}

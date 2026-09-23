@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import {
   LOST_RESPONSE,
   asksBeforeReclassifying,
+  attemptOrigin,
   attemptsToShow,
   discardWarning,
   reclassifyWarning,
@@ -247,5 +248,43 @@ describe("asksBeforeReclassifying", () => {
    */
   test("an unknown kind is treated as one that carries no picture", () => {
     assert.equal(asksBeforeReclassifying("sketch", "https://x/y.jpg"), true);
+  });
+});
+
+describe("attemptOrigin", () => {
+  test("a generated attempt is named by its model", () => {
+    assert.equal(
+      attemptOrigin({
+        provider: "freepik",
+        model: "mystic",
+        sourceFilename: null,
+      }),
+      "mystic",
+    );
+  });
+
+  test("an upload says it was sent, and the file it came from", () => {
+    assert.equal(
+      attemptOrigin({
+        provider: "upload",
+        model: null,
+        sourceFilename: "anna-final.png",
+      }),
+      "enviada · anna-final.png",
+    );
+  });
+
+  test("an upload with no file name still says it was sent", () => {
+    assert.equal(
+      attemptOrigin({ provider: "upload", model: null, sourceFilename: null }),
+      "enviada",
+    );
+  });
+
+  test("a generated attempt with no model says nothing", () => {
+    assert.equal(
+      attemptOrigin({ provider: "freepik", model: null, sourceFilename: null }),
+      null,
+    );
   });
 });

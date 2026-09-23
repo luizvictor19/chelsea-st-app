@@ -158,3 +158,23 @@ export function reclassifyWarning(label: string): string {
     "de novo se você mudar o tipo outra vez."
   );
 }
+
+/**
+ * Where an attempt came from, as the list line says it, or null.
+ *
+ * A generation is named by its model. An upload has no model, so it says it
+ * was sent and, when the browser gave one, the name of the file: that name is
+ * the only thing tying the row to the picture the teacher finished by hand.
+ */
+export function attemptOrigin(attempt: {
+  readonly provider: string;
+  readonly model: string | null;
+  readonly sourceFilename: string | null;
+}): string | null {
+  if (attempt.provider === "upload") {
+    return attempt.sourceFilename === null
+      ? "enviada"
+      : `enviada · ${attempt.sourceFilename}`;
+  }
+  return attempt.model;
+}
