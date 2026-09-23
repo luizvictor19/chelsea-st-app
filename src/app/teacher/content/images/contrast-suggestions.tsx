@@ -87,8 +87,8 @@ export function ContrastSuggestions({
   const nothingToAsk = candidates.length < MIN_MEMBERS;
   const why =
     undecided > 0
-      ? "Decida os tipos antes: só palavras com imagem entram num conjunto"
-      : "Menos de duas palavras com imagem fora de conjunto";
+      ? "Decida os tipos antes: só palavras que levam imagem entram num conjunto"
+      : "Menos de duas palavras livres que levam imagem";
 
   async function ask() {
     const since = Date.now();
@@ -108,7 +108,7 @@ export function ContrastSuggestions({
     if (answer.sent < MIN_MEMBERS) {
       setStatus({
         kind: "note",
-        text: "Não há o que sugerir: menos de duas palavras com imagem fora de conjunto.",
+        text: "Não há o que sugerir: menos de duas palavras livres que levam imagem.",
       });
       return;
     }
