@@ -307,6 +307,27 @@ body {
   }
 
   /*
+   * The wait for contrast set proposals: one call for the whole lesson, with
+   * nothing confirmed in between, so the fill is all estimate. It borrows the
+   * racing curve above and its 120s, which were fitted to this same model's
+   * durations: one call per lesson was measured on 2026-09-22 at 30.8s median
+   * and 58.0s worst, where the curve stands at about 0.77 and 0.90. The
+   * seconds beside it are what is actually known.
+   */
+  @keyframes contrast-wait {
+    from {
+      width: 0;
+    }
+    to {
+      width: 100%;
+    }
+  }
+
+  .contrast-wait {
+    animation: contrast-wait 120s cubic-bezier(0.1, 0.5, 0, 0.9) forwards;
+  }
+
+  /*
    * Asked for no motion, the fill stops estimating rather than animating the
    * estimate more gently. The race is the one part of this bar that draws
    * something nobody measured, so it is the part that goes; what is left is
@@ -319,6 +340,11 @@ body {
     .suggest-fill.is-settling {
       width: var(--confirmed);
       transition: none;
+    }
+
+    .contrast-wait {
+      animation: none;
+      width: 0;
     }
   }
 }

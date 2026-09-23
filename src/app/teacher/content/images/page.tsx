@@ -7,7 +7,9 @@ import { ProgressBar } from "../progress-bar";
 import { overwriteWarning } from "@/lib/images/suggest";
 
 import { ContrastSetSection } from "./contrast-set-section";
+import { ContrastSuggestions } from "./contrast-suggestions";
 import { readContrastRows } from "./contrast-rows";
+import { contrastCandidates } from "@/lib/images/contrast-suggest";
 import {
   sectionKey,
   setColours,
@@ -115,6 +117,16 @@ function SetBadge({
   );
 }
 
+/*
+ * The longest call this screen waits on is one contrast set proposal for a
+ * whole lesson: 58.0s at worst when measured on 2026-09-22, and it cannot be
+ * cut into batches the way the kind suggestion was, because a set has to be
+ * seen whole. Server actions run under the page's segment config, so this is
+ * where their limit is raised, with room over the worst call seen. Suggestion
+ * batches and generations are far below it.
+ */
+export const maxDuration = 120;
+
 export default async function VocabularyImagesPage({
   searchParams,
 }: {
@@ -130,6 +142,10 @@ export default async function VocabularyImagesPage({
   const selectedId = typeof params.palavra === "string" ? params.palavra : null;
 
   const { lessons, progress } = await listVocabularyImages();
+  // One read of every membership, for the marks on the whole list, the open
+  // word's section and what each lesson can still propose, alike.
+  const contrastRows = await readContrastRows();
+  const inASet = new Set(contrastRows.map((row) => row.vocabulary_item_id));
 
   const visible = lessons
     .map((lesson) => ({
@@ -139,6 +155,20 @@ export default async function VocabularyImagesPage({
       // Both the count it is disabled by and the count it warns with are
       // taken here, before the filter, for the same reason.
       totalWords: lesson.words.length,
+      // The whole lesson, like the counts beside it: what can go into a
+      // contrast set does not depend on what the filter shows.
+      setCandidates: contrastCandidates(
+        lesson.words.map((word) => ({
+          id: word.id,
+          term: word.term,
+          point: word.pointNumber,
+          kind: word.representation,
+          wordClass: word.wordClass,
+        })),
+        inASet,
+      ).map(({ id, term, point }) => ({ id, term, point })),
+      undecided: lesson.words.filter((word) => word.representation === null)
+        .length,
       images: imageCounts(lesson.words),
       overwrite: overwriteWarning(lesson.words),
       words: lesson.words.filter(
@@ -169,9 +199,6 @@ export default async function VocabularyImagesPage({
       lessonNumber: lesson.lessonNumber,
     })),
   );
-  // One read of every membership, for the marks on the whole list and for
-  // the open word's section alike.
-  const contrastRows = await readContrastRows();
   // Numbered over the whole book, not the filtered view, so a set keeps its
   // colour and number whatever the filter hides.
   const marks = setColours(
@@ -263,6 +290,13 @@ export default async function VocabularyImagesPage({
                           lessonContentId={lesson.lessonContentId}
                           words={lesson.totalWords}
                           suggested={lesson.overwrite.suggested}
+                        />
+                      )}
+                      {lesson.lessonContentId !== null && (
+                        <ContrastSuggestions
+                          lessonContentId={lesson.lessonContentId}
+                          candidates={lesson.setCandidates}
+                          undecided={lesson.undecided}
                         />
                       )}
                     </div>
