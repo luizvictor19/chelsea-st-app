@@ -84,3 +84,52 @@ export function addMember(card: Card, member: Member): Card {
   }
   return { ...card, members: [...card.members, member], error: null };
 }
+
+type Proposal = {
+  readonly members: readonly Member[];
+  readonly reason: string;
+};
+
+const sameMembers = (members: readonly Member[]) =>
+  members
+    .map((member) => member.id)
+    .sort()
+    .join(",");
+
+/**
+ * The proposals that are not already a card on screen.
+ *
+ * A card not yet decided writes nothing, so its words go to the model again
+ * on the next click, and the model can propose the same set again. Two equal
+ * cards would then sit side by side, and accepting the second would fail on
+ * words the first had just saved.
+ *
+ * Equal means the same members, whatever the order, compared with each card
+ * as it is now, after any edit. A proposal that only overlaps a card is kept:
+ * ceiling and floor on screen and ceiling, floor and wall proposed are two
+ * different answers, and choosing between them is the teacher's.
+ */
+export function withoutCardsOnScreen(
+  onScreen: readonly Card[],
+  proposals: readonly Proposal[],
+): { readonly fresh: readonly Proposal[]; readonly repeated: number } {
+  const shown = new Set(onScreen.map((card) => sameMembers(card.members)));
+  const fresh = proposals.filter(
+    (proposal) => !shown.has(sameMembers(proposal.members)),
+  );
+  return { fresh, repeated: proposals.length - fresh.length };
+}
+
+/** What a click brought, said beside the button. */
+export function proposalsNote(proposed: number, repeated: number): string {
+  if (proposed === 0) return "O modelo não propôs nenhum conjunto.";
+  if (repeated === proposed) {
+    return "Nenhum conjunto novo: os propostos já estão na tela.";
+  }
+  const came =
+    proposed === 1 ? "1 conjunto proposto" : `${proposed} conjuntos propostos`;
+  if (repeated === 0) return `${came}.`;
+  return repeated === 1
+    ? `${came}, 1 já estava na tela.`
+    : `${came}, ${repeated} já estavam na tela.`;
+}

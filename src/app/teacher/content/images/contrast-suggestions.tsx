@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { saveContrastSet, suggestContrastSets } from "./actions";
 import {
   addMember,
   askTwiceIfLost,
   cardsFrom,
+  proposalsNote,
   removeMember,
+  withoutCardsOnScreen,
   type Card,
   type Member,
 } from "./contrast-proposals";
@@ -51,6 +53,18 @@ export function ContrastSuggestions({
 }) {
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [cards, setCards] = useState<readonly Card[]>([]);
+  /*
+   * The cards as last rendered, for the answer that lands after a wait of up
+   * to a minute: the teacher may have edited or refused cards meanwhile, and
+   * the closure that started the call only knows the cards of the click.
+   * Read outside a state updater on purpose, because React may run an
+   * updater later than the line that queues it, and the note needs the count
+   * now.
+   */
+  const cardsNow = useRef(cards);
+  useEffect(() => {
+    cardsNow.current = cards;
+  }, [cards]);
   /*
    * The card open for editing, and its members as they were when the edit
    * began, so Cancelar puts the proposal back rather than keeping half an
@@ -98,17 +112,17 @@ export function ContrastSuggestions({
       });
       return;
     }
-    // Added to the cards already on screen rather than replacing them: a
-    // card the teacher has not decided on yet is not the model's to take back.
-    setCards((current) => [...current, ...cardsFrom(answer.proposals)]);
+    /*
+     * Added to the cards already on screen rather than replacing them: a card
+     * the teacher has not decided on yet is not the model's to take back. A
+     * proposal equal to one of them is dropped, since those words were sent
+     * again only because nothing on a card is saved.
+     */
+    const kept = withoutCardsOnScreen(cardsNow.current, answer.proposals);
+    setCards((current) => [...current, ...cardsFrom(kept.fresh)]);
     setStatus({
       kind: "note",
-      text:
-        answer.proposals.length === 0
-          ? "O modelo não propôs nenhum conjunto."
-          : answer.proposals.length === 1
-            ? "1 conjunto proposto."
-            : `${answer.proposals.length} conjuntos propostos.`,
+      text: proposalsNote(answer.proposals.length, kept.repeated),
     });
   }
 

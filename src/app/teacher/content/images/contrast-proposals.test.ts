@@ -5,7 +5,9 @@ import {
   addMember,
   askTwiceIfLost,
   cardsFrom,
+  proposalsNote,
   removeMember,
+  withoutCardsOnScreen,
   type Card,
 } from "./contrast-proposals.ts";
 
@@ -104,5 +106,99 @@ describe("cards", () => {
     const refused = { ...card, error: "Já está em outro conjunto: small." };
     assert.equal(removeMember(refused, "s").error, null);
     assert.equal(addMember(refused, BOY).error, null);
+  });
+});
+
+describe("withoutCardsOnScreen", () => {
+  const CEILING = member("c", "ceiling", 2);
+  const FLOOR = member("f", "floor", 2);
+  const WALL = member("w", "wall", 2);
+  const DOOR = member("d", "door", 2);
+  const WINDOW = member("n", "window", 2);
+  const onScreen = cardsFrom([
+    { members: [CEILING, FLOOR], reason: "room" },
+    { members: [DOOR, WINDOW], reason: "openings" },
+  ]);
+
+  test("drops a proposal with the same members in another order", () => {
+    const { fresh, repeated } = withoutCardsOnScreen(onScreen, [
+      { members: [FLOOR, CEILING], reason: "again" },
+    ]);
+    assert.deepEqual(fresh, []);
+    assert.equal(repeated, 1);
+  });
+
+  test("keeps a proposal that only overlaps a card, for the teacher to decide", () => {
+    const { fresh, repeated } = withoutCardsOnScreen(onScreen, [
+      { members: [CEILING, FLOOR, WALL], reason: "surfaces" },
+    ]);
+    assert.deepEqual(
+      fresh.map((p) => p.members.map((m) => m.id)),
+      [["c", "f", "w"]],
+    );
+    assert.equal(repeated, 0);
+  });
+
+  test("compares against the card as it is now, after an edit", () => {
+    const [edited, other] = onScreen as Card[];
+    const withWall = addMember(edited, WALL);
+    const now = [withWall, other];
+    // What the card was before the edit is no longer on screen...
+    const before = withoutCardsOnScreen(now, [
+      { members: [CEILING, FLOOR], reason: "" },
+    ]);
+    assert.equal(before.fresh.length, 1);
+    assert.equal(before.repeated, 0);
+    // ...and what it is now is.
+    const after = withoutCardsOnScreen(now, [
+      { members: [WALL, FLOOR, CEILING], reason: "" },
+    ]);
+    assert.equal(after.fresh.length, 0);
+    assert.equal(after.repeated, 1);
+  });
+
+  test("all repeated, and none repeated", () => {
+    const all = withoutCardsOnScreen(onScreen, [
+      { members: [CEILING, FLOOR], reason: "" },
+      { members: [WINDOW, DOOR], reason: "" },
+    ]);
+    assert.deepEqual(all, { fresh: [], repeated: 2 });
+
+    const none = withoutCardsOnScreen(onScreen, [
+      { members: [LARGE, SMALL], reason: "" },
+      { members: [BOY, member("g", "girl", 4)], reason: "" },
+    ]);
+    assert.equal(none.fresh.length, 2);
+    assert.equal(none.repeated, 0);
+    // With nothing on screen, nothing is a repeat.
+    assert.equal(
+      withoutCardsOnScreen([], [{ members: [LARGE, SMALL], reason: "" }])
+        .repeated,
+      0,
+    );
+  });
+});
+
+describe("proposalsNote", () => {
+  test("counts what came and what was already on screen", () => {
+    assert.equal(proposalsNote(0, 0), "O modelo não propôs nenhum conjunto.");
+    assert.equal(proposalsNote(1, 0), "1 conjunto proposto.");
+    assert.equal(proposalsNote(3, 0), "3 conjuntos propostos.");
+    assert.equal(
+      proposalsNote(3, 1),
+      "3 conjuntos propostos, 1 já estava na tela.",
+    );
+    assert.equal(
+      proposalsNote(3, 2),
+      "3 conjuntos propostos, 2 já estavam na tela.",
+    );
+    assert.equal(
+      proposalsNote(2, 2),
+      "Nenhum conjunto novo: os propostos já estão na tela.",
+    );
+    assert.equal(
+      proposalsNote(1, 1),
+      "Nenhum conjunto novo: os propostos já estão na tela.",
+    );
   });
 });
