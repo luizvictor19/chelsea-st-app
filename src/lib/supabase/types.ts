@@ -291,6 +291,7 @@ export type Database = {
           provider: string;
           provider_request_id: string | null;
           reference_path: string | null;
+          source_filename: string | null;
           status: string;
           storage_path: string | null;
           subject: string | null;
@@ -308,6 +309,7 @@ export type Database = {
           provider: string;
           provider_request_id?: string | null;
           reference_path?: string | null;
+          source_filename?: string | null;
           status: string;
           storage_path?: string | null;
           subject?: string | null;
@@ -325,6 +327,7 @@ export type Database = {
           provider?: string;
           provider_request_id?: string | null;
           reference_path?: string | null;
+          source_filename?: string | null;
           status?: string;
           storage_path?: string | null;
           subject?: string | null;

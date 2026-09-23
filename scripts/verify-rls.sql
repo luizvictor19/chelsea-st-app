@@ -52,6 +52,7 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0020_suggestion_run_id.sql
 \i supabase/migrations/0021_reclassifying_is_not_rejecting.sql
 \i supabase/migrations/0022_contrast_is_between_pictures.sql
+\i supabase/migrations/0025_an_upload_is_a_file_not_a_generation.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
@@ -68,8 +69,8 @@ insert into blocks (point_id, position, kind, content)
   values ((select id from points where number = 53), 0, 'vocabulary', 'a word');
 insert into vocabulary_items (term, first_point_id)
   values ('a word', (select id from points where number = 53));
-insert into image_attempts (vocabulary_item_id, provider, status)
-  values ((select id from vocabulary_items where term = 'a word'), 'upload', 'generated');
+insert into image_attempts (vocabulary_item_id, provider, status, credits_spent)
+  values ((select id from vocabulary_items where term = 'a word'), 'upload', 'generated', 0);
 insert into questions (point_id, position, prompt, expected_answer, is_published)
   values ((select id from points where number = 53), 0, 'p', 'a', true);
 
@@ -154,11 +155,11 @@ begin
 
   select id into v_word from vocabulary_items where term = 'a word';
 
-  insert into image_attempts (vocabulary_item_id, provider, status, storage_path)
-    values (v_word, 'upload', 'generated', v_word::text || '/first.png')
+  insert into image_attempts (vocabulary_item_id, provider, status, storage_path, credits_spent)
+    values (v_word, 'upload', 'generated', v_word::text || '/first.png', 0)
     returning id into v_first;
-  insert into image_attempts (vocabulary_item_id, provider, status, storage_path)
-    values (v_word, 'upload', 'generated', v_word::text || '/second.png')
+  insert into image_attempts (vocabulary_item_id, provider, status, storage_path, credits_spent)
+    values (v_word, 'upload', 'generated', v_word::text || '/second.png', 0)
     returning id into v_second;
 
   perform approve_image_attempt(v_first);
@@ -228,8 +229,8 @@ begin
     values ('a reclassified word', (select id from points where number = 54))
     returning id into v_word;
 
-  insert into image_attempts (vocabulary_item_id, provider, status, storage_path)
-    values (v_word, 'upload', 'generated', v_word::text || '/only.png')
+  insert into image_attempts (vocabulary_item_id, provider, status, storage_path, credits_spent)
+    values (v_word, 'upload', 'generated', v_word::text || '/only.png', 0)
     returning id into v_attempt;
 
   perform approve_image_attempt(v_attempt);
@@ -693,5 +694,124 @@ begin
 
   raise notice 'the student cannot insert a contrast set';
   raise notice 'nor a contrast set member';
+end;
+$$;
+
+-- An upload is a file, not a generation, since 0025. It names no model and no
+-- provider task, it cost zero, and only it carries a source_filename.
+--
+-- The null cost is asserted on its own because it is the case a plain
+-- "credits_spent = 0" lets through: a check passes when its expression is
+-- null, and "null = 0" is null.
+do $$
+declare
+  v_word uuid;
+  v_first uuid;
+  v_second uuid;
+  v_approved integer;
+  v_first_status text;
+  v_pointer uuid;
+  v_refused boolean;
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+
+  insert into vocabulary_items (term, first_point_id)
+    values ('an uploaded word', (select id from points where number = 54))
+    returning id into v_word;
+
+  v_refused := false;
+  begin
+    insert into image_attempts (vocabulary_item_id, provider, status, credits_spent)
+      values (v_word, 'upload', 'generated', null);
+  exception when check_violation then
+    v_refused := true;
+  end;
+  if not v_refused then
+    raise exception 'an upload with a null credits_spent was accepted';
+  end if;
+
+  v_refused := false;
+  begin
+    insert into image_attempts (vocabulary_item_id, provider, status, credits_spent)
+      values (v_word, 'upload', 'generated', 50);
+  exception when check_violation then
+    v_refused := true;
+  end;
+  if not v_refused then
+    raise exception 'an upload that cost credits was accepted';
+  end if;
+
+  v_refused := false;
+  begin
+    insert into image_attempts (vocabulary_item_id, provider, model, status, credits_spent)
+      values (v_word, 'upload', 'mystic', 'generated', 0);
+  exception when check_violation then
+    v_refused := true;
+  end;
+  if not v_refused then
+    raise exception 'an upload naming a model was accepted';
+  end if;
+
+  v_refused := false;
+  begin
+    insert into image_attempts
+      (vocabulary_item_id, provider, provider_request_id, status, credits_spent)
+      values (v_word, 'upload', 'mystic:task', 'generated', 0);
+  exception when check_violation then
+    v_refused := true;
+  end;
+  if not v_refused then
+    raise exception 'an upload naming a provider task was accepted';
+  end if;
+
+  v_refused := false;
+  begin
+    insert into image_attempts
+      (vocabulary_item_id, provider, model, status, source_filename)
+      values (v_word, 'freepik', 'mystic', 'pending', 'scene.png');
+  exception when check_violation then
+    v_refused := true;
+  end;
+  if not v_refused then
+    raise exception 'a generated attempt carrying a source_filename was accepted';
+  end if;
+
+  -- A generation still opens with no cost: credits_spent is written only once
+  -- the provider accepts the task. The upload check must not reach it.
+  insert into image_attempts (vocabulary_item_id, provider, model, status)
+    values (v_word, 'freepik', 'mystic', 'pending');
+
+  insert into image_attempts
+    (vocabulary_item_id, provider, status, storage_path, credits_spent, source_filename)
+    values (v_word, 'upload', 'generated', v_word::text || '/first.png', 0, 'first.png')
+    returning id into v_first;
+  insert into image_attempts
+    (vocabulary_item_id, provider, status, storage_path, credits_spent, source_filename)
+    values (v_word, 'upload', 'generated', v_word::text || '/second.png', 0, 'second.png')
+    returning id into v_second;
+
+  perform approve_image_attempt(v_first);
+  perform approve_image_attempt(v_second);
+
+  select count(*) into v_approved
+    from image_attempts
+   where vocabulary_item_id = v_word and status = 'approved';
+  select status into v_first_status from image_attempts where id = v_first;
+  select approved_attempt_id into v_pointer from vocabulary_items where id = v_word;
+
+  if v_approved <> 1 or v_pointer is distinct from v_second then
+    raise exception 'approving two uploads left % approved, pointer %', v_approved, v_pointer;
+  end if;
+  if v_first_status <> 'generated' then
+    raise exception 'the replaced upload is %, expected generated', v_first_status;
+  end if;
+
+  raise notice 'an upload with a null cost is refused';
+  raise notice 'an upload that cost credits is refused';
+  raise notice 'an upload naming a model or a provider task is refused';
+  raise notice 'a source_filename on a generated attempt is refused';
+  raise notice 'a generation still opens with no cost';
+  raise notice 'uploads approve like any attempt: one approved, the replaced one a candidate';
 end;
 $$;
