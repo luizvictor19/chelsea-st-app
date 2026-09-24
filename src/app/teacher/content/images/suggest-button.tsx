@@ -375,7 +375,7 @@ export function SuggestButton({
   /*
    * Nothing to draw until a pass has been started, which is what makes the
    * bar the pass: before the first click there is no pass, and the lesson's
-   * state is in the sentence, where it says "18 sugeridas" whether anything
+   * state is in the sentence, where it says "18 sugeridos" whether anything
    * has run or not.
    *
    * Monotone inside a pass and zeroed between them. confirmedWords holds the

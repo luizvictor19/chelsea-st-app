@@ -31,7 +31,7 @@ export type SuggestOutcome =
 
 /** "3 sem resposta" only when there were any: a zero is noise. */
 function withUnanswered(suggested: number, unanswered: number): string {
-  const head = suggested === 1 ? "1 sugerida" : `${suggested} sugeridas`;
+  const head = suggested === 1 ? "1 sugerido" : `${suggested} sugeridos`;
   if (unanswered === 0) return head;
   return unanswered === 1
     ? `${head}, 1 sem resposta`

@@ -37,12 +37,12 @@ describe("restingNote", () => {
    * the lesson header, so it is the only place the state is written.
    */
   test("says how many of the lesson's words carry a suggestion", () => {
-    assert.equal(restingNote(60, 0), "60 sugeridas");
-    assert.equal(restingNote(58, 2), "58 sugeridas, 2 sem resposta");
+    assert.equal(restingNote(60, 0), "60 sugeridos");
+    assert.equal(restingNote(58, 2), "58 sugeridos, 2 sem resposta");
   });
 
   /*
-   * A zero is noise. "60 sugeridas, 0 recusadas" makes the reader look for a
+   * A zero is noise. "60 sugeridos, 0 recusados" makes the reader look for a
    * problem that is not there.
    */
   test("mentions refusals only when there were any", () => {
@@ -56,12 +56,12 @@ describe("restingNote", () => {
    * before this sentence existed it was mentioned nowhere at all.
    */
   test("counts a word the model never answered for", () => {
-    assert.equal(restingNote(9, 1), "9 sugeridas, 1 sem resposta");
-    assert.equal(restingNote(50, 10), "50 sugeridas, 10 sem resposta");
+    assert.equal(restingNote(9, 1), "9 sugeridos, 1 sem resposta");
+    assert.equal(restingNote(50, 10), "50 sugeridos, 10 sem resposta");
   });
 
   test("counts one in the singular, on both halves", () => {
-    assert.equal(restingNote(1, 1), "1 sugerida, 1 sem resposta");
+    assert.equal(restingNote(1, 1), "1 sugerido, 1 sem resposta");
   });
 
   /*
@@ -69,7 +69,7 @@ describe("restingNote", () => {
    * an empty space there would read as a screen that had not loaded.
    */
   test("writes the zero out rather than saying nothing", () => {
-    assert.equal(restingNote(0, 0), "0 sugeridas");
+    assert.equal(restingNote(0, 0), "0 sugeridos");
   });
 });
 
