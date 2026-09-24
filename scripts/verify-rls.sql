@@ -52,6 +52,7 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0020_suggestion_run_id.sql
 \i supabase/migrations/0021_reclassifying_is_not_rejecting.sql
 \i supabase/migrations/0022_contrast_is_between_pictures.sql
+\i supabase/migrations/0025_an_upload_is_a_file_not_a_generation.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
@@ -68,8 +69,10 @@ insert into blocks (point_id, position, kind, content)
   values ((select id from points where number = 53), 0, 'vocabulary', 'a word');
 insert into vocabulary_items (term, first_point_id)
   values ('a word', (select id from points where number = 53));
-insert into image_attempts (vocabulary_item_id, provider, status)
-  values ((select id from vocabulary_items where term = 'a word'), 'upload', 'generated');
+insert into image_attempts
+  (vocabulary_item_id, provider, status, storage_path, credits_spent, completed_at)
+  values ((select id from vocabulary_items where term = 'a word'), 'upload', 'generated',
+          'fixture/only.png', 0, now());
 insert into questions (point_id, position, prompt, expected_answer, is_published)
   values ((select id from points where number = 53), 0, 'p', 'a', true);
 
@@ -154,11 +157,11 @@ begin
 
   select id into v_word from vocabulary_items where term = 'a word';
 
-  insert into image_attempts (vocabulary_item_id, provider, status, storage_path)
-    values (v_word, 'upload', 'generated', v_word::text || '/first.png')
+  insert into image_attempts (vocabulary_item_id, provider, status, storage_path, credits_spent, completed_at)
+    values (v_word, 'upload', 'generated', v_word::text || '/first.png', 0, now())
     returning id into v_first;
-  insert into image_attempts (vocabulary_item_id, provider, status, storage_path)
-    values (v_word, 'upload', 'generated', v_word::text || '/second.png')
+  insert into image_attempts (vocabulary_item_id, provider, status, storage_path, credits_spent, completed_at)
+    values (v_word, 'upload', 'generated', v_word::text || '/second.png', 0, now())
     returning id into v_second;
 
   perform approve_image_attempt(v_first);
@@ -228,8 +231,8 @@ begin
     values ('a reclassified word', (select id from points where number = 54))
     returning id into v_word;
 
-  insert into image_attempts (vocabulary_item_id, provider, status, storage_path)
-    values (v_word, 'upload', 'generated', v_word::text || '/only.png')
+  insert into image_attempts (vocabulary_item_id, provider, status, storage_path, credits_spent, completed_at)
+    values (v_word, 'upload', 'generated', v_word::text || '/only.png', 0, now())
     returning id into v_attempt;
 
   perform approve_image_attempt(v_attempt);
@@ -693,5 +696,194 @@ begin
 
   raise notice 'the student cannot insert a contrast set';
   raise notice 'nor a contrast set member';
+end;
+$$;
+
+-- An upload is a file, not a generation, since 0025.
+--
+-- Each case names the constraint that has to refuse it, and the name is
+-- checked: a refusal by some other check would leave these green with the one
+-- under test removed. The failures are gathered and raised together at the
+-- end, so taking one clause out of 0025 shows every assertion that rests on
+-- it, not only the first.
+--
+-- The helpers live in a schema of their own so they stay out of the types,
+-- which are generated from public.
+create schema verify;
+grant usage on schema verify to authenticated;
+
+create table verify.failures (what text not null);
+grant insert, select on verify.failures to authenticated;
+
+-- The name of the check that refused a statement, or null when it went in.
+create function verify.refused_by(p_sql text) returns text
+language plpgsql as $$
+declare
+  v_name text;
+begin
+  execute p_sql;
+  return null;
+exception when check_violation then
+  get stacked diagnostics v_name = constraint_name;
+  return v_name;
+end;
+$$;
+
+create function verify.expect_refused(p_what text, p_constraint text, p_sql text)
+returns void
+language plpgsql as $$
+declare
+  v_by text := verify.refused_by(p_sql);
+begin
+  if v_by is null then
+    insert into verify.failures values (format('%s: accepted', p_what));
+  elsif v_by <> p_constraint then
+    insert into verify.failures
+      values (format('%s: refused by %s, expected %s', p_what, v_by, p_constraint));
+  else
+    raise notice '%: refused by %', p_what, v_by;
+  end if;
+end;
+$$;
+
+do $$
+declare
+  v_word uuid;
+  v_kept uuid;
+  v_binned uuid;
+  v_failures text;
+  -- A well formed upload, with one column at a time replaced below.
+  c_cols constant text :=
+    'vocabulary_item_id, provider, status, storage_path, credits_spent, completed_at';
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+
+  insert into vocabulary_items (term, first_point_id)
+    values ('an uploaded word', (select id from points where number = 54))
+    returning id into v_word;
+
+  -- What is refused, and by which constraint.
+  perform verify.expect_refused('a provider spelled Upload',
+    'image_attempts_provider_known',
+    format('insert into image_attempts (%s) values (%L, ''Upload'', ''generated'', ''w/a.png'', 0, now())',
+      c_cols, v_word));
+
+  perform verify.expect_refused('a source_filename on a generated attempt',
+    'image_attempts_filename_only_on_upload',
+    format('insert into image_attempts (vocabulary_item_id, provider, model, status, source_filename)
+            values (%L, ''freepik'', ''mystic'', ''pending'', ''scene.png'')', v_word));
+
+  perform verify.expect_refused('an empty source_filename',
+    'image_attempts_filename_not_blank',
+    format('insert into image_attempts (%s, source_filename) values (%L, ''upload'', ''generated'', ''w/a.png'', 0, now(), '''')',
+      c_cols, v_word));
+
+  perform verify.expect_refused('a blank source_filename',
+    'image_attempts_filename_not_blank',
+    format('insert into image_attempts (%s, source_filename) values (%L, ''upload'', ''generated'', ''w/a.png'', 0, now(), ''   '')',
+      c_cols, v_word));
+
+  perform verify.expect_refused('a pending upload',
+    'image_attempts_upload_shape',
+    format('insert into image_attempts (%s) values (%L, ''upload'', ''pending'', ''w/a.png'', 0, now())',
+      c_cols, v_word));
+
+  perform verify.expect_refused('a failed upload',
+    'image_attempts_upload_shape',
+    format('insert into image_attempts (%s) values (%L, ''upload'', ''failed'', ''w/a.png'', 0, now())',
+      c_cols, v_word));
+
+  perform verify.expect_refused('a generated upload with no file',
+    'image_attempts_upload_shape',
+    format('insert into image_attempts (%s) values (%L, ''upload'', ''generated'', null, 0, now())',
+      c_cols, v_word));
+
+  perform verify.expect_refused('an upload naming a model',
+    'image_attempts_upload_shape',
+    format('insert into image_attempts (%s, model) values (%L, ''upload'', ''generated'', ''w/a.png'', 0, now(), ''mystic'')',
+      c_cols, v_word));
+
+  perform verify.expect_refused('an upload naming a provider task',
+    'image_attempts_upload_shape',
+    format('insert into image_attempts (%s, provider_request_id) values (%L, ''upload'', ''generated'', ''w/a.png'', 0, now(), ''mystic:task'')',
+      c_cols, v_word));
+
+  perform verify.expect_refused('an upload carrying a prompt',
+    'image_attempts_upload_shape',
+    format('insert into image_attempts (%s, prompt) values (%L, ''upload'', ''generated'', ''w/a.png'', 0, now(), ''a flat picture'')',
+      c_cols, v_word));
+
+  perform verify.expect_refused('an upload naming a reference',
+    'image_attempts_upload_shape',
+    format('insert into image_attempts (%s, reference_path) values (%L, ''upload'', ''generated'', ''w/a.png'', 0, now(), ''references/w/r.png'')',
+      c_cols, v_word));
+
+  perform verify.expect_refused('an upload carrying an error',
+    'image_attempts_upload_shape',
+    format('insert into image_attempts (%s, error) values (%L, ''upload'', ''generated'', ''w/a.png'', 0, now(), ''FAILED'')',
+      c_cols, v_word));
+
+  perform verify.expect_refused('an upload with no completed_at',
+    'image_attempts_upload_shape',
+    format('insert into image_attempts (%s) values (%L, ''upload'', ''generated'', ''w/a.png'', 0, null)',
+      c_cols, v_word));
+
+  perform verify.expect_refused('an upload with a null cost',
+    'image_attempts_upload_shape',
+    format('insert into image_attempts (%s) values (%L, ''upload'', ''generated'', ''w/a.png'', null, now())',
+      c_cols, v_word));
+
+  perform verify.expect_refused('an upload that cost credits',
+    'image_attempts_upload_shape',
+    format('insert into image_attempts (%s) values (%L, ''upload'', ''generated'', ''w/a.png'', 50, now())',
+      c_cols, v_word));
+
+  -- The same rules hold on the way there, not only on the way in.
+  insert into image_attempts
+    (vocabulary_item_id, provider, status, storage_path, credits_spent, completed_at, source_filename)
+    values (v_word, 'upload', 'generated', v_word::text || '/kept.png', 0, now(), 'kept.png')
+    returning id into v_kept;
+
+  perform verify.expect_refused('an upload moved to pending',
+    'image_attempts_upload_shape',
+    format('update image_attempts set status = ''pending'' where id = %L', v_kept));
+
+  perform verify.expect_refused('an upload moved to failed',
+    'image_attempts_upload_shape',
+    format('update image_attempts set status = ''failed'' where id = %L', v_kept));
+
+  perform verify.expect_refused('an upload losing its file while still generated',
+    'image_attempts_upload_shape',
+    format('update image_attempts set storage_path = null where id = %L', v_kept));
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'upload shape: %', v_failures;
+  end if;
+
+  -- What is accepted. The bin as rejectAttempt runs it on an upload: marked
+  -- rejected, then the path cleared once the file is gone. Without the
+  -- 'rejected' exception in 0025 the second step would fail in production.
+  insert into image_attempts
+    (vocabulary_item_id, provider, status, storage_path, credits_spent, completed_at)
+    values (v_word, 'upload', 'generated', v_word::text || '/binned.png', 0, now())
+    returning id into v_binned;
+  update image_attempts set status = 'rejected', decided_at = now() where id = v_binned;
+  update image_attempts set storage_path = null where id = v_binned;
+
+  -- A generation still opens with no cost and no stamp: credits_spent is
+  -- written once the provider accepts the task, completed_at once it ends.
+  -- None of the upload rules reach it.
+  insert into image_attempts (vocabulary_item_id, provider, model, prompt, status)
+    values (v_word, 'freepik', 'mystic', 'a flat picture', 'pending');
+
+  -- And the kept upload approves. The approval rules themselves are asserted
+  -- once, near the top, on uploads already.
+  perform approve_image_attempt(v_kept);
+
+  raise notice 'a discarded upload loses its file and stays, as the bin leaves it';
+  raise notice 'a generation still opens with no cost';
+  raise notice 'a well formed upload is accepted and approves';
 end;
 $$;

@@ -13,6 +13,9 @@
  * because it was never in the browser to begin with.
  */
 
+// Relative, with the extension: node --test loads this file too.
+import { MAX_FILE_BYTES } from "./body-limit.ts";
+
 /**
  * How long an attempt is given before it is called lost.
  *
@@ -168,18 +171,14 @@ export function generationSeconds(attempt: Finished): number | null {
  * catches is the file that is still enormous afterwards, so that it is
  * refused by us, with a sentence, rather than by the framework.
  *
- * Next caps a server action body at 1 MB unless told otherwise
- * (action-handler.js, 1024 * 1024), and it refuses with a 413 that reaches
- * the panel as "the server's answer never arrived" — the message written for
- * a lost connection, on a file that was simply too big. So next.config.ts
- * raises the frame to 3 MB: the limit that says no has to be ours, and it has
- * to say why.
+ * It is the cap body-limit.ts holds every file to, under the frame
+ * next.config.ts raises, so the limit that says no is ours and says why.
  *
  * Structure is silhouette. A reference is telling the model what shape to
  * draw, not what detail to copy, so there was never anything here that needed
  * the resolution a phone camera produces.
  */
-export const MAX_REFERENCE_BYTES = 2 * 1024 * 1024;
+export const MAX_REFERENCE_BYTES = MAX_FILE_BYTES;
 
 /** Said when a file is still too big after the browser has shrunk it. */
 export const REFERENCE_TOO_BIG =

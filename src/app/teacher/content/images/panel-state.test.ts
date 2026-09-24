@@ -4,6 +4,8 @@ import { describe, test } from "node:test";
 import {
   LOST_RESPONSE,
   asksBeforeReclassifying,
+  attemptCredits,
+  attemptOrigin,
   attemptsToShow,
   discardWarning,
   reclassifyWarning,
@@ -120,6 +122,15 @@ describe("attemptsToShow", () => {
   });
 });
 
+/** An attempt as the bin sees it. */
+function generated(creditsSpent: number | null) {
+  return { provider: "freepik", creditsSpent };
+}
+
+function uploaded() {
+  return { provider: "upload", creditsSpent: 0 };
+}
+
 describe("discardWarning", () => {
   /*
    * The number, not "are you sure". The bin removes the file from the bucket
@@ -128,12 +139,12 @@ describe("discardWarning", () => {
    */
   test("says what the picture cost and that the file is gone", () => {
     assert.equal(
-      discardWarning(80),
-      "Esta imagem custou 80 créditos. O arquivo não volta.",
+      discardWarning(generated(80)),
+      "Esta imagem custou 80 créditos. O arquivo não volta. A tentativa continua na lista, com o que ela custou.",
     );
     assert.equal(
-      discardWarning(150),
-      "Esta imagem custou 150 créditos. O arquivo não volta.",
+      discardWarning(generated(150)),
+      "Esta imagem custou 150 créditos. O arquivo não volta. A tentativa continua na lista, com o que ela custou.",
     );
   });
 
@@ -144,7 +155,7 @@ describe("discardWarning", () => {
    * moment they are deciding with it.
    */
   test("says the cost was not recorded rather than inventing one", () => {
-    const said = discardWarning(null);
+    const said = discardWarning(generated(null));
     assert.match(said, /não foi registrado/u);
     assert.doesNotMatch(said, /\d/u);
     assert.match(said, /O arquivo não volta\./u);
@@ -152,8 +163,25 @@ describe("discardWarning", () => {
 
   test("never drops the warning that the file is gone", () => {
     for (const cost of [null, 0, 1, 50, 80, 150]) {
-      assert.match(discardWarning(cost), /O arquivo não volta\./u, `${cost}`);
+      assert.match(
+        discardWarning(generated(cost)),
+        /O arquivo não volta\./u,
+        `${cost}`,
+      );
     }
+    assert.match(discardWarning(uploaded()), /O arquivo não volta\./u);
+  });
+
+  /*
+   * An upload cost nothing, and "custou 0 créditos" would read as nothing to
+   * lose. It is the opposite: the bucket holds the only copy the platform
+   * has of a picture finished by hand.
+   */
+  test("an upload says it is the only copy, and never a cost", () => {
+    const said = discardWarning(uploaded());
+    assert.doesNotMatch(said, /crédito/u);
+    assert.match(said, /única cópia/u);
+    assert.match(said, /envie o arquivo de novo/u);
   });
 
   /*
@@ -162,12 +190,12 @@ describe("discardWarning", () => {
    * a number in the other direction.
    */
   test("tells zero apart from unknown", () => {
-    assert.match(discardWarning(0), /custou 0 créditos/u);
-    assert.doesNotMatch(discardWarning(0), /não foi registrado/u);
+    assert.match(discardWarning(generated(0)), /custou 0 créditos/u);
+    assert.doesNotMatch(discardWarning(generated(0)), /não foi registrado/u);
   });
 
   test("counts one credit in the singular", () => {
-    assert.match(discardWarning(1), /custou 1 crédito\./u);
+    assert.match(discardWarning(generated(1)), /custou 1 crédito\./u);
   });
 });
 
@@ -247,5 +275,69 @@ describe("asksBeforeReclassifying", () => {
    */
   test("an unknown kind is treated as one that carries no picture", () => {
     assert.equal(asksBeforeReclassifying("sketch", "https://x/y.jpg"), true);
+  });
+});
+
+describe("attemptOrigin", () => {
+  test("a generated attempt is named by its model", () => {
+    assert.equal(
+      attemptOrigin({
+        provider: "freepik",
+        model: "mystic",
+        sourceFilename: null,
+      }),
+      "mystic",
+    );
+  });
+
+  test("an upload says it was sent, and the file it came from", () => {
+    assert.equal(
+      attemptOrigin({
+        provider: "upload",
+        model: null,
+        sourceFilename: "anna-final.png",
+      }),
+      "enviada · anna-final.png",
+    );
+  });
+
+  test("an upload with no file name still says it was sent", () => {
+    assert.equal(
+      attemptOrigin({ provider: "upload", model: null, sourceFilename: null }),
+      "enviada",
+    );
+  });
+
+  test("a generated attempt with no model says nothing", () => {
+    assert.equal(
+      attemptOrigin({ provider: "freepik", model: null, sourceFilename: null }),
+      null,
+    );
+  });
+});
+
+describe("attemptCredits", () => {
+  test("a generation says what it cost", () => {
+    assert.equal(
+      attemptCredits({ provider: "freepik", creditsSpent: 80 }),
+      "80 créditos",
+    );
+    assert.equal(
+      attemptCredits({ provider: "freepik", creditsSpent: 1 }),
+      "1 crédito",
+    );
+  });
+
+  test("an unknown cost says nothing", () => {
+    assert.equal(
+      attemptCredits({ provider: "freepik", creditsSpent: null }),
+      null,
+    );
+  });
+
+  // The zero is true, and kept in the row; on the line it would set a
+  // provider's charge beside a file no provider was asked for.
+  test("an upload says nothing about credits", () => {
+    assert.equal(attemptCredits({ provider: "upload", creditsSpent: 0 }), null);
   });
 });

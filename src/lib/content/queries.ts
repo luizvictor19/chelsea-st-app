@@ -304,6 +304,8 @@ export type ImageAttempt = {
    * one still running and on every attempt made before migration 0013.
    */
   readonly completedAt: string | null;
+  /** The original name of an uploaded file. Null on every generated one. */
+  readonly sourceFilename: string | null;
 };
 
 /**
@@ -465,7 +467,7 @@ export async function readWordAttempts(
   const { data: rows, error } = await supabase
     .from("image_attempts")
     .select(
-      "id, status, provider, model, subject, storage_path, error, credits_spent, created_at, completed_at",
+      "id, status, provider, model, subject, storage_path, error, credits_spent, created_at, completed_at, source_filename",
     )
     .eq("vocabulary_item_id", wordId)
     .order("created_at", { ascending: false });
@@ -485,6 +487,7 @@ export async function readWordAttempts(
       creditsSpent: row.credits_spent,
       createdAt: row.created_at,
       completedAt: row.completed_at,
+      sourceFilename: row.source_filename,
     })),
   );
 }
