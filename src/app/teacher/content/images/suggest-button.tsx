@@ -3,6 +3,7 @@
 import { useRef, useState, type CSSProperties } from "react";
 import { flushSync } from "react-dom";
 
+import { readHeartbeat } from "@/lib/heartbeat";
 import { SUGGESTION_BATCH } from "@/lib/images/suggest";
 
 import { countSuggestionRun, suggestRepresentations } from "./actions";
@@ -206,7 +207,7 @@ export function SuggestButton({
 
       const startedAt = performance.now();
       let result = await settle(() =>
-        suggestRepresentations(lessonContentId, at, runId),
+        readHeartbeat(suggestRepresentations(lessonContentId, at, runId)),
       );
 
       /*
@@ -310,7 +311,7 @@ export function SuggestButton({
          */
         const retriedAt = performance.now();
         result = await settle(() =>
-          suggestRepresentations(lessonContentId, at, runId),
+          readHeartbeat(suggestRepresentations(lessonContentId, at, runId)),
         );
         if (!result.ok && "cause" in result) {
           // The repeat was lost as well, so the stall below is where this run

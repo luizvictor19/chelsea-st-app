@@ -27,6 +27,19 @@
  * leave at 0s and each beat at its interval.
  */
 
+/** The earliest drop of a quiet connection measured, above: 8237ms. */
+export const EARLIEST_DROP_MS = 8237;
+
+/**
+ * How often a long action beats: every 5s, for every action that streams.
+ *
+ * Below the earliest drop measured, so no gap between beats is long enough
+ * for one. 10s passed the test of five above only because no drop happened
+ * to land inside a gap. Measured again on 2026-09-22 at a byte every 5s:
+ * 5 of 5 arrived.
+ */
+export const ACTION_BEAT_MS = 5000;
+
 /** A beat, numbered from 0, or the result, once, as the last chunk. */
 export type Heartbeat<T> = { readonly beat: number } | { readonly done: T };
 
