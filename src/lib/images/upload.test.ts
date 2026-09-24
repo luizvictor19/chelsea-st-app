@@ -8,8 +8,8 @@ import {
   afterWrite,
   megabytes,
   refuseUpload,
+  readImageFile,
   sniffImageType,
-  storageBody,
   tooBig,
   uploadExtension,
   uploadFilename,
@@ -159,16 +159,42 @@ describe("uploadFilename", () => {
   });
 });
 
-describe("storageBody", () => {
-  test("hands storage the bytes, never the File", async () => {
-    // storage-js wraps a Blob in FormData and drops the contentType given
-    // with it, so the type read off the bytes would never reach the bucket.
-    const file = new File([new Uint8Array(PNG)], "renamed.jpg", {
-      type: "image/jpeg",
-    });
-    const body = await storageBody(file);
-    assert.ok(!(body instanceof Blob));
-    assert.deepEqual([...new Uint8Array(body)], PNG);
+describe("readImageFile", () => {
+  /*
+   * What both paths that put a file in the bucket hand storage: the bytes and
+   * the type they give. storage-js wraps a Blob in FormData and drops the
+   * contentType given with it, so neither the File nor its declared type may
+   * reach the upload.
+   */
+  test("gives the bytes, never the File", async () => {
+    const read = await readImageFile(
+      new File([new Uint8Array(PNG)], "renamed.jpg", { type: "image/jpeg" }),
+    );
+    assert.ok(read !== null);
+    assert.ok(!(read.body instanceof Blob));
+    assert.deepEqual([...new Uint8Array(read.body)], PNG);
+  });
+
+  test("the type and extension come from the bytes, not the name or the declared type", async () => {
+    const read = await readImageFile(
+      new File([new Uint8Array(PNG)], "renamed.jpg", { type: "image/jpeg" }),
+    );
+    assert.equal(read?.type, "image/png");
+    assert.equal(read?.extension, "png");
+  });
+
+  test("a file that declares no type still gets its real one", async () => {
+    const read = await readImageFile(
+      new File([new Uint8Array(JPEG)], "shrunk", { type: "" }),
+    );
+    assert.equal(read?.type, "image/jpeg");
+    assert.equal(read?.extension, "jpg");
+  });
+
+  test("is null for bytes that are not PNG, JPEG or WebP", async () => {
+    assert.equal(await readImageFile(new Blob([new Uint8Array(GIF)])), null);
+    assert.equal(await readImageFile(new Blob([new Uint8Array(SVG)])), null);
+    assert.equal(await readImageFile(new Blob([])), null);
   });
 });
 

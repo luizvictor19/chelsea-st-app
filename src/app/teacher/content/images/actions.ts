@@ -29,12 +29,9 @@ import {
 } from "@/lib/images/contrast-suggest";
 import { buildPrompt } from "@/lib/images/style";
 import {
-  SNIFF_BYTES,
   afterWrite,
+  readImageFile,
   refuseUpload,
-  sniffImageType,
-  storageBody,
-  uploadExtension,
   uploadFilename,
 } from "@/lib/images/upload";
 import { withHeartbeat, type Heartbeat } from "@/lib/heartbeat";
@@ -268,15 +265,21 @@ export async function setReference(
     }
     const { supabase } = await requireTeacher();
 
-    const extension = extensionFor(
-      file.type,
-      file.name.split(".").pop() ?? "jpg",
-    );
-    const path = `${REFERENCE_PREFIX}/${wordId}/${crypto.randomUUID()}.${extension}`;
+    // The type and the extension from the bytes, and the bytes as the body:
+    // given the File, storage-js drops contentType and the bucket would serve
+    // whatever the browser declared. See readImageFile.
+    const image = await readImageFile(file);
+    if (image === null) {
+      return {
+        ok: false,
+        error: "Não consegui ler esse arquivo como PNG, JPEG ou WebP.",
+      };
+    }
+    const path = `${REFERENCE_PREFIX}/${wordId}/${crypto.randomUUID()}.${image.extension}`;
 
     const { error: uploadError } = await supabase.storage
       .from(BUCKET)
-      .upload(path, file, { contentType: file.type || undefined });
+      .upload(path, image.body, { contentType: image.type });
     if (uploadError) return { ok: false, error: uploadError.message };
 
     // After the file is in the bucket, never before: a column pointing at a
@@ -344,9 +347,8 @@ export async function uploadFinishedImage(
 
     // The bytes, not the name, say what the file is. It is stored under the
     // type they give, which is what the student's browser will decode.
-    const head = new Uint8Array(await file.slice(0, SNIFF_BYTES).arrayBuffer());
-    const type = sniffImageType(head);
-    if (type === null) {
+    const image = await readImageFile(file);
+    if (image === null) {
       return {
         ok: false,
         error: "Não consegui ler esse arquivo como PNG, JPEG ou WebP.",
@@ -354,13 +356,12 @@ export async function uploadFinishedImage(
     }
 
     const attemptId = crypto.randomUUID();
-    const path = `${wordId}/${attemptId}.${uploadExtension(type)}`;
+    const path = `${wordId}/${attemptId}.${image.extension}`;
 
-    // The bytes and not the File: given a File, storage-js drops contentType
-    // and the bucket would serve the type the name implied. See storageBody.
+    // The bytes and not the File: see readImageFile.
     const { error: uploadError } = await supabase.storage
       .from(BUCKET)
-      .upload(path, await storageBody(file), { contentType: type });
+      .upload(path, image.body, { contentType: image.type });
     if (uploadError) {
       return {
         ok: false,
