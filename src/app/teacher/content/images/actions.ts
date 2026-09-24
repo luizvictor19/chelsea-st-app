@@ -34,7 +34,7 @@ import {
   refuseUpload,
   uploadFilename,
 } from "@/lib/images/upload";
-import { withHeartbeat, type Heartbeat } from "@/lib/heartbeat";
+import { ACTION_BEAT_MS, withHeartbeat, type Heartbeat } from "@/lib/heartbeat";
 import { buildSubjectPrompt, parseSubject } from "@/lib/images/subject";
 import {
   buildSuggestionPrompt,
@@ -917,10 +917,10 @@ export type SuggestResult =
  * overwriting a decision would not be a re-run, it would be the model grading
  * itself.
  */
-export async function suggestRepresentations(
+async function suggestBatch(
   lessonContentId: string,
-  offset = 0,
-  runId: string | null = null,
+  offset: number,
+  runId: string | null,
 ): Promise<SuggestResult> {
   const started = performance.now();
   const marks = {
@@ -1075,6 +1075,33 @@ export async function suggestRepresentations(
       }),
     );
   }
+}
+
+/**
+ * One batch, streamed with a heartbeat so the connection is never quiet for
+ * more than ACTION_BEAT_MS while the model answers. A batch takes 2.5 to
+ * 59.6s, silent until the end, and Firefox was seen dropping quiet
+ * connections at random between 8 and 33s; the server finished and wrote
+ * every time, into a socket nobody read.
+ *
+ * The work is suggestBatch, untouched: it writes its rows and its
+ * suggest_batch line before its result is the last chunk, exactly as it did
+ * when it was the whole action, and it never throws. This only carries its
+ * answer.
+ *
+ * The button reads it with readHeartbeat inside settle, and keeps the witness
+ * and the lost batch path around it: whoever drops quiet connections is not
+ * known, so a drop is still possible, and those stay as the net under this.
+ */
+export async function suggestRepresentations(
+  lessonContentId: string,
+  offset = 0,
+  runId: string | null = null,
+): Promise<AsyncGenerator<Heartbeat<SuggestResult>>> {
+  return withHeartbeat(
+    suggestBatch(lessonContentId, offset, runId),
+    ACTION_BEAT_MS,
+  );
 }
 
 export type RunCountResult =
@@ -1455,16 +1482,9 @@ async function proposeContrastSets(
   }
 }
 
-/*
- * A beat every 5s. The drops measured on 2026-09-23 came as early as 8237ms
- * (see src/lib/heartbeat.ts), and 10s between beats was enough in that test
- * only because no drop landed inside a gap; 5s leaves no gap that long.
- */
-const CONTRAST_BEAT_MS = 5000;
-
 /**
  * The same proposal, streamed with a heartbeat so the connection is never
- * quiet for more than CONTRAST_BEAT_MS while the model thinks: 30.8s median
+ * quiet for more than ACTION_BEAT_MS while the model thinks: 30.8s median
  * and 58.0s worst for a lesson, where a silent connection was dropped at a
  * random moment in 5 of 9 tries. The work and its suggest_contrast log line
  * are proposeContrastSets, untouched; this only carries its answer.
@@ -1476,5 +1496,5 @@ const CONTRAST_BEAT_MS = 5000;
 export async function suggestContrastSets(
   lessonContentId: string,
 ): Promise<AsyncGenerator<Heartbeat<ContrastSuggestResult>>> {
-  return withHeartbeat(proposeContrastSets(lessonContentId), CONTRAST_BEAT_MS);
+  return withHeartbeat(proposeContrastSets(lessonContentId), ACTION_BEAT_MS);
 }

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { readHeartbeat, type Heartbeat } from "../../../../lib/heartbeat.ts";
+
 import {
   LOST_RESPONSE,
   asksBeforeReclassifying,
@@ -339,5 +341,69 @@ describe("attemptCredits", () => {
   // provider's charge beside a file no provider was asked for.
   test("an upload says nothing about credits", () => {
     assert.equal(attemptCredits({ provider: "upload", creditsSpent: 0 }), null);
+  });
+});
+
+/*
+ * The type suggestion button reads its batch as settle(() =>
+ * readHeartbeat(action)). What has to hold is that a batch's answer still
+ * comes through, and that a stream cut on the way still reaches the lost
+ * batch path, the witness and the retry, as the same lost answer a silent
+ * call gave before.
+ */
+describe("settle over a heartbeat stream", () => {
+  type Batch = { ok: true; suggested: number } | { ok: false; error: string };
+
+  async function* beatsThen(result: Batch): AsyncGenerator<Heartbeat<Batch>> {
+    yield { beat: 0 };
+    yield { beat: 1 };
+    yield { done: result };
+  }
+
+  async function* beatsThenCut(): AsyncGenerator<Heartbeat<Batch>> {
+    yield { beat: 0 };
+    throw new TypeError("NetworkError when attempting to fetch resource.");
+  }
+
+  async function* beatsOnly(): AsyncGenerator<Heartbeat<Batch>> {
+    yield { beat: 0 };
+  }
+
+  test("the batch's own answer comes through the beats", async () => {
+    const answer = await settle(() =>
+      readHeartbeat(Promise.resolve(beatsThen({ ok: true, suggested: 10 }))),
+    );
+    assert.deepEqual(answer, { ok: true, suggested: 10 });
+  });
+
+  test("a refusal from the action is still the action's, not a lost answer", async () => {
+    const answer = await settle(() =>
+      readHeartbeat(
+        Promise.resolve(beatsThen({ ok: false, error: "sem chave" })),
+      ),
+    );
+    assert.deepEqual(answer, { ok: false, error: "sem chave" });
+  });
+
+  test("a stream cut on the way is a lost answer", async () => {
+    const answer = await settle(() =>
+      readHeartbeat(Promise.resolve(beatsThenCut())),
+    );
+    assert.equal(answer.ok, false);
+    assert.equal(!answer.ok && answer.error, LOST_RESPONSE);
+  });
+
+  test("a stream that ends without a result is a lost answer", async () => {
+    const answer = await settle(() =>
+      readHeartbeat(Promise.resolve(beatsOnly())),
+    );
+    assert.equal(!answer.ok && answer.error, LOST_RESPONSE);
+  });
+
+  test("a call that never opened its stream is a lost answer", async () => {
+    const answer = await settle(() =>
+      readHeartbeat<Batch>(Promise.reject(new TypeError("Failed to fetch"))),
+    );
+    assert.equal(!answer.ok && answer.error, LOST_RESPONSE);
   });
 });

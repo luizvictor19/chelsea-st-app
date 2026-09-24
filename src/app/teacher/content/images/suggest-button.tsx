@@ -3,6 +3,7 @@
 import { useRef, useState, type CSSProperties } from "react";
 import { flushSync } from "react-dom";
 
+import { readHeartbeat } from "@/lib/heartbeat";
 import { SUGGESTION_BATCH } from "@/lib/images/suggest";
 
 import { countSuggestionRun, suggestRepresentations } from "./actions";
@@ -206,7 +207,7 @@ export function SuggestButton({
 
       const startedAt = performance.now();
       let result = await settle(() =>
-        suggestRepresentations(lessonContentId, at, runId),
+        readHeartbeat(suggestRepresentations(lessonContentId, at, runId)),
       );
 
       /*
@@ -310,7 +311,7 @@ export function SuggestButton({
          */
         const retriedAt = performance.now();
         result = await settle(() =>
-          suggestRepresentations(lessonContentId, at, runId),
+          readHeartbeat(suggestRepresentations(lessonContentId, at, runId)),
         );
         if (!result.ok && "cause" in result) {
           // The repeat was lost as well, so the stall below is where this run
@@ -374,7 +375,7 @@ export function SuggestButton({
   /*
    * Nothing to draw until a pass has been started, which is what makes the
    * bar the pass: before the first click there is no pass, and the lesson's
-   * state is in the sentence, where it says "18 sugeridas" whether anything
+   * state is in the sentence, where it says "18 sugeridos" whether anything
    * has run or not.
    *
    * Monotone inside a pass and zeroed between them. confirmedWords holds the

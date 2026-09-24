@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { readHeartbeat, withHeartbeat, type Heartbeat } from "./heartbeat.ts";
+import {
+  ACTION_BEAT_MS,
+  EARLIEST_DROP_MS,
+  readHeartbeat,
+  withHeartbeat,
+  type Heartbeat,
+} from "./heartbeat.ts";
 
 const after = <T>(ms: number, value: T) =>
   new Promise<T>((wake) => setTimeout(() => wake(value), ms));
@@ -95,5 +101,18 @@ describe("readHeartbeat", () => {
       Promise.resolve(withHeartbeat(after(30, { ok: true, n: 3 }), 10)),
     );
     assert.deepEqual(result, { ok: true, n: 3 });
+  });
+});
+
+describe("ACTION_BEAT_MS", () => {
+  /*
+   * The one number both long actions beat at. A gap between beats as long as
+   * the earliest drop measured is a gap a drop can land in; 10s passed a test
+   * of five only because none did.
+   */
+  test("never leaves the connection quiet as long as the earliest drop", () => {
+    assert.equal(EARLIEST_DROP_MS, 8237);
+    assert.ok(ACTION_BEAT_MS < EARLIEST_DROP_MS);
+    assert.equal(ACTION_BEAT_MS, 5000);
   });
 });
