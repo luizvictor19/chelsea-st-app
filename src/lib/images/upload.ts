@@ -147,17 +147,33 @@ export function refuseUpload(file: {
   return null;
 }
 
+/** A picture as the bucket should receive it. */
+export type ReadImage = {
+  /** The bytes, never the File: see readImageFile. */
+  readonly body: ArrayBuffer;
+  /** The type the bytes give, sent as the object's content type. */
+  readonly type: UploadType;
+  readonly extension: string;
+};
+
 /**
- * The body to hand storage for a file: its bytes, never the File itself.
+ * A file's bytes and the type they give, or null when they are not PNG, JPEG
+ * or WebP. Both paths that put a picture in the bucket go through here: the
+ * finished image and the structure reference.
  *
- * storage-js wraps a Blob in FormData and sends it with the type the browser
- * declared, dropping the contentType it was given (index.mjs, uploadOrUpdate,
- * read on 2026-09-23). Bytes go out with the contentType as the header, so
- * the bucket serves the type sniffImageType read, not the one the name
- * implied.
+ * The bytes, because storage-js wraps a Blob in FormData and sends it with the
+ * type the browser declared, dropping the contentType it was given
+ * (index.mjs, uploadOrUpdate, read on 2026-09-23). Bytes go out with the
+ * contentType as the header. The type from the signature, because the
+ * declared one is whatever the file's name implied, and empty when the
+ * browser had no guess.
  */
-export async function storageBody(file: Blob): Promise<ArrayBuffer> {
-  return file.arrayBuffer();
+export async function readImageFile(file: Blob): Promise<ReadImage | null> {
+  const body = await file.arrayBuffer();
+  const head = new Uint8Array(body, 0, Math.min(SNIFF_BYTES, body.byteLength));
+  const type = sniffImageType(head);
+  if (type === null) return null;
+  return { body, type, extension: uploadExtension(type) };
 }
 
 /**
