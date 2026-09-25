@@ -8,54 +8,86 @@ const LABELS: Record<RobinState, string> = {
 };
 
 /**
- * PLACEHOLDER: the Robin art is not in the repository yet. This stands in for
- * it, clearly marked, so the four states can be seen and timed on the screen.
- * The real art replaces the body of this component, one file per state under
- * public/robin/ (robin-idle, robin-listening, robin-thinking, robin-speaking),
- * and the props stay as they are.
+ * What each state shows: the looping idle video, or a still.
+ *
+ * Thinking and speaking have no art yet. Thinking borrows the listening still
+ * and speaking borrows the idle loop; both are stand-ins, to be replaced here
+ * when their files arrive, and nowhere else.
  */
+const ART: Record<RobinState, { kind: "video" | "still"; name: string }> = {
+  idle: { kind: "video", name: "robin-idle" },
+  listening: { kind: "still", name: "robin-listening" },
+  thinking: { kind: "still", name: "robin-listening" }, // stand-in
+  speaking: { kind: "video", name: "robin-idle" }, // stand-in
+};
+
+/*
+ * No file has transparency. Each is painted on the screen's own ground,
+ * exactly #F2F2F0 in light and #0F1115 in dark, so the file has to follow the
+ * theme or its square shows. The switch is made in CSS rather than read in
+ * script: the server has no theme to read, and a guess would flash the wrong
+ * square on first paint.
+ */
+const FRAME = "size-full object-contain";
+
+function Still({ name }: { readonly name: string }) {
+  return (
+    <picture>
+      <source
+        srcSet={`/robin/${name}-dark.png`}
+        media="(prefers-color-scheme: dark)"
+      />
+      <img src={`/robin/${name}-light.png`} alt="" className={FRAME} />
+    </picture>
+  );
+}
+
+/**
+ * One video per theme with the other one hidden, because a <source media> on
+ * a video is read once on load and would not follow a theme change.
+ *
+ * The hidden one is not free: in Chromium 153 on 2026-09-25 both downloaded
+ * and both kept playing, currentTime advancing on the one not shown. The
+ * price is one more file of under 200 KB and a second small decode, accepted
+ * for a prototype; pausing it would need the theme in script.
+ */
+function Loop({ name }: { readonly name: string }) {
+  return (
+    <>
+      {(["light", "dark"] as const).map((theme) => (
+        <video
+          key={theme}
+          src={`/robin/${name}-${theme}.mp4`}
+          poster={`/robin/${name}-${theme}.png`}
+          autoPlay
+          loop
+          muted
+          playsInline
+          aria-hidden="true"
+          className={
+            theme === "light"
+              ? `${FRAME} dark:hidden`
+              : `${FRAME} hidden dark:block`
+          }
+        />
+      ))}
+    </>
+  );
+}
+
 export function Robin({ state }: { readonly state: RobinState }) {
+  const art = ART[state];
   return (
     <div
-      data-placeholder="robin"
       role="img"
       aria-label={`Robin, ${LABELS[state]}`}
-      className="border-faint relative flex size-24 shrink-0 flex-col items-center justify-center rounded-full border-2 border-dashed sm:size-28"
+      className="size-32 shrink-0 bg-[#F2F2F0] sm:size-40 dark:bg-[#0F1115]"
     >
-      {state === "listening" && (
-        <span
-          aria-hidden="true"
-          className="border-accent absolute inset-0 animate-ping rounded-full border-2 opacity-60"
-        />
+      {art.kind === "video" ? (
+        <Loop key={art.name} name={art.name} />
+      ) : (
+        <Still name={art.name} />
       )}
-
-      <span className="text-foreground text-sm font-extrabold">Robin</span>
-
-      <span aria-hidden="true" className="flex h-4 items-end gap-1">
-        {state === "thinking" &&
-          [0, 150, 300].map((delay) => (
-            <span
-              key={delay}
-              className="bg-muted size-1.5 animate-bounce rounded-full"
-              style={{ animationDelay: `${delay}ms` }}
-            />
-          ))}
-        {state === "speaking" &&
-          [0, 120, 240, 360].map((delay) => (
-            <span
-              key={delay}
-              className="bg-foreground h-3 w-1 animate-pulse rounded-full"
-              style={{ animationDelay: `${delay}ms` }}
-            />
-          ))}
-      </span>
-
-      <span className="text-faint font-mono text-[0.625rem] leading-tight">
-        {LABELS[state]}
-      </span>
-      <span className="text-faint absolute -bottom-5 font-mono text-[0.5625rem] tracking-[0.12em] whitespace-nowrap uppercase">
-        arte pendente
-      </span>
     </div>
   );
 }

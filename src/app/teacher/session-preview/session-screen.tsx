@@ -368,7 +368,7 @@ export function SessionScreen({
         />
       ) : (
         <main className="mx-auto flex min-h-0 w-full max-w-xl flex-1 flex-col items-center gap-4 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:gap-6 sm:px-6">
-          <div className="pt-1 pb-5">
+          <div className="pt-1">
             <Robin state={ROBIN[phase]} />
           </div>
 
