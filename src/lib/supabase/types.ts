@@ -649,6 +649,7 @@ export type Database = {
           id: string;
           image_path: string | null;
           image_style: Database["public"]["Enums"]["image_style"];
+          image_subject: string | null;
           reference_path: string | null;
           representation:
             Database["public"]["Enums"]["representation_kind"] | null;
@@ -665,6 +666,7 @@ export type Database = {
           id?: string;
           image_path?: string | null;
           image_style?: Database["public"]["Enums"]["image_style"];
+          image_subject?: string | null;
           reference_path?: string | null;
           representation?:
             Database["public"]["Enums"]["representation_kind"] | null;
@@ -681,6 +683,7 @@ export type Database = {
           id?: string;
           image_path?: string | null;
           image_style?: Database["public"]["Enums"]["image_style"];
+          image_subject?: string | null;
           reference_path?: string | null;
           representation?:
             Database["public"]["Enums"]["representation_kind"] | null;

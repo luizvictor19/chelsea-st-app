@@ -53,6 +53,7 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0021_reclassifying_is_not_rejecting.sql
 \i supabase/migrations/0022_contrast_is_between_pictures.sql
 \i supabase/migrations/0025_an_upload_is_a_file_not_a_generation.sql
+\i supabase/migrations/0026_the_instruction_belongs_to_the_word.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
@@ -885,5 +886,47 @@ begin
   raise notice 'a discarded upload loses its file and stays, as the bin leaves it';
   raise notice 'a generation still opens with no cost';
   raise notice 'a well formed upload is accepted and approves';
+end;
+$$;
+
+-- A word's instruction is null or text, never blank, since 0026. Checked by
+-- the name of the constraint that refuses, like the upload shape above, and
+-- on update as well as insert: the screen writes it by update.
+do $$
+declare
+  v_word uuid;
+  v_failures text;
+begin
+  delete from verify.failures;
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+
+  insert into vocabulary_items (term, first_point_id)
+    values ('an instructed word', (select id from points where number = 54))
+    returning id into v_word;
+
+  perform verify.expect_refused('an empty image_subject',
+    'vocabulary_items_image_subject_not_blank',
+    format('update vocabulary_items set image_subject = '''' where id = %L', v_word));
+
+  perform verify.expect_refused('a blank image_subject',
+    'vocabulary_items_image_subject_not_blank',
+    format('update vocabulary_items set image_subject = ''   '' where id = %L', v_word));
+
+  perform verify.expect_refused('a word inserted with a blank image_subject',
+    'vocabulary_items_image_subject_not_blank',
+    format('insert into vocabulary_items (term, first_point_id, image_subject)
+            values (''a blank word'', (select id from points where number = 54), '' '')'));
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'image subject: %', v_failures;
+  end if;
+
+  -- What is accepted: text, and back to null.
+  update vocabulary_items set image_subject = 'a red apple' where id = v_word;
+  update vocabulary_items set image_subject = null where id = v_word;
+
+  raise notice 'a word takes an instruction and gives it up';
 end;
 $$;
