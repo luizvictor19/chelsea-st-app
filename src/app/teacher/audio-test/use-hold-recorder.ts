@@ -122,6 +122,15 @@ export function useHoldRecorder(ready: boolean, onTake: (take: Take) => void) {
 
   /** Spread onto the button that is held. */
   const holdProps = {
+    /*
+     * Firefox restores a button's disabled state across a reload. The button
+     * renders disabled until the browser is checked, and was enabled when the
+     * page was left, so after a reload the DOM arrived enabled while React
+     * hydrated it disabled: "disabled={true}" against "disabled={null}".
+     * Reproduced on Firefox 155 on 2026-09-25, never on Chromium. Off, the
+     * browser keeps no state for the button and the two agree.
+     */
+    autoComplete: "off",
     onPointerDown: (event: PointerEvent<HTMLButtonElement>) => {
       event.currentTarget.setPointerCapture(event.pointerId);
       void begin();
