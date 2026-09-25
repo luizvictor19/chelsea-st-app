@@ -10,11 +10,14 @@ import {
 
 import {
   PREFERRED_MIME_TYPES,
-  type Recorder,
-  createRecorder,
   recordingUnavailableReason,
   supportedMimeTypes,
 } from "@/lib/audio/recorder";
+
+import {
+  type Take as RecordedTake,
+  useHoldRecorder,
+} from "./use-hold-recorder";
 
 type TypeSupport = { readonly type: string; readonly supported: boolean };
 
@@ -39,11 +42,11 @@ const SERVER_SNAPSHOT: BrowserSupport = {
 };
 let clientSnapshot: BrowserSupport | null = null;
 
-function subscribe(): () => void {
+export function subscribe(): () => void {
   return () => {};
 }
 
-function readSupport(): BrowserSupport {
+export function readSupport(): BrowserSupport {
   if (clientSnapshot === null) {
     const reason = recordingUnavailableReason();
     if (reason === null) {
@@ -63,7 +66,7 @@ function readSupport(): BrowserSupport {
   return clientSnapshot;
 }
 
-function readServerSupport(): BrowserSupport {
+export function readServerSupport(): BrowserSupport {
   return SERVER_SNAPSHOT;
 }
 
@@ -73,18 +76,6 @@ type Take = {
   readonly kilobytes: number;
   readonly url: string;
 };
-
-/** Whatever was thrown, said in a way the teacher can act on. */
-function describe(cause: unknown): string {
-  const name = cause instanceof Error ? cause.name : "";
-  if (name === "NotAllowedError") {
-    return "O navegador negou o acesso ao microfone. Libere o microfone para este site e tente de novo.";
-  }
-  if (name === "NotFoundError") {
-    return "Nenhum microfone foi encontrado neste aparelho.";
-  }
-  return cause instanceof Error ? cause.message : "Falha ao gravar.";
-}
 
 /**
  * A page to find out what recording actually does on a given device, before
@@ -97,89 +88,32 @@ export function AudioTestPanel() {
     readSupport,
     readServerSupport,
   );
-  const [recording, setRecording] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
   const [take, setTake] = useState<Take | null>(null);
-
-  const recorderRef = useRef<Recorder | null>(null);
-  const phaseRef = useRef<"idle" | "starting" | "recording">("idle");
-  const heldRef = useRef(false);
-  const startedAtRef = useRef(0);
   const urlRef = useRef<string | null>(null);
 
-  // A take that is replaced, or a page that is left, must not keep the blob or
-  // the microphone alive behind the teacher's back.
+  // A take that is replaced, or a page that is left, must not keep the blob
+  // alive behind the teacher's back.
   useEffect(() => {
     return () => {
       if (urlRef.current !== null) URL.revokeObjectURL(urlRef.current);
-      if (phaseRef.current === "recording") void recorderRef.current?.stop();
     };
   }, []);
 
-  const begin = useCallback(async () => {
-    if (browser !== "ready" || phaseRef.current !== "idle") return;
-    phaseRef.current = "starting";
-    heldRef.current = true;
-    setNotice(null);
-
-    const recorder = createRecorder();
-    recorderRef.current = recorder;
-
-    try {
-      await recorder.start();
-    } catch (cause) {
-      phaseRef.current = "idle";
-      heldRef.current = false;
-      recorderRef.current = null;
-      setNotice(describe(cause));
-      return;
-    }
-
-    // Let go while the permission prompt was up: there is no take to keep, and
-    // the microphone has to be handed back.
-    if (!heldRef.current) {
-      phaseRef.current = "idle";
-      void recorder.stop().catch(() => undefined);
-      recorderRef.current = null;
-      setNotice("Microfone liberado. Segure o botão de novo para gravar.");
-      return;
-    }
-
-    startedAtRef.current = performance.now();
-    phaseRef.current = "recording";
-    setRecording(true);
-  }, [browser]);
-
-  const end = useCallback(async () => {
-    heldRef.current = false;
-    // Still inside getUserMedia: begin() sees the released flag and cleans up.
-    if (phaseRef.current !== "recording") return;
-
-    const recorder = recorderRef.current;
-    if (recorder === null) return;
-
-    phaseRef.current = "idle";
-    recorderRef.current = null;
-    const seconds = (performance.now() - startedAtRef.current) / 1000;
-    setRecording(false);
-
-    let blob: Blob;
-    try {
-      blob = await recorder.stop();
-    } catch (cause) {
-      setNotice(describe(cause));
-      return;
-    }
-
+  const keep = useCallback((recorded: RecordedTake) => {
     if (urlRef.current !== null) URL.revokeObjectURL(urlRef.current);
-    urlRef.current = URL.createObjectURL(blob);
+    urlRef.current = URL.createObjectURL(recorded.blob);
     setTake({
-      mimeType: recorder.mimeType || blob.type || "não informado",
-      seconds,
-      kilobytes: blob.size / 1024,
+      mimeType: recorded.mimeType || "não informado",
+      seconds: recorded.seconds,
+      kilobytes: recorded.blob.size / 1024,
       url: urlRef.current,
     });
   }, []);
+
+  const { recording, notice, holdProps } = useHoldRecorder(
+    browser === "ready",
+    keep,
+  );
 
   if (browser === "unsupported") {
     return (
@@ -195,18 +129,7 @@ export function AudioTestPanel() {
         <button
           type="button"
           disabled={browser !== "ready"}
-          onPointerDown={(event) => {
-            event.currentTarget.setPointerCapture(event.pointerId);
-            void begin();
-          }}
-          onPointerUp={() => void end()}
-          onPointerCancel={() => void end()}
-          onKeyDown={(event) => {
-            if (event.key === " " && !event.repeat) void begin();
-          }}
-          onKeyUp={(event) => {
-            if (event.key === " ") void end();
-          }}
+          {...holdProps}
           // touch-none keeps Android from reading the hold as a scroll and
           // cancelling the pointer half a second in.
           className={

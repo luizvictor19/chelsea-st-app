@@ -1,0 +1,211 @@
+[
+  {
+    "id": "c01",
+    "category": "correct",
+    "question": "Is this a pen?",
+    "spoken": "Yes, it's a pen."
+  },
+  {
+    "id": "c02",
+    "category": "correct",
+    "question": "What's this?",
+    "spoken": "It's a table."
+  },
+  {
+    "id": "c03",
+    "category": "correct",
+    "question": "Is the book on the table?",
+    "spoken": "Yes, the book is on the table."
+  },
+  {
+    "id": "c04",
+    "category": "correct",
+    "question": "Is the pencil long or short?",
+    "spoken": "The pencil is long."
+  },
+  {
+    "id": "c05",
+    "category": "correct",
+    "question": "Is Anna sitting or standing?",
+    "spoken": "Anna is sitting."
+  },
+  {
+    "id": "c06",
+    "category": "correct",
+    "question": "What colour is the chair?",
+    "spoken": "The chair is brown."
+  },
+  {
+    "id": "g01",
+    "category": "grammar_error",
+    "question": "Is this a pen?",
+    "spoken": "Yes, it is pen.",
+    "errorSpan": "is pen",
+    "correctedSpan": "is a pen"
+  },
+  {
+    "id": "g02",
+    "category": "grammar_error",
+    "question": "Where is the book?",
+    "spoken": "The book are on the table.",
+    "errorSpan": "book are",
+    "correctedSpan": "book is"
+  },
+  {
+    "id": "g03",
+    "category": "grammar_error",
+    "question": "Is Jack sitting?",
+    "spoken": "Yes, Jack is sit.",
+    "errorSpan": "is sit",
+    "correctedSpan": "is sitting"
+  },
+  {
+    "id": "g04",
+    "category": "grammar_error",
+    "question": "What is Mr Brown doing?",
+    "spoken": "Mr Brown stand in front of the door.",
+    "errorSpan": "brown stand in",
+    "correctedSpan": "brown stands in"
+  },
+  {
+    "id": "g05",
+    "category": "grammar_error",
+    "question": "How many books are there on the table?",
+    "spoken": "There is two books on the table.",
+    "errorSpan": "is two",
+    "correctedSpan": "are two"
+  },
+  {
+    "id": "g06",
+    "category": "grammar_error",
+    "question": "Is the pencil long?",
+    "spoken": "Yes, the pencil is more long.",
+    "errorSpan": "more long",
+    "correctedSpan": "longer"
+  },
+  {
+    "id": "g07",
+    "category": "grammar_error",
+    "question": "What is there on the wall?",
+    "spoken": "Have a clock on the wall.",
+    "errorSpan": "have a clock",
+    "correctedSpan": "there is a clock"
+  },
+  {
+    "id": "g08",
+    "category": "grammar_error",
+    "question": "Is the window open?",
+    "spoken": "No, the window is close.",
+    "errorSpan": "is close",
+    "correctedSpan": "is closed"
+  },
+  {
+    "id": "g09",
+    "category": "grammar_error",
+    "question": "Is Anna a boy?",
+    "spoken": "No, Anna is girl.",
+    "errorSpan": "is girl",
+    "correctedSpan": "is a girl"
+  },
+  {
+    "id": "g10",
+    "category": "grammar_error",
+    "question": "What colour are the pens?",
+    "spoken": "The pens is black.",
+    "errorSpan": "pens is",
+    "correctedSpan": "pens are"
+  },
+  {
+    "id": "p01",
+    "category": "pronunciation",
+    "question": "What colour is the ceiling?",
+    "spoken": "The ceiling is white.",
+    "direction": "falado com o sotaque de uma aluna iniciante"
+  },
+  {
+    "id": "p02",
+    "category": "pronunciation",
+    "question": "How many books are there?",
+    "spoken": "There are three books.",
+    "direction": "falado com o sotaque de uma aluna iniciante"
+  },
+  {
+    "id": "p03",
+    "category": "pronunciation",
+    "question": "Is the box large?",
+    "spoken": "No, it's a small box.",
+    "direction": "falado com o sotaque de uma aluna iniciante"
+  },
+  {
+    "id": "p04",
+    "category": "pronunciation",
+    "question": "Where is the clock?",
+    "spoken": "The clock is on the wall.",
+    "direction": "falado com o sotaque de uma aluna iniciante"
+  },
+  {
+    "id": "p05",
+    "category": "pronunciation",
+    "question": "Where is Mrs Brown?",
+    "spoken": "Mrs Brown is between Jack and Mr Brown.",
+    "direction": "falado com o sotaque de uma aluna iniciante"
+  },
+  {
+    "id": "p06",
+    "category": "pronunciation",
+    "question": "Is the door open?",
+    "spoken": "No, the door is closed.",
+    "direction": "falado com o sotaque de uma aluna iniciante"
+  },
+  {
+    "id": "h01",
+    "category": "hesitation",
+    "question": "What's this?",
+    "spoken": "It's a... um... it's a pencil."
+  },
+  {
+    "id": "h02",
+    "category": "hesitation",
+    "question": "Where is the book?",
+    "spoken": "The book is on... under the table."
+  },
+  {
+    "id": "h03",
+    "category": "hesitation",
+    "question": "Is the window open?",
+    "spoken": "Yes, the... the window is open."
+  },
+  {
+    "id": "m01",
+    "category": "mixed_portuguese",
+    "question": "What's this?",
+    "spoken": "Não sei... it's a chair."
+  },
+  {
+    "id": "m02",
+    "category": "mixed_portuguese",
+    "question": "What's this?",
+    "spoken": "É um livro."
+  },
+  {
+    "id": "s01",
+    "category": "silence_noise",
+    "question": "What's this?",
+    "spoken": "",
+    "direction": "5 segundos de silêncio"
+  },
+  {
+    "id": "s02",
+    "category": "silence_noise",
+    "question": "What's this?",
+    "spoken": "",
+    "direction": "5 segundos de ruído de fundo, TV ou rua, sem fala"
+  },
+  {
+    "id": "s03",
+    "category": "silence_noise",
+    "question": "What's this?",
+    "spoken": "It's a pen.",
+    "direction": "com ruído de fundo"
+  }
+]
