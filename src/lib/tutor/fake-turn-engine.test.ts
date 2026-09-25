@@ -87,6 +87,62 @@ describe("FakeTurnEngine", () => {
     assert.equal(first.lead, null);
   });
 
+  /*
+   * The whole script over five words, the size the preview runs. The first
+   * answer is right and moves on; from then on each word is corrected once and
+   * passed on the retry. Nine answers end it.
+   */
+  test("walks five words to a finished turn with no word left", async () => {
+    const five = ["book", "pen", "pencil", "box", "ceiling"].map((term) => ({
+      term,
+      imageUrl: `https://example.test/${term}.png`,
+    }));
+    const engine = new FakeTurnEngine(five, silence);
+    await engine.start();
+
+    const seen: (string | null)[] = [];
+    let last: TutorTurn | null = null;
+    for (let i = 0; i < 8; i += 1) {
+      last = await answer(engine);
+      seen.push(last.word?.term ?? null);
+      assert.equal(last.finished, false, `answer ${i + 1} ended the session`);
+    }
+    assert.deepEqual(seen, [
+      "pen",
+      "pen",
+      "pencil",
+      "pencil",
+      "box",
+      "box",
+      "ceiling",
+      "ceiling",
+    ]);
+
+    const end = await answer(engine);
+    assert.equal(end.finished, true);
+    assert.equal(end.word, null);
+    assert.equal(end.question, null);
+  });
+
+  /*
+   * Past the end there is no word to judge. The screen hides the button then,
+   * but the engine must not depend on it: another take gets the closing turn
+   * again instead of reading a word that is not there.
+   */
+  test("stays finished when answered after the end", async () => {
+    const engine = new FakeTurnEngine(WORDS.slice(0, 1), silence);
+    await engine.start();
+    assert.equal((await answer(engine)).finished, true);
+
+    const again = await answer(engine);
+    assert.equal(again.finished, true);
+    assert.equal(again.word, null);
+
+    const nudge = await engine.nudge();
+    assert.equal(nudge.finished, true);
+    assert.equal(nudge.question, null);
+  });
+
   test("play hands the speech to the voice it was given", async () => {
     const said: string[] = [];
     const engine = new FakeTurnEngine(WORDS, {

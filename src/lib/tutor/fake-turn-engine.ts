@@ -106,6 +106,8 @@ export class FakeTurnEngine implements TurnEngine {
     if (take.durationMs < SILENT_BELOW_MS) return { kind: "not-heard" };
 
     const word = this.words[this.index];
+    // Past the last word there is nothing to judge: the session stays over.
+    if (word === undefined) return { kind: "turn", turn: this.closing() };
     this.answers += 1;
 
     // Odd answers are right, even ones get corrected: 1st right, 2nd wrong...
@@ -145,8 +147,16 @@ export class FakeTurnEngine implements TurnEngine {
     };
   }
 
+  private closing(): TutorTurn {
+    return {
+      ...this.turn("That's all for today. Well done!", null, null),
+      finished: true,
+    };
+  }
+
   async nudge(): Promise<TutorTurn> {
     const word = this.words[this.index];
+    if (word === undefined) return this.closing();
     return { ...this.turn(`Try this: ${LEAD}`, word, null), lead: LEAD };
   }
 
