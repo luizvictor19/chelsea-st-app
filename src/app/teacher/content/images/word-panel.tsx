@@ -1102,6 +1102,16 @@ export function WordPanel({
                       )}
                     </button>
                   )}
+                  {/*
+                    What this picture was drawn from, which the field above no
+                    longer says once the word's instruction has moved on. A
+                    whole line of its own, so it sits under the image.
+                  */}
+                  {attempt.subject !== null && (
+                    <p className="text-muted basis-full text-xs wrap-anywhere">
+                      {attempt.subject}
+                    </p>
+                  )}
                 </li>
               );
             })}
