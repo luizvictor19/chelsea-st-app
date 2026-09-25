@@ -1,6 +1,8 @@
 import type {
   SessionWord,
+  Take,
   TurnEngine,
+  TurnResult,
   TutorTurn,
   Verdict,
 } from "./turn-engine.ts";
@@ -13,6 +15,8 @@ import type {
  * to the next word; a correction asks the same word again.
  *
  * The audio handed to respond() is ignored on purpose. Nothing is sent or kept.
+ * Only its length is read: a take under SILENT_BELOW_MS stands in for a hold
+ * with no speech in it, which the real tutor will have to hear for itself.
  */
 
 /** Says a line and resolves when it is over. */
@@ -26,6 +30,12 @@ export type FakeTurnEngineOptions = {
 };
 
 const QUESTION = "What is this?";
+
+/** Shorter than this, the fake treats the take as nothing said. */
+export const SILENT_BELOW_MS = 1000;
+
+/** The start of the sentence the fake gives when she is stuck. Fixed text. */
+const LEAD = "It's a…";
 
 /** The article in front of a noun, by its first letter. Good enough here. */
 function withArticle(term: string): string {
@@ -87,41 +97,57 @@ export class FakeTurnEngine implements TurnEngine {
     );
   }
 
-  async respond(audio: Blob): Promise<TutorTurn> {
-    void audio;
+  async respond(take: Take): Promise<TurnResult> {
     if (this.thinkingMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.thinkingMs));
     }
+
+    // Nothing said: not an answer, so neither the word nor the count moves.
+    if (take.durationMs < SILENT_BELOW_MS) return { kind: "not-heard" };
 
     const word = this.words[this.index];
     this.answers += 1;
 
     // Odd answers are right, even ones get corrected: 1st right, 2nd wrong...
     if (this.answers % 2 === 0) {
-      return this.turn(
-        `Not quite. It's ${withArticle(word.term)}. Try again. ${QUESTION}`,
-        word,
-        "corrected",
-      );
+      return {
+        kind: "turn",
+        turn: this.turn(
+          `Not quite. It's ${withArticle(word.term)}. Try again. ${QUESTION}`,
+          word,
+          "corrected",
+        ),
+      };
     }
 
     this.index += 1;
     const next = this.words[this.index];
     if (next === undefined) {
       return {
-        ...this.turn(
-          `Yes! It's ${withArticle(word.term)}. That's all for today. Well done!`,
-          null,
-          "correct",
-        ),
-        finished: true,
+        kind: "turn",
+        turn: {
+          ...this.turn(
+            `Yes! It's ${withArticle(word.term)}. That's all for today. Well done!`,
+            null,
+            "correct",
+          ),
+          finished: true,
+        },
       };
     }
-    return this.turn(
-      `Yes! It's ${withArticle(word.term)}. Now, look. ${present(next)}`,
-      next,
-      "correct",
-    );
+    return {
+      kind: "turn",
+      turn: this.turn(
+        `Yes! It's ${withArticle(word.term)}. Now, look. ${present(next)}`,
+        next,
+        "correct",
+      ),
+    };
+  }
+
+  async nudge(): Promise<TutorTurn> {
+    const word = this.words[this.index];
+    return { ...this.turn(`Try this: ${LEAD}`, word, null), lead: LEAD };
   }
 
   private turn(
@@ -135,6 +161,7 @@ export class FakeTurnEngine implements TurnEngine {
       question: word === null ? null : QUESTION,
       word,
       verdict,
+      lead: null,
       finished: false,
       play: () => speak(speech),
     };

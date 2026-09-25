@@ -21,6 +21,15 @@ const SESSION_CAP_MS = 15 * 60_000;
  */
 const MIN_HOLD_MS = 300;
 
+/**
+ * How long the tutor waits after a question, with the button untouched, before
+ * giving the start of the sentence. Once per question. Chosen by hand.
+ */
+const NUDGE_AFTER_MS = 5000;
+
+/** Shown for a stray touch and for a hold with nothing said in it. */
+const HOLD_WHILE_TALKING = "Segure enquanto fala.";
+
 type Phase =
   "intro" | "speaking" | "waiting" | "listening" | "thinking" | "finished";
 
@@ -75,6 +84,9 @@ export function SessionScreen({
   const [hint, setHint] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [now, setNow] = useState(0);
+  /** When the tutor gives the start of the sentence, or null when it won't. */
+  const [nudgeAt, setNudgeAt] = useState<number | null>(null);
+  const [nudgeNow, setNudgeNow] = useState(0);
 
   const phaseRef = useRef<Phase>("intro");
   const turnRef = useRef<TutorTurn | null>(null);
@@ -83,11 +95,30 @@ export function SessionScreen({
   const heldRef = useRef(false);
   const startingRef = useRef(false);
   const pressedAtRef = useRef(0);
+  /** The start of the sentence was already given for the current question. */
+  const nudgedRef = useRef(false);
 
   const moveTo = useCallback((next: Phase) => {
     phaseRef.current = next;
     setPhase(next);
   }, []);
+
+  /**
+   * Her turn again. The 5 s start over from here, which is also what makes a
+   * stray touch or a silent hold restart them, unless the start of the sentence
+   * was already given for this question.
+   */
+  const toWaiting = useCallback(() => {
+    moveTo("waiting");
+    const asking = turnRef.current?.question != null;
+    if (asking && !nudgedRef.current) {
+      const at = Date.now();
+      setNudgeNow(at);
+      setNudgeAt(at + NUDGE_AFTER_MS);
+    } else {
+      setNudgeAt(null);
+    }
+  }, [moveTo]);
 
   // The clock only ticks once the session has started.
   useEffect(() => {
@@ -131,14 +162,38 @@ export function SessionScreen({
     async (next: TutorTurn) => {
       // Help is per word: a new word starts hidden, a retry keeps it shown.
       if (turnRef.current?.word?.term !== next.word?.term) setHelpShown(false);
+      // A nudge keeps the question it helps with; anything else is a new one.
+      if (next.lead === null) nudgedRef.current = false;
       turnRef.current = next;
       setTurn(next);
+      setNudgeAt(null);
+      // Whatever the last hint was about, the tutor talking has moved past it.
+      setHint(null);
       moveTo("speaking");
       await next.play();
-      moveTo(next.finished ? "finished" : "waiting");
+      if (next.finished) moveTo("finished");
+      else toWaiting();
     },
-    [moveTo],
+    [moveTo, toWaiting],
   );
+
+  // The visible countdown, and the nudge when it runs out.
+  useEffect(() => {
+    if (nudgeAt === null) return;
+    const id = window.setInterval(() => {
+      const at = Date.now();
+      setNudgeNow(at);
+      if (at < nudgeAt) return;
+      window.clearInterval(id);
+      setNudgeAt(null);
+      nudgedRef.current = true;
+      void engine.nudge().then((nudge) => {
+        // She may have pressed while it was on its way: her turn wins.
+        if (phaseRef.current === "waiting") void play(nudge);
+      });
+    }, 100);
+    return () => window.clearInterval(id);
+  }, [engine, nudgeAt, play]);
 
   /** Asks for the microphone once, so a refusal shows before the first hold. */
   const checkMicrophone = useCallback(async (): Promise<boolean> => {
@@ -178,6 +233,7 @@ export function SessionScreen({
     startingRef.current = true;
     pressedAtRef.current = performance.now();
     setHint(null);
+    setNudgeAt(null);
     moveTo("listening");
 
     const recorder = createRecorder();
@@ -186,7 +242,7 @@ export function SessionScreen({
     } catch (cause) {
       startingRef.current = false;
       heldRef.current = false;
-      moveTo("waiting");
+      toWaiting();
       if (isDenied(cause)) setMicrophone("denied");
       else setHint("Não foi possível gravar. Tente de novo.");
       return;
@@ -196,11 +252,11 @@ export function SessionScreen({
     // Let go before the microphone opened: nothing worth sending.
     if (!heldRef.current) {
       void recorder.stop().catch(() => undefined);
-      moveTo("waiting");
+      toWaiting();
       return;
     }
     recorderRef.current = recorder;
-  }, [moveTo]);
+  }, [moveTo, toWaiting]);
 
   const release = useCallback(async () => {
     if (!heldRef.current) return;
@@ -215,8 +271,8 @@ export function SessionScreen({
     const held = performance.now() - pressedAtRef.current;
     if (held < MIN_HOLD_MS) {
       void recorder.stop().catch(() => undefined);
-      moveTo("waiting");
-      setHint("Segure o botão enquanto fala e solte no fim.");
+      toWaiting();
+      setHint(HOLD_WHILE_TALKING);
       return;
     }
 
@@ -225,12 +281,20 @@ export function SessionScreen({
     try {
       audio = await recorder.stop();
     } catch {
-      moveTo("waiting");
+      toWaiting();
       setHint("A gravação falhou. Tente de novo.");
       return;
     }
-    await play(await engine.respond(audio));
-  }, [engine, moveTo, play]);
+
+    const result = await engine.respond({ audio, durationMs: held });
+    if (result.kind === "not-heard") {
+      // Not an answer and not a mistake: nothing moves, she tries again.
+      toWaiting();
+      setHint(HOLD_WHILE_TALKING);
+      return;
+    }
+    await play(result.turn);
+  }, [engine, moveTo, play, toWaiting]);
 
   // The space bar is the button on a computer, wherever the focus is. The
   // default is stopped on both edges: keydown would scroll the page, and keyup
@@ -266,6 +330,10 @@ export function SessionScreen({
       : Math.max(0, SESSION_CAP_MS - (now - startedAt));
   const word = turn?.word ?? null;
   const canTalk = phase === "waiting" || phase === "listening";
+  const nudgeLeft =
+    nudgeAt === null || phase !== "waiting"
+      ? null
+      : Math.max(0, nudgeAt - nudgeNow);
 
   return (
     <div className="text-foreground fixed inset-0 z-20 flex flex-col bg-[#F2F2F0] dark:bg-[#0F1115]">
@@ -361,6 +429,11 @@ export function SessionScreen({
               >
                 {turn?.question ?? ""}
               </p>
+              {turn?.lead != null && (
+                <p className="text-accent text-center text-xl font-extrabold tracking-tight">
+                  {turn.lead}
+                </p>
+              )}
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -417,6 +490,31 @@ export function SessionScreen({
                         ? "Robin está falando"
                         : "Segure para falar · espaço no computador")}
               </p>
+              {/* Always laid out, so the button does not jump when it starts. */}
+              <div
+                className={
+                  nudgeLeft === null
+                    ? "invisible flex items-center gap-2"
+                    : "flex items-center gap-2"
+                }
+                aria-label={
+                  nudgeLeft === null
+                    ? undefined
+                    : `Robin ajuda em ${Math.ceil(nudgeLeft / 1000)} segundos`
+                }
+              >
+                <span className="bg-rule h-1 w-24 overflow-hidden rounded-full">
+                  <span
+                    className="bg-muted block h-full rounded-full"
+                    style={{
+                      width: `${((nudgeLeft ?? 0) / NUDGE_AFTER_MS) * 100}%`,
+                    }}
+                  />
+                </span>
+                <span className="text-faint w-6 font-mono text-xs tabular-nums">
+                  {Math.ceil((nudgeLeft ?? 0) / 1000)} s
+                </span>
+              </div>
             </div>
           )}
         </main>

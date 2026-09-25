@@ -24,6 +24,11 @@ export type TutorTurn = {
   /** The word in the middle of the screen, or null once the session is over. */
   readonly word: SessionWord | null;
   readonly verdict: Verdict | null;
+  /**
+   * The start of the answer, shown and said when the student is stuck. Null
+   * on every turn but a nudge.
+   */
+  readonly lead: string | null;
   /** True on the last turn: the tutor has nothing more to ask. */
   readonly finished: boolean;
   /**
@@ -34,9 +39,29 @@ export type TutorTurn = {
   play(): Promise<void>;
 };
 
+/** One hold of the button: what was recorded and for how long. */
+export type Take = {
+  readonly audio: Blob;
+  readonly durationMs: number;
+};
+
+/**
+ * What came of a take. `not-heard` is a hold with no speech in it: it is not an
+ * answer and not a mistake, the tutor stays where it was and the screen asks
+ * her to hold while she talks.
+ */
+export type TurnResult =
+  | { readonly kind: "turn"; readonly turn: TutorTurn }
+  | { readonly kind: "not-heard" };
+
 export interface TurnEngine {
   /** The tutor's opening turn, before the student has said anything. */
   start(): Promise<TutorTurn>;
   /** One turn: the student's recording in, the tutor's answer out. */
-  respond(audio: Blob): Promise<TutorTurn>;
+  respond(take: Take): Promise<TurnResult>;
+  /**
+   * The tutor gives the start of the sentence, because she has not tried yet.
+   * Does not count as an answer and does not move the session on.
+   */
+  nudge(): Promise<TutorTurn>;
 }
