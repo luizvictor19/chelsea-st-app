@@ -56,3 +56,40 @@ export function differencesPointAtError(
 
   return { pointed, onlyError };
 }
+
+/**
+ * The differences that are differences: those where the two sides are not
+ * the same word once normalised (case and punctuation gone, contractions
+ * kept, as the transcription report compares).
+ *
+ * Why this exists. Measured on 2026-09-25, gpt-audio-1.5 refused 19 of 24
+ * right answers by its own verdict, and every one of those refusals was a
+ * "difference" of punctuation or capitals ("Yes," against "Yes", "table."
+ * against "table", "The" against "The"), although the prompt tells it to
+ * ignore both. Its heard matched what was said in 24 of 24. gpt-audio-mini
+ * does the same in another shape: right words listed as missing, with the
+ * same word said. Dropping these is not a repair of the answer, which is
+ * stored as it came; it is the reading the report makes of it.
+ *
+ * A dropped difference is one the model named on both sides with the same
+ * word. A missing word (said null) or an extra one (expected null) is never
+ * dropped, because one side is empty.
+ */
+export function substantiveDifferences(
+  differences: readonly Difference[],
+): Difference[] {
+  return differences.filter((difference) => {
+    if (difference.expected === null || difference.said === null) return true;
+    return normalize(difference.expected) !== normalize(difference.said);
+  });
+}
+
+/**
+ * The verdict recounted from the differences: it matches when no substantive
+ * difference is left. The model's own `matches` is ignored here on purpose,
+ * because it is the field the punctuation noise flips; the report prints both
+ * so the two can be compared.
+ */
+export function recountedMatch(differences: readonly Difference[]): boolean {
+  return substantiveDifferences(differences).length === 0;
+}

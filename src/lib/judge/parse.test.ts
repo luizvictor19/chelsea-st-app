@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { contradiction, malformedDifference, parseJudgement } from "./parse.ts";
-import { differencesPointAtError } from "./score.ts";
+import type { Difference } from "./provider.ts";
+import {
+  differencesPointAtError,
+  recountedMatch,
+  substantiveDifferences,
+} from "./score.ts";
 
 const GOOD = {
   heard: "the book are on the table",
@@ -209,5 +214,51 @@ describe("differencesPointAtError", () => {
       pointed: false,
       onlyError: false,
     });
+  });
+});
+
+describe("substantiveDifferences and recountedMatch", () => {
+  test("punctuation and capitals on both sides are not a difference", () => {
+    const noise: Difference[] = [
+      { expected: "Yes,", said: "Yes", kind: "replaced" },
+      { expected: "table.", said: "table", kind: "replaced" },
+      { expected: "The", said: "the", kind: "missing" },
+    ];
+    assert.deepEqual(substantiveDifferences(noise), []);
+    assert.equal(recountedMatch(noise), true);
+  });
+
+  test("a real change survives, even next to noise", () => {
+    const mixed: Difference[] = [
+      { expected: "Yes,", said: "Yes", kind: "replaced" },
+      { expected: "are", said: "is", kind: "replaced" },
+    ];
+    assert.deepEqual(substantiveDifferences(mixed), [mixed[1]]);
+    assert.equal(recountedMatch(mixed), false);
+  });
+
+  test("a missing word is never dropped", () => {
+    const missing: Difference[] = [
+      { expected: "a", said: null, kind: "missing" },
+    ];
+    assert.equal(recountedMatch(missing), false);
+  });
+
+  test("an extra word is never dropped", () => {
+    const extra: Difference[] = [{ expected: null, said: "um", kind: "extra" }];
+    assert.equal(recountedMatch(extra), false);
+  });
+
+  // The tutor teaches the contraction, so it stays a difference here too.
+  test("a contraction against its expansion is a difference", () => {
+    const contraction: Difference[] = [
+      { expected: "it's", said: "it is", kind: "replaced" },
+    ];
+    assert.equal(recountedMatch(contraction), false);
+  });
+
+  test("the verdict comes from the differences, not from matches", () => {
+    // What gpt-audio-1.5 answered for h02 #2: matches false, no difference.
+    assert.equal(recountedMatch([]), true);
   });
 });

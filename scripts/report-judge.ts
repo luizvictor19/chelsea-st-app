@@ -19,7 +19,11 @@ import {
   type Judgement,
 } from "../src/lib/judge/provider.ts";
 import { parseJudgeLines, type JudgeLine } from "../src/lib/judge/results.ts";
-import { differencesPointAtError } from "../src/lib/judge/score.ts";
+import {
+  differencesPointAtError,
+  recountedMatch,
+  substantiveDifferences,
+} from "../src/lib/judge/score.ts";
 import { parseCases, type SttCase } from "../src/lib/stt/cases.ts";
 import { errorPreserved, matchesSpoken } from "../src/lib/stt/score.ts";
 
@@ -158,46 +162,78 @@ for (const model of JUDGE_MODELS) {
     `\n=== ${model.label}  (${ok.length} respostas, ${every.length - ok.length} erros)`,
   );
 
+  /*
+   * Two verdicts side by side: the model's own `matches`, and the recount
+   * from its differences with the same-word ones dropped (see
+   * substantiveDifferences). The counts that matter to the tutor are the
+   * recounted ones; the model's are kept so the noise stays visible.
+   */
+  const verdict = (judgement: Judgement) => ({
+    model: judgement.matches,
+    recounted: recountedMatch(judgement.differences),
+  });
+  const yesNo = (value: boolean) => (value ? "sim" : "não");
+
   // Aceitou errado.
-  header("Aceitou errado (caso de erro, disse que bate)");
+  header(
+    "Aceitou errado (caso de erro, disse que bate) · pelo modelo · recontado",
+  );
   const errorCases = answered(
     linesFor(provider, (c) => c.category === "grammar_error"),
   );
-  let acceptedWrong = 0;
+  let acceptedByModel = 0;
+  let acceptedRecounted = 0;
   for (const { each, line, judgement } of errorCases) {
-    if (!judgement.matches) continue;
-    acceptedWrong++;
-    console.log(`    ACEITOU ${tag(each, line)}  ouviu "${judgement.heard}"`);
+    const { model: byModel, recounted } = verdict(judgement);
+    if (byModel) acceptedByModel++;
+    if (recounted) acceptedRecounted++;
+    if (!byModel && !recounted) continue;
+    console.log(
+      `    ACEITOU ${tag(each, line)}  modelo=${yesNo(byModel)} recontado=${yesNo(recounted)}  ouviu "${judgement.heard}"`,
+    );
   }
-  console.log(`    aceitou errado: ${acceptedWrong}/${errorCases.length}`);
+  console.log(
+    `    aceitou errado: pelo modelo ${acceptedByModel}/${errorCases.length}  ·  recontado ${acceptedRecounted}/${errorCases.length}`,
+  );
 
   // Recusou certo.
-  header("Recusou certo (corretos e pronúncia, disse que não bate)");
+  header(
+    "Recusou certo (corretos e pronúncia, disse que não bate) · pelo modelo · recontado",
+  );
   const rightCases = answered(
     linesFor(
       provider,
       (c) => c.category === "correct" || c.category === "pronunciation",
     ),
   );
-  let refusedRight = 0;
+  let refusedByModel = 0;
+  let refusedRecounted = 0;
   for (const { each, line, judgement } of rightCases) {
-    if (judgement.matches) continue;
-    refusedRight++;
+    const { model: byModel, recounted } = verdict(judgement);
+    if (!byModel) refusedByModel++;
+    if (!recounted) refusedRecounted++;
+    if (byModel && recounted) continue;
+    const real = substantiveDifferences(judgement.differences);
     console.log(
-      `    RECUSOU ${tag(each, line)}  ouviu "${judgement.heard}"  ·  ${describeDifferences(judgement)}`,
+      `    RECUSOU ${tag(each, line)}  modelo=${yesNo(!byModel)} recontado=${yesNo(!recounted)}  ouviu "${judgement.heard}"  ·  ${real.length === 0 ? "só diferenças da mesma palavra" : real.map(describeDifference).join("; ")}`,
     );
   }
-  console.log(`    recusou certo: ${refusedRight}/${rightCases.length}`);
+  console.log(
+    `    recusou certo: pelo modelo ${refusedByModel}/${rightCases.length}  ·  recontado ${refusedRecounted}/${rightCases.length}`,
+  );
 
   // Diferenças nos casos de erro.
-  header("Diferenças nos casos de erro (apontou o errorSpan · só ele)");
+  header(
+    "Diferenças nos casos de erro, só as substantivas (apontou o errorSpan · só ele)",
+  );
   let pointedCount = 0;
   let onlyCount = 0;
   for (const { each, line, judgement } of errorCases) {
     if (each.errorSpan === undefined || each.correctedSpan === undefined)
       continue;
+    const real = substantiveDifferences(judgement.differences);
     const { pointed, onlyError } = differencesPointAtError(
-      judgement.differences,
+      real,
       each.errorSpan,
       each.correctedSpan,
     );
@@ -209,7 +245,7 @@ for (const model of JUDGE_MODELS) {
         ? "erro + outras"
         : "NÃO apontou";
     console.log(
-      `    ${mark.padEnd(13)} ${tag(each, line)}  [${each.errorSpan} / ${each.correctedSpan}]  ${describeDifferences(judgement)}`,
+      `    ${mark.padEnd(13)} ${tag(each, line)}  [${each.errorSpan} / ${each.correctedSpan}]  ${real.length === 0 ? "(nenhuma)" : real.map(describeDifference).join("; ")}`,
     );
   }
   console.log(
@@ -262,7 +298,7 @@ for (const model of JUDGE_MODELS) {
     ),
   )) {
     console.log(
-      `    ${tag(each, line)}  bate=${judgement.matches ? "sim" : "não"}  inglês=${judgement.englishSpeech ? "sim" : "não"}  ouviu "${judgement.heard}"  ·  ${describeDifferences(judgement)}`,
+      `    ${tag(each, line)}  bate: modelo=${yesNo(judgement.matches)} recontado=${yesNo(recountedMatch(judgement.differences))}  inglês=${judgement.englishSpeech ? "sim" : "não"}  ouviu "${judgement.heard}"  ·  ${describeDifferences(judgement)}`,
     );
   }
 
@@ -273,7 +309,7 @@ for (const model of JUDGE_MODELS) {
   )) {
     console.log(`    ${tag(each, line)}  esperado "${each.expected}"`);
     console.log(
-      `    ${" ".repeat(tag(each, line).length)}  ouviu "${judgement.heard}"  bate=${judgement.matches ? "sim" : "não"}  ·  ${describeDifferences(judgement)}`,
+      `    ${" ".repeat(tag(each, line).length)}  ouviu "${judgement.heard}"  bate: modelo=${yesNo(judgement.matches)} recontado=${yesNo(recountedMatch(judgement.differences))}  ·  ${describeDifferences(judgement)}`,
     );
   }
 
