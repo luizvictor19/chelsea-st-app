@@ -35,6 +35,19 @@ export type SttCase = {
   readonly errorSpan?: string;
   /** grammar_error only: what a transcriber that corrects would write. */
   readonly correctedSpan?: string;
+  /**
+   * The answer the tutor is looking for, handed to the answer judge. Null
+   * means no English answer is expected at all: silence, noise, Portuguese
+   * only. Required in the file, so a case that forgot it is refused rather
+   * than read as "expects nothing".
+   *
+   * Right, pronunciation and hesitation cases expect what was said; an error
+   * case expects it corrected. See lib/judge/expected.ts, which a test holds
+   * the file to. s03 and m01 are set by hand: s03 is a real answer under
+   * noise, and m01 is an English answer after Portuguese, so both expect the
+   * English sentence (decided by Luiz on 2026-09-25).
+   */
+  readonly expected: string | null;
 };
 
 /** Safe as a filename: the id becomes fixtures/stt/<id>.webm. */
@@ -59,7 +72,7 @@ export function parseCases(raw: unknown): SttCase[] {
     }
     const value = item as Record<string, unknown>;
     const { id, category, question, spoken, direction } = value;
-    const { errorSpan, correctedSpan } = value;
+    const { errorSpan, correctedSpan, expected } = value;
 
     if (typeof id !== "string" || !ID.test(id)) {
       throw new Error(`${where}: id must look like g01`);
@@ -77,6 +90,13 @@ export function parseCases(raw: unknown): SttCase[] {
     }
     if (direction !== undefined && typeof direction !== "string") {
       throw new Error(`${id}: direction must be a string`);
+    }
+
+    if (
+      !("expected" in value) ||
+      (expected !== null && (typeof expected !== "string" || expected === ""))
+    ) {
+      throw new Error(`${id}: expected must be a sentence or null`);
     }
 
     const isError = category === "grammar_error";
@@ -100,6 +120,7 @@ export function parseCases(raw: unknown): SttCase[] {
       spoken,
       ...(typeof direction === "string" ? { direction } : {}),
       ...(hasSpans ? { errorSpan, correctedSpan } : {}),
+      expected,
     };
   });
 }
