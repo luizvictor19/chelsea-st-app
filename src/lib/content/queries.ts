@@ -299,7 +299,10 @@ export type ImageAttempt = {
   readonly status: string;
   readonly provider: string;
   readonly model: string | null;
-  /** What the teacher asked for. Null on an upload and on old attempts. */
+  /**
+   * What the teacher asked for. On an upload, what the teacher says it was
+   * made from, if anything. Null on old attempts.
+   */
   readonly subject: string | null;
   readonly imageUrl: string | null;
   readonly error: string | null;

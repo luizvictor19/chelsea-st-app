@@ -45,7 +45,12 @@ import { createDeepSeekProvider } from "@/lib/text/deepseek";
 import type { Database } from "@/lib/supabase/types";
 
 import { contrastError } from "./contrast-sets";
-import { storeSubject, storeSuggestion, type SubjectDb } from "./subject-store";
+import {
+  normalizeSubject,
+  storeSubject,
+  storeSuggestion,
+  type SubjectDb,
+} from "./subject-store";
 
 type Representation = Database["public"]["Enums"]["representation_kind"];
 
@@ -323,6 +328,7 @@ export async function setReference(
 export async function uploadFinishedImage(
   wordId: string,
   file: File,
+  subject: string,
 ): Promise<ActionResult> {
   // Every sentence here is the teacher's, in Portuguese; what Supabase said
   // goes in `cause`, for the console.
@@ -391,6 +397,10 @@ export async function uploadFinishedImage(
         // an upload is known to have cost nothing. 0025 holds this with a check.
         credits_spent: 0,
         source_filename: uploadFilename(file.name),
+        // What the teacher says the picture was made from, when made on the
+        // Freepik site. Optional, and null rather than blank when left empty.
+        // 0025's upload shape leaves subject free.
+        subject: normalizeSubject(subject),
         // Stamped although an upload never waited: null on completed_at is what
         // "still running" looks like, and this row is not.
         completed_at: new Date().toISOString(),

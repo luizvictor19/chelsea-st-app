@@ -879,6 +879,12 @@ begin
   insert into image_attempts (vocabulary_item_id, provider, model, prompt, status)
     values (v_word, 'freepik', 'mystic', 'a flat picture', 'pending');
 
+  -- An upload may say what it was made from: the upload shape leaves
+  -- subject free, and the screen writes it when the teacher fills it in.
+  insert into image_attempts
+    (vocabulary_item_id, provider, status, storage_path, credits_spent, completed_at, subject)
+    values (v_word, 'upload', 'generated', v_word::text || '/told.png', 0, now(), 'a red apple');
+
   -- And the kept upload approves. The approval rules themselves are asserted
   -- once, near the top, on uploads already.
   perform approve_image_attempt(v_kept);
@@ -886,6 +892,7 @@ begin
   raise notice 'a discarded upload loses its file and stays, as the bin leaves it';
   raise notice 'a generation still opens with no cost';
   raise notice 'a well formed upload is accepted and approves';
+  raise notice 'an upload may carry the instruction it was made from';
 end;
 $$;
 

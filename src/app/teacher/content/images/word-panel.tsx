@@ -189,6 +189,12 @@ export function WordPanel({
   const [now, setNow] = useState(() => Date.now());
   const referenceInput = useRef<HTMLInputElement>(null);
   const finishedInput = useRef<HTMLInputElement>(null);
+  /*
+   * What a picture made on the Freepik site was drawn from, if the teacher
+   * says. It goes on the upload's attempt only, not on the word: the word's
+   * instruction is the one the Gerar button uses.
+   */
+  const [usedSubject, setUsedSubject] = useState("");
   const zoom = useRef<HTMLDialogElement>(null);
   const [zoomed, setZoomed] = useState<string | null>(null);
   /*
@@ -474,7 +480,9 @@ export function WordPanel({
         kind: word.representation,
       });
       if (refusal !== null) return { ok: false, error: refusal };
-      return uploadFinishedImage(word.id, file);
+      const result = await uploadFinishedImage(word.id, file, usedSubject);
+      if (result.ok) setUsedSubject("");
+      return result;
     });
   }
 
@@ -909,6 +917,16 @@ export function WordPanel({
               <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
                 Imagem pronta
               </span>
+              <label htmlFor="instrucao-usada" className="text-faint text-xs">
+                Instrução usada (opcional)
+              </label>
+              <input
+                id="instrucao-usada"
+                value={usedSubject}
+                onChange={(event) => setUsedSubject(event.target.value)}
+                placeholder="o que você pediu no Freepik, se quiser guardar"
+                className="border-rule bg-background w-full rounded-sm border px-3 py-2 text-sm"
+              />
               <div>
                 <button
                   type="button"
