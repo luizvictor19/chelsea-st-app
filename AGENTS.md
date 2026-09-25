@@ -27,6 +27,13 @@ The wording of every generated practice sentence is original.
 Next.js App Router, TypeScript in strict mode, Tailwind, Supabase for
 Postgres, Auth and Storage. Deployed on Vercel.
 
+## Next.js 16
+
+This project runs Next 16, which changes APIs, conventions and file layout
+from what the model learned. Before writing Next code, read the matching
+guide in `node_modules/next/dist/docs/`: it ships with the installed version,
+so it describes the Next that actually runs here.
+
 ## Rules
 
 - Row Level Security is enabled on every table, in the same migration that

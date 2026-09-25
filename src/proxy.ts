@@ -14,7 +14,8 @@ export default async function proxy(request: NextRequest) {
 export const config = {
   // Everything except Next's own assets and the static files in /public. The
   // auth cookies need refreshing on real navigations, not on font requests.
+  // mp4 is the Robin video, fetched in ranges that would each pay for getUser.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|woff2?)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|woff2?|mp4)$).*)",
   ],
 };

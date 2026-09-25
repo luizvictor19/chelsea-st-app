@@ -6,6 +6,10 @@ const nextConfig: NextConfig = {
   // The phone reaches this dev server through `adb reverse`, as 127.0.0.1.
   allowedDevOrigins: ["127.0.0.1"],
 
+  // next dev would otherwise write its own block into AGENTS.md on every
+  // start. The instruction it carries is kept, in our words, in AGENTS.md.
+  agentRules: false,
+
   experimental: {
     /*
      * Raised from the 1 MB Next caps a server action body at by default
