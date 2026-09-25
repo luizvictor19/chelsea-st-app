@@ -16,6 +16,12 @@ export type JudgeLine = {
   readonly audioSha256: string;
   readonly audioSeconds: number | null;
   readonly model: string;
+  /**
+   * promptFingerprint() of the wording the call was made with. Absent on the
+   * lines written before it existed, which all used the first wording; the
+   * report calls those "legacy".
+   */
+  readonly prompt?: string;
   /** What the judge was asked to compare against, as sent. */
   readonly expected: string | null;
   /** Null exactly when `error` is not. */
@@ -26,13 +32,23 @@ export type JudgeLine = {
   readonly error: string | null;
 };
 
+/** The prompt of a line written before the fingerprint existed. */
+export const LEGACY_PROMPT = "legacy";
+
 export function judgeKey(line: {
   caseId: string;
   provider: string;
   round: number;
   audioSha256: string;
+  prompt?: string;
 }): string {
-  return [line.caseId, line.provider, line.round, line.audioSha256].join("|");
+  return [
+    line.caseId,
+    line.provider,
+    line.round,
+    line.audioSha256,
+    line.prompt ?? LEGACY_PROMPT,
+  ].join("|");
 }
 
 function isJudgeLine(value: unknown): value is JudgeLine {
@@ -43,6 +59,7 @@ function isJudgeLine(value: unknown): value is JudgeLine {
     typeof line.provider === "string" &&
     typeof line.round === "number" &&
     typeof line.audioSha256 === "string" &&
+    (line.prompt === undefined || typeof line.prompt === "string") &&
     (line.judgement === null || typeof line.judgement === "object") &&
     (line.error === null || typeof line.error === "string")
   );

@@ -3,6 +3,8 @@
  * wording can be tested for the instructions that matter.
  */
 
+import { createHash } from "node:crypto";
+
 import {
   DIFFERENCE_KINDS,
   NO_ENGLISH_REASONS,
@@ -28,8 +30,7 @@ export const JUDGEMENT_TOOL_DEFINITION = {
   type: "function",
   function: {
     name: JUDGEMENT_TOOL,
-    description:
-      "Report how the student's spoken answer compares with the expected answer.",
+    description: "Report the judgement.",
     strict: true,
     parameters: {
       type: "object",
@@ -42,28 +43,15 @@ export const JUDGEMENT_TOOL_DEFINITION = {
         "differences",
       ],
       properties: {
-        heard: {
-          type: "string",
-          description:
-            "Exactly what the student said, word for word, with every mistake kept. Empty if nothing was said.",
-        },
-        englishSpeech: {
-          type: "boolean",
-          description:
-            "False if the recording has no English speech: silence, background noise, or only another language.",
-        },
+        heard: { type: "string" },
+        englishSpeech: { type: "boolean" },
         noEnglishReason: {
           anyOf: [
             { type: "string", enum: [...NO_ENGLISH_REASONS] },
             { type: "null" },
           ],
-          description: "Why there is no English speech; null when there is.",
         },
-        matches: {
-          type: "boolean",
-          description:
-            "True only if the student said the expected answer with no difference at all.",
-        },
+        matches: { type: "boolean" },
         differences: {
           type: "array",
           items: {
@@ -71,16 +59,8 @@ export const JUDGEMENT_TOOL_DEFINITION = {
             additionalProperties: false,
             required: ["expected", "said", "kind"],
             properties: {
-              expected: {
-                anyOf: [{ type: "string" }, { type: "null" }],
-                description:
-                  "The word in the expected answer; null if the student added a word.",
-              },
-              said: {
-                anyOf: [{ type: "string" }, { type: "null" }],
-                description:
-                  "The word the student said; null if the student left a word out.",
-              },
+              expected: { anyOf: [{ type: "string" }, { type: "null" }] },
+              said: { anyOf: [{ type: "string" }, { type: "null" }] },
               kind: { type: "string", enum: [...DIFFERENCE_KINDS] },
             },
           },
@@ -93,21 +73,25 @@ export const JUDGEMENT_TOOL_DEFINITION = {
 /**
  * The instruction. Its one job is to stop the model doing what every
  * transcriber did: hearing the answer it expected. The expected answer is
- * there to compare against, and the prompt says in as many words that it is
- * not a guide to what was said.
+ * there to compare against, and the prompt says so.
+ *
+ * Short on purpose. The first version, with a description on every schema
+ * field, cost 503 to 513 text input tokens a call, measured from usage on
+ * 2026-09-25, which on gpt-audio-1.5 was about half the price of a call.
+ * The field descriptions are gone and what they said is here, once.
+ *
+ * Portuguese before the answer does not count. Measured on 2026-09-25:
+ * gpt-audio-1.5 heard m01 ("Não sei... it's a chair.") and marked it as no
+ * English speech at all. A student who thinks aloud in Portuguese and then
+ * answers in English has answered, and the answer is the English part.
  */
 export const JUDGE_SYSTEM = [
-  "You check a beginner student's spoken English answer against the answer the teacher expects.",
-  "",
-  'Write down what the student actually said, literally. Do NOT correct grammar, do NOT fill in missing words, do NOT fix word endings. If the student says "the book are on the table", write "the book are on the table". The expected answer is only for comparison: never use it to decide what you heard.',
-  "",
-  'Then list every difference between what the student said and the expected answer, one word at a time, however small. A missing "a" or "the" is a difference. A missing or extra "-s", "-ed" or "-ing" is a difference: "stand" instead of "stands" is a replaced word. "it is" instead of "it\'s" is a difference. Hesitations such as "um" and repeated words count as extra words. Ignore only punctuation and capital letters. List only the words that differ: a word the student said exactly as expected is not a difference and must not be in the list.',
-  "",
-  "matches is true only when there is no difference at all.",
-  "",
-  "If the recording has no English speech (silence, background noise, or only Portuguese or another language), set englishSpeech to false and give the reason. Write in heard whatever words you did hear, in the language they were said, or an empty string.",
-  "",
-  `Answer only by calling ${JUDGEMENT_TOOL}.`,
+  "Compare a beginner's spoken English answer (the audio) with the expected answer.",
+  "heard: exactly what the student said. Never correct grammar, fill in words or fix endings. The expected answer is only for comparison, never for deciding what you heard.",
+  'differences: every word that differs, however small: a missing "a" or "the", "-s", "-ed", "-ing", "it is" for "it\'s", "um", a repeated word. Ignore punctuation and capital letters. Never list a word said as expected. missing: expected word, said null. extra: said word, expected null. replaced: both.',
+  "matches: true only if differences is empty.",
+  "If the student says something in Portuguese or another language and then answers in English, ignore the other language: compare only the English answer, and englishSpeech is true.",
+  "englishSpeech is false only when there is no English answer at all (silence, noise, only another language); then give noEnglishReason, otherwise null.",
 ].join("\n");
 
 /** The text that goes beside the audio. */
@@ -115,13 +99,21 @@ export function judgeUserText(
   question: string,
   expected: string | null,
 ): string {
-  return [
-    `The teacher asked: "${question}"`,
-    expected === null
-      ? "No English answer is expected: this recording should have no English speech."
-      : `The expected answer is: "${expected}"`,
-    "The student's answer is the audio.",
-  ].join("\n");
+  return expected === null
+    ? `Question: "${question}"\nExpected: no English answer.`
+    : `Question: "${question}"\nExpected: "${expected}"`;
+}
+
+/**
+ * Identifies the prompt and schema a result was produced with. A result
+ * judged under another wording is a different measurement, so the key of a
+ * results line carries this, and the report reads one prompt at a time.
+ */
+export function promptFingerprint(): string {
+  return createHash("sha256")
+    .update(JSON.stringify({ JUDGE_SYSTEM, JUDGEMENT_TOOL_DEFINITION }))
+    .digest("hex")
+    .slice(0, 12);
 }
 
 /** Only so the type is checked against the tool's required list. */

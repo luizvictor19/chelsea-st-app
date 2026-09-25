@@ -6,7 +6,8 @@
  * Same recordings as measure-stt.ts (fixtures/stt/<id>.webm), same rules:
  * fixtures/stt/judge-results/<YYYY-MM-DD>.jsonl, one line per call, appended;
  * run again the same day, it skips what was answered for the same recording
- * and retries what failed. Sequential, so latency is not contention.
+ * under the same prompt, and retries what failed. A changed prompt is a new
+ * measurement: see promptFingerprint. Sequential, so latency is not contention.
  *
  * The audio models take wav or mp3 only, and the recordings are webm, so each
  * one is converted with ffmpeg before it is sent. Mono, 24 kHz, 16 bit PCM.
@@ -28,6 +29,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { createOpenAiAudioJudge } from "../src/lib/judge/openai-audio.ts";
+import { promptFingerprint } from "../src/lib/judge/prompt.ts";
 import {
   JUDGE_MODELS,
   isJudgeModelId,
@@ -128,6 +130,9 @@ const judges: AnswerJudge[] = JUDGE_MODELS.filter((model) =>
   judgeIds.includes(model.id),
 ).map((model) => createOpenAiAudioJudge(model.id, model.model));
 
+const prompt = promptFingerprint();
+console.log(`prompt ${prompt}`);
+
 mkdirSync(RESULTS_DIR, { recursive: true });
 const outPath = join(RESULTS_DIR, `${today()}.jsonl`);
 const previous = existsSync(outPath)
@@ -160,7 +165,13 @@ for (const each of cases) {
 
   for (const judge of judges) {
     for (let round = 1; round <= rounds; round++) {
-      const key = { caseId: each.id, provider: judge.id, round, audioSha256 };
+      const key = {
+        caseId: each.id,
+        provider: judge.id,
+        round,
+        audioSha256,
+        prompt,
+      };
       if (done.has(judgeKey(key))) {
         skipped++;
         continue;
