@@ -59,12 +59,10 @@ import {
   type LastAnswer,
 } from "./panel-state";
 import { REPRESENTATIONS, disagreement, labelFor } from "./representation";
-import {
-  landSuggestion,
-  normalizeSubject,
-  openingSubject,
-} from "./subject-store";
+import { createSubjectSaver, subjectNotSaved } from "./subject-saver";
+import { openingSubject } from "./subject-store";
 import { WORD_CLASS_LABELS } from "./word-class";
+import { notices } from "../../notices";
 
 /** Which control is waiting on the server, so only that one shows it. */
 type Busy = { readonly key: string } | null;
@@ -102,18 +100,24 @@ export function WordPanel({
   const shown = attemptsToShow(attempts, answered);
   /*
    * The instruction is the word's, in vocabulary_items.image_subject, and the
-   * field opens on it. `saved` is what this panel last knows the column to
-   * hold, so leaving the field unchanged writes nothing, and a suggestion is
-   * asked for with the value it may replace. `field` mirrors `subject` for
-   * the answer of a suggestion, which comes back in a closure from before any
-   * typing done while it was on its way.
+   * field opens on it. Saving it and asking for a suggestion are the saver's;
+   * see subject-saver.ts. A save that fails is said in the teacher area's
+   * snackbar, not here: the panel may be gone by the time it answers.
+   * `field` mirrors `subject` for the answer of a suggestion, which comes back
+   * in a closure from before any typing done while it was on its way.
    */
   const [subject, setSubject] = useState(() => openingSubject(word));
-  // Undefined when a save failed and nobody knows what the column holds.
-  const saved = useRef<string | null | undefined>(word.imageSubject);
   const field = useRef(subject);
-  /** Saves go out one at a time, in the order the teacher made them. */
-  const saving = useRef<Promise<unknown>>(Promise.resolve());
+  const [saver] = useState(() =>
+    createSubjectSaver({
+      initial: word.imageSubject,
+      save: (text) => saveSubject(word.id, text),
+      onFailure: (answer) => {
+        notices.push("error", subjectNotSaved(word.term));
+        console.error(answer.cause ?? answer.error);
+      },
+    }),
+  );
   const [subjectNote, setSubjectNote] = useState<string | null>(null);
   /*
    * The model starts on whatever this kind of word starts on, and stays put
@@ -342,25 +346,6 @@ export function WordPanel({
     field.current = text;
     setSubject(text);
     setSubjectNote(null);
-  }
-
-  /*
-   * Save the field as the word's instruction, if it changed. Queued behind any
-   * save still on its way, so an older text never lands after a newer one.
-   * Awaited by the suggestion, which must ask with what the column holds.
-   */
-  function saveField(text: string): Promise<unknown> {
-    const value = normalizeSubject(text);
-    if (value === saved.current) return saving.current;
-    saved.current = value;
-    saving.current = saving.current.then(async () => {
-      const result = await settle(() => saveSubject(word.id, text));
-      if (result.ok) return;
-      // Unknown now, so the next time the field is left it is written again.
-      saved.current = undefined;
-      setError(`A instrução não foi salva. ${result.error}`);
-    });
-    return saving.current;
   }
 
   /*
@@ -696,7 +681,7 @@ export function WordPanel({
                 id="assunto"
                 value={subject}
                 onChange={(event) => editSubject(event.target.value)}
-                onBlur={() => void saveField(subject)}
+                onBlur={() => void saver.save(subject)}
                 placeholder="o que a imagem mostra, em inglês"
                 className="border-rule bg-background w-full rounded-sm border py-2 pr-10 pl-3 text-sm"
               />
@@ -707,23 +692,15 @@ export function WordPanel({
                 title="Sugerir uma instrução para esta palavra"
                 onClick={() =>
                   void run("assunto", async () => {
-                    const atRequest = field.current;
-                    await saveField(atRequest);
-                    const result = await suggestSubject(
-                      word.id,
-                      normalizeSubject(atRequest),
-                    );
-                    if (!result.ok) return { ok: false, error: result.error };
-                    if (result.stored)
-                      saved.current = normalizeSubject(result.subject);
-                    const landed = landSuggestion(
-                      atRequest,
+                    const answer = await saver.suggest(
                       field.current,
-                      result,
+                      () => field.current,
+                      (expected) => suggestSubject(word.id, expected),
                     );
-                    field.current = landed.field;
-                    setSubject(landed.field);
-                    setSubjectNote(landed.note);
+                    if (!answer.ok) return answer;
+                    field.current = answer.field;
+                    setSubject(answer.field);
+                    setSubjectNote(answer.note);
                     return { ok: true };
                   })
                 }
