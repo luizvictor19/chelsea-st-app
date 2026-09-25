@@ -95,8 +95,19 @@ export function createSubjectSaver(options: {
     }
     const result = await ask(normalizeSubject(atRequest));
     if (!result.ok) return result;
-    if (result.stored) saved = normalizeSubject(result.subject);
-    return { ok: true, ...landSuggestion(atRequest, fieldNow(), result) };
+    const landed = landSuggestion(atRequest, fieldNow(), result);
+    /*
+     * A stored suggestion is known to be in the column only when it also
+     * filled the field. When the field kept an edit, that edit may have been
+     * saved after the suggestion or may not be saved yet, and nothing here
+     * says which: the column is unknown, so the next save writes whatever it
+     * is given, even the suggestion's exact text.
+     */
+    if (result.stored) {
+      saved =
+        landed.note === null ? normalizeSubject(result.subject) : undefined;
+    }
+    return { ok: true, ...landed };
   }
 
   return { save, suggest };

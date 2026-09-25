@@ -130,3 +130,39 @@ describe("a suggestion after a save that failed", () => {
     );
   });
 });
+
+describe("a suggestion stored under an edit saved after it", () => {
+  test("does not make the panel think the column holds the suggestion", async () => {
+    const written: string[] = [];
+    const { saver } = panel("apple", "an apple", async (text) => {
+      written.push(text);
+      return { ok: true };
+    });
+    let field = "an apple";
+    const answer = deferred<{ ok: true; subject: string; stored: boolean }>();
+
+    const suggesting = saver.suggest(
+      "an apple",
+      () => field,
+      () => answer.promise,
+    );
+    // The model has answered on the server and the suggestion is stored.
+    // Before the answer reaches the screen, the teacher edits and leaves the
+    // field, and that save lands after it: the column ends on the edit.
+    field = "a bitten apple";
+    await saver.save(field);
+    answer.resolve({ ok: true, subject: "a red apple", stored: true });
+    const outcome = await suggesting;
+    assert.deepEqual(outcome, {
+      ok: true,
+      field: "a bitten apple",
+      note: "Sua edição foi mantida.",
+    });
+
+    // Typing the suggestion's exact text now has to be written.
+    field = "a red apple";
+    await saver.save(field);
+
+    assert.deepEqual(written, ["a bitten apple", "a red apple"]);
+  });
+});
