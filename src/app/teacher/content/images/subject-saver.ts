@@ -83,7 +83,16 @@ export function createSubjectSaver(options: {
     fieldNow: () => string,
     ask: (expected: string | null) => Promise<SuggestAnswer>,
   ): Promise<SuggestOutcome> {
-    await save(atRequest);
+    /*
+     * A failed save leaves the column on the old text, so a suggestion asked
+     * with the edit would match nothing, be thrown away after it was paid
+     * for, and have the screen say the edit was kept beside the snackbar
+     * saying it was not saved. Nothing is asked, the field stays as it is,
+     * and the snackbar is the one thing said.
+     */
+    if (!(await save(atRequest))) {
+      return { ok: true, field: fieldNow(), note: null };
+    }
     const result = await ask(normalizeSubject(atRequest));
     if (!result.ok) return result;
     if (result.stored) saved = normalizeSubject(result.subject);

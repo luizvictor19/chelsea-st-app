@@ -100,3 +100,33 @@ describe("a save that fails after the panel has closed", () => {
     assert.deepEqual(texts, ["a red apple", "a red apple"]);
   });
 });
+
+describe("a suggestion after a save that failed", () => {
+  test("is not asked for, and the only thing said is the failed save", async () => {
+    const { saver, notices } = panel("apple", "an apple", async () => ({
+      ok: false,
+      error: "NetworkError",
+    }));
+    let asked = 0;
+
+    const outcome = await saver.suggest(
+      "a bitten apple",
+      () => "a bitten apple",
+      async () => {
+        asked++;
+        return { ok: true, subject: "a red apple", stored: false };
+      },
+    );
+
+    assert.equal(asked, 0);
+    assert.deepEqual(outcome, {
+      ok: true,
+      field: "a bitten apple",
+      note: null,
+    });
+    assert.deepEqual(
+      notices.getSnapshot().map((notice) => notice.text),
+      ["A instrução de apple não foi salva."],
+    );
+  });
+});
