@@ -46,9 +46,9 @@ import type { Database } from "@/lib/supabase/types";
 
 import { contrastError } from "./contrast-sets";
 import {
-  normalizeSubject,
   storeSubject,
   storeSuggestion,
+  storeUploadSubject,
   type SubjectDb,
 } from "./subject-store";
 
@@ -369,6 +369,27 @@ export async function uploadFinishedImage(
       };
     }
 
+    /*
+     * The instruction becomes the word's before anything is sent, as
+     * startGeneration does it, so a failure here leaves nothing behind: no
+     * file, no row. See storeUploadSubject for the empty field.
+     */
+    let usedSubject: string | null;
+    try {
+      usedSubject = await storeUploadSubject(
+        subjectUpdate(supabase),
+        wordId,
+        subject,
+      );
+    } catch (cause) {
+      return {
+        ok: false,
+        error:
+          "Não consegui guardar a instrução usada. Nada foi enviado; tente de novo.",
+        cause: errorMessage(cause),
+      };
+    }
+
     const attemptId = crypto.randomUUID();
     const path = `${wordId}/${attemptId}.${image.extension}`;
 
@@ -400,7 +421,7 @@ export async function uploadFinishedImage(
         // What the teacher says the picture was made from, when made on the
         // Freepik site. Optional, and null rather than blank when left empty.
         // 0025's upload shape leaves subject free.
-        subject: normalizeSubject(subject),
+        subject: usedSubject,
         // Stamped although an upload never waited: null on completed_at is what
         // "still running" looks like, and this row is not.
         completed_at: new Date().toISOString(),

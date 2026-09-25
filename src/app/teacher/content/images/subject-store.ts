@@ -61,6 +61,22 @@ export async function storeSubject(
 }
 
 /**
+ * The instruction a picture finished outside the platform was made from, when
+ * the teacher gives one. It becomes the word's, as a generation's does, and
+ * the value returned is what the upload's attempt records. Left empty it is
+ * null and the word is not touched: an optional field left blank is not the
+ * teacher clearing the word's instruction.
+ */
+export async function storeUploadSubject(
+  db: SubjectDb,
+  wordId: string,
+  text: string,
+): Promise<string | null> {
+  if (normalizeSubject(text) === null) return null;
+  return storeSubject(db, wordId, text);
+}
+
+/**
  * A suggestion, written to the word that asked for it and only if the column
  * still holds what the screen had when it asked.
  *

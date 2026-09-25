@@ -60,7 +60,7 @@ import {
 } from "./panel-state";
 import { REPRESENTATIONS, disagreement, labelFor } from "./representation";
 import { createSubjectSaver, subjectNotSaved } from "./subject-saver";
-import { openingSubject } from "./subject-store";
+import { normalizeSubject, openingSubject } from "./subject-store";
 import { WORD_CLASS_LABELS } from "./word-class";
 import { notices } from "../../notices";
 
@@ -465,8 +465,27 @@ export function WordPanel({
         kind: word.representation,
       });
       if (refusal !== null) return { ok: false, error: refusal };
+      // A save of the Instrução field still on its way lands first, so the
+      // instruction given with the upload is the one the word ends on.
+      if (normalizeSubject(usedSubject) !== null) {
+        await saver.save(field.current);
+      }
       const result = await uploadFinishedImage(word.id, file, usedSubject);
-      if (result.ok) setUsedSubject("");
+      if (result.ok) {
+        /*
+         * An instruction given with the upload is the word's now, so the
+         * field shows it and the saver knows the column holds it: otherwise
+         * the next Gerar would put the old text back on the word.
+         */
+        const given = normalizeSubject(usedSubject);
+        if (given !== null) {
+          saver.known(given);
+          field.current = given;
+          setSubject(given);
+          setSubjectNote(null);
+        }
+        setUsedSubject("");
+      }
       return result;
     });
   }

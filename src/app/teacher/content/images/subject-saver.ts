@@ -47,6 +47,8 @@ export type SubjectSaver = {
     fieldNow: () => string,
     ask: (expected: string | null) => Promise<SuggestAnswer>,
   ): Promise<SuggestOutcome>;
+  /** Another action wrote this to the column, as an upload does. */
+  known(value: string): void;
 };
 
 export function createSubjectSaver(options: {
@@ -110,5 +112,11 @@ export function createSubjectSaver(options: {
     return { ok: true, ...landed };
   }
 
-  return { save, suggest };
+  return {
+    save,
+    suggest,
+    known: (value) => {
+      saved = normalizeSubject(value);
+    },
+  };
 }
