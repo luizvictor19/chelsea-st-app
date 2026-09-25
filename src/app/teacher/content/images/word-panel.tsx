@@ -41,6 +41,7 @@ import {
   setImageStyle,
   setRepresentation,
   setWordClass,
+  saveSubject,
   startGeneration,
   suggestSubject,
   uploadFinishedImage,
@@ -58,7 +59,10 @@ import {
   type LastAnswer,
 } from "./panel-state";
 import { REPRESENTATIONS, disagreement, labelFor } from "./representation";
+import { createSubjectSaver, subjectNotSaved } from "./subject-saver";
+import { openingSubject } from "./subject-store";
 import { WORD_CLASS_LABELS } from "./word-class";
+import { notices } from "../../notices";
 
 /** Which control is waiting on the server, so only that one shows it. */
 type Busy = { readonly key: string } | null;
@@ -75,21 +79,6 @@ const STATUS_LABELS: Record<string, string> = {
   approved: "aprovada",
   rejected: "descartada",
 };
-
-/**
- * What to put in the Instrução field when a word is opened: what the approved
- * attempt was drawn from, and failing that the most recent attempt that had a
- * subject at all.
- *
- * Uploads carry none, so they are skipped rather than allowed to blank the
- * field: the teacher uploading a file by hand is not a statement that the
- * last subject was wrong.
- */
-function lastSubject(attempts: readonly ImageAttempt[]): string {
-  const approved = attempts.find((attempt) => attempt.status === "approved");
-  if (approved?.subject) return approved.subject;
-  return attempts.find((attempt) => attempt.subject)?.subject ?? "";
-}
 
 export function WordPanel({
   word,
@@ -109,7 +98,27 @@ export function WordPanel({
     null,
   );
   const shown = attemptsToShow(attempts, answered);
-  const [subject, setSubject] = useState(() => lastSubject(attempts));
+  /*
+   * The instruction is the word's, in vocabulary_items.image_subject, and the
+   * field opens on it. Saving it and asking for a suggestion are the saver's;
+   * see subject-saver.ts. A save that fails is said in the teacher area's
+   * snackbar, not here: the panel may be gone by the time it answers.
+   * `field` mirrors `subject` for the answer of a suggestion, which comes back
+   * in a closure from before any typing done while it was on its way.
+   */
+  const [subject, setSubject] = useState(() => openingSubject(word));
+  const field = useRef(subject);
+  const [saver] = useState(() =>
+    createSubjectSaver({
+      initial: word.imageSubject,
+      save: (text) => saveSubject(word.id, text),
+      onFailure: (answer) => {
+        notices.push("error", subjectNotSaved(word.term));
+        console.error(answer.cause ?? answer.error);
+      },
+    }),
+  );
+  const [subjectNote, setSubjectNote] = useState<string | null>(null);
   /*
    * The model starts on whatever this kind of word starts on, and stays put
    * once the teacher has picked one. Changing the kind moves it again only
@@ -184,6 +193,12 @@ export function WordPanel({
   const [now, setNow] = useState(() => Date.now());
   const referenceInput = useRef<HTMLInputElement>(null);
   const finishedInput = useRef<HTMLInputElement>(null);
+  /*
+   * What a picture made on the Freepik site was drawn from, if the teacher
+   * says. It goes on the upload's attempt only, not on the word: the word's
+   * instruction is the one the Gerar button uses.
+   */
+  const [usedSubject, setUsedSubject] = useState("");
   const zoom = useRef<HTMLDialogElement>(null);
   const [zoomed, setZoomed] = useState<string | null>(null);
   /*
@@ -327,6 +342,12 @@ export function WordPanel({
     };
   }, [runningId, runningStartedAt, attempts]);
 
+  function editSubject(text: string) {
+    field.current = text;
+    setSubject(text);
+    setSubjectNote(null);
+  }
+
   /*
    * Nothing on this screen moves before the server answers. A picture that
    * appears and then vanishes because the upload failed is worse than one that
@@ -444,7 +465,9 @@ export function WordPanel({
         kind: word.representation,
       });
       if (refusal !== null) return { ok: false, error: refusal };
-      return uploadFinishedImage(word.id, file);
+      const result = await uploadFinishedImage(word.id, file, usedSubject);
+      if (result.ok) setUsedSubject("");
+      return result;
     });
   }
 
@@ -657,7 +680,8 @@ export function WordPanel({
               <input
                 id="assunto"
                 value={subject}
-                onChange={(event) => setSubject(event.target.value)}
+                onChange={(event) => editSubject(event.target.value)}
+                onBlur={() => void saver.save(subject)}
                 placeholder="o que a imagem mostra, em inglês"
                 className="border-rule bg-background w-full rounded-sm border py-2 pr-10 pl-3 text-sm"
               />
@@ -668,11 +692,16 @@ export function WordPanel({
                 title="Sugerir uma instrução para esta palavra"
                 onClick={() =>
                   void run("assunto", async () => {
-                    const result = await suggestSubject(word.id);
-                    if (result.ok) setSubject(result.subject);
-                    return result.ok
-                      ? { ok: true }
-                      : { ok: false, error: result.error };
+                    const answer = await saver.suggest(
+                      field.current,
+                      () => field.current,
+                      (expected) => suggestSubject(word.id, expected),
+                    );
+                    if (!answer.ok) return answer;
+                    field.current = answer.field;
+                    setSubject(answer.field);
+                    setSubjectNote(answer.note);
+                    return { ok: true };
                   })
                 }
                 className="text-faint hover:text-foreground absolute top-1/2 right-1.5 -translate-y-1/2 rounded-sm p-1.5 transition-colors disabled:opacity-40"
@@ -696,6 +725,9 @@ export function WordPanel({
                 )}
               </button>
             </div>
+            {subjectNote !== null && (
+              <p className="text-muted text-xs">{subjectNote}</p>
+            )}
             <p className="text-faint text-xs">
               Aqui vai só o que a imagem mostra. O estilo não se escreve aqui:
               ele entra sozinho, no formato que a caixa acima escolher.
@@ -862,6 +894,16 @@ export function WordPanel({
               <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
                 Imagem pronta
               </span>
+              <label htmlFor="instrucao-usada" className="text-faint text-xs">
+                Instrução usada (opcional)
+              </label>
+              <input
+                id="instrucao-usada"
+                value={usedSubject}
+                onChange={(event) => setUsedSubject(event.target.value)}
+                placeholder="o que você pediu no Freepik, se quiser guardar"
+                className="border-rule bg-background w-full rounded-sm border px-3 py-2 text-sm"
+              />
               <div>
                 <button
                   type="button"
@@ -1054,6 +1096,16 @@ export function WordPanel({
                         </svg>
                       )}
                     </button>
+                  )}
+                  {/*
+                    What this picture was drawn from, which the field above no
+                    longer says once the word's instruction has moved on. A
+                    whole line of its own, so it sits under the image.
+                  */}
+                  {attempt.subject !== null && (
+                    <p className="text-muted basis-full text-xs wrap-anywhere">
+                      {attempt.subject}
+                    </p>
                   )}
                 </li>
               );
