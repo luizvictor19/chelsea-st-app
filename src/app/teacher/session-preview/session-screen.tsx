@@ -8,6 +8,7 @@ import {
   createRecorder,
   recordingUnavailableReason,
 } from "@/lib/audio/recorder";
+import { withDeadline } from "@/lib/tutor/deadline";
 import type { TurnEngine, TutorTurn } from "@/lib/tutor/turn-engine";
 
 import { Robin, type RobinState } from "./robin";
@@ -26,6 +27,17 @@ const MIN_HOLD_MS = 300;
  * giving the start of the sentence. Once per question. Chosen by hand.
  */
 const NUDGE_AFTER_MS = 5000;
+
+/**
+ * The longest the screen stays in "speaking" before handing her turn back,
+ * whether or not the voice has said it is done.
+ *
+ * Measured on Chrome for Android on 2026-09-25, the ten lines of the preview
+ * script took 4.6 to 6.2 s from speak to end. 15 s is well over twice the
+ * longest, so a real line is never cut short, and a voice that never reports
+ * its end costs her 15 s instead of the session.
+ */
+const MAX_SPEAKING_MS = 15_000;
 
 /** Shown for a stray touch and for a hold with nothing said in it. */
 const HOLD_WHILE_TALKING = "Segure enquanto fala.";
@@ -87,6 +99,8 @@ export function SessionScreen({
   /** When the tutor gives the start of the sentence, or null when it won't. */
   const [nudgeAt, setNudgeAt] = useState<number | null>(null);
   const [nudgeNow, setNudgeNow] = useState(0);
+  /** Every word shown this session, for the closing screen. */
+  const [practised, setPractised] = useState<ReadonlySet<string>>(new Set());
 
   const phaseRef = useRef<Phase>("intro");
   const turnRef = useRef<TutorTurn | null>(null);
@@ -165,12 +179,18 @@ export function SessionScreen({
       // A nudge keeps the question it helps with; anything else is a new one.
       if (next.lead === null) nudgedRef.current = false;
       turnRef.current = next;
+      const shown = next.word?.term;
+      if (shown !== undefined) {
+        setPractised((terms) =>
+          terms.has(shown) ? terms : new Set(terms).add(shown),
+        );
+      }
       setTurn(next);
       setNudgeAt(null);
       // Whatever the last hint was about, the tutor talking has moved past it.
       setHint(null);
       moveTo("speaking");
-      await next.play();
+      await withDeadline(next.play(), MAX_SPEAKING_MS);
       if (next.finished) moveTo("finished");
       else toWaiting();
     },
@@ -412,13 +432,11 @@ export function SessionScreen({
                 </p>
               </>
             ) : (
-              <p className="text-muted text-center">
-                Sessão encerrada. Até a próxima!
-              </p>
+              <SessionOver practised={practised.size} />
             )}
           </div>
 
-          {phase !== "intro" && (
+          {phase !== "intro" && word !== null && (
             <div className="flex w-full flex-col items-center gap-2">
               <p
                 className={
@@ -520,6 +538,35 @@ export function SessionScreen({
         </main>
       )}
     </div>
+  );
+}
+
+/**
+ * The end of the script. Never an empty screen: it says the session is over,
+ * what was done in it, and where to go next.
+ */
+function SessionOver({ practised }: { readonly practised: number }) {
+  return (
+    <section
+      aria-live="polite"
+      className="flex max-w-xs flex-col items-center gap-3 text-center"
+    >
+      <h1 className="text-2xl font-extrabold tracking-tight">
+        Sessão encerrada
+      </h1>
+      <p className="text-muted">
+        {practised === 1
+          ? "Você praticou 1 palavra com o Robin."
+          : `Você praticou ${practised} palavras com o Robin.`}{" "}
+        Até a próxima!
+      </p>
+      <Link
+        href="/teacher"
+        className="bg-foreground text-background mt-2 rounded-full px-8 py-3.5 font-semibold"
+      >
+        Voltar
+      </Link>
+    </section>
   );
 }
 
