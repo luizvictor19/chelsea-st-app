@@ -41,6 +41,7 @@ import {
   setImageStyle,
   setRepresentation,
   setWordClass,
+  saveSubject,
   startGeneration,
   suggestSubject,
   uploadFinishedImage,
@@ -58,6 +59,11 @@ import {
   type LastAnswer,
 } from "./panel-state";
 import { REPRESENTATIONS, disagreement, labelFor } from "./representation";
+import {
+  landSuggestion,
+  normalizeSubject,
+  openingSubject,
+} from "./subject-store";
 import { WORD_CLASS_LABELS } from "./word-class";
 
 /** Which control is waiting on the server, so only that one shows it. */
@@ -75,21 +81,6 @@ const STATUS_LABELS: Record<string, string> = {
   approved: "aprovada",
   rejected: "descartada",
 };
-
-/**
- * What to put in the Instrução field when a word is opened: what the approved
- * attempt was drawn from, and failing that the most recent attempt that had a
- * subject at all.
- *
- * Uploads carry none, so they are skipped rather than allowed to blank the
- * field: the teacher uploading a file by hand is not a statement that the
- * last subject was wrong.
- */
-function lastSubject(attempts: readonly ImageAttempt[]): string {
-  const approved = attempts.find((attempt) => attempt.status === "approved");
-  if (approved?.subject) return approved.subject;
-  return attempts.find((attempt) => attempt.subject)?.subject ?? "";
-}
 
 export function WordPanel({
   word,
@@ -109,7 +100,21 @@ export function WordPanel({
     null,
   );
   const shown = attemptsToShow(attempts, answered);
-  const [subject, setSubject] = useState(() => lastSubject(attempts));
+  /*
+   * The instruction is the word's, in vocabulary_items.image_subject, and the
+   * field opens on it. `saved` is what this panel last knows the column to
+   * hold, so leaving the field unchanged writes nothing, and a suggestion is
+   * asked for with the value it may replace. `field` mirrors `subject` for
+   * the answer of a suggestion, which comes back in a closure from before any
+   * typing done while it was on its way.
+   */
+  const [subject, setSubject] = useState(() => openingSubject(word));
+  // Undefined when a save failed and nobody knows what the column holds.
+  const saved = useRef<string | null | undefined>(word.imageSubject);
+  const field = useRef(subject);
+  /** Saves go out one at a time, in the order the teacher made them. */
+  const saving = useRef<Promise<unknown>>(Promise.resolve());
+  const [subjectNote, setSubjectNote] = useState<string | null>(null);
   /*
    * The model starts on whatever this kind of word starts on, and stays put
    * once the teacher has picked one. Changing the kind moves it again only
@@ -326,6 +331,31 @@ export function WordPanel({
       clearTimeout(timer);
     };
   }, [runningId, runningStartedAt, attempts]);
+
+  function editSubject(text: string) {
+    field.current = text;
+    setSubject(text);
+    setSubjectNote(null);
+  }
+
+  /*
+   * Save the field as the word's instruction, if it changed. Queued behind any
+   * save still on its way, so an older text never lands after a newer one.
+   * Awaited by the suggestion, which must ask with what the column holds.
+   */
+  function saveField(text: string): Promise<unknown> {
+    const value = normalizeSubject(text);
+    if (value === saved.current) return saving.current;
+    saved.current = value;
+    saving.current = saving.current.then(async () => {
+      const result = await settle(() => saveSubject(word.id, text));
+      if (result.ok) return;
+      // Unknown now, so the next time the field is left it is written again.
+      saved.current = undefined;
+      setError(`A instrução não foi salva. ${result.error}`);
+    });
+    return saving.current;
+  }
 
   /*
    * Nothing on this screen moves before the server answers. A picture that
@@ -657,7 +687,8 @@ export function WordPanel({
               <input
                 id="assunto"
                 value={subject}
-                onChange={(event) => setSubject(event.target.value)}
+                onChange={(event) => editSubject(event.target.value)}
+                onBlur={() => void saveField(subject)}
                 placeholder="o que a imagem mostra, em inglês"
                 className="border-rule bg-background w-full rounded-sm border py-2 pr-10 pl-3 text-sm"
               />
@@ -668,11 +699,24 @@ export function WordPanel({
                 title="Sugerir uma instrução para esta palavra"
                 onClick={() =>
                   void run("assunto", async () => {
-                    const result = await suggestSubject(word.id);
-                    if (result.ok) setSubject(result.subject);
-                    return result.ok
-                      ? { ok: true }
-                      : { ok: false, error: result.error };
+                    const atRequest = field.current;
+                    await saveField(atRequest);
+                    const result = await suggestSubject(
+                      word.id,
+                      normalizeSubject(atRequest),
+                    );
+                    if (!result.ok) return { ok: false, error: result.error };
+                    if (result.stored)
+                      saved.current = normalizeSubject(result.subject);
+                    const landed = landSuggestion(
+                      atRequest,
+                      field.current,
+                      result,
+                    );
+                    field.current = landed.field;
+                    setSubject(landed.field);
+                    setSubjectNote(landed.note);
+                    return { ok: true };
                   })
                 }
                 className="text-faint hover:text-foreground absolute top-1/2 right-1.5 -translate-y-1/2 rounded-sm p-1.5 transition-colors disabled:opacity-40"
@@ -696,6 +740,9 @@ export function WordPanel({
                 )}
               </button>
             </div>
+            {subjectNote !== null && (
+              <p className="text-muted text-xs">{subjectNote}</p>
+            )}
             <p className="text-faint text-xs">
               Aqui vai só o que a imagem mostra. O estilo não se escreve aqui:
               ele entra sozinho, no formato que a caixa acima escolher.

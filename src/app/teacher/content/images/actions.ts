@@ -45,6 +45,7 @@ import { createDeepSeekProvider } from "@/lib/text/deepseek";
 import type { Database } from "@/lib/supabase/types";
 
 import { contrastError } from "./contrast-sets";
+import { storeSubject, storeSuggestion, type SubjectDb } from "./subject-store";
 
 type Representation = Database["public"]["Enums"]["representation_kind"];
 
@@ -100,6 +101,13 @@ const SCREEN = "/teacher/content/images";
  * discardable input.
  */
 const REFERENCE_PREFIX = "references";
+
+/** An update on the word's instruction, for subject-store. */
+function subjectUpdate(
+  supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
+): SubjectDb {
+  return (values) => supabase.from("vocabulary_items").update(values);
+}
 
 /** Whatever was thrown, as a string the screen can show. */
 function errorMessage(cause: unknown): string {
@@ -561,6 +569,14 @@ export async function startGeneration(
      * a picture came from a file the model never saw.
      */
     const referencePath = takesReference(model) ? word.reference_path : null;
+
+    /*
+     * The instruction this generation is drawn from becomes the word's, the
+     * same text the attempt records below. Before the insert, so a word
+     * reopened later shows what the newest attempt used even if the provider
+     * call fails.
+     */
+    await storeSubject(subjectUpdate(supabase), wordId, subject);
 
     const { data: attempt, error: insertError } = await supabase
       .from("image_attempts")
@@ -1165,17 +1181,23 @@ export async function countSuggestionRun(
 }
 
 export type SubjectResult =
-  { ok: true; subject: string } | { ok: false; error: string };
+  { ok: true; subject: string; stored: boolean } | { ok: false; error: string };
 
 /**
- * Propose the subject line for one word.
+ * Propose the subject line for one word, and keep it on that word.
  *
- * Writes nothing, anywhere. What comes back fills the field and the teacher
- * edits it before generating: the subject is the half of the prompt that is
- * theirs, so a model may draft it and never commit it. That is also why this
- * returns the phrase rather than saving it and letting the screen reread it.
+ * The proposal is written to vocabulary_items.image_subject of the word that
+ * asked, by id, before this answers: the teacher may be on another word by
+ * then, and the suggestion is the word's, not the screen's. It is written only
+ * if the column still holds `expected`, what the screen had when it asked, so
+ * an edit saved while the model was thinking is never overwritten; `stored`
+ * says which way it went. See storeSuggestion. The teacher still edits what
+ * lands: the subject is the half of the prompt that is theirs.
  */
-export async function suggestSubject(wordId: string): Promise<SubjectResult> {
+export async function suggestSubject(
+  wordId: string,
+  expected: string | null,
+): Promise<SubjectResult> {
   try {
     const { supabase } = await requireTeacher();
 
@@ -1220,9 +1242,35 @@ export async function suggestSubject(wordId: string): Promise<SubjectResult> {
         error: "O modelo não devolveu uma instrução legível.",
       };
     }
-    return { ok: true, subject };
+    const outcome = await storeSuggestion(
+      subjectUpdate(supabase),
+      wordId,
+      expected,
+      subject,
+    );
+    if (outcome === "stored") revalidatePath(SCREEN);
+    return { ok: true, subject, stored: outcome === "stored" };
   } catch (cause) {
     return { ok: false, error: errorMessage(cause) };
+  }
+}
+
+/**
+ * The teacher's own instruction, saved on leaving the field. Always written:
+ * the most recent thing said about the word is the one it keeps.
+ */
+export async function saveSubject(
+  wordId: string,
+  text: string,
+): Promise<ActionResult> {
+  try {
+    const { supabase } = await requireTeacher();
+    await storeSubject(subjectUpdate(supabase), wordId, text);
+    // So a word reopened from the router's cache, as Back does, opens on it.
+    revalidatePath(SCREEN);
+    return { ok: true };
+  } catch (cause) {
+    return failure(cause);
   }
 }
 

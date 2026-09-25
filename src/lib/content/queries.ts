@@ -267,6 +267,12 @@ export type WordImage = {
    * the bucket, whose style is recorded in the prompt of their attempt.
    */
   readonly imageStyle: ImageStyle;
+  /**
+   * The word's latest instruction for its picture, suggested or edited,
+   * whichever came last. Null when there is none. What each attempt was drawn
+   * from is on the attempt, as its subject.
+   */
+  readonly imageSubject: string | null;
   readonly imageUrl: string | null;
   /**
    * The structure reference this word is set up to generate from, as a URL
@@ -372,7 +378,7 @@ export async function listVocabularyImages(): Promise<{
   const { data: rows, error } = await supabase
     .from("vocabulary_items")
     .select(
-      "id, term, representation, suggested_representation, word_class, image_style, image_path, reference_path, points!inner(number, lessons_content(id, number)), image_attempts!image_attempts_vocabulary_item_id_fkey(count)",
+      "id, term, representation, suggested_representation, word_class, image_style, image_subject, image_path, reference_path, points!inner(number, lessons_content(id, number)), image_attempts!image_attempts_vocabulary_item_id_fkey(count)",
     );
   if (error) throw new Error(error.message);
 
@@ -388,6 +394,7 @@ export async function listVocabularyImages(): Promise<{
       suggestedRepresentation: row.suggested_representation,
       wordClass: row.word_class,
       imageStyle: row.image_style,
+      imageSubject: row.image_subject,
       imageUrl: publicImageUrl(supabase, row.image_path),
       referenceUrl: publicImageUrl(supabase, row.reference_path),
       // An array now, and correctly so: naming the attempt-to-word key makes
