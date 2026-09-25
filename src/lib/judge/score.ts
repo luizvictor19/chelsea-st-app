@@ -71,17 +71,20 @@ export function differencesPointAtError(
  * same word said. Dropping these is not a repair of the answer, which is
  * stored as it came; it is the reading the report makes of it.
  *
- * A dropped difference is one the model named on both sides with the same
- * word. A missing word (said null) or an extra one (expected null) is never
- * dropped, because one side is empty.
+ * A dropped difference is one whose two sides are the same once normalised,
+ * an empty side counting as nothing. So the same word on both sides goes,
+ * and so does a one-sided difference that is only punctuation: on
+ * 2026-09-25 gpt-audio-1.5 listed the "..." of h02's expected answer as a
+ * missing word. A missing or an extra word always stays, because a word
+ * against nothing is a difference.
  */
 export function substantiveDifferences(
   differences: readonly Difference[],
 ): Difference[] {
-  return differences.filter((difference) => {
-    if (difference.expected === null || difference.said === null) return true;
-    return normalize(difference.expected) !== normalize(difference.said);
-  });
+  return differences.filter(
+    (difference) =>
+      normalize(difference.expected ?? "") !== normalize(difference.said ?? ""),
+  );
 }
 
 export type Verdict = "match" | "mismatch" | "uncertain";

@@ -235,6 +235,19 @@ describe("substantiveDifferences", () => {
     assert.deepEqual(substantiveDifferences(mixed), [mixed[1]]);
   });
 
+  /*
+   * gpt-audio-1.5 on h02 #1, 2026-09-25, short prompt: it took the ellipsis
+   * of the expected answer for a word and listed it as missing. One side is
+   * empty, but the other is only punctuation, so there is no word at all.
+   */
+  test("a one-sided difference that is only punctuation is dropped", () => {
+    const punctuation: Difference[] = [
+      { expected: "...", said: null, kind: "missing" },
+      { expected: null, said: ",", kind: "extra" },
+    ];
+    assert.deepEqual(substantiveDifferences(punctuation), []);
+  });
+
   test("a missing or an extra word is never dropped", () => {
     const oneSided: Difference[] = [
       { expected: "a", said: null, kind: "missing" },
@@ -278,6 +291,17 @@ describe("recountedVerdict", () => {
       differences: [{ expected: "are", said: "is", kind: "replaced" }],
     };
     assert.equal(recountedVerdict(g10), "mismatch");
+  });
+
+  test("h02 #1: an ellipsis listed as missing is not a mismatch", () => {
+    const h02: Judgement = {
+      heard: "The book is on under the table.",
+      englishSpeech: true,
+      noEnglishReason: null,
+      matches: false,
+      differences: [{ expected: "...", said: null, kind: "missing" }],
+    };
+    assert.equal(recountedVerdict(h02), "uncertain");
   });
 
   test("h02 #2: does not match and names nothing is uncertain", () => {
