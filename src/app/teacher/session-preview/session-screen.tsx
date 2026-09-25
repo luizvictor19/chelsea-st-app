@@ -1,15 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import {
   type Recorder,
   createRecorder,
   recordingUnavailableReason,
 } from "@/lib/audio/recorder";
-import { withDeadline } from "@/lib/tutor/deadline";
-import type { TurnEngine, TutorTurn } from "@/lib/tutor/turn-engine";
+import {
+  HOLD_WHILE_TALKING,
+  type Microphone,
+  type Phase,
+  Session,
+} from "@/lib/tutor/session";
+import type { TurnEngine } from "@/lib/tutor/turn-engine";
 
 import { Robin, type RobinState } from "./robin";
 
@@ -39,14 +50,6 @@ const NUDGE_AFTER_MS = 5000;
  */
 const MAX_SPEAKING_MS = 15_000;
 
-/** Shown for a stray touch and for a hold with nothing said in it. */
-const HOLD_WHILE_TALKING = "Segure enquanto fala.";
-
-type Phase =
-  "intro" | "speaking" | "waiting" | "listening" | "thinking" | "finished";
-
-type Microphone = "ok" | "denied" | { readonly unavailable: string };
-
 const ROBIN: Record<Phase, RobinState> = {
   intro: "idle",
   speaking: "speaking",
@@ -75,10 +78,17 @@ function isTyping(target: EventTarget | null): boolean {
   );
 }
 
+/** Stops the browser voice, the one thing about the tutor this screen owns. */
+function silence(): void {
+  if (typeof window !== "undefined" && "speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+  }
+}
+
 /**
  * The voice tutor's session screen. It knows a TurnEngine and nothing about
- * what is behind it: the student's recording goes in, the tutor's turn comes
- * out, and the screen shows it.
+ * what is behind it. The rules of the session live in Session; this screen
+ * records, draws, and tells the session what the student and the browser did.
  */
 export function SessionScreen({
   engine,
@@ -88,58 +98,58 @@ export function SessionScreen({
   /** Marks the screen as the teacher's prototype. */
   readonly preview?: boolean;
 }) {
-  const [phase, setPhase] = useState<Phase>("intro");
-  const [microphone, setMicrophone] = useState<Microphone>("ok");
-  const [turn, setTurn] = useState<TutorTurn | null>(null);
+  const [session] = useState(
+    () =>
+      new Session({
+        engine,
+        nudgeAfterMs: NUDGE_AFTER_MS,
+        maxSpeakingMs: MAX_SPEAKING_MS,
+      }),
+  );
+  const {
+    phase,
+    turn,
+    hint,
+    nudgeAt,
+    microphone,
+    helpShown,
+    practised,
+    startedAt,
+  } = useSyncExternalStore(
+    session.subscribe,
+    session.getState,
+    session.getState,
+  );
   const [showQuestion, setShowQuestion] = useState(true);
-  const [helpShown, setHelpShown] = useState(false);
-  const [hint, setHint] = useState<string | null>(null);
-  const [startedAt, setStartedAt] = useState<number | null>(null);
+  /** A problem with the microphone check, before the session has a turn. */
+  const [introHint, setIntroHint] = useState<string | null>(null);
   const [now, setNow] = useState(0);
-  /** When the tutor gives the start of the sentence, or null when it won't. */
-  const [nudgeAt, setNudgeAt] = useState<number | null>(null);
-  const [nudgeNow, setNudgeNow] = useState(0);
-  /** Every word shown this session, for the closing screen. */
-  const [practised, setPractised] = useState<ReadonlySet<string>>(new Set());
 
-  const phaseRef = useRef<Phase>("intro");
-  const turnRef = useRef<TutorTurn | null>(null);
   const beginningRef = useRef(false);
   const recorderRef = useRef<Recorder | null>(null);
   const heldRef = useRef(false);
   const startingRef = useRef(false);
   const pressedAtRef = useRef(0);
-  /** The start of the sentence was already given for the current question. */
-  const nudgedRef = useRef(false);
 
-  const moveTo = useCallback((next: Phase) => {
-    phaseRef.current = next;
-    setPhase(next);
-  }, []);
-
-  /**
-   * Her turn again. The 5 s start over from here, which is also what makes a
-   * stray touch or a silent hold restart them, unless the start of the sentence
-   * was already given for this question.
-   */
-  const toWaiting = useCallback(() => {
-    moveTo("waiting");
-    const asking = turnRef.current?.question != null;
-    if (asking && !nudgedRef.current) {
-      const at = Date.now();
-      setNudgeNow(at);
-      setNudgeAt(at + NUDGE_AFTER_MS);
-    } else {
-      setNudgeAt(null);
-    }
-  }, [moveTo]);
-
-  // The clock only ticks once the session has started.
+  // Leaving the page ends the session: whatever lands later is dropped, and
+  // neither the microphone nor the voice may keep going.
   useEffect(() => {
-    if (startedAt === null) return;
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    session.reopen();
+    return () => {
+      session.close();
+      void recorderRef.current?.stop().catch(() => undefined);
+      silence();
+    };
+  }, [session]);
+
+  // One clock for the session timer and the nudge countdown. It runs only
+  // while one of them is on screen.
+  const ticking = startedAt !== null || nudgeAt !== null;
+  useEffect(() => {
+    if (!ticking) return;
+    const id = window.setInterval(() => setNow(Date.now()), 200);
     return () => window.clearInterval(id);
-  }, [startedAt]);
+  }, [ticking]);
 
   // A permission already refused shows the instructions before the first hold,
   // and lifting it in the browser settings brings the screen back by itself.
@@ -147,8 +157,10 @@ export function SessionScreen({
     let status: PermissionStatus | null = null;
     const follow = () => {
       if (status === null) return;
-      if (status.state === "denied") setMicrophone("denied");
-      else setMicrophone((current) => (current === "denied" ? "ok" : current));
+      if (status.state === "denied") session.setMicrophone("denied");
+      else if (session.getState().microphone === "denied") {
+        session.setMicrophone("ok");
+      }
     };
     navigator.permissions
       ?.query({ name: "microphone" as PermissionName })
@@ -160,101 +172,45 @@ export function SessionScreen({
       // Firefox and older Safari do not know the name; getUserMedia still tells.
       .catch(() => undefined);
     return () => status?.removeEventListener("change", follow);
-  }, []);
-
-  // Leaving the page must not keep the microphone or the voice going.
-  useEffect(() => {
-    return () => {
-      void recorderRef.current?.stop().catch(() => undefined);
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
-    };
-  }, []);
-
-  const play = useCallback(
-    async (next: TutorTurn) => {
-      // Help is per word: a new word starts hidden, a retry keeps it shown.
-      if (turnRef.current?.word?.term !== next.word?.term) setHelpShown(false);
-      // A nudge keeps the question it helps with; anything else is a new one.
-      if (next.lead === null) nudgedRef.current = false;
-      turnRef.current = next;
-      const shown = next.word?.term;
-      if (shown !== undefined) {
-        setPractised((terms) =>
-          terms.has(shown) ? terms : new Set(terms).add(shown),
-        );
-      }
-      setTurn(next);
-      setNudgeAt(null);
-      // Whatever the last hint was about, the tutor talking has moved past it.
-      setHint(null);
-      moveTo("speaking");
-      await withDeadline(next.play(), MAX_SPEAKING_MS);
-      if (next.finished) moveTo("finished");
-      else toWaiting();
-    },
-    [moveTo, toWaiting],
-  );
-
-  // The visible countdown, and the nudge when it runs out.
-  useEffect(() => {
-    if (nudgeAt === null) return;
-    const id = window.setInterval(() => {
-      const at = Date.now();
-      setNudgeNow(at);
-      if (at < nudgeAt) return;
-      window.clearInterval(id);
-      setNudgeAt(null);
-      nudgedRef.current = true;
-      void engine.nudge().then((nudge) => {
-        // She may have pressed while it was on its way: her turn wins.
-        if (phaseRef.current === "waiting") void play(nudge);
-      });
-    }, 100);
-    return () => window.clearInterval(id);
-  }, [engine, nudgeAt, play]);
+  }, [session]);
 
   /** Asks for the microphone once, so a refusal shows before the first hold. */
   const checkMicrophone = useCallback(async (): Promise<boolean> => {
     const unavailable = recordingUnavailableReason();
     if (unavailable !== null) {
-      setMicrophone({ unavailable });
+      session.setMicrophone({ unavailable });
       return false;
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       for (const track of stream.getTracks()) track.stop();
-      setMicrophone("ok");
+      session.setMicrophone("ok");
+      setIntroHint(null);
       return true;
     } catch (cause) {
-      if (isDenied(cause)) setMicrophone("denied");
-      else setHint("Não foi possível abrir o microfone deste aparelho.");
+      if (isDenied(cause)) session.setMicrophone("denied");
+      else setIntroHint("Não foi possível abrir o microfone deste aparelho.");
       return false;
     }
-  }, []);
+  }, [session]);
 
   const begin = useCallback(async () => {
-    // A double tap on Começar must not open the session twice.
+    // A double tap on Começar must not ask for the microphone twice.
     if (beginningRef.current) return;
     beginningRef.current = true;
-    if (!(await checkMicrophone())) {
-      beginningRef.current = false;
-      return;
-    }
-    setStartedAt(Date.now());
-    setNow(Date.now());
-    await play(await engine.start());
-  }, [checkMicrophone, engine, play]);
+    const ready = await checkMicrophone();
+    if (ready) setNow(Date.now());
+    if (ready) await session.begin();
+    beginningRef.current = false;
+  }, [checkMicrophone, session]);
 
   const press = useCallback(async () => {
-    if (phaseRef.current !== "waiting" || heldRef.current) return;
+    // listen() is the one gate for the button and the space bar: her turn,
+    // and a usable microphone.
+    if (heldRef.current || !session.listen()) return;
     heldRef.current = true;
     startingRef.current = true;
     pressedAtRef.current = performance.now();
-    setHint(null);
-    setNudgeAt(null);
-    moveTo("listening");
 
     const recorder = createRecorder();
     try {
@@ -262,9 +218,12 @@ export function SessionScreen({
     } catch (cause) {
       startingRef.current = false;
       heldRef.current = false;
-      toWaiting();
-      if (isDenied(cause)) setMicrophone("denied");
-      else setHint("Não foi possível gravar. Tente de novo.");
+      if (isDenied(cause)) {
+        session.setMicrophone("denied");
+        session.cancel(null);
+      } else {
+        session.cancel("Não foi possível gravar. Tente de novo.");
+      }
       return;
     }
     startingRef.current = false;
@@ -272,11 +231,11 @@ export function SessionScreen({
     // Let go before the microphone opened: nothing worth sending.
     if (!heldRef.current) {
       void recorder.stop().catch(() => undefined);
-      toWaiting();
+      session.cancel(null);
       return;
     }
     recorderRef.current = recorder;
-  }, [moveTo, toWaiting]);
+  }, [session]);
 
   const release = useCallback(async () => {
     if (!heldRef.current) return;
@@ -291,44 +250,38 @@ export function SessionScreen({
     const held = performance.now() - pressedAtRef.current;
     if (held < MIN_HOLD_MS) {
       void recorder.stop().catch(() => undefined);
-      toWaiting();
-      setHint(HOLD_WHILE_TALKING);
+      session.cancel(HOLD_WHILE_TALKING);
       return;
     }
 
-    moveTo("thinking");
+    session.think();
     let audio: Blob;
     try {
       audio = await recorder.stop();
     } catch {
-      toWaiting();
-      setHint("A gravação falhou. Tente de novo.");
+      session.cancel("A gravação falhou. Tente de novo.");
       return;
     }
-
-    const result = await engine.respond({ audio, durationMs: held });
-    if (result.kind === "not-heard") {
-      // Not an answer and not a mistake: nothing moves, she tries again.
-      toWaiting();
-      setHint(HOLD_WHILE_TALKING);
-      return;
-    }
-    await play(result.turn);
-  }, [engine, moveTo, play, toWaiting]);
+    await session.answer({ audio, durationMs: held });
+  }, [session]);
 
   // The space bar is the button on a computer, wherever the focus is. The
   // default is stopped on both edges: keydown would scroll the page, and keyup
   // would click whichever button happens to be focused.
   useEffect(() => {
+    const inSession = () => {
+      const state = session.getState();
+      return state.phase !== "intro" && state.microphone === "ok";
+    };
     const down = (event: KeyboardEvent) => {
       if (event.code !== "Space" || isTyping(event.target)) return;
-      if (phaseRef.current === "intro") return;
+      if (!inSession()) return;
       event.preventDefault();
       if (!event.repeat) void press();
     };
     const up = (event: KeyboardEvent) => {
       if (event.code !== "Space" || isTyping(event.target)) return;
-      if (phaseRef.current === "intro") return;
+      if (!inSession()) return;
       event.preventDefault();
       void release();
     };
@@ -342,7 +295,7 @@ export function SessionScreen({
       window.removeEventListener("keyup", up);
       window.removeEventListener("blur", blur);
     };
-  }, [press, release]);
+  }, [press, release, session]);
 
   const remaining =
     startedAt === null
@@ -353,7 +306,7 @@ export function SessionScreen({
   const nudgeLeft =
     nudgeAt === null || phase !== "waiting"
       ? null
-      : Math.max(0, nudgeAt - nudgeNow);
+      : Math.min(NUDGE_AFTER_MS, Math.max(0, nudgeAt - now));
 
   return (
     <div className="text-foreground fixed inset-0 z-20 flex flex-col bg-[#F2F2F0] dark:bg-[#0F1115]">
@@ -406,7 +359,9 @@ export function SessionScreen({
                 >
                   Começar
                 </button>
-                {hint !== null && <p className="text-faint text-sm">{hint}</p>}
+                {(introHint ?? hint) !== null && (
+                  <p className="text-faint text-sm">{introHint ?? hint}</p>
+                )}
               </div>
             ) : word !== null ? (
               <>
@@ -432,7 +387,7 @@ export function SessionScreen({
                 </p>
               </>
             ) : (
-              <SessionOver practised={practised.size} />
+              <SessionOver practised={practised} />
             )}
           </div>
 
@@ -463,7 +418,7 @@ export function SessionScreen({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setHelpShown(true)}
+                  onClick={() => session.showHelp()}
                   disabled={word === null || helpShown}
                   className="border-rule text-muted hover:text-foreground rounded-full border px-3.5 py-1.5 text-sm disabled:opacity-40"
                 >
