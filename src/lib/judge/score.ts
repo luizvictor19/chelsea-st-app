@@ -5,7 +5,7 @@
 
 import { normalize } from "../stt/score.ts";
 import { differingMiddle } from "./expected.ts";
-import type { Difference } from "./provider.ts";
+import type { Difference, Judgement } from "./provider.ts";
 
 function wordsOf(values: readonly (string | null)[]): string[] {
   return values.flatMap((value) =>
@@ -84,12 +84,55 @@ export function substantiveDifferences(
   });
 }
 
+export type Verdict = "match" | "mismatch" | "uncertain";
+
 /**
- * The verdict recounted from the differences: it matches when no substantive
- * difference is left. The model's own `matches` is ignored here on purpose,
- * because it is the field the punctuation noise flips; the report prints both
- * so the two can be compared.
+ * Where the fields of a judgement disagree with each other, counting only
+ * substantive differences, or null when they agree.
  */
-export function recountedMatch(differences: readonly Difference[]): boolean {
-  return substantiveDifferences(differences).length === 0;
+function fieldsContradict(
+  judgement: Judgement,
+  substantive: number,
+): string | null {
+  if (judgement.matches && substantive > 0) {
+    return "matches but lists differences";
+  }
+  if (judgement.englishSpeech && judgement.noEnglishReason !== null) {
+    return "English speech with a reason for none";
+  }
+  if (!judgement.englishSpeech && judgement.noEnglishReason === null) {
+    return "no English speech and no reason";
+  }
+  if (!judgement.englishSpeech && judgement.matches) {
+    return "matches with no English speech";
+  }
+  return null;
+}
+
+/**
+ * The verdict the tutor acts on, recounted from the judgement.
+ *
+ *   match      English speech, and no substantive difference left.
+ *   mismatch   at least one substantive difference left.
+ *   uncertain  the model says it does not match and names nothing
+ *              substantive, or the fields contradict each other.
+ *
+ * No English speech is never a match, whatever else the answer says.
+ * Uncertain is never an acceptance: in the tutor it becomes "Again, please".
+ *
+ * Why three and not two. The two-way recount of 2026-09-25 turned "does not
+ * match, and no difference named" into a match: gpt-audio-1.5 answered h02 #2
+ * that way, and m01 with no English speech and no difference, and both came
+ * out as "bate". So did g08 re-recorded, where the only difference named was
+ * "closed." against "closed": the model had heard "closed" and refused for
+ * punctuation. A verdict the model did not give and the differences do not
+ * support is not a verdict to accept on.
+ */
+export function recountedVerdict(judgement: Judgement): Verdict {
+  const substantive = substantiveDifferences(judgement.differences).length;
+  if (fieldsContradict(judgement, substantive) !== null) return "uncertain";
+  if (substantive > 0) return "mismatch";
+  if (!judgement.englishSpeech) return "uncertain";
+  if (!judgement.matches) return "uncertain";
+  return "match";
 }

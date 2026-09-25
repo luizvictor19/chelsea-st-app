@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { contradiction, malformedDifference, parseJudgement } from "./parse.ts";
-import type { Difference } from "./provider.ts";
+import type { Difference, Judgement } from "./provider.ts";
 import {
   differencesPointAtError,
-  recountedMatch,
+  recountedVerdict,
   substantiveDifferences,
 } from "./score.ts";
 
@@ -217,7 +217,7 @@ describe("differencesPointAtError", () => {
   });
 });
 
-describe("substantiveDifferences and recountedMatch", () => {
+describe("substantiveDifferences", () => {
   test("punctuation and capitals on both sides are not a difference", () => {
     const noise: Difference[] = [
       { expected: "Yes,", said: "Yes", kind: "replaced" },
@@ -225,7 +225,6 @@ describe("substantiveDifferences and recountedMatch", () => {
       { expected: "The", said: "the", kind: "missing" },
     ];
     assert.deepEqual(substantiveDifferences(noise), []);
-    assert.equal(recountedMatch(noise), true);
   });
 
   test("a real change survives, even next to noise", () => {
@@ -234,19 +233,14 @@ describe("substantiveDifferences and recountedMatch", () => {
       { expected: "are", said: "is", kind: "replaced" },
     ];
     assert.deepEqual(substantiveDifferences(mixed), [mixed[1]]);
-    assert.equal(recountedMatch(mixed), false);
   });
 
-  test("a missing word is never dropped", () => {
-    const missing: Difference[] = [
+  test("a missing or an extra word is never dropped", () => {
+    const oneSided: Difference[] = [
       { expected: "a", said: null, kind: "missing" },
+      { expected: null, said: "um", kind: "extra" },
     ];
-    assert.equal(recountedMatch(missing), false);
-  });
-
-  test("an extra word is never dropped", () => {
-    const extra: Difference[] = [{ expected: null, said: "um", kind: "extra" }];
-    assert.equal(recountedMatch(extra), false);
+    assert.deepEqual(substantiveDifferences(oneSided), oneSided);
   });
 
   // The tutor teaches the contraction, so it stays a difference here too.
@@ -254,11 +248,135 @@ describe("substantiveDifferences and recountedMatch", () => {
     const contraction: Difference[] = [
       { expected: "it's", said: "it is", kind: "replaced" },
     ];
-    assert.equal(recountedMatch(contraction), false);
+    assert.equal(substantiveDifferences(contraction).length, 1);
+  });
+});
+
+describe("recountedVerdict", () => {
+  const english = {
+    heard: "",
+    englishSpeech: true,
+    noEnglishReason: null,
+    matches: true,
+    differences: [],
+  } satisfies Judgement;
+
+  test("English, the model says it matches, nothing listed: match", () => {
+    assert.equal(recountedVerdict(english), "match");
   });
 
-  test("the verdict comes from the differences, not from matches", () => {
-    // What gpt-audio-1.5 answered for h02 #2: matches false, no difference.
-    assert.equal(recountedMatch([]), true);
+  /*
+   * The answers below are gpt-audio-1.5's own, for the recordings on disk on
+   * 2026-09-25, copied from the results file.
+   */
+  test("g10: a substantive difference is a mismatch", () => {
+    const g10: Judgement = {
+      heard: "The pens is black",
+      englishSpeech: true,
+      noEnglishReason: null,
+      matches: false,
+      differences: [{ expected: "are", said: "is", kind: "replaced" }],
+    };
+    assert.equal(recountedVerdict(g10), "mismatch");
+  });
+
+  test("h02 #2: does not match and names nothing is uncertain", () => {
+    const h02: Judgement = {
+      heard: "the book is on under the table",
+      englishSpeech: true,
+      noEnglishReason: null,
+      matches: false,
+      differences: [],
+    };
+    assert.equal(recountedVerdict(h02), "uncertain");
+  });
+
+  test("m01: no English speech is never a match", () => {
+    const m01: Judgement = {
+      heard: "no sei it's a chair",
+      englishSpeech: false,
+      noEnglishReason: "other_language",
+      matches: false,
+      differences: [],
+    };
+    assert.equal(recountedVerdict(m01), "uncertain");
+  });
+
+  test("g08: refused only for punctuation is uncertain, not accepted", () => {
+    const g08: Judgement = {
+      heard: "No, the window is closed",
+      englishSpeech: true,
+      noEnglishReason: null,
+      matches: false,
+      differences: [{ expected: "closed.", said: "closed", kind: "replaced" }],
+    };
+    assert.equal(recountedVerdict(g08), "uncertain");
+  });
+
+  test("c02: a right answer refused only for punctuation is uncertain", () => {
+    const c02: Judgement = {
+      heard: "It's a table",
+      englishSpeech: true,
+      noEnglishReason: null,
+      matches: false,
+      differences: [{ expected: "table.", said: "table", kind: "replaced" }],
+    };
+    assert.equal(recountedVerdict(c02), "uncertain");
+  });
+
+  test("s01: silence is never a match", () => {
+    const s01: Judgement = {
+      heard: "",
+      englishSpeech: false,
+      noEnglishReason: "silence",
+      matches: false,
+      differences: [],
+    };
+    assert.equal(recountedVerdict(s01), "uncertain");
+  });
+
+  test("no English speech that claims to match is uncertain", () => {
+    assert.equal(
+      recountedVerdict({
+        ...english,
+        englishSpeech: false,
+        noEnglishReason: "noise",
+      }),
+      "uncertain",
+    );
+  });
+
+  test("matches with a substantive difference contradicts itself", () => {
+    assert.equal(
+      recountedVerdict({
+        ...english,
+        differences: [{ expected: "a", said: null, kind: "missing" }],
+      }),
+      "uncertain",
+    );
+  });
+
+  test("matches with only a same-word difference is a match", () => {
+    assert.equal(
+      recountedVerdict({
+        ...english,
+        differences: [{ expected: "pen.", said: "pen", kind: "replaced" }],
+      }),
+      "match",
+    );
+  });
+
+  test("English speech with a reason for none contradicts itself", () => {
+    assert.equal(
+      recountedVerdict({ ...english, noEnglishReason: "noise" }),
+      "uncertain",
+    );
+  });
+
+  test("no English speech without a reason contradicts itself", () => {
+    assert.equal(
+      recountedVerdict({ ...english, englishSpeech: false, matches: false }),
+      "uncertain",
+    );
   });
 });
