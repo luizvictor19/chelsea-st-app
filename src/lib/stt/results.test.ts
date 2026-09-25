@@ -46,7 +46,11 @@ describe("answeredKeys", () => {
 });
 
 describe("parseCases", () => {
-  const base = { question: "Is this a pen?", spoken: "Yes, it is pen." };
+  const base = {
+    question: "Is this a pen?",
+    spoken: "Yes, it is pen.",
+    expected: "Yes, it is a pen.",
+  };
 
   test("an error case without its spans is refused", () => {
     assert.throws(
@@ -59,6 +63,15 @@ describe("parseCases", () => {
     assert.throws(
       () => parseCases([{ id: "../x", category: "correct", ...base }]),
       /id must look like/,
+    );
+  });
+
+  test("a case without expected is refused, not read as expecting nothing", () => {
+    const { expected: _drop, ...rest } = base;
+    void _drop;
+    assert.throws(
+      () => parseCases([{ id: "c01", category: "correct", ...rest }]),
+      /expected must be a sentence or null/,
     );
   });
 

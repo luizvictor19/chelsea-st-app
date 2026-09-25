@@ -3,37 +3,43 @@
     "id": "c01",
     "category": "correct",
     "question": "Is this a pen?",
-    "spoken": "Yes, it's a pen."
+    "spoken": "Yes, it's a pen.",
+    "expected": "Yes, it's a pen."
   },
   {
     "id": "c02",
     "category": "correct",
     "question": "What's this?",
-    "spoken": "It's a table."
+    "spoken": "It's a table.",
+    "expected": "It's a table."
   },
   {
     "id": "c03",
     "category": "correct",
     "question": "Is the book on the table?",
-    "spoken": "Yes, the book is on the table."
+    "spoken": "Yes, the book is on the table.",
+    "expected": "Yes, the book is on the table."
   },
   {
     "id": "c04",
     "category": "correct",
     "question": "Is the pencil long or short?",
-    "spoken": "The pencil is long."
+    "spoken": "The pencil is long.",
+    "expected": "The pencil is long."
   },
   {
     "id": "c05",
     "category": "correct",
     "question": "Is Anna sitting or standing?",
-    "spoken": "Anna is sitting."
+    "spoken": "Anna is sitting.",
+    "expected": "Anna is sitting."
   },
   {
     "id": "c06",
     "category": "correct",
     "question": "What colour is the chair?",
-    "spoken": "The chair is brown."
+    "spoken": "The chair is brown.",
+    "expected": "The chair is brown."
   },
   {
     "id": "g01",
@@ -41,7 +47,8 @@
     "question": "Is this a pen?",
     "spoken": "Yes, it is pen.",
     "errorSpan": "is pen",
-    "correctedSpan": "is a pen"
+    "correctedSpan": "is a pen",
+    "expected": "Yes, it is a pen."
   },
   {
     "id": "g02",
@@ -49,7 +56,8 @@
     "question": "Where is the book?",
     "spoken": "The book are on the table.",
     "errorSpan": "book are",
-    "correctedSpan": "book is"
+    "correctedSpan": "book is",
+    "expected": "The book is on the table."
   },
   {
     "id": "g03",
@@ -57,7 +65,8 @@
     "question": "Is Jack sitting?",
     "spoken": "Yes, Jack is sit.",
     "errorSpan": "is sit",
-    "correctedSpan": "is sitting"
+    "correctedSpan": "is sitting",
+    "expected": "Yes, Jack is sitting."
   },
   {
     "id": "g04",
@@ -65,7 +74,8 @@
     "question": "What is Mr Brown doing?",
     "spoken": "Mr Brown stand in front of the door.",
     "errorSpan": "brown stand in",
-    "correctedSpan": "brown stands in"
+    "correctedSpan": "brown stands in",
+    "expected": "Mr Brown stands in front of the door."
   },
   {
     "id": "g05",
@@ -73,7 +83,8 @@
     "question": "How many books are there on the table?",
     "spoken": "There is two books on the table.",
     "errorSpan": "is two",
-    "correctedSpan": "are two"
+    "correctedSpan": "are two",
+    "expected": "There are two books on the table."
   },
   {
     "id": "g06",
@@ -81,7 +92,8 @@
     "question": "Is the pencil long?",
     "spoken": "Yes, the pencil is more long.",
     "errorSpan": "more long",
-    "correctedSpan": "longer"
+    "correctedSpan": "longer",
+    "expected": "Yes, the pencil is longer."
   },
   {
     "id": "g07",
@@ -89,7 +101,8 @@
     "question": "What is there on the wall?",
     "spoken": "Have a clock on the wall.",
     "errorSpan": "have a clock",
-    "correctedSpan": "there is a clock"
+    "correctedSpan": "there is a clock",
+    "expected": "There is a clock on the wall."
   },
   {
     "id": "g08",
@@ -97,7 +110,8 @@
     "question": "Is the window open?",
     "spoken": "No, the window is close.",
     "errorSpan": "is close",
-    "correctedSpan": "is closed"
+    "correctedSpan": "is closed",
+    "expected": "No, the window is closed."
   },
   {
     "id": "g09",
@@ -105,7 +119,8 @@
     "question": "Is Anna a boy?",
     "spoken": "No, Anna is girl.",
     "errorSpan": "is girl",
-    "correctedSpan": "is a girl"
+    "correctedSpan": "is a girl",
+    "expected": "No, Anna is a girl."
   },
   {
     "id": "g10",
@@ -113,99 +128,114 @@
     "question": "What colour are the pens?",
     "spoken": "The pens is black.",
     "errorSpan": "pens is",
-    "correctedSpan": "pens are"
+    "correctedSpan": "pens are",
+    "expected": "The pens are black."
   },
   {
     "id": "p01",
     "category": "pronunciation",
     "question": "What colour is the ceiling?",
     "spoken": "The ceiling is white.",
-    "direction": "falado com o sotaque de uma aluna iniciante"
+    "direction": "falado com o sotaque de uma aluna iniciante",
+    "expected": "The ceiling is white."
   },
   {
     "id": "p02",
     "category": "pronunciation",
     "question": "How many books are there?",
     "spoken": "There are three books.",
-    "direction": "falado com o sotaque de uma aluna iniciante"
+    "direction": "falado com o sotaque de uma aluna iniciante",
+    "expected": "There are three books."
   },
   {
     "id": "p03",
     "category": "pronunciation",
     "question": "Is the box large?",
     "spoken": "No, it's a small box.",
-    "direction": "falado com o sotaque de uma aluna iniciante"
+    "direction": "falado com o sotaque de uma aluna iniciante",
+    "expected": "No, it's a small box."
   },
   {
     "id": "p04",
     "category": "pronunciation",
     "question": "Where is the clock?",
     "spoken": "The clock is on the wall.",
-    "direction": "falado com o sotaque de uma aluna iniciante"
+    "direction": "falado com o sotaque de uma aluna iniciante",
+    "expected": "The clock is on the wall."
   },
   {
     "id": "p05",
     "category": "pronunciation",
     "question": "Where is Mrs Brown?",
     "spoken": "Mrs Brown is between Jack and Mr Brown.",
-    "direction": "falado com o sotaque de uma aluna iniciante"
+    "direction": "falado com o sotaque de uma aluna iniciante",
+    "expected": "Mrs Brown is between Jack and Mr Brown."
   },
   {
     "id": "p06",
     "category": "pronunciation",
     "question": "Is the door open?",
     "spoken": "No, the door is closed.",
-    "direction": "falado com o sotaque de uma aluna iniciante"
+    "direction": "falado com o sotaque de uma aluna iniciante",
+    "expected": "No, the door is closed."
   },
   {
     "id": "h01",
     "category": "hesitation",
     "question": "What's this?",
-    "spoken": "It's a... um... it's a pencil."
+    "spoken": "It's a... um... it's a pencil.",
+    "expected": "It's a... um... it's a pencil."
   },
   {
     "id": "h02",
     "category": "hesitation",
     "question": "Where is the book?",
-    "spoken": "The book is on... under the table."
+    "spoken": "The book is on... under the table.",
+    "expected": "The book is on... under the table."
   },
   {
     "id": "h03",
     "category": "hesitation",
     "question": "Is the window open?",
-    "spoken": "Yes, the... the window is open."
+    "spoken": "Yes, the... the window is open.",
+    "expected": "Yes, the... the window is open."
   },
   {
     "id": "m01",
     "category": "mixed_portuguese",
     "question": "What's this?",
-    "spoken": "Não sei... it's a chair."
+    "spoken": "Não sei... it's a chair.",
+    "expected": "It's a chair."
   },
   {
     "id": "m02",
     "category": "mixed_portuguese",
     "question": "What's this?",
-    "spoken": "É um livro."
+    "spoken": "É um livro.",
+    "expected": null
   },
   {
     "id": "s01",
     "category": "silence_noise",
     "question": "What's this?",
     "spoken": "",
-    "direction": "5 segundos de silêncio"
+    "direction": "5 segundos de silêncio",
+    "expected": null
   },
   {
     "id": "s02",
     "category": "silence_noise",
     "question": "What's this?",
     "spoken": "",
-    "direction": "5 segundos de ruído de fundo, TV ou rua, sem fala"
+    "direction": "5 segundos de ruído de fundo, TV ou rua, sem fala",
+    "expected": null
   },
   {
     "id": "s03",
     "category": "silence_noise",
     "question": "What's this?",
     "spoken": "It's a pen.",
-    "direction": "com ruído de fundo"
+    "direction": "com ruído de fundo",
+    "expected": "It's a pen."
   }
 ]
