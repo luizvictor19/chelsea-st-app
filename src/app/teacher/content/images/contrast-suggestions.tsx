@@ -5,17 +5,24 @@ import { useEffect, useRef, useState } from "react";
 import { readHeartbeat } from "@/lib/heartbeat";
 
 import { saveContrastSet, suggestContrastSets } from "./actions";
+import { notices } from "../../notices";
 import {
   addMember,
   askTwiceIfLost,
   cardsFrom,
-  proposalsNote,
   removeMember,
   withoutCardsOnScreen,
   type Card,
   type Member,
 } from "./contrast-proposals";
 import { MIN_MEMBERS, moveMember } from "./contrast-sets";
+import {
+  contrastSuggested,
+  lessonFailed,
+  setFailed,
+  setSaved,
+  type NoticeText,
+} from "./notice-texts";
 import { settle } from "./panel-state";
 
 type Status =
@@ -24,9 +31,12 @@ type Status =
       readonly kind: "asking";
       readonly since: number;
       readonly retrying: boolean;
-    }
-  | { readonly kind: "note"; readonly text: string }
-  | { readonly kind: "error"; readonly text: string };
+    };
+
+/** Into the teacher area's snackbar. */
+function tell(notice: NoticeText) {
+  notices.push(notice.kind, notice.text);
+}
 
 /**
  * "Sugerir conjuntos" for one lesson, and the proposals it brings back.
@@ -45,10 +55,13 @@ type Status =
  */
 export function ContrastSuggestions({
   lessonContentId,
+  lessonNumber,
   candidates,
   undecided,
 }: {
   readonly lessonContentId: string;
+  /** What the notices call the lesson; see lessonLabel. */
+  readonly lessonNumber: number | null;
   readonly candidates: readonly Member[];
   /** Words with no kind yet, which cannot be sent: nobody knows their picture. */
   readonly undecided: number;
@@ -60,8 +73,8 @@ export function ContrastSuggestions({
    * to a minute: the teacher may have edited or refused cards meanwhile, and
    * the closure that started the call only knows the cards of the click.
    * Read outside a state updater on purpose, because React may run an
-   * updater later than the line that queues it, and the note needs the count
-   * now.
+   * updater later than the line that queues it, and the notice needs the
+   * count now.
    */
   const cardsNow = useRef(cards);
   useEffect(() => {
@@ -105,15 +118,14 @@ export function ContrastSuggestions({
       return readHeartbeat(suggestContrastSets(lessonContentId));
     });
 
+    setStatus({ kind: "idle" });
     if (!answer.ok) {
-      setStatus({ kind: "error", text: answer.error });
+      tell(lessonFailed(lessonNumber, answer.error));
       return;
     }
+    // Fewer than two words to send: the model was not asked.
     if (answer.sent < MIN_MEMBERS) {
-      setStatus({
-        kind: "note",
-        text: "Não há o que sugerir: menos de duas palavras livres que levam imagem.",
-      });
+      tell(contrastSuggested(lessonNumber, 0));
       return;
     }
     /*
@@ -124,10 +136,7 @@ export function ContrastSuggestions({
      */
     const kept = withoutCardsOnScreen(cardsNow.current, answer.proposals);
     setCards((current) => [...current, ...cardsFrom(kept.fresh)]);
-    setStatus({
-      kind: "note",
-      text: proposalsNote(answer.proposals.length, kept.repeated),
-    });
+    tell(contrastSuggested(lessonNumber, kept.fresh.length));
   }
 
   function update(key: string, change: (card: Card) => Card) {
@@ -151,12 +160,14 @@ export function ContrastSuggestions({
       ),
     );
     setSaving(null);
+    const terms = card.members.map((member) => member.term);
     if (result.ok) {
       drop(card.key);
+      tell(setSaved(terms));
       return;
     }
-    // The proposal stays, with the reason on it, to be edited or refused.
-    update(card.key, (c) => ({ ...c, error: result.error }));
+    // The proposal stays, to be edited or refused.
+    tell(setFailed(terms, result.error));
   }
 
   const elapsed =
@@ -196,20 +207,12 @@ export function ContrastSuggestions({
               ? status.retrying
                 ? `A resposta se perdeu no caminho. Perguntando de novo · ${elapsed} s`
                 : `${elapsed} s · costuma levar de 30 s a 1 min`
-              : status.kind === "note"
-                ? status.text
-                : nothingToAsk
-                  ? why
-                  : ""}
+              : nothingToAsk
+                ? why
+                : ""}
           </span>
         </span>
       </div>
-
-      {status.kind === "error" && (
-        <p role="alert" className="text-accent basis-full text-xs normal-case">
-          {status.text}
-        </p>
-      )}
 
       {cards.length > 0 && (
         <ul className="flex basis-full flex-col gap-2 normal-case">
@@ -245,7 +248,6 @@ export function ContrastSuggestions({
                             update(card.key, (c) => ({
                               ...c,
                               members: reorder(c.members, index, -1),
-                              error: null,
                             }))
                           }
                           className="text-muted hover:text-foreground px-1 text-sm disabled:opacity-30"
@@ -260,7 +262,6 @@ export function ContrastSuggestions({
                             update(card.key, (c) => ({
                               ...c,
                               members: reorder(c.members, index, 1),
-                              error: null,
                             }))
                           }
                           className="text-muted hover:text-foreground px-1 text-sm disabled:opacity-30"
@@ -324,11 +325,6 @@ export function ContrastSuggestions({
                   </label>
                 )}
 
-                {card.error !== null && (
-                  <p role="alert" className="text-accent text-xs">
-                    {card.error}
-                  </p>
-                )}
                 {open && card.members.length < MIN_MEMBERS && (
                   <p className="text-muted text-xs">
                     Um conjunto precisa de pelo menos duas palavras.
@@ -355,7 +351,6 @@ export function ContrastSuggestions({
                         update(card.key, (c) => ({
                           ...c,
                           members: before,
-                          error: null,
                         }));
                         setEditing(null);
                       }}

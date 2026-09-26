@@ -44,8 +44,6 @@ export type Card = {
   readonly key: string;
   readonly members: readonly Member[];
   readonly reason: string;
-  /** What the last refused save said, shown on the card. */
-  readonly error: string | null;
 };
 
 let next = 0;
@@ -60,29 +58,19 @@ export function cardsFrom(
     key: `proposta-${(next += 1)}`,
     members: proposal.members,
     reason: proposal.reason,
-    error: null,
   }));
 }
-
-/*
- * Both edits clear the card's error: it described the members as they were
- * when the save was refused, and after an edit it would be describing a set
- * that is no longer on the card.
- */
 
 export function removeMember(card: Card, id: string): Card {
   return {
     ...card,
     members: card.members.filter((member) => member.id !== id),
-    error: null,
   };
 }
 
 export function addMember(card: Card, member: Member): Card {
-  if (card.members.some((m) => m.id === member.id)) {
-    return { ...card, error: null };
-  }
-  return { ...card, members: [...card.members, member], error: null };
+  if (card.members.some((m) => m.id === member.id)) return card;
+  return { ...card, members: [...card.members, member] };
 }
 
 type Proposal = {
@@ -118,18 +106,4 @@ export function withoutCardsOnScreen(
     (proposal) => !shown.has(sameMembers(proposal.members)),
   );
   return { fresh, repeated: proposals.length - fresh.length };
-}
-
-/** What a click brought, said beside the button. */
-export function proposalsNote(proposed: number, repeated: number): string {
-  if (proposed === 0) return "O modelo não propôs nenhum conjunto.";
-  if (repeated === proposed) {
-    return "Nenhum conjunto novo: os propostos já estão na tela.";
-  }
-  const came =
-    proposed === 1 ? "1 conjunto proposto" : `${proposed} conjuntos propostos`;
-  if (repeated === 0) return `${came}.`;
-  return repeated === 1
-    ? `${came}, 1 já estava na tela.`
-    : `${came}, ${repeated} já estavam na tela.`;
 }

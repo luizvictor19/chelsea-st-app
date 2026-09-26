@@ -15,7 +15,8 @@ import {
   lostBatchReport,
 } from "./lost-batch";
 import { settle } from "./panel-state";
-import { restingNote, suggestNote, type SuggestOutcome } from "./suggest-note";
+import { notices } from "../../notices";
+import { typesStalled, typesSuggested, type NoticeText } from "./notice-texts";
 import {
   SETTLE_MS,
   beginPass,
@@ -58,22 +59,24 @@ const CONSOLE = {
  * The dialog is the native element: showModal gives Esc and the focus move
  * for free, and this repository has no dialog of its own to reuse.
  */
+/** Into the teacher area's snackbar. */
+function tell(notice: NoticeText) {
+  notices.push(notice.kind, notice.text);
+}
+
 export function SuggestButton({
   lessonContentId,
+  lessonNumber,
   words,
   suggested,
 }: {
   readonly lessonContentId: string;
+  /** What the notices call the lesson; see lessonLabel. */
+  readonly lessonNumber: number | null;
   readonly words: number;
   readonly suggested: number;
 }) {
   const [busy, setBusy] = useState(false);
-  /*
-   * Null is the resting state, and it means the note and the bar come from
-   * the server's own count rather than from anything this browser remembers.
-   * A run replaces both for as long as it lasts and then hands them back.
-   */
-  const [outcome, setOutcome] = useState<SuggestOutcome | null>(null);
   /*
    * The pass, and null until one has been started. The bar is the pass and
    * not the lesson: on a lesson whose words all carry a suggestion the state
@@ -104,13 +107,6 @@ export function SuggestButton({
    * every batch to say something the first render already knew.
    */
   const floor = useRef(0);
-  /*
-   * Words the last run in this browser sent and got no suggestion back for.
-   * Nothing else records them: a word the model leaves out of its reply is
-   * written nowhere and counted nowhere, and keeps whatever suggestion it had
-   * before, which is indistinguishable from one written a second ago.
-   */
-  const [unanswered, setUnanswered] = useState(0);
   const dialog = useRef<HTMLDialogElement>(null);
 
   /*
@@ -129,7 +125,6 @@ export function SuggestButton({
    */
   async function run() {
     setBusy(true);
-    setUnanswered(0);
     floor.current = 0;
 
     /*
@@ -177,16 +172,19 @@ export function SuggestButton({
 
     let covered = 0;
     /*
-     * Sent and not suggested, which is refusals and omissions together. It is
-     * the only tally this loop still keeps: how many words carry a suggestion
-     * is the server's to say, and counting it here as well would be a second
-     * number free to disagree with the one the bar and the sentence read.
+     * Sent and not suggested, which is refusals and omissions together. The
+     * notice at the end is the only place these words are counted.
      */
     let missed = 0;
     /*
+     * Words this run wrote a suggestion for, for the one notice at its end.
+     * The lesson's count is the server's; this is only what the run did.
+     */
+    let written = 0;
+    /*
      * The lesson's own count, until the server sends its own. It is the same
      * number from the same rows, and having it here is what lets the first
-     * note name a range before anything has answered. The server's is
+     * batch be drawn before anything has answered. The server's is
      * authoritative and replaces it from the first batch on.
      */
     let total = words;
@@ -197,12 +195,11 @@ export function SuggestButton({
       const batchWords = to - at;
 
       /*
-       * The note and the fill's target are both set here, before the call
-       * goes out, and that order is the point of them rather than a detail:
-       * a batch takes anything from 2.5 to 59.6 seconds, and a note written
-       * after it answers says nothing for all of that.
+       * The fill's target is set here, before the call goes out, and that
+       * order is the point of it rather than a detail: a batch takes anything
+       * from 2.5 to 59.6 seconds, and a bar moved after it answers says
+       * nothing for all of that.
        */
-      setOutcome({ kind: "running", from: at + 1, to, total });
       setPass({ covered: at, total, racingTo: to, instant: false });
 
       const startedAt = performance.now();
@@ -288,6 +285,7 @@ export function SuggestButton({
            * with it is the model's phrasing of a result already written.
            */
           covered = to;
+          written += batchWords;
           setPass({ covered, total, racingTo: null, instant: false });
           await settled();
           if (covered >= total) break;
@@ -298,7 +296,7 @@ export function SuggestButton({
          * Either the witness watched the deadline out without the batch ever
          * becoming whole, or it could not be reached at all. Both are a
          * repeat, and the whole path is bounded: one deadline, then one
-         * repeat, then the run stops with the stall note. Nothing here loops.
+         * repeat, then the run stops with the stall notice. Nothing here loops.
          *
          * The bounded shape is what makes the exact rule safe. A batch with a
          * word the model never answered for can never be whole, so it always
@@ -333,10 +331,9 @@ export function SuggestButton({
 
       if (!result.ok) {
         setBusy(false);
-        // Left where it stopped, beside a sentence that says where that was.
+        // Left where it stopped; the notice says where that was, and why.
         setPass({ covered, total, racingTo: null, instant: false });
-        setUnanswered(missed);
-        setOutcome({ kind: "stalled", covered, total, error: result.error });
+        tell(typesStalled(lessonNumber, covered, total, result.error));
         return;
       }
 
@@ -347,6 +344,7 @@ export function SuggestButton({
        * it is the one nothing anywhere would mention.
        */
       missed += result.words - result.suggested;
+      written += result.suggested;
       total = result.total;
       covered += result.words;
       // Nothing in flight is what settles the fill: it stops creeping into
@@ -368,15 +366,13 @@ export function SuggestButton({
      * happen.
      */
     setPass({ covered: total, total, racingTo: null, instant: false });
-    setUnanswered(missed);
-    setOutcome(null);
+    // One notice for the run, not one a batch; see typesSuggested.
+    tell(typesSuggested(lessonNumber, written, missed));
   }
 
   /*
    * Nothing to draw until a pass has been started, which is what makes the
-   * bar the pass: before the first click there is no pass, and the lesson's
-   * state is in the sentence, where it says "18 sugeridos" whether anything
-   * has run or not.
+   * bar the pass: before the first click there is no pass to draw.
    *
    * Monotone inside a pass and zeroed between them. confirmedWords holds the
    * first; floor.current going back to zero at the start of run() is the
@@ -399,20 +395,6 @@ export function SuggestButton({
     pass === null || confirmed === null
       ? null
       : raceTarget(confirmed, pass.total, inFlightWords);
-
-  /*
-   * The state is in the sentence whatever happened, and a stalled run is
-   * added to it rather than put in its place. The lesson header used to carry
-   * this count; now that it does not, an outcome that never clears — and
-   * "stalled" never clears — would leave that lesson's row saying only where
-   * a run stopped, with no number anywhere, until a reload.
-   */
-  const text =
-    outcome === null
-      ? restingNote(suggested, unanswered)
-      : outcome.kind === "stalled"
-        ? `${restingNote(suggested, unanswered)}. ${suggestNote(outcome)}`
-        : suggestNote(outcome);
 
   function start() {
     if (suggested === 0) {
@@ -440,13 +422,9 @@ export function SuggestButton({
         {busy ? "sugerindo" : "Sugerir tipos"}
       </button>
       {/*
-        The sentence is always there; the bar only once a pass has started.
-        The sentence carries the lesson's state, which is true before anyone
-        has clicked anything, and the bar carries the pass, which is not.
-
-        The bar is never alone either. On its own it shows how far something
-        got and not what it was, and when a run stops that is the whole
-        question: the words are named by the sentence.
+        The bar only once a pass has started: it is progress, not the result.
+        What the run did, or where it stopped and why, is said once at its end
+        in the teacher area's snackbar.
       */}
       <span className="flex items-center gap-2">
         {pass !== null && confirmed !== null && (
@@ -484,7 +462,6 @@ export function SuggestButton({
             />
           </span>
         )}
-        <span className="text-faint text-xs normal-case">{text}</span>
       </span>
 
       <dialog

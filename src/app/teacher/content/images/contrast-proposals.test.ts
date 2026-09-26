@@ -5,7 +5,6 @@ import {
   addMember,
   askTwiceIfLost,
   cardsFrom,
-  proposalsNote,
   removeMember,
   withoutCardsOnScreen,
   type Card,
@@ -80,7 +79,6 @@ describe("cards", () => {
       ],
     );
     assert.equal(new Set(cards.map((c) => c.key)).size, 2);
-    assert.ok(cards.every((c) => c.error === null));
   });
 
   test("a member is taken out, and put back at the end", () => {
@@ -99,13 +97,6 @@ describe("cards", () => {
     );
     // Added twice is added once.
     assert.equal(addMember(back, SMALL).members.length, 3);
-  });
-
-  test("an edit clears the error the last save left on the card", () => {
-    const [card] = cardsFrom([{ members: [LARGE, SMALL], reason: "" }]);
-    const refused = { ...card, error: "Já está em outro conjunto: small." };
-    assert.equal(removeMember(refused, "s").error, null);
-    assert.equal(addMember(refused, BOY).error, null);
   });
 });
 
@@ -175,30 +166,6 @@ describe("withoutCardsOnScreen", () => {
       withoutCardsOnScreen([], [{ members: [LARGE, SMALL], reason: "" }])
         .repeated,
       0,
-    );
-  });
-});
-
-describe("proposalsNote", () => {
-  test("counts what came and what was already on screen", () => {
-    assert.equal(proposalsNote(0, 0), "O modelo não propôs nenhum conjunto.");
-    assert.equal(proposalsNote(1, 0), "1 conjunto proposto.");
-    assert.equal(proposalsNote(3, 0), "3 conjuntos propostos.");
-    assert.equal(
-      proposalsNote(3, 1),
-      "3 conjuntos propostos, 1 já estava na tela.",
-    );
-    assert.equal(
-      proposalsNote(3, 2),
-      "3 conjuntos propostos, 2 já estavam na tela.",
-    );
-    assert.equal(
-      proposalsNote(2, 2),
-      "Nenhum conjunto novo: os propostos já estão na tela.",
-    );
-    assert.equal(
-      proposalsNote(1, 1),
-      "Nenhum conjunto novo: os propostos já estão na tela.",
     );
   });
 });
