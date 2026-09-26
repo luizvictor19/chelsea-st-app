@@ -452,6 +452,37 @@ export async function listVocabularyImages(): Promise<{
   };
 }
 
+/** An attempt still running at the provider, of any word. */
+export type RunningAttempt = {
+  readonly id: string;
+  readonly wordId: string;
+  readonly createdAt: string;
+};
+
+/**
+ * Every generation still running in the whole book, for the page's tracker to
+ * follow whichever word is open. The same test as isRunning: a Freepik
+ * attempt in 'pending'. An upload is never pending (0025), so the provider
+ * clause only keeps the two saying the same thing.
+ */
+export async function listRunningAttempts(): Promise<
+  readonly RunningAttempt[]
+> {
+  const { supabase } = await requireTeacher();
+  const { data: rows, error } = await supabase
+    .from("image_attempts")
+    .select("id, vocabulary_item_id, created_at")
+    .eq("provider", "freepik")
+    .eq("status", "pending")
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(error.message);
+  return (rows ?? []).map((row) => ({
+    id: row.id,
+    wordId: row.vocabulary_item_id,
+    createdAt: row.created_at,
+  }));
+}
+
 /** Every attempt for one word, newest first, for the panel on the right. */
 export async function listWordAttempts(
   wordId: string,
