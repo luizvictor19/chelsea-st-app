@@ -2,6 +2,7 @@
 
 import { useRef, useState, type CSSProperties } from "react";
 import { flushSync } from "react-dom";
+import { useRouter } from "next/navigation";
 
 import { readHeartbeat } from "@/lib/heartbeat";
 import { SUGGESTION_BATCH } from "@/lib/images/suggest";
@@ -77,6 +78,7 @@ export function SuggestButton({
   readonly suggested: number;
 }) {
   const [busy, setBusy] = useState(false);
+  const router = useRouter();
   /*
    * The pass, and null until one has been started. The bar is the pass and
    * not the lesson: on a lesson whose words all carry a suggestion the state
@@ -334,6 +336,8 @@ export function SuggestButton({
         // Left where it stopped; the notice says where that was, and why.
         setPass({ covered, total, racingTo: null, instant: false });
         tell(typesStalled(lessonNumber, covered, total, result.error));
+        // What was written before it stopped; see the refresh at the end.
+        router.refresh();
         return;
       }
 
@@ -368,6 +372,13 @@ export function SuggestButton({
     setPass({ covered: total, total, racingTo: null, instant: false });
     // One notice for the run, not one a batch; see typesSuggested.
     tell(typesSuggested(lessonNumber, written, missed));
+    /*
+     * Explicit, unlike every other action on this screen. The batches answer
+     * as a heartbeat stream, so the action has returned before suggestBatch
+     * calls revalidatePath, and Next decides whether to send the re-render
+     * the moment the action returns: the list would stay as it was until F5.
+     */
+    router.refresh();
   }
 
   /*
