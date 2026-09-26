@@ -6,6 +6,8 @@ import { listVocabularyImages, listWordAttempts } from "@/lib/content/queries";
 import { ProgressBar } from "../progress-bar";
 import { overwriteWarning } from "@/lib/images/suggest";
 
+import type { BulkWord } from "./bulk";
+import { BulkSelection, LessonSelectBox, SelectBox } from "./bulk-selection";
 import { ContrastSetSection } from "./contrast-set-section";
 import { ContrastSuggestions } from "./contrast-suggestions";
 import { readContrastRows } from "./contrast-rows";
@@ -179,6 +181,25 @@ export default async function VocabularyImagesPage({
     }))
     .filter((lesson) => lesson.words.length > 0);
 
+  // What the bulk bar can act on: every word the list shows, in its order,
+  // which is book order.
+  const bulkWords: readonly BulkWord[] = visible.flatMap((lesson) =>
+    lesson.words.map((word) => ({
+      id: word.id,
+      term: word.term,
+      representation: word.representation,
+      suggestedRepresentation: word.suggestedRepresentation,
+      wordClass: word.wordClass,
+      imageStyle: word.imageStyle,
+      imageUrl: word.imageUrl,
+      imageSubject: word.imageSubject,
+      inSet: inASet.has(word.id),
+    })),
+  );
+  // Changes with the filter and the search, and clears the selection when it
+  // does. The open word is not part of it: opening one keeps the selection.
+  const filterKey = JSON.stringify([selection, term]);
+
   const shown = visible.reduce(
     (total, lesson) => total + lesson.words.length,
     0,
@@ -256,78 +277,88 @@ export default async function VocabularyImagesPage({
         <>
           <div className="grid gap-8 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:overflow-hidden">
             <div className="flex flex-col gap-7 lg:min-h-0 lg:overflow-y-auto lg:pr-3">
-              {visible.length === 0 ? (
-                <p className="text-muted border-rule rounded-sm border border-dashed p-6">
-                  Nenhuma palavra neste filtro.
-                </p>
-              ) : (
-                visible.map((lesson) => (
-                  <section
-                    key={lesson.lessonNumber ?? "sem-licao"}
-                    className="flex flex-col gap-2"
-                  >
-                    <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-                      <h2 className="text-faint mr-auto font-mono text-xs tracking-[0.16em] uppercase">
-                        {lessonLabel(lesson.lessonNumber)}
-                      </h2>
-                      {/*
+              <BulkSelection words={bulkWords} filterKey={filterKey}>
+                {visible.length === 0 ? (
+                  <p className="text-muted border-rule rounded-sm border border-dashed p-6">
+                    Nenhuma palavra neste filtro.
+                  </p>
+                ) : (
+                  visible.map((lesson) => (
+                    <section
+                      key={lesson.lessonNumber ?? "sem-licao"}
+                      className="flex flex-col gap-2"
+                    >
+                      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                        <LessonSelectBox
+                          ids={lesson.words.map((word) => word.id)}
+                          label={lessonLabel(lesson.lessonNumber)}
+                        />
+                        <h2 className="text-faint mr-auto font-mono text-xs tracking-[0.16em] uppercase">
+                          {lessonLabel(lesson.lessonNumber)}
+                        </h2>
+                        {/*
                         The lesson's state, read from the server, so both
                         counts are right after every reload. What a run did
                         is said once at its end, in the teacher area's
                         snackbar; this is what the lesson is.
                       */}
-                      <span className="text-faint text-xs whitespace-nowrap">
-                        {lesson.images.withImage}/{lesson.images.takesImage} com
-                        imagem
-                      </span>
-                      <span className="text-faint text-xs whitespace-nowrap">
-                        {suggestedCount(lesson.overwrite.suggested)}
-                      </span>
-                      {lesson.lessonContentId !== null && (
-                        <SuggestButton
-                          lessonContentId={lesson.lessonContentId}
-                          lessonNumber={lesson.lessonNumber}
-                          words={lesson.totalWords}
-                          suggested={lesson.overwrite.suggested}
-                        />
-                      )}
-                      {lesson.lessonContentId !== null && (
-                        <ContrastSuggestions
-                          lessonContentId={lesson.lessonContentId}
-                          lessonNumber={lesson.lessonNumber}
-                          candidates={lesson.setCandidates}
-                          undecided={lesson.undecided}
-                        />
-                      )}
-                    </div>
-                    <ul className="flex flex-col">
-                      {lesson.words.map((word) => (
-                        <li key={word.id}>
-                          <Link
-                            href={filterHref(selection, word.id, term)}
-                            aria-current={
-                              selectedId === word.id ? "true" : undefined
-                            }
-                            className={
-                              selectedId === word.id
-                                ? "bg-surface border-rule flex items-center justify-between gap-3 rounded-sm border px-3 py-2"
-                                : "border-rule hover:bg-surface flex items-center justify-between gap-3 rounded-sm border border-transparent px-3 py-2 transition-colors"
-                            }
-                          >
-                            <span className="flex min-w-0 items-baseline gap-3">
-                              <span className="text-faint w-10 shrink-0 font-mono text-xs">
-                                {word.pointNumber ?? "·"}
+                        <span className="text-faint text-xs whitespace-nowrap">
+                          {lesson.images.withImage}/{lesson.images.takesImage}{" "}
+                          com imagem
+                        </span>
+                        <span className="text-faint text-xs whitespace-nowrap">
+                          {suggestedCount(lesson.overwrite.suggested)}
+                        </span>
+                        {lesson.lessonContentId !== null && (
+                          <SuggestButton
+                            lessonContentId={lesson.lessonContentId}
+                            lessonNumber={lesson.lessonNumber}
+                            words={lesson.totalWords}
+                            suggested={lesson.overwrite.suggested}
+                          />
+                        )}
+                        {lesson.lessonContentId !== null && (
+                          <ContrastSuggestions
+                            lessonContentId={lesson.lessonContentId}
+                            lessonNumber={lesson.lessonNumber}
+                            candidates={lesson.setCandidates}
+                            undecided={lesson.undecided}
+                          />
+                        )}
+                      </div>
+                      <ul className="flex flex-col">
+                        {lesson.words.map((word) => (
+                          <li key={word.id} className="flex items-center gap-2">
+                            {/*
+                            Outside the link, so ticking the box never opens
+                            the word; the rest of the row still does.
+                          */}
+                            <SelectBox id={word.id} term={word.term} />
+                            <Link
+                              href={filterHref(selection, word.id, term)}
+                              aria-current={
+                                selectedId === word.id ? "true" : undefined
+                              }
+                              className={
+                                selectedId === word.id
+                                  ? "bg-surface border-rule flex min-w-0 flex-1 items-center justify-between gap-3 rounded-sm border px-3 py-2"
+                                  : "border-rule hover:bg-surface flex min-w-0 flex-1 items-center justify-between gap-3 rounded-sm border border-transparent px-3 py-2 transition-colors"
+                              }
+                            >
+                              <span className="flex min-w-0 items-baseline gap-3">
+                                <span className="text-faint w-10 shrink-0 font-mono text-xs">
+                                  {word.pointNumber ?? "·"}
+                                </span>
+                                <span className="truncate font-semibold">
+                                  {word.term}
+                                </span>
+                                <SetBadge
+                                  mark={marks.get(word.id)}
+                                  set={sets.get(word.id)}
+                                />
                               </span>
-                              <span className="truncate font-semibold">
-                                {word.term}
-                              </span>
-                              <SetBadge
-                                mark={marks.get(word.id)}
-                                set={sets.get(word.id)}
-                              />
-                            </span>
-                            <span className="flex shrink-0 items-center gap-2">
-                              {/*
+                              <span className="flex shrink-0 items-center gap-2">
+                                {/*
                                 Where the word stands, as a mark rather than a
                                 number: a tick once the picture exists, a
                                 hollow circle while one is owed, and nothing
@@ -335,13 +366,13 @@ export default async function VocabularyImagesPage({
                                 never have one. Silence is the right answer
                                 twice here, for opposite reasons.
                               */}
-                              <StatusMark
-                                situation={situationOf(
-                                  word.representation,
-                                  word.imageUrl,
-                                )}
-                              />
-                              {/*
+                                <StatusMark
+                                  situation={situationOf(
+                                    word.representation,
+                                    word.imageUrl,
+                                  )}
+                                />
+                                {/*
                                 Amber is the model talking and the accent is
                                 the teacher deciding, so both things the model
                                 says are amber: what it proposes for an
@@ -349,41 +380,42 @@ export default async function VocabularyImagesPage({
                                 a word decided against it. Agreement is not
                                 worth the space; disagreement is the point.
                               */}
-                              {word.representation !== null ? (
-                                <span className="text-foreground text-xs">
-                                  {labelFor(word.representation)}
-                                  {disagreement(
-                                    word.representation,
-                                    word.suggestedRepresentation,
-                                  ) !== null && (
-                                    <span className="text-warning/90">
-                                      {" "}
-                                      ·{" "}
-                                      {labelFor(
-                                        word.suggestedRepresentation,
-                                      ).toLowerCase()}
-                                      ?
-                                    </span>
-                                  )}
-                                </span>
-                              ) : word.suggestedRepresentation !== null ? (
-                                <span className="text-warning text-xs">
-                                  sugestão:{" "}
-                                  {labelFor(word.suggestedRepresentation)}
-                                </span>
-                              ) : (
-                                <span className="text-faint text-xs">
-                                  {labelFor(null)}
-                                </span>
-                              )}
-                            </span>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                ))
-              )}
+                                {word.representation !== null ? (
+                                  <span className="text-foreground text-xs">
+                                    {labelFor(word.representation)}
+                                    {disagreement(
+                                      word.representation,
+                                      word.suggestedRepresentation,
+                                    ) !== null && (
+                                      <span className="text-warning/90">
+                                        {" "}
+                                        ·{" "}
+                                        {labelFor(
+                                          word.suggestedRepresentation,
+                                        ).toLowerCase()}
+                                        ?
+                                      </span>
+                                    )}
+                                  </span>
+                                ) : word.suggestedRepresentation !== null ? (
+                                  <span className="text-warning text-xs">
+                                    sugestão:{" "}
+                                    {labelFor(word.suggestedRepresentation)}
+                                  </span>
+                                ) : (
+                                  <span className="text-faint text-xs">
+                                    {labelFor(null)}
+                                  </span>
+                                )}
+                              </span>
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  ))
+                )}
+              </BulkSelection>
             </div>
 
             {/*

@@ -9,7 +9,7 @@ import {
   subjectPlan,
   type BulkWord,
 } from "./bulk.ts";
-import { bulkNotice, subjectsNotice } from "./notice-texts.ts";
+import { bulkError, bulkNotice, subjectsNotice } from "./notice-texts.ts";
 import { reclassifyWarningMany } from "./panel-state.ts";
 
 function word(over: Partial<BulkWord> & { id: string }): BulkWord {
@@ -369,5 +369,12 @@ describe("bulk notices", () => {
         text: "Instrução não gerada em 1 palavra: of. O modelo não devolveu uma instrução legível. 3 foram geradas.",
       },
     );
+  });
+
+  test("a write that failed whole says how many words it was for", () => {
+    assert.deepEqual(bulkError(12, "permission denied"), {
+      kind: "error",
+      text: "12 palavras: permission denied.",
+    });
   });
 });

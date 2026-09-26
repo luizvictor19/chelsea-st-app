@@ -345,6 +345,15 @@ export function bulkNotice(
 }
 
 /**
+ * A bulk write that failed as a whole, before any word was answered for: the
+ * words could not be read, or the answer never arrived. The message says
+ * which, and the lost-answer one already says to reload before trying again.
+ */
+export function bulkError(count: number, message: string): NoticeText {
+  return error(`${wordsCount(count)}: ${sentence(message)}`);
+}
+
+/**
  * The one notice of Gerar instrução for the selection. It stays until
  * closed, like the other long runs: nine instructions take a while and the
  * teacher is elsewhere when they end.
