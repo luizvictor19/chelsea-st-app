@@ -8,6 +8,8 @@ import type { ImageStyle } from "../../../../lib/images/style.ts";
 
 import { notices } from "../../notices.ts";
 
+import type { BulkChange, WordOutcome } from "./bulk.ts";
+
 import { labelFor } from "./representation.ts";
 import { wordClassLabel } from "./word-class.ts";
 
@@ -253,4 +255,136 @@ export function contrastSuggested(
  */
 export function suggestedCount(suggested: number): string {
   return suggested === 1 ? "1 sugerido" : `${suggested} sugeridos`;
+}
+
+/** "1 palavra", "3 palavras". */
+function wordsCount(count: number): string {
+  return count === 1 ? "1 palavra" : `${count} palavras`;
+}
+
+/** What a failed bulk write was, at the head of its notice. */
+const NOT_WRITTEN: Record<BulkChange["kind"], string> = {
+  accept: "Sugestão não aceita em",
+  representation: "Tipo não gravado em",
+  wordClass: "Classe não gravada em",
+  style: "Estilo não gravado em",
+};
+
+/** The failures of a bulk action, with what did go through. */
+function bulkFailed(
+  head: string,
+  failed: readonly { readonly term: string; readonly error: string }[],
+  done: number,
+  doneWord: { readonly one: string; readonly many: string },
+): NoticeText {
+  const terms = failed.map((item) => item.term).join(", ");
+  const reasons = [...new Set(failed.map((item) => sentence(item.error)))];
+  const rest =
+    done === 0
+      ? `Nenhuma outra foi ${doneWord.one}.`
+      : done === 1
+        ? `1 foi ${doneWord.one}.`
+        : `${done} foram ${doneWord.many}.`;
+  return error(
+    `${head} ${wordsCount(failed.length)}: ${terms}. ${reasons.join(" ")} ${rest}`,
+  );
+}
+
+/**
+ * The one notice of a bulk write (Aceitar sugestão, Definir tipo, Classe,
+ * Estilo), never one a word. A failure anywhere makes it an error that names
+ * the words that failed and says how many went through, since nothing is
+ * rolled back. Words that already held the value are counted apart, and so
+ * are, for Aceitar sugestão, words with no suggestion; a zero is left out.
+ */
+export function bulkNotice(
+  change: BulkChange,
+  outcomes: readonly WordOutcome[],
+  termOf: (id: string) => string,
+): NoticeText {
+  const written = outcomes.filter((o) => o.outcome === "written").length;
+  const same = outcomes.filter(
+    (o) => o.outcome === "skipped" && o.reason === "same",
+  ).length;
+  const none = outcomes.filter(
+    (o) => o.outcome === "skipped" && o.reason === "no-suggestion",
+  ).length;
+  const failed = outcomes.flatMap((o) =>
+    o.outcome === "failed" ? [{ term: termOf(o.id), error: o.error }] : [],
+  );
+
+  if (failed.length > 0) {
+    return bulkFailed(
+      NOT_WRITTEN[change.kind],
+      failed,
+      written,
+      change.kind === "accept"
+        ? { one: "aceita", many: "aceitas" }
+        : { one: "gravada", many: "gravadas" },
+    );
+  }
+
+  if (change.kind === "accept") {
+    const parts = [
+      written === 1 ? "1 sugestão aceita" : `${written} sugestões aceitas`,
+      ...(none > 0 ? [`${none} sem sugestão`] : []),
+      ...(same > 0 ? [same === 1 ? "1 já aceita" : `${same} já aceitas`] : []),
+    ];
+    return success(`${parts.join(", ")}.`);
+  }
+
+  const what =
+    change.kind === "representation"
+      ? `tipo alterado para ${labelFor(change.value).toLowerCase()}`
+      : change.kind === "wordClass"
+        ? `classe alterada para ${wordClassLabel(change.value).toLowerCase()}`
+        : `estilo alterado para ${IMAGE_STYLE_LABELS[change.value].toLowerCase()}`;
+  const already =
+    same === 0 ? "" : same === 1 ? ", 1 já estava" : `, ${same} já estavam`;
+  return success(`${wordsCount(written)}: ${what}${already}.`);
+}
+
+/**
+ * A bulk write that failed as a whole, before any word was answered for: the
+ * words could not be read, or the answer never arrived. The message says
+ * which, and the lost-answer one already says to reload before trying again.
+ */
+export function bulkError(count: number, message: string): NoticeText {
+  return error(`${wordsCount(count)}: ${sentence(message)}`);
+}
+
+/**
+ * The one notice of Gerar instrução for the selection. It stays until
+ * closed, like the other long runs: nine instructions take a while and the
+ * teacher is elsewhere when they end.
+ */
+export function subjectsNotice(counts: {
+  readonly generated: number;
+  readonly had: number;
+  readonly noPicture: number;
+  readonly failed: readonly { readonly term: string; readonly error: string }[];
+}): NoticeText {
+  if (counts.failed.length > 0) {
+    return bulkFailed(
+      "Instrução não gerada em",
+      counts.failed,
+      counts.generated,
+      {
+        one: "gerada",
+        many: "geradas",
+      },
+    );
+  }
+  const parts = [
+    counts.generated === 1
+      ? "1 instrução gerada"
+      : `${counts.generated} instruções geradas`,
+    ...(counts.had > 0
+      ? [counts.had === 1 ? "1 já tinha" : `${counts.had} já tinham`]
+      : []),
+    ...(counts.noPicture > 0
+      ? [`${counts.noPicture} sem tipo que leve imagem`]
+      : []),
+  ];
+  return { ...success(`${parts.join(", ")}.`), stays: true };
 }
