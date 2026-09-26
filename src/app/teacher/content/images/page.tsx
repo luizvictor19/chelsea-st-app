@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { listVocabularyImages, listWordAttempts } from "@/lib/content/queries";
+import {
+  listRunningAttempts,
+  listVocabularyImages,
+  listWordAttempts,
+} from "@/lib/content/queries";
 
 import { ProgressBar } from "../progress-bar";
 import { overwriteWarning } from "@/lib/images/suggest";
@@ -21,6 +25,7 @@ import {
   type SetWord,
 } from "./contrast-sets";
 import { FilterDrawer } from "./filter-drawer";
+import { GenerationTracking } from "./generation-tracking";
 import {
   filterHref,
   imageCounts,
@@ -211,6 +216,18 @@ export default async function VocabularyImagesPage({
       .find((word) => word.id === selectedId) ?? null;
   const attempts = selected === null ? [] : await listWordAttempts(selected.id);
 
+  // Every generation still running in the book, whichever word is open, for
+  // the page's tracker to follow to its end. Named by term for its notice.
+  const termOf = new Map(
+    lessons.flatMap((lesson) => lesson.words.map((w) => [w.id, w.term])),
+  );
+  const running = (await listRunningAttempts()).map((attempt) => ({
+    attemptId: attempt.id,
+    wordId: attempt.wordId,
+    term: termOf.get(attempt.wordId) ?? "?",
+    startedAt: attempt.createdAt,
+  }));
+
   // Every word, for the contrast set picker: a set may reach across lessons
   // (the colours run from lesson 1 to lesson 3), so the filter does not apply.
   const setWords: readonly SetWord[] = lessons.flatMap((lesson) =>
@@ -242,6 +259,7 @@ export default async function VocabularyImagesPage({
       scrolled up to the top: on first paint it still ran off the screen.
     */
     <section className="flex flex-col gap-8 lg:h-[calc(100dvh-8.5rem)]">
+      <GenerationTracking running={running} />
       <header className="flex flex-col gap-3">
         <Link
           href="/teacher/content"
