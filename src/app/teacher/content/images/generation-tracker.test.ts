@@ -174,9 +174,11 @@ describe("generation tracker", () => {
     const { tracker, time, fake, said } = setup();
     tracker.track(APPLE);
     await time.advance(POLL_INTERVAL_MS);
+    // recordFailure's answer: the reason, and the list with the row failed.
     fake.answer("a1", {
       ok: false,
       error: "A geração passou de 90 segundos sem responder.",
+      attempts: [{ id: "a1", status: "failed", error: "x" }],
     });
     await settled();
     assert.deepEqual(said, [
@@ -299,5 +301,45 @@ describe("generation tracker", () => {
     fake.answer("a1", finished("a1"));
     await settled();
     assert.equal(heard, 2);
+  });
+
+  /*
+   * A failure the row does not confirm (a read that failed, a write after the
+   * upload that failed, an answer lost past the window) leaves the attempt
+   * pending in the database. It is said, and the chain stops, but the attempt
+   * is not closed for good: the next load that still finds it running picks
+   * it up again, as coming back to the word did before.
+   */
+  test("a failure the row does not confirm can be tracked again", async () => {
+    const { tracker, time, fake, said, refreshes } = setup();
+    tracker.track(APPLE);
+    await time.advance(POLL_INTERVAL_MS);
+    fake.answer("a1", { ok: false, error: "permission denied" });
+    await settled();
+    assert.deepEqual(said, [
+      { kind: "error", text: "apple: permission denied." },
+    ]);
+    assert.deepEqual(tracker.getSnapshot(), []);
+    // No refresh: it would re-render, find the row pending and loop.
+    assert.equal(refreshes(), 0);
+
+    tracker.track(APPLE);
+    await time.advance(POLL_INTERVAL_MS);
+    assert.deepEqual(fake.asked, ["a1", "a1"]);
+  });
+
+  test("a failure the row confirms is closed for good", async () => {
+    const { tracker, time, fake } = setup();
+    tracker.track(APPLE);
+    await time.advance(POLL_INTERVAL_MS);
+    fake.answer("a1", {
+      ok: false,
+      error: "sem crédito",
+      attempts: [{ id: "a1", status: "failed", error: "sem crédito" }],
+    });
+    await settled();
+    tracker.track(APPLE);
+    await time.advance(POLL_INTERVAL_MS * 3);
+    assert.deepEqual(fake.asked, ["a1"]);
   });
 });

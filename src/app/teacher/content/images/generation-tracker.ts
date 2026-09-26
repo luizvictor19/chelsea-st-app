@@ -39,21 +39,28 @@ export type Generation = {
 };
 
 /** pollAttempt's answer, already through settle: it never rejects. */
+type Row = {
+  readonly id: string;
+  readonly status: string;
+  readonly error: string | null;
+};
+
 export type PollAnswer =
-  | {
-      readonly ok: true;
-      readonly attempts?: readonly {
-        readonly id: string;
-        readonly status: string;
-        readonly error: string | null;
-      }[];
-    }
+  | { readonly ok: true; readonly attempts?: readonly Row[] }
   | {
       readonly ok: false;
       readonly error: string;
+      /** The word's list, when the failure was written on the row. */
+      readonly attempts?: readonly Row[];
       /** Present when the answer was lost on the way, not given. */
       readonly cause?: unknown;
     };
+
+/** Whether a list shows the attempt past 'pending', or gone from it. */
+function endedIn(attemptId: string, attempts: readonly Row[]): boolean {
+  const row = attempts.find((a) => a.id === attemptId);
+  return row === undefined || row.status !== "pending";
+}
 
 export type TrackerDeps = {
   readonly poll: (attemptId: string) => Promise<PollAnswer>;
@@ -92,13 +99,26 @@ export function createGenerationTracker(deps: TrackerDeps): GenerationTracker {
     deps.timer.set(() => void ask(generation), POLL_INTERVAL_MS);
   }
 
-  function end(generation: Generation, notice: NoticeText | null) {
+  /*
+   * `confirmed` is the row saying the attempt ended. Only then is it closed
+   * for the life of the page, and the page refreshed. A failure the row does
+   * not confirm (a read that failed, a write after the upload that failed, an
+   * answer lost past the window) leaves the attempt pending in the database:
+   * the chain stops and says why, and the next load that still finds it
+   * running picks it up, as coming back to the word did before. No refresh
+   * there, since a refresh would find it pending and start the loop at once.
+   */
+  function end(
+    generation: Generation,
+    notice: NoticeText | null,
+    confirmed: boolean,
+  ) {
     running.delete(generation.attemptId);
-    ended.add(generation.attemptId);
+    if (confirmed) ended.add(generation.attemptId);
     changed();
     // Said whatever the screen is doing: nothing here depends on a panel.
     if (notice !== null) deps.announce(notice);
-    refresh();
+    if (confirmed) refresh();
   }
 
   async function ask(generation: Generation) {
@@ -114,7 +134,12 @@ export function createGenerationTracker(deps: TrackerDeps): GenerationTracker {
       }
       // Given by the server (the provider failed, or the window passed and
       // the row says so), or lost past the window.
-      end(generation, wordFailed(generation.term, answer.error));
+      end(
+        generation,
+        wordFailed(generation.term, answer.error),
+        answer.attempts !== undefined &&
+          endedIn(generation.attemptId, answer.attempts),
+      );
       return;
     }
 
@@ -123,8 +148,7 @@ export function createGenerationTracker(deps: TrackerDeps): GenerationTracker {
       again(generation);
       return;
     }
-    const row = answer.attempts.find((a) => a.id === generation.attemptId);
-    if (row !== undefined && row.status === "pending") {
+    if (!endedIn(generation.attemptId, answer.attempts)) {
       again(generation);
       return;
     }
@@ -134,6 +158,7 @@ export function createGenerationTracker(deps: TrackerDeps): GenerationTracker {
     end(
       generation,
       generationNotice(generation.term, generation.attemptId, answer.attempts),
+      true,
     );
   }
 
