@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import { readHeartbeat } from "@/lib/heartbeat";
 
 import { saveContrastSet, suggestContrastSets } from "./actions";
-import { notices } from "../../notices";
 import {
   addMember,
   askTwiceIfLost,
@@ -21,7 +20,7 @@ import {
   lessonFailed,
   setFailed,
   setSaved,
-  type NoticeText,
+  tell,
 } from "./notice-texts";
 import { settle } from "./panel-state";
 
@@ -32,11 +31,6 @@ type Status =
       readonly since: number;
       readonly retrying: boolean;
     };
-
-/** Into the teacher area's snackbar. */
-function tell(notice: NoticeText) {
-  notices.push(notice.kind, notice.text);
-}
 
 /**
  * "Sugerir conjuntos" for one lesson, and the proposals it brings back.

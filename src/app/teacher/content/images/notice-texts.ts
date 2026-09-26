@@ -6,6 +6,8 @@ import type {
 } from "../../../../lib/content/queries.ts";
 import type { ImageStyle } from "../../../../lib/images/style.ts";
 
+import { notices } from "../../notices.ts";
+
 import { labelFor } from "./representation.ts";
 import { wordClassLabel } from "./word-class.ts";
 
@@ -23,7 +25,18 @@ import { wordClassLabel } from "./word-class.ts";
 export type NoticeText = {
   readonly kind: "success" | "error";
   readonly text: string;
+  /**
+   * The result of a long run, which stays until closed even when it is a
+   * success: the run takes a minute or more, and the teacher is not looking
+   * at the corner of the screen when it ends.
+   */
+  readonly stays?: true;
 };
+
+/** Into the teacher area's snackbar, which outlives any one panel. */
+export function tell(notice: NoticeText) {
+  notices.push(notice.kind, notice.text, { stays: notice.stays });
+}
 
 /** The style of a word's picture, as the screen names it. */
 export const IMAGE_STYLE_LABELS = {
@@ -190,7 +203,7 @@ export function typesSuggested(
   if (unanswered === 0) {
     const head =
       suggested === 1 ? "1 tipo sugerido" : `${suggested} tipos sugeridos`;
-    return success(`${lessonLabel(lesson)}: ${head}.`);
+    return { ...success(`${lessonLabel(lesson)}: ${head}.`), stays: true };
   }
   const head = suggested === 1 ? "1 sugerido" : `${suggested} sugeridos`;
   return error(
@@ -222,11 +235,22 @@ export function contrastSuggested(
   lesson: number | null,
   fresh: number,
 ): NoticeText {
-  if (fresh === 0)
-    return success(`${lessonLabel(lesson)}: nenhum conjunto novo.`);
-  return success(
-    fresh === 1
-      ? `${lessonLabel(lesson)}: 1 sugestão de conjunto.`
-      : `${lessonLabel(lesson)}: ${fresh} sugestões de conjunto.`,
-  );
+  const text =
+    fresh === 0
+      ? `${lessonLabel(lesson)}: nenhum conjunto novo.`
+      : fresh === 1
+        ? `${lessonLabel(lesson)}: 1 sugestão de conjunto.`
+        : `${lessonLabel(lesson)}: ${fresh} sugestões de conjunto.`;
+  // A run of up to a minute, like Sugerir tipos; see NoticeText.stays.
+  return { ...success(text), stays: true };
+}
+
+/**
+ * The lesson's state, in its header: how many of its words carry a
+ * suggestion, read from the server so it is right after every reload. Not a
+ * notice. Zero is written out: a lesson nobody has suggested yet is where the
+ * button matters most.
+ */
+export function suggestedCount(suggested: number): string {
+  return suggested === 1 ? "1 sugerido" : `${suggested} sugeridos`;
 }

@@ -62,7 +62,6 @@ import { REPRESENTATIONS, disagreement, labelFor } from "./representation";
 import { createSubjectSaver } from "./subject-saver";
 import { normalizeSubject, openingSubject } from "./subject-store";
 import { WORD_CLASS_LABELS } from "./word-class";
-import { notices } from "../../notices";
 import {
   IMAGE_STYLE_LABELS,
   classChanged,
@@ -77,6 +76,7 @@ import {
   subjectNotSaved,
   uploadSent,
   wordFailed,
+  tell,
   type NoticeText,
 } from "./notice-texts";
 
@@ -95,11 +95,6 @@ const STATUS_LABELS: Record<string, string> = {
   approved: "aprovada",
   rejected: "descartada",
 };
-
-/** Into the teacher area's snackbar, which outlives this panel. */
-function tell(notice: NoticeText) {
-  notices.push(notice.kind, notice.text);
-}
 
 export function WordPanel({
   word,

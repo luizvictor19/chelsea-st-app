@@ -12,19 +12,14 @@ import {
   type ContrastRow,
   type SetWord,
 } from "./contrast-sets";
-import { notices } from "../../notices";
 import {
   setDissolved,
   setSaved,
   wordFailed,
+  tell,
   type NoticeText,
 } from "./notice-texts";
 import { settle } from "./panel-state";
-
-/** Into the teacher area's snackbar. */
-function tell(notice: NoticeText) {
-  notices.push(notice.kind, notice.text);
-}
 
 /**
  * The open word's contrast set: its members in order, a picker to link more

@@ -16,8 +16,7 @@ import {
   lostBatchReport,
 } from "./lost-batch";
 import { settle } from "./panel-state";
-import { notices } from "../../notices";
-import { typesStalled, typesSuggested, type NoticeText } from "./notice-texts";
+import { tell, typesStalled, typesSuggested } from "./notice-texts";
 import {
   SETTLE_MS,
   beginPass,
@@ -60,10 +59,6 @@ const CONSOLE = {
  * The dialog is the native element: showModal gives Esc and the focus move
  * for free, and this repository has no dialog of its own to reuse.
  */
-/** Into the teacher area's snackbar. */
-function tell(notice: NoticeText) {
-  notices.push(notice.kind, notice.text);
-}
 
 export function SuggestButton({
   lessonContentId,

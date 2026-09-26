@@ -54,6 +54,33 @@ describe("notices", () => {
     assert.deepEqual(notices.getSnapshot(), []);
   });
 
+  test("a success pushed to stay waits to be closed, like an error", () => {
+    const { timer, advance } = manualTimer();
+    const notices = createNotices(timer);
+
+    const id = notices.push("success", "Lição 3: 50 tipos sugeridos.", {
+      stays: true,
+    });
+    notices.push("success", "Salvo.");
+    advance(SUCCESS_MS * 100);
+    assert.deepEqual(
+      notices.getSnapshot().map(({ kind, text }) => ({ kind, text })),
+      [{ kind: "success", text: "Lição 3: 50 tipos sugeridos." }],
+    );
+
+    notices.dismiss(id);
+    assert.deepEqual(notices.getSnapshot(), []);
+  });
+
+  test("an error stays even when pushed with stays false", () => {
+    const { timer, advance } = manualTimer();
+    const notices = createNotices(timer);
+
+    notices.push("error", "Falhou.", { stays: false });
+    advance(SUCCESS_MS * 100);
+    assert.equal(notices.getSnapshot().length, 1);
+  });
+
   test("a success closed early does not take a later notice with it", () => {
     const { timer, advance } = manualTimer();
     const notices = createNotices(timer);

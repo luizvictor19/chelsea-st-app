@@ -29,7 +29,7 @@ import {
   type Selection,
   type Situation,
 } from "./filters";
-import { lessonLabel } from "./notice-texts";
+import { lessonLabel, suggestedCount } from "./notice-texts";
 import { disagreement, labelFor } from "./representation";
 import { SuggestButton } from "./suggest-button";
 import { WordPanel } from "./word-panel";
@@ -271,15 +271,17 @@ export default async function VocabularyImagesPage({
                         {lessonLabel(lesson.lessonNumber)}
                       </h2>
                       {/*
-                        One count here and not two. The suggestion count used
-                        to sit beside this one, and then on the button as a
-                        note; what a run did is now said once at its end, in
-                        the teacher area's snackbar. What is left here is the
-                        count nothing on this row changes.
+                        The lesson's state, read from the server, so both
+                        counts are right after every reload. What a run did
+                        is said once at its end, in the teacher area's
+                        snackbar; this is what the lesson is.
                       */}
                       <span className="text-faint text-xs whitespace-nowrap">
                         {lesson.images.withImage}/{lesson.images.takesImage} com
                         imagem
+                      </span>
+                      <span className="text-faint text-xs whitespace-nowrap">
+                        {suggestedCount(lesson.overwrite.suggested)}
                       </span>
                       {lesson.lessonContentId !== null && (
                         <SuggestButton

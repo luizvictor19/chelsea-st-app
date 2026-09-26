@@ -19,6 +19,7 @@ import {
   styleChanged,
   subjectGenerated,
   subjectNotSaved,
+  suggestedCount,
   typesStalled,
   typesSuggested,
   uploadSent,
@@ -27,6 +28,8 @@ import {
 
 const ok = (text: string) => ({ kind: "success", text });
 const bad = (text: string) => ({ kind: "error", text });
+/** The result of a long run: a success that stays until closed. */
+const kept = (text: string) => ({ kind: "success", text, stays: true });
 
 describe("a notice about a word starts with its term", () => {
   test("every success on a word", () => {
@@ -149,12 +152,15 @@ describe("Sugerir tipos", () => {
   test("a clean run is one success for the lesson", () => {
     assert.deepEqual(
       typesSuggested(3, 60, 0),
-      ok("Lição 3: 60 tipos sugeridos."),
+      kept("Lição 3: 60 tipos sugeridos."),
     );
-    assert.deepEqual(typesSuggested(3, 1, 0), ok("Lição 3: 1 tipo sugerido."));
+    assert.deepEqual(
+      typesSuggested(3, 1, 0),
+      kept("Lição 3: 1 tipo sugerido."),
+    );
     assert.deepEqual(
       typesSuggested(3, 0, 0),
-      ok("Lição 3: 0 tipos sugeridos."),
+      kept("Lição 3: 0 tipos sugeridos."),
     );
   });
 
@@ -196,15 +202,15 @@ describe("Sugerir conjuntos", () => {
   test("counts the proposals that reached the screen", () => {
     assert.deepEqual(
       contrastSuggested(3, 0),
-      ok("Lição 3: nenhum conjunto novo."),
+      kept("Lição 3: nenhum conjunto novo."),
     );
     assert.deepEqual(
       contrastSuggested(3, 1),
-      ok("Lição 3: 1 sugestão de conjunto."),
+      kept("Lição 3: 1 sugestão de conjunto."),
     );
     assert.deepEqual(
       contrastSuggested(3, 4),
-      ok("Lição 3: 4 sugestões de conjunto."),
+      kept("Lição 3: 4 sugestões de conjunto."),
     );
   });
 });
@@ -215,7 +221,24 @@ describe("lessonLabel", () => {
     assert.equal(lessonLabel(null), "Fora de lição");
     assert.deepEqual(
       contrastSuggested(null, 0),
-      ok("Fora de lição: nenhum conjunto novo."),
+      kept("Fora de lição: nenhum conjunto novo."),
     );
+  });
+});
+
+describe("suggestedCount", () => {
+  test("is the lesson's state as the header shows it, the zero included", () => {
+    assert.equal(suggestedCount(18), "18 sugeridos");
+    assert.equal(suggestedCount(1), "1 sugerido");
+    assert.equal(suggestedCount(0), "0 sugeridos");
+  });
+});
+
+describe("what stays until closed", () => {
+  test("only the result of a long run, and every error", () => {
+    assert.equal(typesSuggested(3, 50, 0).stays, true);
+    assert.equal(contrastSuggested(3, 2).stays, true);
+    assert.equal(kindChanged("apple", "photo").stays, undefined);
+    assert.equal(imageApproved("apple").stays, undefined);
   });
 });
