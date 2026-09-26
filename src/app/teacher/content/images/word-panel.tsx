@@ -59,10 +59,26 @@ import {
   type LastAnswer,
 } from "./panel-state";
 import { REPRESENTATIONS, disagreement, labelFor } from "./representation";
-import { createSubjectSaver, subjectNotSaved } from "./subject-saver";
+import { createSubjectSaver } from "./subject-saver";
 import { normalizeSubject, openingSubject } from "./subject-store";
 import { WORD_CLASS_LABELS } from "./word-class";
-import { notices } from "../../notices";
+import {
+  IMAGE_STYLE_LABELS,
+  classChanged,
+  generationNotice,
+  imageApproved,
+  imageDiscarded,
+  kindChanged,
+  referenceAttached,
+  referenceRemoved,
+  styleChanged,
+  subjectGenerated,
+  subjectNotSaved,
+  uploadSent,
+  wordFailed,
+  tell,
+  type NoticeText,
+} from "./notice-texts";
 
 /** Which control is waiting on the server, so only that one shows it. */
 type Busy = { readonly key: string } | null;
@@ -88,7 +104,6 @@ export function WordPanel({
   readonly attempts: readonly ImageAttempt[];
 }) {
   const [busy, setBusy] = useState<Busy>(null);
-  const [error, setError] = useState<string | null>(null);
   /*
    * The list the last action answered with, shown only until the server sends
    * one of its own. See attemptsToShow: this is not optimism, it is the
@@ -113,7 +128,7 @@ export function WordPanel({
       initial: word.imageSubject,
       save: (text) => saveSubject(word.id, text),
       onFailure: (answer) => {
-        notices.push("error", subjectNotSaved(word.term));
+        tell(subjectNotSaved(word.term));
         console.error(answer.cause ?? answer.error);
       },
     }),
@@ -246,13 +261,17 @@ export function WordPanel({
 
   /** Save the kind, and move the model along with it when nobody chose one. */
   function saveKind(kind: Representation) {
-    void run(`tipo-${kind}`, async () => {
-      const result = await setRepresentation(word.id, kind);
-      if (result.ok && !modelPicked) {
-        setModel(defaultModelFor(kind) ?? model);
-      }
-      return result;
-    });
+    void run(
+      `tipo-${kind}`,
+      async () => {
+        const result = await setRepresentation(word.id, kind);
+        if (result.ok && !modelPicked) {
+          setModel(defaultModelFor(kind) ?? model);
+        }
+        return result;
+      },
+      () => kindChanged(word.term, kind),
+    );
   }
 
   /**
@@ -329,7 +348,21 @@ export function WordPanel({
             return;
           }
         }
-        setError(result.error);
+        // A failure the provider or the window gave, written on the row.
+        tell(wordFailed(word.term, result.error));
+        return;
+      }
+      /*
+       * Only a list says the generation ended; a poll that finds it still
+       * running answers with none. The panel stops asking once the row is no
+       * longer running, because the effect is keyed on it.
+       */
+      const ended =
+        result.attempts === undefined
+          ? null
+          : generationNotice(word.term, id, result.attempts);
+      if (ended !== null) {
+        tell(ended);
         return;
       }
       again(id, from);
@@ -340,7 +373,7 @@ export function WordPanel({
       stopped = true;
       clearTimeout(timer);
     };
-  }, [runningId, runningStartedAt, attempts]);
+  }, [runningId, runningStartedAt, attempts, word.term]);
 
   function editSubject(text: string) {
     field.current = text;
@@ -365,18 +398,18 @@ export function WordPanel({
    * ends either way. A call that never comes back is an answer too.
    */
   /*
-   * Where a failure is said. Next to the controls by default; an action whose
-   * failure loses work says it in the teacher area's snackbar instead, which
-   * stays until it is closed and outlives this panel.
+   * Everything an action has to say goes to the teacher area's snackbar, the
+   * failure always and the success when `done` names one, so a notice that
+   * arrives after the teacher has moved to another word is still read, with
+   * the word's term at its head.
    */
   async function run(
     key: string,
     action: () => Promise<ActionResult>,
-    say: (error: string) => void = setError,
+    done?: () => NoticeText | null,
   ) {
     if (busy !== null) return;
     setBusy({ key });
-    setError(null);
     const result = await settle(action);
     setBusy(null);
     // Read before the branch: a refused generation leaves a 'failed' row, and
@@ -391,8 +424,12 @@ export function WordPanel({
     if ("reference" in result && result.reference !== undefined) {
       setReferenceUrl(result.reference);
     }
+    if (result.ok) {
+      const notice = done?.() ?? null;
+      if (notice !== null) tell(notice);
+    }
     if (!result.ok) {
-      say(result.error);
+      tell(wordFailed(word.term, result.error));
       // The teacher reads a sentence in Portuguese that says what to do. The
       // reason is English and belongs in the console, which is where the next
       // diagnosis of this starts.
@@ -435,28 +472,32 @@ export function WordPanel({
   }
 
   function attachReference(file: File) {
-    void run("referencia", async () => {
-      let ready: File;
-      try {
-        // Shrunk here so the teacher never has to think about file size, and
-        // so the body that leaves the browser is a few hundred KB.
-        ready = await shrinkReference(file);
-      } catch (cause) {
-        if (cause instanceof NotAPicture) {
-          return {
-            ok: false,
-            error: "Não consegui ler esse arquivo como imagem.",
-          };
+    void run(
+      "referencia",
+      async () => {
+        let ready: File;
+        try {
+          // Shrunk here so the teacher never has to think about file size, and
+          // so the body that leaves the browser is a few hundred KB.
+          ready = await shrinkReference(file);
+        } catch (cause) {
+          if (cause instanceof NotAPicture) {
+            return {
+              ok: false,
+              error: "Não consegui ler esse arquivo como imagem.",
+            };
+          }
+          throw cause;
         }
-        throw cause;
-      }
-      if (ready.size > MAX_REFERENCE_BYTES) {
-        return { ok: false, error: REFERENCE_TOO_BIG };
-      }
-      const result = await setReference(word.id, ready);
-      if (result.ok) moveModelToTakeReference();
-      return result;
-    });
+        if (ready.size > MAX_REFERENCE_BYTES) {
+          return { ok: false, error: REFERENCE_TOO_BIG };
+        }
+        const result = await setReference(word.id, ready);
+        if (result.ok) moveModelToTakeReference();
+        return result;
+      },
+      () => referenceAttached(word.term),
+    );
   }
 
   function sendFinished(file: File) {
@@ -499,7 +540,7 @@ export function WordPanel({
         }
         return result;
       },
-      (error) => notices.push("error", error),
+      () => uploadSent(word.term),
     );
   }
 
@@ -583,13 +624,14 @@ export function WordPanel({
           disabled={working}
           onChange={(event) => {
             const value = event.target.value;
-            void run(`classe`, () =>
-              setWordClass(
-                word.id,
-                value === ""
-                  ? null
-                  : (value as (typeof WORD_CLASS_LABELS)[number]["value"]),
-              ),
+            const wordClass =
+              value === ""
+                ? null
+                : (value as (typeof WORD_CLASS_LABELS)[number]["value"]);
+            void run(
+              `classe`,
+              () => setWordClass(word.id, wordClass),
+              () => classChanged(word.term, wordClass),
             );
           }}
           className="border-rule bg-background w-full rounded-sm border px-3 py-2 text-sm disabled:opacity-50"
@@ -634,7 +676,11 @@ export function WordPanel({
               type="button"
               disabled={working}
               onClick={() =>
-                void run("aceitar", () => setRepresentation(word.id, suggested))
+                void run(
+                  "aceitar",
+                  () => setRepresentation(word.id, suggested),
+                  () => kindChanged(word.term, suggested),
+                )
               }
               className="border-rule hover:bg-background rounded-sm border px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-50"
             >
@@ -683,11 +729,17 @@ export function WordPanel({
                 disabled={working}
                 onChange={(event) => {
                   const style = event.target.checked ? "realistic" : "flat";
-                  void run("estilo", () => setImageStyle(word.id, style));
+                  void run(
+                    "estilo",
+                    () => setImageStyle(word.id, style),
+                    () => styleChanged(word.term, style),
+                  );
                 }}
                 className="accent-foreground size-4"
               />
-              {busy?.key === "estilo" ? "salvando" : "Realista"}
+              {busy?.key === "estilo"
+                ? "salvando"
+                : IMAGE_STYLE_LABELS.realistic}
             </label>
             <p className="text-faint text-xs">
               Vetor chapado por padrão. Realista é para o que não tem silhueta
@@ -722,20 +774,27 @@ export function WordPanel({
                 disabled={working}
                 aria-label="Sugerir instrução"
                 title="Sugerir uma instrução para esta palavra"
-                onClick={() =>
-                  void run("assunto", async () => {
-                    const answer = await saver.suggest(
-                      field.current,
-                      () => field.current,
-                      (expected) => suggestSubject(word.id, expected),
-                    );
-                    if (!answer.ok) return answer;
-                    field.current = answer.field;
-                    setSubject(answer.field);
-                    setSubjectNote(answer.note);
-                    return { ok: true };
-                  })
-                }
+                onClick={() => {
+                  // Said only when the suggestion filled the field.
+                  let filled = false;
+                  void run(
+                    "assunto",
+                    async () => {
+                      const answer = await saver.suggest(
+                        field.current,
+                        () => field.current,
+                        (expected) => suggestSubject(word.id, expected),
+                      );
+                      if (!answer.ok) return answer;
+                      filled = answer.suggested && answer.note === null;
+                      field.current = answer.field;
+                      setSubject(answer.field);
+                      setSubjectNote(answer.note);
+                      return { ok: true };
+                    },
+                    () => (filled ? subjectGenerated(word.term) : null),
+                  );
+                }}
                 className="text-faint hover:text-foreground absolute top-1/2 right-1.5 -translate-y-1/2 rounded-sm p-1.5 transition-colors disabled:opacity-40"
               >
                 {busy?.key === "assunto" ? (
@@ -816,13 +875,17 @@ export function WordPanel({
                       type="button"
                       disabled={working}
                       onClick={() =>
-                        void run("tirar-referencia", async () => {
-                          const result = await clearReference(word.id);
-                          // The model stays where the last explicit choice
-                          // left it; only the note about it goes.
-                          if (result.ok) setModelNote(null);
-                          return result;
-                        })
+                        void run(
+                          "tirar-referencia",
+                          async () => {
+                            const result = await clearReference(word.id);
+                            // The model stays where the last explicit choice
+                            // left it; only the note about it goes.
+                            if (result.ok) setModelNote(null);
+                            return result;
+                          },
+                          () => referenceRemoved(word.term),
+                        )
                       }
                       className="border-rule hover:bg-background rounded-sm border px-3 py-1 text-xs transition-colors disabled:opacity-50"
                     >
@@ -974,15 +1037,6 @@ export function WordPanel({
         </p>
       )}
 
-      {error !== null && (
-        <p
-          role="alert"
-          className="border-accent text-accent rounded-sm border px-3 py-2 text-sm"
-        >
-          {error}
-        </p>
-      )}
-
       {/*
         No separate Aprovada block. The approved image is in the list below,
         marked as approved, and showing it twice made the panel look like it
@@ -1069,8 +1123,10 @@ export function WordPanel({
                           type="button"
                           disabled={working}
                           onClick={() =>
-                            void run(`aprovar-${attempt.id}`, () =>
-                              approveAttempt(attempt.id),
+                            void run(
+                              `aprovar-${attempt.id}`,
+                              () => approveAttempt(attempt.id),
+                              () => imageApproved(word.term),
                             )
                           }
                           className="border-rule hover:bg-background rounded-sm border px-3 py-1 text-xs transition-colors disabled:opacity-50"
@@ -1241,7 +1297,11 @@ export function WordPanel({
                   // Bound before the close, because closing clears it.
                   const id = discarding.id;
                   discard.current?.close();
-                  void run(`descartar-${id}`, () => rejectAttempt(id));
+                  void run(
+                    `descartar-${id}`,
+                    () => rejectAttempt(id),
+                    () => imageDiscarded(word.term),
+                  );
                 }}
                 className="border-accent text-accent hover:bg-background rounded-sm border px-3 py-1.5 text-sm font-semibold transition-colors"
               >

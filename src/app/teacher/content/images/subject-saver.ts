@@ -22,13 +22,14 @@ type SuggestAnswer =
   | { readonly ok: false; readonly error: string };
 
 export type SuggestOutcome =
-  | { readonly ok: true; readonly field: string; readonly note: string | null }
+  | {
+      readonly ok: true;
+      /** False when nothing was asked, because the save before it failed. */
+      readonly suggested: boolean;
+      readonly field: string;
+      readonly note: string | null;
+    }
   | { readonly ok: false; readonly error: string };
-
-/** The snackbar's sentence for a save that did not land. */
-export function subjectNotSaved(term: string): string {
-  return `A instrução de ${term} não foi salva.`;
-}
 
 export type SubjectSaver = {
   /**
@@ -93,7 +94,7 @@ export function createSubjectSaver(options: {
      * and the snackbar is the one thing said.
      */
     if (!(await save(atRequest))) {
-      return { ok: true, field: fieldNow(), note: null };
+      return { ok: true, suggested: false, field: fieldNow(), note: null };
     }
     const result = await ask(normalizeSubject(atRequest));
     if (!result.ok) return result;
@@ -109,7 +110,7 @@ export function createSubjectSaver(options: {
       saved =
         landed.note === null ? normalizeSubject(result.subject) : undefined;
     }
-    return { ok: true, ...landed };
+    return { ok: true, suggested: true, ...landed };
   }
 
   return {

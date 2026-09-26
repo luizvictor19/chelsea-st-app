@@ -3,7 +3,8 @@ import { describe, test } from "node:test";
 
 import { createNotices, type Timer } from "../../notices.ts";
 
-import { createSubjectSaver, subjectNotSaved } from "./subject-saver.ts";
+import { subjectNotSaved } from "./notice-texts.ts";
+import { createSubjectSaver } from "./subject-saver.ts";
 
 /** A clock that never fires: errors do not need one, and must not use one. */
 const stopped: Timer = { set: () => 0, clear: () => {} };
@@ -29,7 +30,7 @@ function panel(
   const saver = createSubjectSaver({
     initial,
     save,
-    onFailure: () => notices.push("error", subjectNotSaved(term)),
+    onFailure: () => notices.push("error", subjectNotSaved(term).text),
   });
   return { saver, notices };
 }
@@ -59,7 +60,7 @@ describe("a save that fails after the panel has closed", () => {
 
     assert.deepEqual(
       notices.getSnapshot().map(({ kind, text }) => ({ kind, text })),
-      [{ kind: "error", text: "A instrução de apple não foi salva." }],
+      [{ kind: "error", text: "apple: a instrução não foi salva." }],
     );
   });
 
@@ -72,7 +73,7 @@ describe("a save that fails after the panel has closed", () => {
     assert.equal(await saver.save("a red apple"), false);
     assert.deepEqual(
       notices.getSnapshot().map((notice) => notice.text),
-      ["A instrução de apple não foi salva."],
+      ["apple: a instrução não foi salva."],
     );
   });
 
@@ -121,12 +122,13 @@ describe("a suggestion after a save that failed", () => {
     assert.equal(asked, 0);
     assert.deepEqual(outcome, {
       ok: true,
+      suggested: false,
       field: "a bitten apple",
       note: null,
     });
     assert.deepEqual(
       notices.getSnapshot().map((notice) => notice.text),
-      ["A instrução de apple não foi salva."],
+      ["apple: a instrução não foi salva."],
     );
   });
 });
@@ -155,6 +157,7 @@ describe("a suggestion stored under an edit saved after it", () => {
     const outcome = await suggesting;
     assert.deepEqual(outcome, {
       ok: true,
+      suggested: true,
       field: "a bitten apple",
       note: "Sua edição foi mantida.",
     });

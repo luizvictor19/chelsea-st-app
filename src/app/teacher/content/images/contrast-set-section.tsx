@@ -12,6 +12,13 @@ import {
   type ContrastRow,
   type SetWord,
 } from "./contrast-sets";
+import {
+  setDissolved,
+  setSaved,
+  wordFailed,
+  tell,
+  type NoticeText,
+} from "./notice-texts";
 import { settle } from "./panel-state";
 
 /**
@@ -25,9 +32,10 @@ import { settle } from "./panel-state";
  * teacher's work eaten in silence. Opening another word does drop it (the
  * section remounts per word), which is why the unsaved line is loud.
  *
- * A refused save leaves the draft where it is. That includes the database
- * saying the set changed elsewhere since this page loaded: the message asks
- * for a reload, and until then the draft stays on screen to be copied.
+ * A refused save leaves the draft where it is, and says why in the teacher
+ * area's snackbar. That includes the database saying the set changed
+ * elsewhere since this page loaded: the message asks for a reload, and until
+ * then the draft stays on screen to be copied.
  */
 export function ContrastSetSection({
   word,
@@ -49,7 +57,6 @@ export function ContrastSetSection({
   const [draft, setDraft] = useState<readonly string[]>(saved);
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const dissolve = useRef<HTMLDialogElement>(null);
 
   const changed = isChanged(draft, saved);
@@ -63,10 +70,13 @@ export function ContrastSetSection({
     search,
   ).slice(0, 12);
 
-  async function run(action: () => Promise<{ ok: boolean; error?: string }>) {
+  /** The success is named before the call, from what is on screen then. */
+  async function run(
+    action: () => Promise<{ ok: boolean; error?: string }>,
+    done: NoticeText,
+  ) {
     if (busy) return;
     setBusy(true);
-    setError(null);
     const result = await settle(async () => {
       const answer = await action();
       return answer.ok
@@ -74,7 +84,7 @@ export function ContrastSetSection({
         : { ok: false as const, error: answer.error ?? "" };
     });
     setBusy(false);
-    if (!result.ok) setError(result.error);
+    tell(result.ok ? done : wordFailed(word.term, result.error));
   }
 
   return (
@@ -230,11 +240,13 @@ export function ContrastSetSection({
               type="button"
               disabled={busy || tooSmall}
               onClick={() =>
-                void run(() =>
-                  saveContrastSet(
-                    draft,
-                    set === null ? null : { id: set.id, expected: saved },
-                  ),
+                void run(
+                  () =>
+                    saveContrastSet(
+                      draft,
+                      set === null ? null : { id: set.id, expected: saved },
+                    ),
+                  setSaved(draft.map((id) => byId.get(id)?.term ?? "?")),
                 )
               }
               className="border-foreground bg-foreground text-background rounded-sm border px-3 py-1.5 text-sm font-semibold disabled:opacity-50"
@@ -244,10 +256,7 @@ export function ContrastSetSection({
             <button
               type="button"
               disabled={busy}
-              onClick={() => {
-                setDraft(saved);
-                setError(null);
-              }}
+              onClick={() => setDraft(saved)}
               className="border-rule hover:bg-background rounded-sm border px-3 py-1.5 text-sm transition-colors"
             >
               Voltar ao salvo
@@ -265,12 +274,6 @@ export function ContrastSetSection({
         >
           Desfazer conjunto
         </button>
-      )}
-
-      {error !== null && (
-        <p role="alert" className="text-accent text-sm">
-          {error}
-        </p>
       )}
 
       <dialog
@@ -303,8 +306,9 @@ export function ContrastSetSection({
                 type="button"
                 onClick={() => {
                   const id = set.id;
+                  const terms = set.members.map((m) => m.term);
                   dissolve.current?.close();
-                  void run(() => dissolveContrastSet(id));
+                  void run(() => dissolveContrastSet(id), setDissolved(terms));
                 }}
                 className="border-foreground bg-foreground text-background rounded-sm border px-3 py-1.5 text-sm font-semibold"
               >

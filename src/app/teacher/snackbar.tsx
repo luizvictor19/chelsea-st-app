@@ -20,7 +20,14 @@ export function Snackbar() {
   if (list.length === 0) return null;
 
   return (
-    <ol className="fixed inset-x-4 bottom-4 z-50 flex flex-col gap-2 sm:left-auto sm:w-96">
+    /*
+     * Top right, just under the teacher nav (h-14 and a 1px border, in
+     * teacher-nav.tsx) so it never covers it, with 0.75rem of air. The list is
+     * oldest first, so a new notice enters below the ones already there. On a
+     * phone it spans the width inside the same 1rem margin. A stack taller
+     * than the screen scrolls rather than running off the bottom.
+     */
+    <ol className="fixed inset-x-4 top-[calc(3.5rem+1px+0.75rem)] z-50 flex max-h-[calc(100dvh-3.5rem-1px-1.5rem)] flex-col gap-2 overflow-y-auto sm:left-auto sm:w-96">
       {list.map((notice) => (
         <li
           key={notice.id}

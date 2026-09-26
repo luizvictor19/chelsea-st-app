@@ -29,6 +29,7 @@ import {
   type Selection,
   type Situation,
 } from "./filters";
+import { lessonLabel, suggestedCount } from "./notice-texts";
 import { disagreement, labelFor } from "./representation";
 import { SuggestButton } from "./suggest-button";
 import { WordPanel } from "./word-panel";
@@ -267,27 +268,25 @@ export default async function VocabularyImagesPage({
                   >
                     <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
                       <h2 className="text-faint mr-auto font-mono text-xs tracking-[0.16em] uppercase">
-                        {lesson.lessonNumber === null
-                          ? "Fora de lição"
-                          : `Lição ${lesson.lessonNumber}`}
+                        {lessonLabel(lesson.lessonNumber)}
                       </h2>
                       {/*
-                        One count here and not two. The suggestion count used
-                        to sit beside this one, and the button carried a note
-                        of its own once a run had happened: the state and the
-                        last thing that happened to it, side by side, never
-                        quite agreeing. The suggestion side lives on the
-                        button now, beside its bar, where the number and the
-                        control that changes it are the same object. What is
-                        left here is the count nothing on this row changes.
+                        The lesson's state, read from the server, so both
+                        counts are right after every reload. What a run did
+                        is said once at its end, in the teacher area's
+                        snackbar; this is what the lesson is.
                       */}
                       <span className="text-faint text-xs whitespace-nowrap">
                         {lesson.images.withImage}/{lesson.images.takesImage} com
                         imagem
                       </span>
+                      <span className="text-faint text-xs whitespace-nowrap">
+                        {suggestedCount(lesson.overwrite.suggested)}
+                      </span>
                       {lesson.lessonContentId !== null && (
                         <SuggestButton
                           lessonContentId={lesson.lessonContentId}
+                          lessonNumber={lesson.lessonNumber}
                           words={lesson.totalWords}
                           suggested={lesson.overwrite.suggested}
                         />
@@ -295,6 +294,7 @@ export default async function VocabularyImagesPage({
                       {lesson.lessonContentId !== null && (
                         <ContrastSuggestions
                           lessonContentId={lesson.lessonContentId}
+                          lessonNumber={lesson.lessonNumber}
                           candidates={lesson.setCandidates}
                           undecided={lesson.undecided}
                         />

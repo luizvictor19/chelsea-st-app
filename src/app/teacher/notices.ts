@@ -10,7 +10,10 @@
  * - an error stays until the teacher closes it. The errors sent here are the
  *   ones that lose work, and a message that leaves by itself can leave
  *   before it is read;
- * - a success leaves by itself after SUCCESS_MS, and can be closed sooner;
+ * - a success leaves by itself after SUCCESS_MS, and can be closed sooner,
+ *   unless it is pushed with `stays`. That is for the result of a long run,
+ *   a minute or more, which ends while the teacher is looking elsewhere; it
+ *   stays until closed, in the success colour. Two kinds, not three;
  * - notices stack, in the order they came. A new one never replaces another.
  */
 
@@ -36,8 +39,13 @@ const browserTimer: Timer = {
   clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
+export type PushOptions = {
+  /** Stay until closed, whatever the kind. Errors always stay. */
+  readonly stays?: boolean;
+};
+
 export type Notices = {
-  push(kind: NoticeKind, text: string): number;
+  push(kind: NoticeKind, text: string, options?: PushOptions): number;
   dismiss(id: number): void;
   /** The same array until something changes, as useSyncExternalStore needs. */
   getSnapshot(): readonly Notice[];
@@ -67,10 +75,10 @@ export function createNotices(timer: Timer = browserTimer): Notices {
   }
 
   return {
-    push(kind, text) {
+    push(kind, text, options = {}) {
       const id = next++;
       changed([...list, { id, kind, text }]);
-      if (kind === "success") {
+      if (kind === "success" && options.stays !== true) {
         timers.set(
           id,
           timer.set(() => dismiss(id), SUCCESS_MS),
