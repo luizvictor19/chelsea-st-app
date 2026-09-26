@@ -187,7 +187,16 @@ export function WordPanel({
    * finds the generation exactly where it was left. It is also what asks the
    * provider, so this panel never does; see generation-tracker.ts.
    */
-  const running = useRunningGeneration(word.id);
+  const tracked = useRunningGeneration(word.id);
+  /*
+   * The rows as well, for the button. The server does not stop a second
+   * pending attempt on one word, and the tracker can be a step behind the
+   * rows: empty on the first render, before the page hands it what it found,
+   * and after a failure it could not confirm on the row. Either one running
+   * is enough to keep a second paid generation from being opened.
+   */
+  const rowRunning = runningAttempt(shown);
+  const running = tracked ?? rowRunning;
   /*
    * A failure is terminal already, so the bin is not offered on one: pressing
    * it would reclassify rather than tidy, and the difference between "the
@@ -201,7 +210,7 @@ export function WordPanel({
   const listed = showFailed
     ? shown
     : shown.filter((attempt) => attempt.status !== "failed");
-  const runningId = running?.attemptId ?? null;
+  const runningId = tracked?.attemptId ?? rowRunning?.id ?? null;
   const [now, setNow] = useState(() => Date.now());
   const referenceInput = useRef<HTMLInputElement>(null);
   const finishedInput = useRef<HTMLInputElement>(null);
