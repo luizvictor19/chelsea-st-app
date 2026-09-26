@@ -44,6 +44,7 @@ import {
 import { createDeepSeekProvider } from "@/lib/text/deepseek";
 import type { Database } from "@/lib/supabase/types";
 
+import { planWrite, type BulkChange, type WordOutcome } from "./bulk";
 import { contrastError } from "./contrast-sets";
 import {
   storeSubject,
@@ -140,17 +141,60 @@ function extensionFor(contentType: string | null, fallback: string): string {
   return known[type] ?? fallback;
 }
 
+type Supabase = Awaited<ReturnType<typeof requireTeacher>>["supabase"];
+
+/*
+ * The per-word writes, shared by the action for one word and by applyToWords
+ * for many, so a bulk change is the same write repeated and never a second
+ * copy of the rule. Each answers with the database's message, or null.
+ */
+
+/** The kind, through the function that also takes a picture off a kind that
+ *  draws nothing (0021). */
+async function writeRepresentation(
+  supabase: Supabase,
+  wordId: string,
+  kind: Representation,
+): Promise<string | null> {
+  const { error } = await supabase.rpc("clear_word_representation", {
+    p_word: wordId,
+    p_kind: kind,
+  });
+  return error?.message ?? null;
+}
+
+async function writeWordClass(
+  supabase: Supabase,
+  wordId: string,
+  wordClass: Database["public"]["Enums"]["word_class"] | null,
+): Promise<string | null> {
+  const { error } = await supabase
+    .from("vocabulary_items")
+    .update({ word_class: wordClass })
+    .eq("id", wordId);
+  return error?.message ?? null;
+}
+
+async function writeImageStyle(
+  supabase: Supabase,
+  wordId: string,
+  style: Database["public"]["Enums"]["image_style"],
+): Promise<string | null> {
+  const { error } = await supabase
+    .from("vocabulary_items")
+    .update({ image_style: style })
+    .eq("id", wordId);
+  return error?.message ?? null;
+}
+
 export async function setRepresentation(
   wordId: string,
   kind: Representation,
 ): Promise<ActionResult> {
   try {
     const { supabase } = await requireTeacher();
-    const { error } = await supabase.rpc("clear_word_representation", {
-      p_word: wordId,
-      p_kind: kind,
-    });
-    if (error) return { ok: false, error: error.message };
+    const error = await writeRepresentation(supabase, wordId, kind);
+    if (error !== null) return { ok: false, error };
     revalidatePath(SCREEN);
     return { ok: true };
   } catch (cause) {
@@ -1312,11 +1356,8 @@ export async function setWordClass(
 ): Promise<ActionResult> {
   try {
     const { supabase } = await requireTeacher();
-    const { error } = await supabase
-      .from("vocabulary_items")
-      .update({ word_class: wordClass })
-      .eq("id", wordId);
-    if (error) return { ok: false, error: error.message };
+    const error = await writeWordClass(supabase, wordId, wordClass);
+    if (error !== null) return { ok: false, error };
     revalidatePath(SCREEN);
     return { ok: true };
   } catch (cause) {
@@ -1338,15 +1379,85 @@ export async function setImageStyle(
 ): Promise<ActionResult> {
   try {
     const { supabase } = await requireTeacher();
-    const { error } = await supabase
-      .from("vocabulary_items")
-      .update({ image_style: style })
-      .eq("id", wordId);
-    if (error) return { ok: false, error: error.message };
+    const error = await writeImageStyle(supabase, wordId, style);
+    if (error !== null) return { ok: false, error };
     revalidatePath(SCREEN);
     return { ok: true };
   } catch (cause) {
     return failure(cause);
+  }
+}
+
+export type BulkResult =
+  { ok: true; outcomes: readonly WordOutcome[] } | { ok: false; error: string };
+
+/**
+ * One change applied to several words, word by word, with the same write the
+ * action for one word uses. What each word gets is planWrite's answer on the
+ * row as the database holds it now, not as the screen last saw it.
+ *
+ * Not a transaction: a word that fails is reported and the others go on, so
+ * the answer is per word, in the order given. One revalidatePath, at the end.
+ */
+export async function applyToWords(
+  wordIds: readonly string[],
+  change: BulkChange,
+): Promise<BulkResult> {
+  try {
+    const { supabase } = await requireTeacher();
+    const { data: rows, error: readError } = await supabase
+      .from("vocabulary_items")
+      .select(
+        "id, representation, suggested_representation, word_class, image_style",
+      )
+      .in("id", [...wordIds]);
+    if (readError) return { ok: false, error: readError.message };
+    const byId = new Map(rows.map((row) => [row.id, row]));
+
+    const outcomes: WordOutcome[] = [];
+    for (const id of wordIds) {
+      const row = byId.get(id);
+      if (row === undefined) {
+        outcomes.push({
+          id,
+          outcome: "failed",
+          error: "Palavra não encontrada.",
+        });
+        continue;
+      }
+      const plan = planWrite(change, {
+        representation: row.representation,
+        suggestedRepresentation: row.suggested_representation,
+        wordClass: row.word_class,
+        imageStyle: row.image_style,
+      });
+      if ("skip" in plan) {
+        outcomes.push({ id, outcome: "skipped", reason: plan.skip });
+        continue;
+      }
+      let error: string | null;
+      try {
+        const write = plan.write;
+        error =
+          write.kind === "representation"
+            ? await writeRepresentation(supabase, id, write.value)
+            : write.kind === "wordClass"
+              ? await writeWordClass(supabase, id, write.value)
+              : await writeImageStyle(supabase, id, write.value);
+      } catch (cause) {
+        error = errorMessage(cause);
+      }
+      outcomes.push(
+        error === null
+          ? { id, outcome: "written" }
+          : { id, outcome: "failed", error },
+      );
+    }
+
+    revalidatePath(SCREEN);
+    return { ok: true, outcomes };
+  } catch (cause) {
+    return { ok: false, error: errorMessage(cause) };
   }
 }
 

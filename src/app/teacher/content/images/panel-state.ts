@@ -191,6 +191,24 @@ export function reclassifyWarning(label: string): string {
 }
 
 /**
+ * The same warning for several words at once, from the bulk bar: the same two
+ * true things, in the plural. `labels` are the kinds the words are moving to,
+ * one or more, since accepting suggestions can move each word to its own.
+ */
+export function reclassifyWarningMany(labels: readonly string[]): string {
+  const kinds = [...new Set(labels.map((label) => label.toLowerCase()))];
+  const named =
+    kinds.length === 1
+      ? `${kinds[0]} não leva imagem`
+      : `${kinds.slice(0, -1).join(", ")} e ${kinds.at(-1)} não levam imagem`;
+  return (
+    `A imagem sai destas palavras, porque ${named}. ` +
+    "As imagens continuam na lista como candidatas, com os arquivos, e podem " +
+    "ser aprovadas de novo se você mudar o tipo outra vez."
+  );
+}
+
+/**
  * Where an attempt came from, as the list line says it, or null.
  *
  * A generation is named by its model. An upload has no model, so it says it
