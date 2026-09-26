@@ -166,3 +166,21 @@ describe("a suggestion stored under an edit saved after it", () => {
     assert.deepEqual(written, ["a bitten apple", "a red apple"]);
   });
 });
+
+describe("an instruction written by another action", () => {
+  test("is known to the saver, so leaving the field unchanged writes nothing", async () => {
+    const written: string[] = [];
+    const { saver } = panel("apple", "an apple", async (text) => {
+      written.push(text);
+      return { ok: true };
+    });
+
+    // An upload stored "a red apple" on the word and the field now shows it.
+    saver.known("a red apple");
+    await saver.save("a red apple");
+    // Going back to the old text is a change, and is written.
+    await saver.save("an apple");
+
+    assert.deepEqual(written, ["an apple"]);
+  });
+});

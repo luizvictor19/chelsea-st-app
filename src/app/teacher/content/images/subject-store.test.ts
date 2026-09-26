@@ -7,6 +7,7 @@ import {
   normalizeSubject,
   openingSubject,
   storeSubject,
+  storeUploadSubject,
   storeSuggestion,
   type SubjectDb,
 } from "./subject-store.ts";
@@ -149,5 +150,26 @@ describe("normalizeSubject", () => {
     assert.equal(normalizeSubject("  a red apple "), "a red apple");
     assert.equal(normalizeSubject(""), null);
     assert.equal(normalizeSubject(" \t"), null);
+  });
+});
+
+describe("an upload's instruction", () => {
+  test("becomes the word's, as a generation's does", async () => {
+    const { db, state } = table({ apple: "an apple", pear: "a green pear" });
+
+    const forAttempt = await storeUploadSubject(db, "apple", " a red apple ");
+
+    assert.equal(forAttempt, "a red apple");
+    assert.equal(reopen(state, "apple"), "a red apple");
+    assert.equal(reopen(state, "pear"), "a green pear");
+  });
+
+  test("left empty, it says nothing and the word keeps its own", async () => {
+    const { db, state } = table({ apple: "an apple" });
+
+    const forAttempt = await storeUploadSubject(db, "apple", "  ");
+
+    assert.equal(forAttempt, null);
+    assert.equal(reopen(state, "apple"), "an apple");
   });
 });

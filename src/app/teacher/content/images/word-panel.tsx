@@ -60,7 +60,7 @@ import {
 } from "./panel-state";
 import { REPRESENTATIONS, disagreement, labelFor } from "./representation";
 import { createSubjectSaver, subjectNotSaved } from "./subject-saver";
-import { openingSubject } from "./subject-store";
+import { normalizeSubject, openingSubject } from "./subject-store";
 import { WORD_CLASS_LABELS } from "./word-class";
 import { notices } from "../../notices";
 
@@ -364,7 +364,16 @@ export function WordPanel({
    * In its place the action answers with the list, and settle makes sure this
    * ends either way. A call that never comes back is an answer too.
    */
-  async function run(key: string, action: () => Promise<ActionResult>) {
+  /*
+   * Where a failure is said. Next to the controls by default; an action whose
+   * failure loses work says it in the teacher area's snackbar instead, which
+   * stays until it is closed and outlives this panel.
+   */
+  async function run(
+    key: string,
+    action: () => Promise<ActionResult>,
+    say: (error: string) => void = setError,
+  ) {
     if (busy !== null) return;
     setBusy({ key });
     setError(null);
@@ -383,7 +392,7 @@ export function WordPanel({
       setReferenceUrl(result.reference);
     }
     if (!result.ok) {
-      setError(result.error);
+      say(result.error);
       // The teacher reads a sentence in Portuguese that says what to do. The
       // reason is English and belongs in the console, which is where the next
       // diagnosis of this starts.
@@ -451,24 +460,47 @@ export function WordPanel({
   }
 
   function sendFinished(file: File) {
-    void run("enviar-pronta", async () => {
-      /*
-       * Asked here before a byte leaves the browser, and again in the action.
-       * The size above all: over serverActions.bodySizeLimit Next refuses
-       * with a 413, which reaches this panel as a lost connection, so a file
-       * that is merely too big has to be stopped where the sentence can say
-       * so. Nothing is shrunk: this is the picture itself, not a guide.
-       */
-      const refusal = refuseUpload({
-        size: file.size,
-        type: file.type,
-        kind: word.representation,
-      });
-      if (refusal !== null) return { ok: false, error: refusal };
-      const result = await uploadFinishedImage(word.id, file, usedSubject);
-      if (result.ok) setUsedSubject("");
-      return result;
-    });
+    void run(
+      "enviar-pronta",
+      async () => {
+        /*
+         * Asked here before a byte leaves the browser, and again in the action.
+         * The size above all: over serverActions.bodySizeLimit Next refuses
+         * with a 413, which reaches this panel as a lost connection, so a file
+         * that is merely too big has to be stopped where the sentence can say
+         * so. Nothing is shrunk: this is the picture itself, not a guide.
+         */
+        const refusal = refuseUpload({
+          size: file.size,
+          type: file.type,
+          kind: word.representation,
+        });
+        if (refusal !== null) return { ok: false, error: refusal };
+        // A save of the Instrução field still on its way lands first, so the
+        // instruction given with the upload is the one the word ends on.
+        if (normalizeSubject(usedSubject) !== null) {
+          await saver.save(field.current);
+        }
+        const result = await uploadFinishedImage(word.id, file, usedSubject);
+        if (result.ok) {
+          /*
+           * An instruction given with the upload is the word's now, so the
+           * field shows it and the saver knows the column holds it: otherwise
+           * the next Gerar would put the old text back on the word.
+           */
+          const given = normalizeSubject(usedSubject);
+          if (given !== null) {
+            saver.known(given);
+            field.current = given;
+            setSubject(given);
+            setSubjectNote(null);
+          }
+          setUsedSubject("");
+        }
+        return result;
+      },
+      (error) => notices.push("error", error),
+    );
   }
 
   const working = busy !== null;
