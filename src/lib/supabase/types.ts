@@ -528,6 +528,7 @@ export type Database = {
       };
       questions: {
         Row: {
+          answer_language: Database["public"]["Enums"]["answer_language"];
           created_at: string;
           expected_answer: string;
           id: string;
@@ -539,6 +540,7 @@ export type Database = {
           prompt_audio_path: string | null;
         };
         Insert: {
+          answer_language?: Database["public"]["Enums"]["answer_language"];
           created_at?: string;
           expected_answer: string;
           id?: string;
@@ -550,6 +552,7 @@ export type Database = {
           prompt_audio_path?: string | null;
         };
         Update: {
+          answer_language?: Database["public"]["Enums"]["answer_language"];
           created_at?: string;
           expected_answer?: string;
           id?: string;
@@ -727,10 +730,11 @@ export type Database = {
         Returns: undefined;
       };
       dearmor: { Args: { "": string }; Returns: string };
+      delete_question: { Args: { p_question_id: string }; Returns: undefined };
       dissolve_contrast_set: { Args: { p_set_id: string }; Returns: undefined };
-      gen_random_uuid: { Args: never; Returns: string };
+      gen_random_uuid: { Args: Record<PropertyKey, never>; Returns: string };
       gen_salt: { Args: { "": string }; Returns: string };
-      is_teacher: { Args: never; Returns: boolean };
+      is_teacher: { Args: Record<PropertyKey, never>; Returns: boolean };
       materialize_lessons: {
         Args: { p_student_id: string; p_weeks?: number };
         Returns: number;
@@ -747,12 +751,17 @@ export type Database = {
         Args: { "": string };
         Returns: Record<string, unknown>[];
       };
+      reorder_questions: {
+        Args: { p_ids: string[]; p_point_id: string };
+        Returns: undefined;
+      };
       save_contrast_set: {
         Args: { p_expected?: string[]; p_items: string[]; p_set_id?: string };
         Returns: string;
       };
     };
     Enums: {
+      answer_language: "en" | "pt";
       attempt_verdict: "pending" | "correct" | "incorrect";
       block_kind:
         | "vocabulary"
@@ -913,6 +922,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      answer_language: ["en", "pt"],
       attempt_verdict: ["pending", "correct", "incorrect"],
       block_kind: [
         "vocabulary",
