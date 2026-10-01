@@ -82,17 +82,102 @@ export async function* withHeartbeat<T>(
 }
 
 /**
- * The result out of a heartbeat stream. A stream that ends without one, or a
- * connection that drops on the way, throws: both are an answer that did not
- * arrive, and the caller's settle() treats them as lost.
+ * How many beats in a row may fail to arrive before the stream is given up.
+ *
+ * WHY THERE IS A LIMIT. A connection can die without the browser hearing of
+ * it: on the contrast suggestion of lesson 4 the server logged "The
+ * destination stream closed early" at 5.5s, the fetch never rejected, and the
+ * read waited 227s for a chunk that was never coming. Nothing else on the
+ * client ends that wait, since Next sends an action with no timeout.
+ *
+ * WHY THREE. The limit is counted in beats because a beat is the only thing
+ * the stream promises: one byte every ACTION_BEAT_MS. One interval is no
+ * limit at all, a beat is always that far away. Two is the instant the second
+ * missing beat is due, so a beat a few milliseconds late (a busy server, a
+ * throttled tab) would be read as a dead connection, and a false alarm is not
+ * free: it pays the model again for a contrast suggestion. Three means two
+ * whole beats missed and a third interval run out, which lateness does not
+ * explain. The price is that a dead connection is noticed up to 15s after its
+ * last byte. How late a beat really gets has not been measured; if a healthy
+ * stream ever trips this, measure that before raising the count.
+ */
+export const SILENCE_BEATS = 3;
+
+/** The longest a stream may carry no byte before it is treated as lost. */
+export const SILENCE_LIMIT_MS = SILENCE_BEATS * ACTION_BEAT_MS;
+
+/** A stream that opened and then carried nothing for the whole limit. */
+export class HeartbeatSilence extends Error {
+  readonly silentMs: number;
+
+  constructor(silentMs: number) {
+    super(`The heartbeat stream carried no byte for ${silentMs}ms`);
+    this.name = "HeartbeatSilence";
+    this.silentMs = silentMs;
+  }
+}
+
+/** The two timer calls the silence limit needs, so a test can own the time. */
+export type SilenceClock = {
+  setTimeout(fire: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
+};
+
+const SYSTEM_CLOCK: SilenceClock = {
+  setTimeout: (fire, ms) => setTimeout(fire, ms),
+  clearTimeout: (handle) =>
+    clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
+const SILENT = Symbol("silent");
+
+/**
+ * The result out of a heartbeat stream. A stream that ends without one, a
+ * connection that drops on the way, or one that goes quiet for longer than
+ * the silence limit, throws: all three are an answer that did not arrive, and
+ * the caller's settle() treats them as lost.
+ *
+ * The limit runs between chunks, from the moment the stream opens. It does
+ * not cover the wait for the stream itself: Next dispatches actions one at a
+ * time, so a call queued behind another is quiet for as long as that one
+ * takes, and that is not a dead connection.
  */
 export async function readHeartbeat<T>(
   stream: Promise<AsyncIterable<Heartbeat<T>>>,
   onBeat?: (beat: number) => void,
+  silence: { readonly limitMs?: number; readonly clock?: SilenceClock } = {},
 ): Promise<T> {
-  for await (const chunk of await stream) {
-    if ("done" in chunk) return chunk.done;
-    onBeat?.(chunk.beat);
+  const limitMs = silence.limitMs ?? SILENCE_LIMIT_MS;
+  const clock = silence.clock ?? SYSTEM_CLOCK;
+  const chunks = (await stream)[Symbol.asyncIterator]();
+
+  for (;;) {
+    const next = chunks.next();
+    let timer: unknown;
+    const quiet = new Promise<typeof SILENT>((wake) => {
+      timer = clock.setTimeout(() => wake(SILENT), limitMs);
+    });
+    let step: IteratorResult<Heartbeat<T>> | typeof SILENT;
+    try {
+      step = await Promise.race([next, quiet]);
+    } finally {
+      clock.clearTimeout(timer);
+    }
+
+    if (step === SILENT) {
+      // Nobody is left to hear either of these fail. Neither is awaited: on
+      // a dead stream they may never settle, which is the wait being ended.
+      next.catch(() => {});
+      try {
+        void Promise.resolve(chunks.return?.()).catch(() => {});
+      } catch {
+        // A return() that throws at once changes nothing about the silence.
+      }
+      throw new HeartbeatSilence(limitMs);
+    }
+    if (step.done) break;
+    if ("done" in step.value) return step.value.done;
+    onBeat?.(step.value.beat);
   }
   throw new Error("The heartbeat stream ended without a result");
 }

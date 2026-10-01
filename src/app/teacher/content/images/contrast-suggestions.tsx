@@ -108,7 +108,8 @@ export function ContrastSuggestions({
       if (!first) setStatus({ kind: "asking", since, retrying: true });
       first = false;
       // The answer arrives as a stream of beats with the result at the end;
-      // a drop on the way throws, and askTwiceIfLost asks once more.
+      // a drop on the way throws, a stream gone quiet past the silence limit
+      // throws too, and askTwiceIfLost asks once more.
       return readHeartbeat(suggestContrastSets(lessonContentId));
     });
 
