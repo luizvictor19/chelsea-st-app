@@ -4,9 +4,14 @@ import { describe, test } from "node:test";
 import {
   CHANGED_ELSEWHERE,
   EMPTY,
+  SESSION_ENDED,
   cleaned,
+  closed,
+  deleteError,
+  failureMessage,
   isAnswerLanguage,
   isDirty,
+  opened,
   parseFields,
   questionError,
   refusal,
@@ -97,10 +102,26 @@ describe("questionError", () => {
     assert.equal(questionError("duplicate key", "23505"), CHANGED_ELSEWHERE);
   });
 
-  test("a question a student holds says how to retire it", () => {
+  test("a question a student holds says how to retire it, on a delete", () => {
     assert.match(
-      questionError("violates foreign key constraint", "23503"),
+      deleteError("violates foreign key constraint", "23503"),
       /desmarque Publicada/,
+    );
+  });
+
+  test("a foreign key refusal anywhere else is not about deleting", () => {
+    // Adding to a point removed in another tab is 23503 as well.
+    assert.equal(
+      questionError("violates foreign key constraint", "23503"),
+      "violates foreign key constraint",
+    );
+  });
+
+  test("a delete still hears the refusals every write shares", () => {
+    assert.equal(deleteError("anything", "QS001"), CHANGED_ELSEWHERE);
+    assert.match(
+      deleteError("question 1ce2 not found", "P0001"),
+      /não existe mais/,
     );
   });
 
@@ -116,5 +137,39 @@ describe("questionError", () => {
       questionError("permission denied", "42501"),
       "permission denied",
     );
+  });
+});
+
+describe("failureMessage", () => {
+  test("an error is its message", () => {
+    assert.equal(failureMessage(new Error("fetch failed")), "fetch failed");
+    assert.equal(failureMessage("plain"), "plain");
+  });
+
+  test("the redirect of an ended session is said in words", () => {
+    // What next/navigation's redirect() throws: an error carrying a digest.
+    const redirect = Object.assign(new Error("NEXT_REDIRECT"), {
+      digest: "NEXT_REDIRECT;replace;/login;307;",
+    });
+    assert.equal(failureMessage(redirect), SESSION_ENDED);
+  });
+});
+
+describe("the forms open in a point", () => {
+  test("opening a second form leaves the first one open", () => {
+    const open = opened(opened(new Set(), "a"), "b");
+    assert.deepEqual([...open], ["a", "b"]);
+  });
+
+  test("closing one leaves the others", () => {
+    const open = closed(new Set(["a", "b"]), "a");
+    assert.deepEqual([...open], ["b"]);
+  });
+
+  test("neither changes the set it was given", () => {
+    const before: ReadonlySet<string> = new Set(["a"]);
+    opened(before, "b");
+    closed(before, "a");
+    assert.deepEqual([...before], ["a"]);
   });
 });

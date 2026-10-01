@@ -106,11 +106,67 @@ export function questionError(message: string, code?: string): string {
   if (code === STALE_ORDER_CODE || code === UNIQUE_VIOLATION) {
     return CHANGED_ELSEWHERE;
   }
-  if (code === FOREIGN_KEY_VIOLATION) {
-    return "Esta pergunta já foi passada a uma aluna e não pode ser apagada. Para tirá-la de uso, edite e desmarque Publicada";
-  }
   if (/question .* not found/.test(message)) {
     return "Esta pergunta não existe mais. Recarregue a página";
   }
   return message;
+}
+
+/**
+ * The refusals of a delete: the shared ones, and the foreign key.
+ *
+ * Only here, because only on a delete does 23503 mean a student holds the
+ * question. Adding to a point that was removed in another tab is 23503 too,
+ * and that one has nothing to do with deleting.
+ */
+export function deleteError(message: string, code?: string): string {
+  if (code === FOREIGN_KEY_VIOLATION) {
+    return "Esta pergunta já foi passada a uma aluna e não pode ser apagada. Para tirá-la de uso, edite e desmarque Publicada";
+  }
+  return questionError(message, code);
+}
+
+export const SESSION_ENDED =
+  "A sua sessão terminou e nada foi gravado. Entre de novo em outra aba e repita aqui: o que você escreveu continua nesta tela";
+
+/**
+ * Whatever an action threw, as a sentence.
+ *
+ * requireTeacher redirects to the login when the session has ended, and a
+ * redirect is a throw: caught with everything else, it reached the snackbar
+ * as "NEXT_REDIRECT". It is caught on purpose all the same. Letting it
+ * through would navigate away from a form with a draft in it, so it is said
+ * in words and the draft stays. Next marks the error with a digest that
+ * opens with that name.
+ */
+export function failureMessage(cause: unknown): string {
+  const digest =
+    typeof cause === "object" && cause !== null && "digest" in cause
+      ? cause.digest
+      : undefined;
+  if (typeof digest === "string" && digest.startsWith("NEXT_REDIRECT")) {
+    return SESSION_ENDED;
+  }
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
+/*
+ * The edit forms open in a point, by question. A set and not one id: with
+ * one, opening the form of a second question closed the first and took its
+ * unsaved draft with it, without a word. Any number stay open, and a form
+ * only closes by its own button or its own save.
+ */
+
+export function opened(
+  open: ReadonlySet<string>,
+  id: string,
+): ReadonlySet<string> {
+  return new Set([...open, id]);
+}
+
+export function closed(
+  open: ReadonlySet<string>,
+  id: string,
+): ReadonlySet<string> {
+  return new Set([...open].filter((other) => other !== id));
 }

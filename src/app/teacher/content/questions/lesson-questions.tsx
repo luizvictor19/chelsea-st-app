@@ -30,8 +30,10 @@ import {
 import {
   ANSWER_LANGUAGES,
   EMPTY,
+  closed,
   isAnswerLanguage,
   isDirty,
+  opened,
   refusal,
   type QuestionFields,
 } from "./draft";
@@ -140,7 +142,8 @@ function PointSection({
   readonly checker: Checker;
 }) {
   const [busy, setBusy] = useState(false);
-  const [editing, setEditing] = useState<string | null>(null);
+  // Every edit form open in this point. More than one may be: see `opened`.
+  const [editing, setEditing] = useState<ReadonlySet<string>>(new Set());
   const [adding, setAdding] = useState(false);
   const [doomed, setDoomed] = useState<{
     readonly id: string;
@@ -233,7 +236,8 @@ function PointSection({
           {questions.map((question, index) => {
             const number = index + 1;
             const saved = fieldsOf(question);
-            if (editing === question.id) {
+            const close = () => setEditing((open) => closed(open, question.id));
+            if (editing.has(question.id)) {
               return (
                 <li
                   key={question.id}
@@ -246,14 +250,14 @@ function PointSection({
                     legend={`Editar a pergunta ${number}`}
                     submitLabel="Salvar"
                     busy={busy}
-                    onCancel={() => setEditing(null)}
+                    onCancel={close}
                     onSubmit={async (draft, loaded) => {
                       const ok = await run(
                         () => saveQuestion(question.id, loaded, draft),
                         questionSaved(at.point, number),
                         (message) => questionFailed(at.point, number, message),
                       );
-                      if (ok) setEditing(null);
+                      if (ok) close();
                       return ok;
                     }}
                   />
@@ -323,7 +327,9 @@ function PointSection({
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => setEditing(question.id)}
+                    onClick={() =>
+                      setEditing((open) => opened(open, question.id))
+                    }
                     className="border-rule hover:bg-surface rounded-sm border px-2 py-1 text-xs transition-colors disabled:opacity-50"
                   >
                     Editar

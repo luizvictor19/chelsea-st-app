@@ -7,6 +7,8 @@ import { requireTeacher } from "@/lib/content/queries";
 import {
   EDITED_ELSEWHERE,
   cleaned,
+  deleteError,
+  failureMessage,
   parseFields,
   questionError,
   refusal,
@@ -21,10 +23,7 @@ const SCREEN = "/teacher/content/questions";
 const UNREADABLE = "O pedido chegou incompleto. Recarregue a página";
 
 function failure(cause: unknown): QuestionResult {
-  return {
-    ok: false,
-    error: cause instanceof Error ? cause.message : String(cause),
-  };
+  return { ok: false, error: failureMessage(cause) };
 }
 
 /**
@@ -139,7 +138,7 @@ export async function deleteQuestion(
       p_question_id: questionId,
     });
     if (error) {
-      return { ok: false, error: questionError(error.message, error.code) };
+      return { ok: false, error: deleteError(error.message, error.code) };
     }
     revalidatePath(SCREEN);
     return { ok: true };
