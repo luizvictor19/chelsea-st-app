@@ -110,9 +110,15 @@ begin
       using errcode = 'insufficient_privilege';
   end if;
 
-  -- Locked before they are counted, so two orderings of one point made from
-  -- the same view cannot both compare equal and then interleave.
-  perform 1 from questions where point_id = p_point_id for update;
+  -- The point's row is the one lock every write to its order takes, before
+  -- anything is counted. Two orderings made from the same view cannot both
+  -- compare equal and then interleave, and an insert waits too, since its
+  -- foreign key needs a share of this row.
+  --
+  -- One row and not the questions themselves: locking those, two deletes in
+  -- the same point each held the question it had just deleted and waited for
+  -- the other's, and the database ended one of them as a deadlock.
+  perform 1 from points where id = p_point_id for update;
 
   select count(*), coalesce(max(position), 0) into v_count, v_base
     from questions where point_id = p_point_id;
@@ -167,6 +173,12 @@ begin
     raise exception 'only a teacher may delete a question'
       using errcode = 'insufficient_privilege';
   end if;
+
+  -- The same lock reorder_questions takes, and taken before the delete: see
+  -- there. A question that does not exist locks nothing and is refused below.
+  perform 1 from points
+    where id = (select point_id from questions where id = p_question_id)
+      for update;
 
   delete from questions where id = p_question_id returning point_id into v_point;
 
