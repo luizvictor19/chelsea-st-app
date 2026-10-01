@@ -9,11 +9,9 @@ import type {
 } from "@/lib/content/queries";
 import {
   MAX_REFERENCE_BYTES,
-  POLL_INTERVAL_MS,
   REFERENCE_TOO_BIG,
   elapsedSeconds,
   generationSeconds,
-  hasExpired,
   isRunning,
   runningAttempt,
 } from "@/lib/images/generation";
@@ -35,7 +33,6 @@ import {
 import {
   approveAttempt,
   clearReference,
-  pollAttempt,
   rejectAttempt,
   setReference,
   setImageStyle,
@@ -59,13 +56,13 @@ import {
   type LastAnswer,
 } from "./panel-state";
 import { REPRESENTATIONS, disagreement, labelFor } from "./representation";
+import { trackGeneration, useRunningGeneration } from "./generation-tracking";
 import { createSubjectSaver } from "./subject-saver";
 import { normalizeSubject, openingSubject } from "./subject-store";
 import { WORD_CLASS_LABELS } from "./word-class";
 import {
   IMAGE_STYLE_LABELS,
   classChanged,
-  generationNotice,
   imageApproved,
   imageDiscarded,
   kindChanged,
@@ -184,12 +181,22 @@ export function WordPanel({
    */
   const credits = isImageModelId(model) ? modelCredits(model) : null;
   /*
-   * The generation the row says is still open, or null. Taken from the list
-   * and not from a flag set on click, which is the whole difference: a flag
-   * dies with the page and a row does not, so a reload or a trip to another
-   * word finds the generation exactly where it was left.
+   * The generation still open for this word, as the page's tracker has it.
+   * The tracker is fed from the rows, every running one the page finds on
+   * load, not from a flag set on click: a reload or a trip to another word
+   * finds the generation exactly where it was left. It is also what asks the
+   * provider, so this panel never does; see generation-tracker.ts.
    */
-  const running = runningAttempt(shown);
+  const tracked = useRunningGeneration(word.id);
+  /*
+   * The rows as well, for the button. The server does not stop a second
+   * pending attempt on one word, and the tracker can be a step behind the
+   * rows: empty on the first render, before the page hands it what it found,
+   * and after a failure it could not confirm on the row. Either one running
+   * is enough to keep a second paid generation from being opened.
+   */
+  const rowRunning = runningAttempt(shown);
+  const running = tracked ?? rowRunning;
   /*
    * A failure is terminal already, so the bin is not offered on one: pressing
    * it would reclassify rather than tidy, and the difference between "the
@@ -203,8 +210,7 @@ export function WordPanel({
   const listed = showFailed
     ? shown
     : shown.filter((attempt) => attempt.status !== "failed");
-  const runningId = running?.id ?? null;
-  const runningStartedAt = running?.createdAt ?? null;
+  const runningId = tracked?.attemptId ?? rowRunning?.id ?? null;
   const [now, setNow] = useState(() => Date.now());
   const referenceInput = useRef<HTMLInputElement>(null);
   const finishedInput = useRef<HTMLInputElement>(null);
@@ -304,76 +310,6 @@ export function WordPanel({
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [runningId]);
-
-  /*
-   * The question the panel asks while a generation is open, every couple of
-   * seconds: how is it going. Each ask is a short call, which is the entire
-   * point — nothing on the path ever sees a request worth cutting.
-   *
-   * Sequential and not an interval: the last ask of a generation is the one
-   * that downloads the picture and puts it in the bucket, and two of those
-   * running at once would do the work twice.
-   *
-   * A call that does not come back is not an answer about the generation, so
-   * it is asked again rather than treated as a verdict; the row is still open
-   * at the provider either way. That stops when the row could no longer be
-   * alive, which is the same window the server judges it by, so no second
-   * number decides it.
-   */
-  useEffect(() => {
-    const attemptId = runningId;
-    const startedAt = runningStartedAt;
-    if (attemptId === null || startedAt === null) return;
-
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout>;
-
-    // The ids travel as arguments rather than as captured nulls-that-are-not,
-    // so nothing here needs an assertion to know they are there.
-    function again(id: string, from: string) {
-      timer = setTimeout(() => void ask(id, from), POLL_INTERVAL_MS);
-    }
-
-    async function ask(id: string, from: string) {
-      const result = await settle(() => pollAttempt(id));
-      if (stopped) return;
-      if ("attempts" in result && result.attempts !== undefined) {
-        setAnswered({ list: result.attempts, served: attempts });
-      }
-      if (!result.ok) {
-        if ("cause" in result) {
-          console.error(result.cause);
-          if (!hasExpired(from, Date.now())) {
-            again(id, from);
-            return;
-          }
-        }
-        // A failure the provider or the window gave, written on the row.
-        tell(wordFailed(word.term, result.error));
-        return;
-      }
-      /*
-       * Only a list says the generation ended; a poll that finds it still
-       * running answers with none. The panel stops asking once the row is no
-       * longer running, because the effect is keyed on it.
-       */
-      const ended =
-        result.attempts === undefined
-          ? null
-          : generationNotice(word.term, id, result.attempts);
-      if (ended !== null) {
-        tell(ended);
-        return;
-      }
-      again(id, from);
-    }
-
-    again(attemptId, startedAt);
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-    };
-  }, [runningId, runningStartedAt, attempts, word.term]);
 
   function editSubject(text: string) {
     field.current = text;
@@ -943,9 +879,29 @@ export function WordPanel({
                 type="button"
                 disabled={working || running !== null || subject.trim() === ""}
                 onClick={() =>
-                  void run("gerar", () =>
-                    startGeneration(word.id, subject, model),
-                  )
+                  void run("gerar", async () => {
+                    const result = await startGeneration(
+                      word.id,
+                      subject,
+                      model,
+                    );
+                    // Followed by the page from here, whichever word is open
+                    // when it ends. The reload would find it too; this is
+                    // sooner, and tracking it twice opens one chain.
+                    const opened =
+                      "attempts" in result && result.attempts !== undefined
+                        ? runningAttempt(result.attempts)
+                        : null;
+                    if (opened !== null) {
+                      trackGeneration({
+                        attemptId: opened.id,
+                        wordId: word.id,
+                        term: word.term,
+                        startedAt: opened.createdAt,
+                      });
+                    }
+                    return result;
+                  })
                 }
                 className="border-foreground bg-foreground text-background rounded-sm border px-4 py-2 text-sm font-semibold disabled:opacity-50"
               >
