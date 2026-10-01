@@ -345,7 +345,7 @@ function isPending(
   return isDrawableKind(representation) && imagePath === null;
 }
 
-function publicImageUrl(
+export function publicImageUrl(
   supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
   path: string | null,
 ): string | null {

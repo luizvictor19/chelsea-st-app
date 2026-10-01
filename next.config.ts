@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 
 import { BODY_SIZE_LIMIT_BYTES } from "./src/lib/images/body-limit";
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
 const nextConfig: NextConfig = {
   // The phone reaches this dev server through `adb reverse`, as 127.0.0.1.
   allowedDevOrigins: ["127.0.0.1"],
@@ -9,6 +11,20 @@ const nextConfig: NextConfig = {
   // next dev would otherwise write its own block into AGENTS.md on every
   // start. The instruction it carries is kept, in our words, in AGENTS.md.
   agentRules: false,
+
+  images: {
+    /*
+     * The approved vocabulary images are stored at up to 2048 px and 2.3 MB,
+     * and the live lesson screen shows them over a shared screen. next/image
+     * asks for the width the screen needs, so the bucket has to be allowed
+     * here, and only the bucket: any other path on the host is refused. With
+     * no project URL there is nothing to allow, and the screen has nothing to
+     * show either.
+     */
+    remotePatterns: supabaseUrl
+      ? [new URL("/storage/v1/object/public/vocabulary-images/**", supabaseUrl)]
+      : [],
+  },
 
   experimental: {
     /*
