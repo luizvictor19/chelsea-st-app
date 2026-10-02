@@ -63,6 +63,7 @@ export async function addQuestion(
       expected_answer: question.expectedAnswer,
       answer_language: question.answerLanguage,
       is_published: question.isPublished,
+      shown_vocabulary_item_id: question.shownWordId,
     });
     if (error) {
       return { ok: false, error: questionError(error.message, error.code) };
@@ -77,7 +78,7 @@ export async function addQuestion(
 /**
  * Saves an edit, if the question is still what the form opened on.
  *
- * `loaded` is the four fields as the screen read them. The update only
+ * `loaded` is the fields as the screen read them, the word shown among them. The update only
  * matches a row that still holds them, so an edit made from an old view does
  * not silently undo one saved in another tab since: it matches nothing, and
  * the teacher is told to reload with the draft still on screen. A question
@@ -99,20 +100,28 @@ export async function saveQuestion(
     if (why !== null) return { ok: false, error: why };
     const question = cleaned(parsed);
 
-    const { data, error } = await supabase
+    const stillLoaded = supabase
       .from("questions")
       .update({
         prompt: question.prompt,
         expected_answer: question.expectedAnswer,
         answer_language: question.answerLanguage,
         is_published: question.isPublished,
+        shown_vocabulary_item_id: question.shownWordId,
       })
       .eq("id", questionId)
       .eq("prompt", before.prompt)
       .eq("expected_answer", before.expectedAnswer)
       .eq("answer_language", before.answerLanguage)
-      .eq("is_published", before.isPublished)
-      .select("id");
+      .eq("is_published", before.isPublished);
+    // Null is matched with `is`: `eq` against null compares with = and
+    // matches no row, which would refuse every edit of a question that shows
+    // no word.
+    const { data, error } = await (
+      before.shownWordId === null
+        ? stillLoaded.is("shown_vocabulary_item_id", null)
+        : stillLoaded.eq("shown_vocabulary_item_id", before.shownWordId)
+    ).select("id");
     if (error) {
       return { ok: false, error: questionError(error.message, error.code) };
     }

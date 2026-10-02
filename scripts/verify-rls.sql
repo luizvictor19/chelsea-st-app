@@ -55,6 +55,7 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0025_an_upload_is_a_file_not_a_generation.sql
 \i supabase/migrations/0026_the_instruction_belongs_to_the_word.sql
 \i supabase/migrations/0027_an_answer_has_a_language.sql
+\i supabase/migrations/0028_a_question_shows_a_word.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
@@ -1271,5 +1272,205 @@ begin
 
   raise notice 'the student cannot order the questions of a point';
   raise notice 'nor delete one';
+end;
+$$;
+
+-- A question shows a word, since 0028: a nullable reference to
+-- vocabulary_items, on delete restrict.
+--
+-- Each refusal names the constraint that has to make it, and the name is
+-- checked, for the reason given above verify.refused_by: a refusal by
+-- something else would leave these green with the reference removed. Only a
+-- foreign key violation is caught; any other error stops the script.
+create function verify.foreign_key_refusal(p_sql text) returns text
+language plpgsql as $$
+declare
+  v_name text;
+begin
+  execute p_sql;
+  return null;
+exception when foreign_key_violation then
+  get stacked diagnostics v_name = constraint_name;
+  return v_name;
+end;
+$$;
+
+create function verify.expect_foreign_key(p_what text, p_constraint text, p_sql text)
+returns void
+language plpgsql as $$
+declare
+  v_by text := verify.foreign_key_refusal(p_sql);
+begin
+  if v_by is null then
+    insert into verify.failures values (format('%s: accepted', p_what));
+  elsif v_by <> p_constraint then
+    insert into verify.failures
+      values (format('%s: refused by %s, expected %s', p_what, v_by, p_constraint));
+  else
+    raise notice '%: refused by %', p_what, v_by;
+  end if;
+end;
+$$;
+
+-- Two words at point 58, in no contrast set and with no attempt, so the only
+-- thing that can hold either of them is a question that shows it.
+insert into vocabulary_items (term, first_point_id)
+select term, (select id from points where number = 58)
+  from unnest(array['shown word', 'other word']) as w(term);
+
+do $$
+declare
+  v_point uuid;
+  v_shown uuid;
+  v_other uuid;
+  v_first uuid;
+  v_second uuid;
+  v_action "char";
+  v_left integer;
+  v_failures text;
+  c_fkey constant text := 'questions_shown_vocabulary_item_id_fkey';
+  c_nowhere constant uuid := '99999999-9999-9999-9999-999999999999';
+begin
+  delete from verify.failures;
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+  select id into v_point from points where number = 58;
+  select id into v_shown from vocabulary_items where term = 'shown word';
+  select id into v_other from vocabulary_items where term = 'other word';
+
+  -- A question written without naming the column, the way every caller that
+  -- predates it does. That it goes in is the assertion: with the column not
+  -- null this insert is refused, as is the first question this script
+  -- inserts, far above.
+  insert into questions (point_id, position, prompt, expected_answer)
+    values (v_point, 0, 'asked of the room', 'an answer')
+    returning id into v_first;
+
+  -- At a position nothing else takes: accepted by mistake, the row is
+  -- reported with the other failures instead of colliding with the insert
+  -- further down.
+  perform verify.expect_foreign_key(
+    'a question inserted showing a word that does not exist', c_fkey,
+    format('insert into questions
+              (point_id, position, prompt, expected_answer, shown_vocabulary_item_id)
+            values (%L, 9, ''q'', ''a'', %L)', v_point, c_nowhere));
+
+  perform verify.expect_foreign_key(
+    'a question pointed at a word that does not exist', c_fkey,
+    format('update questions set shown_vocabulary_item_id = %L where id = %L',
+           c_nowhere, v_first));
+
+  -- What is accepted: a word that exists, by update and on the way in, and
+  -- the same word under two questions.
+  update questions set shown_vocabulary_item_id = v_shown where id = v_first;
+  insert into questions
+      (point_id, position, prompt, expected_answer, shown_vocabulary_item_id)
+    values (v_point, 1, 'asked of the picture', 'an answer', v_shown)
+    returning id into v_second;
+
+  perform verify.expect_foreign_key(
+    'deleting a word a question shows', c_fkey,
+    format('delete from vocabulary_items where id = %L', v_shown));
+
+  -- Refused means nothing moved: the word is there, and both questions are
+  -- there and still show it. A cascade would have taken the questions and a
+  -- set null the link, and either would have let the delete through above.
+  select count(*) into v_left from questions
+   where id in (v_first, v_second) and shown_vocabulary_item_id = v_shown;
+  if v_left <> 2
+     or not exists (select 1 from vocabulary_items where id = v_shown) then
+    insert into verify.failures values (format(
+      'after the delete of a shown word, %s of 2 questions still show it', v_left));
+  end if;
+
+  -- restrict and no action refuse the same delete with the same error, and
+  -- the constraint is not deferrable, so nothing a statement does tells them
+  -- apart. What 0028 wrote is read from the catalog: 'r' is restrict.
+  select confdeltype into v_action from pg_constraint
+   where conname = c_fkey and conrelid = 'public.questions'::regclass;
+  if v_action is distinct from 'r' then
+    insert into verify.failures values (format(
+      '%s is on delete %s, expected r (restrict)', c_fkey, coalesce(v_action::text, 'missing')));
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a question shows a word: %', v_failures;
+  end if;
+
+  -- The way out is deliberate: point the questions elsewhere, or at nothing,
+  -- and the word can go. This also shows the reference was the only thing
+  -- holding it.
+  update questions set shown_vocabulary_item_id = v_other where id = v_first;
+  update questions set shown_vocabulary_item_id = null where id = v_second;
+  delete from vocabulary_items where id = v_shown;
+  if exists (select 1 from vocabulary_items where id = v_shown) then
+    raise exception 'a word no question shows any more could not be deleted';
+  end if;
+
+  raise notice 'a question shows no word unless told, and takes one on insert and on update';
+  raise notice 'and a word is held only while a question shows it';
+end;
+$$;
+
+-- The student still sees only what is published, with the new column on the
+-- row. Point 58 holds two questions that show a word: one published, one not.
+-- She reads the published one and not the other, and she can neither take
+-- the word off the question she sees nor insert one of her own that shows a
+-- word. That she reads no word at all is criterion 10, at the top.
+--
+-- Her update does not raise: the policy filters the rows, so it matches
+-- nothing and returns as if it had worked. What is checked is what the row
+-- holds afterwards, read as the teacher.
+do $$
+declare
+  v_point uuid;
+  v_other uuid;
+  v_published uuid;
+  v_draft uuid;
+  v_seen integer;
+  v_insert_refused boolean := false;
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+  select id into v_point from points where number = 58;
+  select id into v_other from vocabulary_items where term = 'other word';
+  select id into v_published from questions
+   where point_id = v_point and prompt = 'asked of the room';
+  select id into v_draft from questions
+   where point_id = v_point and prompt = 'asked of the picture';
+  update questions set is_published = true where id = v_published;
+  update questions set is_published = false, shown_vocabulary_item_id = v_other
+   where id = v_draft;
+
+  perform set_config('test.uid', '22222222-2222-2222-2222-222222222222', false);
+
+  select count(*) into v_seen from questions where point_id = v_point;
+  if v_seen <> 1 then
+    raise exception
+      'the student sees % of the questions of point 58, expected the 1 published', v_seen;
+  end if;
+
+  update questions set shown_vocabulary_item_id = null where id = v_published;
+  begin
+    insert into questions
+        (point_id, position, prompt, expected_answer, shown_vocabulary_item_id)
+      values (v_point, 2, 'hers', 'an answer', v_other);
+  exception when insufficient_privilege then
+    v_insert_refused := true;
+  end;
+
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+
+  if not v_insert_refused then
+    raise exception 'the student inserted a question that shows a word';
+  end if;
+  if (select shown_vocabulary_item_id from questions where id = v_published)
+     is distinct from v_other then
+    raise exception 'the student took the word off a question';
+  end if;
+
+  raise notice 'the student sees only the published one of two questions that show a word';
+  raise notice 'and cannot change which word a question shows';
 end;
 $$;

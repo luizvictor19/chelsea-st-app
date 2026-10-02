@@ -538,6 +538,7 @@ export type Database = {
           position: number;
           prompt: string;
           prompt_audio_path: string | null;
+          shown_vocabulary_item_id: string | null;
         };
         Insert: {
           answer_language?: Database["public"]["Enums"]["answer_language"];
@@ -550,6 +551,7 @@ export type Database = {
           position: number;
           prompt: string;
           prompt_audio_path?: string | null;
+          shown_vocabulary_item_id?: string | null;
         };
         Update: {
           answer_language?: Database["public"]["Enums"]["answer_language"];
@@ -562,6 +564,7 @@ export type Database = {
           position?: number;
           prompt?: string;
           prompt_audio_path?: string | null;
+          shown_vocabulary_item_id?: string | null;
         };
         Relationships: [
           {
@@ -569,6 +572,13 @@ export type Database = {
             columns: ["point_id"];
             isOneToOne: false;
             referencedRelation: "points";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "questions_shown_vocabulary_item_id_fkey";
+            columns: ["shown_vocabulary_item_id"];
+            isOneToOne: false;
+            referencedRelation: "vocabulary_items";
             referencedColumns: ["id"];
           },
         ];

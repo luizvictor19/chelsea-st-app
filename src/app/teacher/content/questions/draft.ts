@@ -9,14 +9,17 @@ export type QuestionFields = {
   readonly expectedAnswer: string;
   readonly answerLanguage: AnswerLanguage;
   readonly isPublished: boolean;
+  /** The word whose picture the lesson shows with it (0028), or null. */
+  readonly shownWordId: string | null;
 };
 
-/** What a new question starts as: English, and not yet published. */
+/** What a new question starts as: English, unpublished, showing no word. */
 export const EMPTY: QuestionFields = {
   prompt: "",
   expectedAnswer: "",
   answerLanguage: "en",
   isPublished: false,
+  shownWordId: null,
 };
 
 /** The two languages an answer can be in, as the screen names them. */
@@ -56,8 +59,16 @@ export function isDirty(draft: QuestionFields, saved: QuestionFields): boolean {
     a.prompt !== b.prompt ||
     a.expectedAnswer !== b.expectedAnswer ||
     a.answerLanguage !== b.answerLanguage ||
-    a.isPublished !== b.isPublished
+    a.isPublished !== b.isPublished ||
+    a.shownWordId !== b.shownWordId
   );
+}
+
+const ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+
+/** Shaped like the uuid the column holds. Whether it exists, the database says. */
+function isId(value: unknown): value is string {
+  return typeof value === "string" && ID.test(value);
 }
 
 /**
@@ -67,7 +78,7 @@ export function isDirty(draft: QuestionFields, saved: QuestionFields): boolean {
  */
 export function parseFields(value: unknown): QuestionFields | null {
   if (typeof value !== "object" || value === null) return null;
-  const { prompt, expectedAnswer, answerLanguage, isPublished } =
+  const { prompt, expectedAnswer, answerLanguage, isPublished, shownWordId } =
     value as Record<string, unknown>;
   if (typeof prompt !== "string" || typeof expectedAnswer !== "string") {
     return null;
@@ -75,7 +86,10 @@ export function parseFields(value: unknown): QuestionFields | null {
   if (!isAnswerLanguage(answerLanguage) || typeof isPublished !== "boolean") {
     return null;
   }
-  return { prompt, expectedAnswer, answerLanguage, isPublished };
+  // An id or null, and nothing in between: undefined would be left out of
+  // the write and keep whatever the row held, in silence.
+  if (shownWordId !== null && !isId(shownWordId)) return null;
+  return { prompt, expectedAnswer, answerLanguage, isPublished, shownWordId };
 }
 
 /**
@@ -91,6 +105,9 @@ const UNIQUE_VIOLATION = "23505";
 /** assignment_items and attempts hold a question with restrict (0001). */
 const FOREIGN_KEY_VIOLATION = "23503";
 
+/** The reference from a question to the word it shows (0028). */
+const SHOWN_WORD_KEY = "questions_shown_vocabulary_item_id_fkey";
+
 export const CHANGED_ELSEWHERE =
   "As perguntas deste ponto mudaram em outro lugar depois que a página carregou, e nada foi gravado. Recarregue a página";
 
@@ -105,6 +122,9 @@ export const EDITED_ELSEWHERE =
 export function questionError(message: string, code?: string): string {
   if (code === STALE_ORDER_CODE || code === UNIQUE_VIOLATION) {
     return CHANGED_ELSEWHERE;
+  }
+  if (code === FOREIGN_KEY_VIOLATION && message.includes(SHOWN_WORD_KEY)) {
+    return "A palavra escolhida em Palavra mostrada não existe mais, e nada foi gravado. Recarregue a página";
   }
   if (/question .* not found/.test(message)) {
     return "Esta pergunta não existe mais. Recarregue a página";

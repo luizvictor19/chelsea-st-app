@@ -1,8 +1,9 @@
-import { requireTeacher } from "@/lib/content/queries";
+import { publicImageUrl, requireTeacher } from "@/lib/content/queries";
 import type { Database } from "@/lib/supabase/types";
 
 import { everyRow } from "./every-row";
-import type { LessonWord, SetRow } from "./point-words";
+import type { SetRow } from "./point-words";
+import type { PicturedWord } from "./shown-word";
 
 export type AnswerLanguage = Database["public"]["Enums"]["answer_language"];
 
@@ -34,6 +35,8 @@ export type Question = {
   readonly expectedAnswer: string;
   readonly answerLanguage: AnswerLanguage;
   readonly isPublished: boolean;
+  /** The word whose picture the lesson shows with it (0028), or null. */
+  readonly shownWordId: string | null;
 };
 
 export type QuestionsScreen = {
@@ -46,9 +49,10 @@ export type QuestionsScreen = {
   readonly questions: readonly Question[];
   /**
    * The whole vocabulary, not the lesson's: a question may use any word
-   * presented up to its point, in this book or an earlier one.
+   * presented up to its point, in this book or an earlier one. Each with its
+   * approved picture, for the word a question shows.
    */
-  readonly words: readonly LessonWord[];
+  readonly words: readonly PicturedWord[];
   readonly sets: readonly SetRow[];
 };
 
@@ -76,9 +80,10 @@ export async function loadQuestionsScreen(asked: {
     everyRow(async (from) => {
       const { data, count, error } = await supabase
         .from("vocabulary_items")
-        .select("id, term, points!inner(number, books!inner(position))", {
-          count: "exact",
-        })
+        .select(
+          "id, term, representation, image_path, points!inner(number, books!inner(position))",
+          { count: "exact" },
+        )
         .order("id")
         .range(from, from + PAGE - 1);
       if (error) throw new Error(error.message);
@@ -118,6 +123,8 @@ export async function loadQuestionsScreen(asked: {
     id: row.id,
     term: row.term,
     place: { book: row.points.books.position, point: row.points.number },
+    representation: row.representation,
+    imageUrl: publicImageUrl(supabase, row.image_path),
   }));
 
   if (lesson === null) {
@@ -141,7 +148,7 @@ export async function loadQuestionsScreen(asked: {
   const questionRows = await supabase
     .from("questions")
     .select(
-      "id, point_id, position, prompt, expected_answer, answer_language, is_published",
+      "id, point_id, position, prompt, expected_answer, answer_language, is_published, shown_vocabulary_item_id",
     )
     .in(
       "point_id",
@@ -162,6 +169,7 @@ export async function loadQuestionsScreen(asked: {
       expectedAnswer: row.expected_answer,
       answerLanguage: row.answer_language,
       isPublished: row.is_published,
+      shownWordId: row.shown_vocabulary_item_id,
     })),
     words,
     sets,

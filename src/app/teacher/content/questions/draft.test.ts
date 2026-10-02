@@ -23,15 +23,20 @@ const SAVED: QuestionFields = {
   expectedAnswer: "Yes, it's a lamp.",
   answerLanguage: "en",
   isPublished: false,
+  shownWordId: null,
 };
 
+const LAMP = "0b5c1f7e-3c0a-4a51-9d0e-6a4f2f1f0a11";
+const SHELF = "7d2e9a44-1b6f-4c3d-8e2a-5f9b0c1d2e33";
+
 describe("a question draft", () => {
-  test("starts in English and unpublished", () => {
+  test("starts in English, unpublished and showing no word", () => {
     assert.deepEqual(EMPTY, {
       prompt: "",
       expectedAnswer: "",
       answerLanguage: "en",
       isPublished: false,
+      shownWordId: null,
     });
   });
 
@@ -56,7 +61,15 @@ describe("a question draft", () => {
     );
   });
 
-  test("is dirty when any of the four fields differs", () => {
+  test("is dirty when the word it shows is chosen, changed or taken off", () => {
+    const shown = { ...SAVED, shownWordId: LAMP };
+    assert.equal(isDirty(shown, SAVED), true);
+    assert.equal(isDirty({ ...shown, shownWordId: SHELF }, shown), true);
+    assert.equal(isDirty(SAVED, shown), true);
+    assert.equal(isDirty(shown, shown), false);
+  });
+
+  test("is dirty when any of the other four fields differs", () => {
     assert.equal(isDirty(SAVED, SAVED), false);
     assert.equal(
       isDirty({ ...SAVED, prompt: "Is this a shelf?" }, SAVED),
@@ -76,13 +89,25 @@ describe("a question draft", () => {
 });
 
 describe("parseFields", () => {
-  test("accepts the four fields and nothing less", () => {
+  test("accepts the fields and nothing less", () => {
     assert.deepEqual(parseFields(SAVED), SAVED);
     assert.equal(parseFields(null), null);
     assert.equal(parseFields("Is this a lamp?"), null);
     assert.equal(parseFields({ ...SAVED, prompt: 3 }), null);
     assert.equal(parseFields({ ...SAVED, expectedAnswer: undefined }), null);
     assert.equal(parseFields({ ...SAVED, isPublished: "true" }), null);
+  });
+
+  test("takes the word shown as an id or as none, and nothing else", () => {
+    const shown = { ...SAVED, shownWordId: LAMP };
+    assert.deepEqual(parseFields(shown), shown);
+    assert.equal(parseFields({ ...SAVED, shownWordId: "lamp" }), null);
+    assert.equal(parseFields({ ...SAVED, shownWordId: "" }), null);
+    assert.equal(parseFields({ ...SAVED, shownWordId: 7 }), null);
+    // Left out is not none: a write built from it would keep the old word.
+    const without: Record<string, unknown> = { ...SAVED };
+    delete without.shownWordId;
+    assert.equal(parseFields(without), null);
   });
 
   test("refuses a language the database does not list", () => {
@@ -123,6 +148,12 @@ describe("questionError", () => {
       deleteError("question 1ce2 not found", "P0001"),
       /não existe mais/,
     );
+  });
+
+  test("a word that is gone says which field", () => {
+    const refused =
+      'insert or update on table "questions" violates foreign key constraint "questions_shown_vocabulary_item_id_fkey"';
+    assert.match(questionError(refused, "23503"), /Palavra mostrada/);
   });
 
   test("a question that is gone says to reload", () => {

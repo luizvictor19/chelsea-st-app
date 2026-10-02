@@ -1,11 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import {
   placeKey,
   wordsByPoint,
-  type LessonWord,
   type SetRow,
   type WordGroup,
 } from "@/lib/questions/point-words";
@@ -16,6 +16,12 @@ import {
   type Place,
 } from "@/lib/questions/presented";
 import type { LessonPoint, Question } from "@/lib/questions/queries";
+import {
+  approvedPicture,
+  shownWordOptions,
+  type PicturedWord,
+  type ShownWordOption,
+} from "@/lib/questions/shown-word";
 
 import { moveMember } from "../images/contrast-sets";
 import { settle } from "../images/panel-state";
@@ -66,7 +72,7 @@ export function LessonQuestions({
   readonly book: number;
   readonly points: readonly LessonPoint[];
   readonly questions: readonly Question[];
-  readonly words: readonly LessonWord[];
+  readonly words: readonly PicturedWord[];
   readonly sets: readonly SetRow[];
 }) {
   const checker = useMemo(() => {
@@ -82,6 +88,10 @@ export function LessonQuestions({
     );
   }, [words, sets]);
   const groups = useMemo(() => wordsByPoint(words, sets), [words, sets]);
+  const wordOf = useMemo(
+    () => new Map(words.map((word) => [word.id, word])),
+    [words],
+  );
 
   return (
     <div className="flex flex-col gap-10">
@@ -93,6 +103,8 @@ export function LessonQuestions({
             at={at}
             pointId={point.id}
             groups={groups.get(placeKey(at)) ?? []}
+            shownWords={shownWordOptions(words, sets, at)}
+            wordOf={wordOf}
             questions={questions.filter(
               (question) => question.pointId === point.id,
             )}
@@ -110,6 +122,7 @@ function fieldsOf(question: Question): QuestionFields {
     expectedAnswer: question.expectedAnswer,
     answerLanguage: question.answerLanguage,
     isPublished: question.isPublished,
+    shownWordId: question.shownWordId,
   };
 }
 
@@ -132,12 +145,17 @@ function PointSection({
   at,
   pointId,
   groups,
+  shownWords,
+  wordOf,
   questions,
   checker,
 }: {
   readonly at: Place;
   readonly pointId: string;
   readonly groups: readonly WordGroup[];
+  /** The words a question of this point may show: see shownWordOptions. */
+  readonly shownWords: readonly ShownWordOption[];
+  readonly wordOf: ReadonlyMap<string, PicturedWord>;
   readonly questions: readonly Question[];
   readonly checker: Checker;
 }) {
@@ -246,6 +264,8 @@ function PointSection({
                   <QuestionForm
                     at={at}
                     checker={checker}
+                    shownWords={shownWords}
+                    wordOf={wordOf}
                     saved={saved}
                     legend={`Editar a pergunta ${number}`}
                     submitLabel="Salvar"
@@ -266,6 +286,11 @@ function PointSection({
             }
             const marks = marksOf(checker, saved, at);
             const unpresented = summary([...marks.prompt, ...marks.answer], at);
+            const shown =
+              question.shownWordId === null
+                ? null
+                : (wordOf.get(question.shownWordId) ?? null);
+            const picture = shown === null ? null : approvedPicture(shown);
             return (
               <li
                 key={question.id}
@@ -274,6 +299,16 @@ function PointSection({
                 <span className="text-faint w-5 pt-0.5 font-mono text-xs">
                   {number}
                 </span>
+                {shown !== null && picture !== null && (
+                  <Image
+                    src={picture}
+                    alt={`Palavra mostrada: ${shown.term}`}
+                    title={`Palavra mostrada: ${shown.term}`}
+                    width={40}
+                    height={40}
+                    className="border-rule size-10 shrink-0 rounded-sm border object-cover"
+                  />
+                )}
                 <div className="flex min-w-0 flex-1 basis-64 flex-col gap-1">
                   <p className="font-semibold">
                     <MarkedText
@@ -292,6 +327,17 @@ function PointSection({
                   {unpresented !== "" && (
                     <p className="text-warning text-xs">
                       Ainda não apresentadas no ponto {at.point}: {unpresented}
+                    </p>
+                  )}
+                  {/*
+                    A word chosen for its picture that has none now. Said
+                    here because nothing else would: in the lesson the card
+                    quietly falls back to the neutral one.
+                  */}
+                  {question.shownWordId !== null && picture === null && (
+                    <p className="text-warning text-xs">
+                      Palavra mostrada: {shown?.term ?? "não encontrada"} · sem
+                      imagem aprovada. Na aula o cartão aparece sem imagem.
                     </p>
                   )}
                   <p className="text-faint flex flex-wrap gap-x-3 text-xs">
@@ -361,6 +407,8 @@ function PointSection({
           <QuestionForm
             at={at}
             checker={checker}
+            shownWords={shownWords}
+            wordOf={wordOf}
             saved={null}
             legend={`Nova pergunta do ponto ${at.point}`}
             submitLabel="Acrescentar"
@@ -470,6 +518,42 @@ function MarkedText({
 }
 
 /**
+ * One choice of the word a question shows: a radio, so the arrows walk the
+ * group and exactly one is always chosen. The input is kept for the keyboard
+ * and the reader and hidden from the eye, and the label draws the choice.
+ */
+function ShownWordChoice({
+  name,
+  checked,
+  onChoose,
+  children,
+}: {
+  readonly name: string;
+  readonly checked: boolean;
+  readonly onChoose: () => void;
+  readonly children: React.ReactNode;
+}) {
+  return (
+    <label
+      className={
+        checked
+          ? "border-foreground bg-background has-focus-visible:outline-foreground flex cursor-pointer flex-col items-center gap-1 rounded-sm border-2 p-1 has-focus-visible:outline-2"
+          : "border-rule hover:bg-background has-focus-visible:outline-foreground flex cursor-pointer flex-col items-center gap-1 rounded-sm border-2 p-1 has-focus-visible:outline-2"
+      }
+    >
+      <input
+        type="radio"
+        name={name}
+        checked={checked}
+        onChange={onChoose}
+        className="sr-only"
+      />
+      {children}
+    </label>
+  );
+}
+
+/**
  * Asks before the tab is closed or reloaded while a form holds something
  * unsaved. A move inside the app cannot be stopped this way, which is why
  * the form also says so in words.
@@ -494,6 +578,8 @@ function useUnsavedWarning(dirty: boolean) {
 function QuestionForm({
   at,
   checker,
+  shownWords,
+  wordOf,
   saved,
   legend,
   submitLabel,
@@ -503,6 +589,8 @@ function QuestionForm({
 }: {
   readonly at: Place;
   readonly checker: Checker;
+  readonly shownWords: readonly ShownWordOption[];
+  readonly wordOf: ReadonlyMap<string, PicturedWord>;
   readonly saved: QuestionFields | null;
   readonly legend: string;
   readonly submitLabel: string;
@@ -538,6 +626,17 @@ function QuestionForm({
   const marks = marksOf(checker, draft, at);
   const promptMarks = summary(marks.prompt, at);
   const answerMarks = summary(marks.answer, at);
+  /*
+   * The word the draft shows when the list does not offer it: its picture
+   * was taken off since, or it is presented after this point. It keeps a
+   * choice of its own, so the form says what is stored and a save of some
+   * other field does not carry it along unseen.
+   */
+  const offList =
+    draft.shownWordId !== null &&
+    !shownWords.some((option) => option.id === draft.shownWordId)
+      ? draft.shownWordId
+      : null;
 
   return (
     <form
@@ -548,7 +647,8 @@ function QuestionForm({
         void onSubmit(draft, loaded).then((ok) => {
           if (!ok || saved !== null) return;
           // Added: the form stays open for the next one, in the same
-          // language and with the same publish choice. The fields are
+          // language, with the same publish choice and showing the same
+          // word, since a picture is often asked about more than once. The fields are
           // read-only while the save runs, so nothing typed since is lost.
           setDraft({ ...draft, prompt: "", expectedAnswer: "" });
           promptInput.current?.focus();
@@ -610,6 +710,56 @@ function QuestionForm({
           </p>
         )}
       </div>
+
+      <fieldset disabled={busy} className="flex flex-col gap-1">
+        <legend className="text-sm font-semibold">Palavra mostrada</legend>
+        <p className="text-faint text-xs">
+          A imagem dela abre o cartão da pergunta na aula. Só aparecem as
+          palavras apresentadas até o ponto {at.point} que têm imagem aprovada.
+        </p>
+        <div className="flex max-h-56 flex-wrap gap-2 overflow-y-auto pt-1">
+          <ShownWordChoice
+            name={`${id}-palavra`}
+            checked={draft.shownWordId === null}
+            onChoose={() => setDraft({ ...draft, shownWordId: null })}
+          >
+            <span className="flex size-12 items-center justify-center text-xs">
+              Nenhuma
+            </span>
+          </ShownWordChoice>
+          {offList !== null && (
+            <ShownWordChoice
+              name={`${id}-palavra`}
+              checked
+              onChoose={() => setDraft({ ...draft, shownWordId: offList })}
+            >
+              <span className="text-warning flex h-12 max-w-40 items-center text-xs">
+                {wordOf.get(offList)?.term ?? "Palavra não encontrada"} · fora
+                da lista
+              </span>
+            </ShownWordChoice>
+          )}
+          {shownWords.map((option) => (
+            <ShownWordChoice
+              key={option.id}
+              name={`${id}-palavra`}
+              checked={draft.shownWordId === option.id}
+              onChoose={() => setDraft({ ...draft, shownWordId: option.id })}
+            >
+              <Image
+                src={option.imageUrl}
+                alt=""
+                width={48}
+                height={48}
+                className="size-12 rounded-sm object-cover"
+              />
+              <span className="max-w-20 truncate text-xs" title={option.term}>
+                {option.term}
+              </span>
+            </ShownWordChoice>
+          ))}
+        </div>
+      </fieldset>
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
         <label className="flex items-center gap-2 text-sm">

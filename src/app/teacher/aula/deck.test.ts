@@ -4,9 +4,17 @@ import { describe, test } from "node:test";
 import {
   buildDeck,
   clampPosition,
+  levelCount,
   nextPosition,
   previousPosition,
+  questionPicture,
+  revealLess,
+  revealMore,
+  showAt,
   slidesAt,
+  waitingFor,
+  withQuestions,
+  type DeckQuestion,
   type DeckWord,
   type Slide,
 } from "./deck.ts";
@@ -176,5 +184,185 @@ describe("clampPosition", () => {
       pointNumber: 10,
       index: 0,
     });
+  });
+});
+
+const question = (
+  id: string,
+  pointNumber: number,
+  position: number,
+): DeckQuestion => ({
+  id,
+  pointNumber,
+  position,
+  prompt: `${id}?`,
+  expectedAnswer: `${id}.`,
+  word: null,
+});
+
+describe("questionPicture", () => {
+  const pictured: DeckWord = {
+    ...word("pen", 1),
+    representation: "photo",
+    imageUrl: "https://images/pen.png",
+  };
+
+  test("is the approved picture of the word the question shows", () => {
+    assert.equal(
+      questionPicture({ ...question("what", 1, 0), word: pictured }),
+      "https://images/pen.png",
+    );
+  });
+
+  test("is nothing, the neutral card, for a question that shows no word", () => {
+    assert.equal(questionPicture(question("what", 1, 0)), null);
+  });
+
+  test("is nothing when the word has no approved picture any more", () => {
+    assert.equal(
+      questionPicture({
+        ...question("what", 1, 0),
+        word: { ...pictured, imageUrl: null },
+      }),
+      null,
+    );
+    assert.equal(
+      questionPicture({
+        ...question("what", 1, 0),
+        word: { ...pictured, representation: "symbol" },
+      }),
+      null,
+    );
+  });
+});
+
+describe("withQuestions", () => {
+  test("puts the questions of a point after its presentation, by position", () => {
+    const deck = withQuestions(buildDeck([STANDING, SITTING, OPENING], []), [
+      question("third", 11, 2),
+      question("first", 11, 0),
+      question("second", 11, 1),
+    ]);
+    assert.deepEqual(
+      deck.map((slide) => [slide.pointNumber, slide.index, slide.key]),
+      [
+        [11, 0, "standing"],
+        [11, 1, "sitting"],
+        [11, 2, "first"],
+        [11, 3, "second"],
+        [11, 4, "third"],
+        [12, 0, "opening"],
+      ],
+    );
+    assert.deepEqual(
+      slidesAt(deck, 11).map((slide) => slide.question?.number ?? null),
+      [null, null, 1, 2, 3],
+    );
+  });
+
+  test("a point with questions and no words is its questions", () => {
+    const deck = withQuestions(buildDeck([BEHIND, STANDING], []), [
+      question("only", 10, 0),
+    ]);
+    assert.deepEqual(
+      deck.map((slide) => [slide.pointNumber, slide.index, slide.key]),
+      [
+        [9, 0, "behind"],
+        [10, 0, "only"],
+        [11, 0, "standing"],
+      ],
+    );
+  });
+
+  test("the arrows walk from the words into the questions and on", () => {
+    const deck = withQuestions(buildDeck([STANDING, OPENING], []), [
+      question("first", 11, 0),
+    ]);
+    assert.deepEqual(nextPosition(deck, { pointNumber: 11, index: 0 }), {
+      pointNumber: 11,
+      index: 1,
+    });
+    assert.deepEqual(nextPosition(deck, { pointNumber: 11, index: 1 }), {
+      pointNumber: 12,
+      index: 0,
+    });
+    assert.deepEqual(previousPosition(deck, { pointNumber: 12, index: 0 }), {
+      pointNumber: 11,
+      index: 1,
+    });
+  });
+});
+
+describe("levels", () => {
+  const [presented, asked] = withQuestions(buildDeck([STANDING], []), [
+    question("first", 11, 0),
+  ]);
+
+  test("a presentation has two levels, or one with no picture", () => {
+    assert.equal(levelCount(presented, true), 2);
+    assert.equal(levelCount(presented, false), 1);
+  });
+
+  test("a question has three levels, with or without a picture", () => {
+    assert.equal(levelCount(asked, true), 3);
+    assert.equal(levelCount(asked, false), 3);
+  });
+
+  test("down reveals one level at a time and stops at the last", () => {
+    const start = showAt({ pointNumber: 11, index: 1 });
+    const second = revealMore(start, 3);
+    const third = revealMore(second, 3);
+    assert.deepEqual(
+      [start.level, second.level, third.level, revealMore(third, 3).level],
+      [1, 2, 3, 3],
+    );
+    assert.deepEqual(third.position, start.position);
+  });
+
+  test("up hides one level at a time and stops at the first", () => {
+    const third = { position: { pointNumber: 11, index: 1 }, level: 3 };
+    const second = revealLess(third);
+    const first = revealLess(second);
+    assert.deepEqual(
+      [second.level, first.level, revealLess(first).level],
+      [2, 1, 1],
+    );
+  });
+
+  test("a slide with one level stays at it", () => {
+    const view = showAt({ pointNumber: 11, index: 0 });
+    assert.equal(revealMore(view, 1).level, 1);
+  });
+
+  test("changing slide comes back to level 1", () => {
+    const deck = [presented, asked];
+    const revealed = revealMore(showAt({ pointNumber: 11, index: 0 }), 2);
+    assert.equal(revealed.level, 2);
+    const next = nextPosition(deck, revealed.position);
+    assert.ok(next !== null);
+    assert.deepEqual(showAt(next), {
+      position: { pointNumber: 11, index: 1 },
+      level: 1,
+    });
+  });
+});
+
+describe("waitingFor", () => {
+  const tokens = (classes: string) => classes.split(/\s+/);
+
+  // Found by the review on 2026-10-02: the two were joined with no space
+  // between them, which is one class that does not exist, so the answer of a
+  // question showed before its level.
+  test("hides the line below its level, as a class of its own", () => {
+    assert.deepEqual(tokens(waitingFor(3, 2, "text-muted font-semibold")), [
+      "invisible",
+      "text-muted",
+      "font-semibold",
+    ]);
+  });
+
+  test("shows the line from its level on", () => {
+    assert.equal(waitingFor(3, 3, "text-muted"), "text-muted");
+    assert.equal(waitingFor(2, 3, "text-muted"), "text-muted");
   });
 });
