@@ -33,20 +33,28 @@ export type Text = {
  * list, so undo brings back a board cleared by mistake. An edit is a mark for
  * the same reason: it names the text it rewrites by that text's place in the
  * list, which never changes because the list only grows at the end and
- * shrinks from the end. An edit to nothing removes the text.
+ * shrinks from the end. An edit to nothing removes the text. It carries where
+ * the text is left as well as what it says, so a text moved and rewritten in
+ * one turn at the field is one mark, and one step for undo.
  */
 export type Mark =
   | Stroke
   | Text
   | { readonly kind: "clear" }
-  | { readonly kind: "edit"; readonly origin: number; readonly text: string };
+  | {
+      readonly kind: "edit";
+      readonly origin: number;
+      readonly text: string;
+      readonly at: Point;
+    };
 
 /** A text as it stands now, and where in the list it was first written. */
 export type StandingText = Text & { readonly origin: number };
 
 /**
  * The marks to paint: those made since the board was last cleared, each text
- * as its last edit left it and still in the place where it was written.
+ * saying what its last edit left and standing where that edit left it. In
+ * the order of painting it keeps the place where it was first written.
  */
 export function standing(
   marks: readonly Mark[],
@@ -66,30 +74,35 @@ export function standing(
       const edited = shown[place];
       if (edited === undefined || edited.kind !== "text") continue;
       if (mark.text === "") shown.splice(place, 1);
-      else shown[place] = { ...edited, text: mark.text };
+      else shown[place] = { ...edited, text: mark.text, at: mark.at };
     }
   }
   return shown;
 }
 
 /**
- * Rewrites a text that stands on the board, as one step for undo to take
- * back. Left empty, the text is removed. Left as it was, nothing is added,
- * so undo is never spent on an edit that changed nothing.
+ * Rewrites a text that stands on the board, and moves it when a place is
+ * given, both as one step for undo to take back. Left empty, the text is
+ * removed. Left as it was and where it was, nothing is added, so undo is
+ * never spent on an edit that changed nothing.
  */
 export function editText(
   marks: readonly Mark[],
   origin: number,
   text: string,
+  at?: Point,
 ): readonly Mark[] {
   const edited = standing(marks).find(
     (mark) => mark.kind === "text" && mark.origin === origin,
   );
   if (edited === undefined || edited.kind !== "text") return marks;
   const next = text.trim();
-  return next === edited.text
+  const place = at ?? edited.at;
+  return next === edited.text &&
+    place[0] === edited.at[0] &&
+    place[1] === edited.at[1]
     ? marks
-    : [...marks, { kind: "edit", origin, text: next }];
+    : [...marks, { kind: "edit", origin, text: next, at: place }];
 }
 
 /** The letter of the board, in CSS pixels, and the height of its line in em. */
@@ -118,6 +131,24 @@ export function textAt(
     }
   }
   return null;
+}
+
+/**
+ * The place nearest to this one where a text this wide is whole inside a
+ * board of this size: where a text being dragged is left. A text wider than
+ * the board, or a board lower than a line, keeps the beginning of the text
+ * in view, at the left and the top edge.
+ */
+export function keepInView(
+  [x, y]: Point,
+  width: number,
+  area: { readonly width: number; readonly height: number },
+): Point {
+  const half = (LETTER.size * LETTER.line) / 2;
+  return [
+    Math.max(Math.min(x, area.width - width), 0),
+    Math.max(Math.min(y, area.height - half), half),
+  ];
 }
 
 /*
