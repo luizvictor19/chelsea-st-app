@@ -4,6 +4,7 @@ import Image from "next/image";
 import {
   useCallback,
   useEffect,
+  type CSSProperties,
   useMemo,
   useRef,
   useState,
@@ -12,7 +13,7 @@ import {
 
 import { situationOf } from "../content/images/filters";
 
-import { boardKey, undo, type Mark } from "./board";
+import { boardKey, cardScale, shareAt, SPLIT, undo, type Mark } from "./board";
 import type { Course } from "./course";
 import {
   levelCount,
@@ -56,13 +57,15 @@ function sizesFor(columns: number): string {
  * of the slide and the longest term sets the size for all of them, so a set
  * reads as one line of equals. 0.6em is the width of a character of this
  * face at this weight, rounded up; the second bound keeps a short word from
- * taking the height the picture needs.
+ * taking the height the picture needs. --card is what the card keeps of its
+ * width beside the whiteboard, 1 with the board closed: every size on the
+ * card that comes from the width of the screen is multiplied by it.
  */
 function termSize(slide: Slide, withPicture: boolean): string {
   const longest = Math.max(...slide.words.map((word) => word.term.length));
   const fit = 88 / slide.words.length / (0.6 * longest);
   const width = Math.min(fit, withPicture ? 7 : 16);
-  return `min(${width.toFixed(2)}vw, ${withPicture ? 11 : 30}vh)`;
+  return `min(${width.toFixed(2)}vw * var(--card), ${withPicture ? 11 : 30}vh)`;
 }
 
 /*
@@ -86,7 +89,7 @@ function QuestionCard({
   const picture = questionPicture(question);
   if (picture === null && level < 2) {
     return (
-      <p className="text-muted m-auto text-center text-[min(6vw,12vh)] leading-tight font-extrabold tracking-tight">
+      <p className="text-muted m-auto text-center text-[length:min(6vw*var(--card),12vh)] leading-tight font-extrabold tracking-tight">
         {label}
       </p>
     );
@@ -113,8 +116,8 @@ function QuestionCard({
           2,
           level,
           pictured
-            ? "text-[min(3.5vw,6vh)] leading-tight font-extrabold tracking-tight"
-            : "text-[min(5vw,10vh)] leading-tight font-extrabold tracking-tight",
+            ? "text-[length:min(3.5vw*var(--card),6vh)] leading-tight font-extrabold tracking-tight"
+            : "text-[length:min(5vw*var(--card),10vh)] leading-tight font-extrabold tracking-tight",
         )}
       >
         {question.prompt}
@@ -124,8 +127,8 @@ function QuestionCard({
           3,
           level,
           pictured
-            ? "text-muted text-[min(2.8vw,5vh)] leading-tight font-semibold"
-            : "text-muted text-[min(3.6vw,7vh)] leading-tight font-semibold",
+            ? "text-muted text-[length:min(2.8vw*var(--card),5vh)] leading-tight font-semibold"
+            : "text-muted text-[length:min(3.6vw*var(--card),7vh)] leading-tight font-semibold",
         )}
       >
         {question.expectedAnswer}
@@ -151,10 +154,24 @@ export function LiveLesson({
   const [view, setView] = useState(() => showAt(initial));
   const { position, level } = view;
   const screen = useRef<HTMLElement>(null);
-  // The whiteboard: kept here and not in the card, so what was drawn stays
-  // through a change of card and while minimised. Memory only, gone on reload.
+  // The whiteboard: kept here and not in the board, so what was drawn and
+  // the width it was left at stay while it is closed. Memory only, gone on
+  // reload.
   const [boardOpen, setBoardOpen] = useState(false);
+  const [boardShare, setBoardShare] = useState<number>(SPLIT.first);
   const [marks, setMarks] = useState<readonly Mark[]>([]);
+  const row = useRef<HTMLDivElement>(null);
+  const [rowWidth, setRowWidth] = useState(0);
+
+  useEffect(() => {
+    const element = row.current;
+    if (element === null) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setRowWidth(entry.contentRect.width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const fullscreen = useSyncExternalStore(
     subscribeToFullscreen,
     () => document.fullscreenElement !== null,
@@ -224,7 +241,7 @@ export function LiveLesson({
       const tag =
         event.target instanceof HTMLElement ? event.target.tagName : "";
       // A list keeps its own arrows while it has the focus, and a text being
-      // typed on the board keeps every key, the Q included.
+      // typed on the board keeps every key: the arrows, the space and the Q.
       if (tag === "SELECT" || tag === "INPUT" || tag === "TEXTAREA") return;
 
       const onBoard = boardKey(event, boardOpen);
@@ -361,8 +378,15 @@ export function LiveLesson({
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 gap-4">
-        <div className="bg-surface border-rule relative flex min-w-0 flex-1 flex-col rounded-sm border p-4">
+      <div ref={row} className="flex min-h-0 flex-1">
+        <div
+          className="bg-surface border-rule relative flex min-w-0 flex-1 flex-col rounded-sm border p-4"
+          style={
+            {
+              "--card": cardScale(rowWidth, boardOpen ? boardShare : null),
+            } as CSSProperties
+          }
+        >
           {!boardOpen && (
             <button
               type="button"
@@ -373,12 +397,6 @@ export function LiveLesson({
               Quadro
             </button>
           )}
-          <Whiteboard
-            open={boardOpen}
-            marks={marks}
-            onMarks={setMarks}
-            onMinimise={() => setBoardOpen(false)}
-          />
           {slide === null ? (
             <p className="text-muted m-auto text-lg">
               Este ponto não tem palavras.
@@ -442,6 +460,43 @@ export function LiveLesson({
             </div>
           )}
         </div>
+        {boardOpen && (
+          /*
+            The handle between the card and the board. It is an element of
+            its own and holds the pointer while dragged, so a drag never
+            reaches the canvas and never draws.
+          */
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Largura do quadro"
+            title="Arraste para mudar a largura do quadro"
+            className="group flex w-4 flex-none cursor-col-resize touch-none items-center justify-center select-none"
+            onMouseDown={(event) => event.preventDefault()}
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onPointerMove={(event) => {
+              if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+                return;
+              }
+              const box = row.current?.getBoundingClientRect();
+              if (box !== undefined) {
+                setBoardShare(shareAt(box, event.clientX));
+              }
+            }}
+          >
+            <span className="bg-rule group-hover:bg-faint h-16 w-1 rounded-full transition-colors" />
+          </div>
+        )}
+        <Whiteboard
+          open={boardOpen}
+          share={boardShare}
+          marks={marks}
+          onMarks={setMarks}
+          onClose={() => setBoardOpen(false)}
+        />
       </div>
 
       <footer className="flex items-center justify-between gap-3">

@@ -6,7 +6,11 @@
 
 export type Ink = "black" | "red" | "blue";
 
-/** A point of the board, in the board's own units (see BOARD). */
+/**
+ * A point of the board, in CSS pixels from its top left corner. The board
+ * has one scale, whatever its width and in full screen too: a narrower board
+ * shows less of the same drawing, and what falls outside is kept.
+ */
 export type Point = readonly [x: number, y: number];
 
 export type Stroke = {
@@ -164,47 +168,13 @@ export function clearAll(marks: readonly Mark[]): readonly Mark[] {
   return standing(marks).length === 0 ? marks : [...marks, { kind: "clear" }];
 }
 
-/*
- * The board is drawn in units of its own, 1600 by 900, and fitted whole and
- * centred into whatever area the screen gives it. One scale for both axes, so
- * the window and the full screen show the same drawing larger or smaller and
- * never stretched. The area outside the 16:9 middle can be drawn on as well,
- * but only the middle is sure to be on screen at every size.
- */
-export const BOARD = { width: 1600, height: 900 } as const;
-
-export type Size = { readonly width: number; readonly height: number };
-
-export type Fit = {
-  readonly scale: number;
-  readonly left: number;
-  readonly top: number;
-};
-
-/** How the board sits in an area of this many CSS pixels. */
-export function fit(area: Size): Fit {
-  const scale = Math.min(area.width / BOARD.width, area.height / BOARD.height);
-  return {
-    scale,
-    left: (area.width - BOARD.width * scale) / 2,
-    top: (area.height - BOARD.height * scale) / 2,
-  };
-}
-
-/** A point of the area, in CSS pixels, as a point of the board. */
-export function toBoard(area: Size, x: number, y: number): Point {
-  const { scale, left, top } = fit(area);
-  return [(x - left) / scale, (y - top) / scale];
-}
-
-export type BoardKey = "toggle" | "undo" | "swallow" | "pass";
+export type BoardKey = "toggle" | "undo" | "pass";
 
 /**
  * What a key means to the board, for a key pressed outside a text field (a
- * field keeps its own keys, the Q included). Q opens and minimises. With the
- * board open, Ctrl+Z undoes, and the arrows and the space are swallowed so
- * the lesson does not change card under the drawing. Everything else passes
- * on to the lesson.
+ * field keeps its own keys, the Q included). Q opens and closes. With the
+ * board open, Ctrl+Z undoes. Everything else passes on to the lesson, the
+ * arrows and the space too: the card beside the board goes on being turned.
  */
 export function boardKey(
   event: {
@@ -220,7 +190,5 @@ export function boardKey(
   if (event.ctrlKey || event.metaKey) {
     return open && key === "z" ? "undo" : "pass";
   }
-  if (key === "q") return "toggle";
-  if (open && (key === " " || key.startsWith("arrow"))) return "swallow";
-  return "pass";
+  return key === "q" ? "toggle" : "pass";
 }

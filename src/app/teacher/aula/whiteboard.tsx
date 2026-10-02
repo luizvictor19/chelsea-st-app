@@ -11,14 +11,16 @@ import {
 
 import {
   clearAll,
-  fit,
+  editText,
+  LETTER,
   standing,
-  toBoard,
+  textAt,
   undo,
   type Ink,
   type Mark,
   type Point,
-  type Size,
+  type StandingText,
+  type Stroke,
 } from "./board";
 
 type Tool = "pen" | "text" | "eraser";
@@ -40,14 +42,13 @@ const INKS: readonly { readonly ink: Ink; readonly label: string }[] = [
   { ink: "blue", label: "Azul" },
 ];
 
-// In units of the board, which is 900 high: the letter is 7% of its height.
-const PEN_WIDTH = 5;
-const ERASER_WIDTH = 48;
-const TEXT_SIZE = 64;
+const PEN_WIDTH = 4;
+const ERASER_WIDTH = 40;
 const TEXT_FACE = "system-ui, sans-serif";
 const TEXT_WEIGHT = 600;
+const FONT = `${TEXT_WEIGHT} ${LETTER.size}px ${TEXT_FACE}`;
 
-type Stroke = Extract<Mark, { kind: "stroke" }>;
+type Size = { readonly width: number; readonly height: number };
 
 function paintStroke(ctx: CanvasRenderingContext2D, stroke: Stroke): void {
   const erasing = stroke.ink === "erase";
@@ -73,11 +74,17 @@ function paintStroke(ctx: CanvasRenderingContext2D, stroke: Stroke): void {
   ctx.stroke();
 }
 
-/** The whole board again, from the marks: there is no other copy of it. */
+/*
+ * The whole board again, from the marks: there is no other copy of it. One
+ * CSS pixel is one unit of the board, from the top left corner, so the
+ * drawing stays where it is and as large as it is when the board changes
+ * width. The canvas takes its size here and not from the layout: sized by
+ * CSS, it would show the old drawing stretched until the next paint.
+ */
 function paint(
   canvas: HTMLCanvasElement,
   area: Size,
-  marks: readonly Mark[],
+  marks: readonly (Stroke | StandingText)[],
 ): void {
   const ctx = canvas.getContext("2d");
   if (ctx === null || area.width === 0 || area.height === 0) return;
@@ -86,28 +93,20 @@ function paint(
   const height = Math.round(area.height * density);
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
+  canvas.style.width = `${area.width}px`;
+  canvas.style.height = `${area.height}px`;
 
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.setTransform(density, 0, 0, density, 0, 0);
   ctx.fillStyle = GROUND;
-  ctx.fillRect(0, 0, width, height);
-
-  const { scale, left, top } = fit(area);
-  ctx.setTransform(
-    density * scale,
-    0,
-    0,
-    density * scale,
-    density * left,
-    density * top,
-  );
+  ctx.fillRect(0, 0, area.width, area.height);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.textBaseline = "middle";
-  ctx.font = `${TEXT_WEIGHT} ${TEXT_SIZE}px ${TEXT_FACE}`;
+  ctx.font = FONT;
   for (const mark of marks) {
     if (mark.kind === "stroke") {
       paintStroke(ctx, mark);
-    } else if (mark.kind === "text") {
+    } else {
       ctx.fillStyle = COLOUR[mark.ink];
       ctx.fillText(mark.text, mark.at[0], mark.at[1]);
     }
@@ -120,28 +119,36 @@ const toolClass = (selected: boolean) =>
     : "rounded-sm border border-neutral-300 bg-white px-2.5 py-1 text-sm text-neutral-900 hover:border-neutral-500 disabled:opacity-40";
 
 /*
- * The board over the card. It stays mounted while minimised, hidden, so the
- * tool and the colour are the same when it comes back; what was drawn lives
- * in the lesson above it, which is why it survives a change of card.
+ * The board beside the card, taking this share of the row. It stays mounted
+ * while closed, hidden, so the tool and the colour are the same when it comes
+ * back; what was drawn lives in the lesson above it, which is why it survives
+ * a change of card.
  */
 export function Whiteboard({
   open,
+  share,
   marks,
   onMarks,
-  onMinimise,
+  onClose,
 }: {
   readonly open: boolean;
+  readonly share: number;
   readonly marks: readonly Mark[];
   readonly onMarks: Dispatch<SetStateAction<readonly Mark[]>>;
-  readonly onMinimise: () => void;
+  readonly onClose: () => void;
 }) {
   const [tool, setTool] = useState<Tool>("pen");
   const [ink, setInk] = useState<Ink>("black");
   const [area, setArea] = useState<Size>({ width: 0, height: 0 });
-  // Where a text is being typed, or null.
-  const [typingAt, setTypingAt] = useState<Point | null>(null);
+  // The text being typed, or null: where its line begins, and the standing
+  // text it rewrites when it is not a new one.
+  const [typing, setTyping] = useState<{
+    readonly at: Point;
+    readonly edited: StandingText | null;
+  } | null>(null);
   const ground = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const field = useRef<HTMLInputElement>(null);
   // The stroke under the pointer, not yet a mark.
   const drawing = useRef<{ ink: Stroke["ink"]; points: Point[] } | null>(null);
   // Whether the press now under way began while a text was being typed.
@@ -158,21 +165,29 @@ export function Whiteboard({
     return () => observer.disconnect();
   }, []);
 
-  const shown = standing(marks);
+  // A text being rewritten is in its field, and not painted under it too.
+  const rewriting = typing?.edited?.origin ?? null;
+  const shown = standing(marks).filter(
+    (mark) => !(mark.kind === "text" && mark.origin === rewriting),
+  );
 
   useEffect(() => {
     if (canvas.current !== null) paint(canvas.current, area, shown);
   }, [area, shown]);
 
-  function pointOf(event: PointerEvent<HTMLCanvasElement>): Point {
+  function pointOf(event: {
+    readonly currentTarget: HTMLCanvasElement;
+    readonly clientX: number;
+    readonly clientY: number;
+  }): Point {
     const box = event.currentTarget.getBoundingClientRect();
-    return toBoard(box, event.clientX - box.left, event.clientY - box.top);
+    return [event.clientX - box.left, event.clientY - box.top];
   }
 
   function onPointerDown(event: PointerEvent<HTMLCanvasElement>) {
-    pressedWhileTyping.current = typingAt !== null;
+    pressedWhileTyping.current = typing !== null;
     // A press outside the text only confirms it, which its blur does.
-    if (event.button !== 0 || typingAt !== null || tool === "text") return;
+    if (event.button !== 0 || typing !== null || tool === "text") return;
     event.currentTarget.setPointerCapture(event.pointerId);
     drawing.current = {
       ink: tool === "eraser" ? "erase" : ink,
@@ -200,16 +215,25 @@ export function Whiteboard({
     onMarks((current) => [...current, { kind: "stroke", ...stroke }]);
   }
 
-  const { scale, left, top } = fit(area);
+  /** How wide the canvas paints a text, for finding the one under a click. */
+  function widthOf(text: string): number {
+    const ctx = canvas.current?.getContext("2d") ?? null;
+    if (ctx === null) return 0;
+    ctx.font = FONT;
+    return ctx.measureText(text).width;
+  }
+
+  // A text keeps the colour it was written in while it is rewritten.
+  const typingInk = typing?.edited?.ink ?? ink;
 
   return (
     <div
       className={
         open
-          ? "absolute inset-0 z-10 flex flex-col overflow-hidden rounded-sm bg-white text-neutral-900"
+          ? "flex min-w-0 flex-none flex-col overflow-hidden rounded-sm border border-neutral-300 bg-white text-neutral-900"
           : "hidden"
       }
-      style={{ colorScheme: "light" }}
+      style={{ colorScheme: "light", width: `${share * 100}%` }}
     >
       {/*
         The buttons do not take the focus: a text being typed stays open while
@@ -286,20 +310,25 @@ export function Whiteboard({
         <button
           type="button"
           className={`${toolClass(false)} ml-auto`}
-          onClick={onMinimise}
+          onClick={() => {
+            // The button never took the focus, so a text being typed still
+            // has it: confirmed here, or it would come back open and deaf.
+            field.current?.blur();
+            onClose();
+          }}
           title="Tecla Q"
         >
-          Minimizar
+          Fechar
         </button>
       </div>
 
-      <div ref={ground} className="relative min-h-0 flex-1">
+      <div ref={ground} className="relative min-h-0 flex-1 overflow-hidden">
         <canvas
           ref={canvas}
           className={
             tool === "text"
-              ? "absolute inset-0 size-full cursor-text touch-none"
-              : "absolute inset-0 size-full cursor-crosshair touch-none"
+              ? "absolute top-0 left-0 cursor-text touch-none"
+              : "absolute top-0 left-0 cursor-crosshair touch-none"
           }
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -309,53 +338,63 @@ export function Whiteboard({
             // The click and not the press: the press takes the focus from
             // whatever has it, and would close the field it had just opened.
             if (tool !== "text" || pressedWhileTyping.current) return;
-            const box = event.currentTarget.getBoundingClientRect();
-            setTypingAt(
-              toBoard(box, event.clientX - box.left, event.clientY - box.top),
-            );
+            const point = pointOf(event);
+            // On a text that stands, the click reopens it where it is; on
+            // empty board it begins a new one.
+            const edited = textAt(shown, point, widthOf);
+            setTyping({ at: edited?.at ?? point, edited });
           }}
         />
-        {typingAt !== null && (
+        {typing !== null && (
           <input
+            ref={field}
             type="text"
             autoFocus
+            defaultValue={typing.edited?.text ?? ""}
             aria-label="Texto no quadro"
             className="absolute bg-transparent p-0 outline-1 outline-offset-4 outline-neutral-400 outline-dashed"
-            // The same letter the canvas will paint, in the same place: the
-            // line is centred on the point that was clicked.
+            // The same letter the canvas paints, in the same place: the line
+            // begins at the point and is centred on it.
             style={{
-              left: left + typingAt[0] * scale,
-              top: top + (typingAt[1] - (TEXT_SIZE * 1.2) / 2) * scale,
-              width: Math.max(
-                area.width - (left + typingAt[0] * scale) - 8,
-                80,
-              ),
-              height: TEXT_SIZE * 1.2 * scale,
-              fontSize: TEXT_SIZE * scale,
-              lineHeight: 1.2,
+              left: typing.at[0],
+              top: typing.at[1] - (LETTER.size * LETTER.line) / 2,
+              width: Math.max(area.width - typing.at[0] - 8, 80),
+              height: LETTER.size * LETTER.line,
+              fontSize: LETTER.size,
+              lineHeight: LETTER.line,
               fontFamily: TEXT_FACE,
               fontWeight: TEXT_WEIGHT,
-              color: COLOUR[ink],
+              color: COLOUR[typingInk],
+            }}
+            // A text reopened is continued from its end.
+            onFocus={(event) => {
+              const end = event.currentTarget.value.length;
+              event.currentTarget.setSelectionRange(end, end);
             }}
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.currentTarget.blur();
               } else if (event.key === "Escape") {
-                event.currentTarget.value = "";
+                // Back to what it was before this turn at the field: nothing
+                // for a new text, the text as it stood for one reopened.
+                event.currentTarget.value = typing.edited?.text ?? "";
                 event.currentTarget.blur();
               }
             }}
             // The one way a text is confirmed: Enter, a click outside and
-            // Escape (emptied first) all end here.
+            // Escape (put back first) all end here.
             onBlur={(event) => {
               const text = event.currentTarget.value.trim();
-              if (text !== "") {
+              const { at, edited } = typing;
+              if (edited !== null) {
+                onMarks((current) => editText(current, edited.origin, text));
+              } else if (text !== "") {
                 onMarks((current) => [
                   ...current,
-                  { kind: "text", ink, at: typingAt, text },
+                  { kind: "text", ink, at, text },
                 ]);
               }
-              setTypingAt(null);
+              setTyping(null);
             }}
           />
         )}

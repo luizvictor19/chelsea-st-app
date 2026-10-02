@@ -2,19 +2,16 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
-  BOARD,
   boardKey,
   cardScale,
   clampShare,
   clearAll,
   editText,
-  fit,
   LETTER,
   shareAt,
   SPLIT,
   standing,
   textAt,
-  toBoard,
   undo,
   type Mark,
 } from "./board.ts";
@@ -198,42 +195,12 @@ describe("the split of the row", () => {
   });
 });
 
-describe("fit", () => {
-  test("keeps one scale for both axes and centres the board", () => {
-    // A window wider than 16:9: the height decides, the rest is margin.
-    assert.deepEqual(fit({ width: 1000, height: 450 }), {
-      scale: 0.5,
-      left: 100,
-      top: 0,
-    });
-    // A taller one: the width decides.
-    assert.deepEqual(fit({ width: 800, height: 600 }), {
-      scale: 0.5,
-      left: 0,
-      top: 75,
-    });
-  });
-
-  test("the middle of the area is the middle of the board at any size", () => {
-    for (const area of [
-      { width: 1000, height: 450 },
-      { width: 800, height: 600 },
-      { width: 1920, height: 1080 },
-    ]) {
-      assert.deepEqual(toBoard(area, area.width / 2, area.height / 2), [
-        BOARD.width / 2,
-        BOARD.height / 2,
-      ]);
-    }
-  });
-});
-
 describe("boardKey", () => {
   const plain = { ctrlKey: false, metaKey: false, altKey: false };
   const press = (key: string, open: boolean) =>
     boardKey({ key, ...plain }, open);
 
-  test("the arrows and the space do not reach the lesson while it is open", () => {
+  test("the arrows and the space go on to the lesson, open or closed", () => {
     for (const key of [
       "ArrowLeft",
       "ArrowRight",
@@ -241,12 +208,12 @@ describe("boardKey", () => {
       "ArrowDown",
       " ",
     ]) {
-      assert.equal(press(key, true), "swallow", key);
+      assert.equal(press(key, true), "pass", key);
       assert.equal(press(key, false), "pass", key);
     }
   });
 
-  test("Q opens and minimises, in either case", () => {
+  test("Q opens and closes, in either case", () => {
     for (const open of [true, false]) {
       assert.equal(press("q", open), "toggle");
       assert.equal(press("Q", open), "toggle");
