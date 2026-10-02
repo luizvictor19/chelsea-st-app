@@ -400,6 +400,17 @@ describe("settle over a heartbeat stream", () => {
     assert.equal(!answer.ok && answer.error, LOST_RESPONSE);
   });
 
+  test("a stream gone quiet without an error is a lost answer", async () => {
+    // Never yields again, and never throws: the connection that died unheard.
+    const quiet: AsyncIterable<Heartbeat<Batch>> = {
+      [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }),
+    };
+    const answer = await settle(() =>
+      readHeartbeat(Promise.resolve(quiet), undefined, { limitMs: 20 }),
+    );
+    assert.equal(!answer.ok && answer.error, LOST_RESPONSE);
+  });
+
   test("a call that never opened its stream is a lost answer", async () => {
     const answer = await settle(() =>
       readHeartbeat<Batch>(Promise.reject(new TypeError("Failed to fetch"))),
