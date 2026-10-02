@@ -12,6 +12,7 @@ import {
 import {
   clearAll,
   editText,
+  keepInView,
   LETTER,
   standing,
   textAt,
@@ -47,6 +48,11 @@ const ERASER_WIDTH = 40;
 const TEXT_FACE = "system-ui, sans-serif";
 const TEXT_WEIGHT = 600;
 const FONT = `${TEXT_WEIGHT} ${LETTER.size}px ${TEXT_FACE}`;
+const LINE = LETTER.size * LETTER.line;
+// The square handle a text being typed is moved by, and how far the dashed
+// outline of the field stands from the text: the handle sits on its corner.
+const GRIP = 24;
+const OUTLINE = 5;
 
 type Size = { readonly width: number; readonly height: number };
 
@@ -153,8 +159,9 @@ export function Whiteboard({
   const [tool, setTool] = useState<Tool>("pen");
   const [ink, setInk] = useState<Ink>("black");
   const [area, setArea] = useState<Size>({ width: 0, height: 0 });
-  // The text being typed, or null: where its line begins, and the standing
-  // text it rewrites when it is not a new one.
+  // The text being typed, or null: where its line begins, which follows the
+  // handle while it is dragged, and the standing text it rewrites when it is
+  // not a new one.
   const [typing, setTyping] = useState<{
     readonly at: Point;
     readonly edited: StandingText | null;
@@ -166,6 +173,16 @@ export function Whiteboard({
   const drawing = useRef<{ ink: Stroke["ink"]; points: Point[] } | null>(null);
   // Whether the press now under way began while a text was being typed.
   const pressedWhileTyping = useRef(false);
+  // The drag of the handle under way: its pointer, where the pointer and the
+  // text were when it began, and the caret of the field at that moment.
+  const moving = useRef<{
+    readonly pointer: number;
+    readonly from: Point;
+    readonly at: Point;
+    readonly caret: readonly [start: number | null, end: number | null];
+  } | null>(null);
+  // True only while Escape closes the field: its blur then keeps nothing.
+  const discarded = useRef(false);
 
   useEffect(() => {
     const element = ground.current;
@@ -234,6 +251,60 @@ export function Whiteboard({
     if (ctx === null) return 0;
     ctx.font = FONT;
     return ctx.measureText(text).width;
+  }
+
+  function onGrab(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || typing === null || moving.current !== null) {
+      return;
+    }
+    event.currentTarget.setPointerCapture(event.pointerId);
+    // Should the click that ends this press land on the canvas, it is not a
+    // click to write a new text over the open one.
+    pressedWhileTyping.current = true;
+    moving.current = {
+      pointer: event.pointerId,
+      from: [event.clientX, event.clientY],
+      at: typing.at,
+      caret: [
+        field.current?.selectionStart ?? null,
+        field.current?.selectionEnd ?? null,
+      ],
+    };
+  }
+
+  function onDrag(event: PointerEvent<HTMLDivElement>) {
+    const grip = moving.current;
+    if (grip === null || grip.pointer !== event.pointerId) return;
+    const across = event.clientX - grip.from[0];
+    const down = event.clientY - grip.from[1];
+    // A press that never moved leaves the text where it is, even one that
+    // stands partly outside the board.
+    if (across === 0 && down === 0) return;
+    // An empty field is kept in view too, by the width of one letter.
+    const width = Math.max(widthOf(field.current?.value ?? ""), LETTER.size);
+    const at = keepInView(
+      [grip.at[0] + across, grip.at[1] + down],
+      width,
+      area,
+    );
+    setTyping((current) => (current === null ? null : { ...current, at }));
+  }
+
+  function onRelease(event: PointerEvent<HTMLDivElement>, held: boolean) {
+    const grip = moving.current;
+    if (grip === null || grip.pointer !== event.pointerId) return;
+    // The place under the pointer now, not under its last move. A pointer
+    // taken away by the browser says nothing of where it is, and the text
+    // stays where the last move left it.
+    if (held) onDrag(event);
+    moving.current = null;
+    // The handle never takes the focus. Where a browser moves it all the
+    // same, the field has it back with the caret where it was.
+    const input = field.current;
+    if (input !== null && document.activeElement !== input) {
+      input.focus();
+      input.setSelectionRange(grip.caret[0], grip.caret[1]);
+    }
   }
 
   // A text keeps the colour it was written in while it is rewritten.
@@ -372,9 +443,9 @@ export function Whiteboard({
             // begins at the point and is centred on it.
             style={{
               left: typing.at[0],
-              top: typing.at[1] - (LETTER.size * LETTER.line) / 2,
+              top: typing.at[1] - LINE / 2,
               width: Math.max(area.width - typing.at[0] - 8, 80),
-              height: LETTER.size * LETTER.line,
+              height: LINE,
               fontSize: LETTER.size,
               lineHeight: LETTER.line,
               fontFamily: TEXT_FACE,
@@ -387,23 +458,33 @@ export function Whiteboard({
               event.currentTarget.setSelectionRange(end, end);
             }}
             onKeyDown={(event) => {
+              // A text held by its handle is not closed under the hand.
+              if (moving.current !== null) return;
               if (event.key === "Enter") {
                 event.currentTarget.blur();
               } else if (event.key === "Escape") {
                 // Back to what it was before this turn at the field: nothing
-                // for a new text, the text as it stood for one reopened.
-                event.currentTarget.value = typing.edited?.text ?? "";
+                // for a new text, the words and the place as they stood for
+                // one reopened. The flag is up for the length of the blur and
+                // no longer, so it is never left standing for the next text.
+                discarded.current = true;
                 event.currentTarget.blur();
+                discarded.current = false;
               }
             }}
-            // The one way a text is confirmed: Enter, a click outside and
-            // Escape (put back first) all end here.
+            // The one way a text is closed: Enter, a click outside and Escape
+            // all end here. Kept, the words and the place go in together, as
+            // one mark: one step for undo.
             onBlur={(event) => {
+              if (moving.current !== null) return;
               const text = event.currentTarget.value.trim();
               const { at, edited } = typing;
-              if (edited !== null) {
-                onMarks((current) => editText(current, edited.origin, text));
-              } else if (text !== "") {
+              const kept = !discarded.current;
+              if (kept && edited !== null) {
+                onMarks((current) =>
+                  editText(current, edited.origin, text, at),
+                );
+              } else if (kept && text !== "") {
                 onMarks((current) => [
                   ...current,
                   { kind: "text", ink, at, text },
@@ -412,6 +493,53 @@ export function Whiteboard({
               setTyping(null);
             }}
           />
+        )}
+        {typing !== null && (
+          /*
+            The handle the open text is moved by, on the top left corner of
+            its outline, and inside the board even when the text is not, so it
+            can always be reached. It is an element of its own and holds the
+            pointer while dragged, so a drag never reaches the canvas and
+            never draws; it does not take the focus, so the field stays open
+            and keeps every key.
+          */
+          <div
+            title="Arraste para mover o texto"
+            className="absolute flex cursor-grab touch-none items-center justify-center rounded-sm bg-neutral-900 text-white shadow-sm select-none hover:bg-neutral-700 active:cursor-grabbing"
+            style={{
+              width: GRIP,
+              height: GRIP,
+              left: Math.max(
+                Math.min(typing.at[0] - OUTLINE, area.width - GRIP),
+                0,
+              ),
+              top: Math.max(
+                Math.min(
+                  typing.at[1] - LINE / 2 - OUTLINE - GRIP,
+                  area.height - GRIP,
+                ),
+                0,
+              ),
+            }}
+            onMouseDown={(event) => event.preventDefault()}
+            onPointerDown={onGrab}
+            onPointerMove={onDrag}
+            onPointerUp={(event) => onRelease(event, true)}
+            onPointerCancel={(event) => onRelease(event, false)}
+          >
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 16 16"
+              className="size-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M8 1.5v13M1.5 8h13M6 3.5l2-2 2 2M6 12.5l2 2 2-2M3.5 6l-2 2 2 2M12.5 6l2 2-2 2" />
+            </svg>
+          </div>
         )}
       </div>
     </div>
