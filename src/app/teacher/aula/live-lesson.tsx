@@ -29,7 +29,7 @@ import {
   type Position,
   type Slide,
 } from "./deck";
-import { Whiteboard } from "./whiteboard";
+import { stateNotRestored, Whiteboard } from "./whiteboard";
 
 function subscribeToFullscreen(onChange: () => void): () => void {
   document.addEventListener("fullscreenchange", onChange);
@@ -504,6 +504,7 @@ export function LiveLesson({
           type="button"
           className={controlClass}
           disabled={previous === null}
+          {...stateNotRestored}
           onClick={() => go(previous)}
           aria-label="Cartão anterior"
           title="Seta para a esquerda"
@@ -519,6 +520,7 @@ export function LiveLesson({
           type="button"
           className={controlClass}
           disabled={next === null}
+          {...stateNotRestored}
           onClick={() => go(next)}
           aria-label="Próximo cartão"
           title="Seta para a direita"

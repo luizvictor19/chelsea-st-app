@@ -113,6 +113,19 @@ function paint(
   }
 }
 
+/*
+ * For a button whose disabled state changes while the page is open. Firefox
+ * keeps that state through a reload and puts it back on the button before
+ * React hydrates: the server sends Desfazer disabled, since the board starts
+ * empty, Firefox enables it again because it was enabled before the reload,
+ * and hydration finds disabled={null} where it renders disabled={true}. The
+ * server and the client agreed all along; the browser changed the DOM between
+ * them. autocomplete="off" on the button is how Firefox is told not to, and
+ * the other browsers ignore it. Spread, because React's type for a button
+ * does not list the attribute.
+ */
+export const stateNotRestored = { autoComplete: "off" };
+
 const toolClass = (selected: boolean) =>
   selected
     ? "rounded-sm border border-neutral-900 bg-neutral-900 px-2.5 py-1 text-sm text-white"
@@ -294,6 +307,7 @@ export function Whiteboard({
           type="button"
           className={toolClass(false)}
           disabled={marks.length === 0}
+          {...stateNotRestored}
           onClick={() => onMarks(undo)}
           title="Ctrl+Z"
         >
@@ -303,6 +317,7 @@ export function Whiteboard({
           type="button"
           className={toolClass(false)}
           disabled={shown.length === 0}
+          {...stateNotRestored}
           onClick={() => onMarks(clearAll)}
         >
           Apagar tudo
