@@ -7,6 +7,7 @@ import {
   clampShare,
   clearAll,
   editText,
+  keepInView,
   LETTER,
   shareAt,
   SPLIT,
@@ -110,6 +111,46 @@ describe("editText", () => {
     const marks = [...editText([text("cat")], 0, "cats"), text("dog")];
     assert.deepEqual(written(editText(marks, 2, "dogs")), ["cats", "dogs"]);
   });
+
+  const placed = (marks: readonly Mark[]) =>
+    standing(marks).flatMap((mark) =>
+      mark.kind === "text" ? [[mark.text, ...mark.at]] : [],
+    );
+
+  test("moved and rewritten in one turn is one step for undo", () => {
+    const marks = [text("cat"), stroke(1)];
+    const edited = editText(marks, 0, "cats", [240, 135]);
+    assert.equal(edited.length, marks.length + 1);
+    assert.deepEqual(placed(edited), [["cats", 240, 135]]);
+    assert.deepEqual(placed(undo(edited)), [["cat", 0, 0]]);
+  });
+
+  test("moved with its words as they were is a step too", () => {
+    const marks = [text("cat")];
+    const moved = editText(marks, 0, "cat", [240, 135]);
+    assert.deepEqual(placed(moved), [["cat", 240, 135]]);
+    assert.deepEqual(placed(undo(moved)), [["cat", 0, 0]]);
+    // Along one axis only: each coordinate counts on its own.
+    assert.deepEqual(placed(editText(marks, 0, "cat", [240, 0])), [
+      ["cat", 240, 0],
+    ]);
+    assert.deepEqual(placed(editText(marks, 0, "cat", [0, 135])), [
+      ["cat", 0, 135],
+    ]);
+  });
+
+  test("put back where it stands with the same words, nothing is added", () => {
+    const moved = editText([text("cat")], 0, "cat", [240, 135]);
+    assert.equal(editText(moved, 0, "cat", [240, 135]), moved);
+    assert.equal(editText(moved, 0, "cat"), moved);
+  });
+
+  test("rewritten later without being moved, it stays where it was moved to", () => {
+    const moved = editText([text("cat")], 0, "cat", [240, 135]);
+    const rewritten = editText(moved, 0, "cats");
+    assert.deepEqual(placed(rewritten), [["cats", 240, 135]]);
+    assert.deepEqual(placed(undo(undo(rewritten))), [["cat", 0, 0]]);
+  });
 });
 
 describe("textAt", () => {
@@ -152,6 +193,58 @@ describe("textAt", () => {
     );
     assert.equal(textAt(standing(marks), [115, 115], widthOf), null);
     assert.equal(textAt(standing(marks), [205, 200], widthOf)?.origin, 1);
+  });
+});
+
+describe("keepInView", () => {
+  // The board beside the card on a 1366 by 768 screen, and a text 300 wide.
+  const area = { width: 667, height: 588 };
+  const half = (LETTER.size * LETTER.line) / 2;
+
+  test("a text whole inside the board stays where it is put", () => {
+    assert.deepEqual(keepInView([120, 200], 300, area), [120, 200]);
+    assert.deepEqual(keepInView([0, half], 300, area), [0, half]);
+    assert.deepEqual(keepInView([367, 588 - half], 300, area), [
+      367,
+      588 - half,
+    ]);
+  });
+
+  test("past an edge, it stops with that edge of the text on the edge of the board", () => {
+    assert.deepEqual(keepInView([-40, 200], 300, area), [0, 200]);
+    assert.deepEqual(keepInView([368, 200], 300, area), [367, 200]);
+    assert.deepEqual(keepInView([120, half - 1], 300, area), [120, half]);
+    assert.deepEqual(keepInView([120, 560], 300, area), [120, 588 - half]);
+    assert.deepEqual(keepInView([5000, -5000], 300, area), [367, half]);
+  });
+
+  test("the point is the middle of the line, so half a line is kept above and below", () => {
+    // A point inside the board whose line would be cut by the edge.
+    assert.deepEqual(keepInView([120, 10], 300, area), [120, half]);
+    assert.deepEqual(keepInView([120, 580], 300, area), [120, 588 - half]);
+  });
+
+  test("a text wider than the board, or a board lower than a line, keeps its beginning", () => {
+    assert.deepEqual(keepInView([120, 200], 900, area), [0, 200]);
+    assert.deepEqual(keepInView([-40, 200], 900, area), [0, 200]);
+    assert.deepEqual(keepInView([120, 200], 300, { width: 667, height: 40 }), [
+      120,
+      half,
+    ]);
+  });
+});
+
+describe("textAt after a move", () => {
+  test("the text is found where it was moved to, and no longer where it was", () => {
+    const widthOf = (value: string) => value.length * 10;
+    const marks = editText(
+      [{ kind: "text", ink: "blue", at: [100, 200], text: "cat" }],
+      0,
+      "cat",
+      [300, 400],
+    );
+    assert.equal(textAt(standing(marks), [115, 200], widthOf), null);
+    assert.equal(textAt(standing(marks), [315, 400], widthOf)?.origin, 0);
   });
 });
 
