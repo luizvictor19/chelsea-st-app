@@ -26,14 +26,33 @@ export type DeckWord = {
   readonly imageUrl: string | null;
 };
 
-/** One thing on the screen: a word alone, or a whole contrast set. */
+/** A published question as the screen needs it. */
+export type DeckQuestion = {
+  readonly id: string;
+  readonly pointNumber: number;
+  /** Its place among the questions of its point, as the teacher ordered them. */
+  readonly position: number;
+  readonly prompt: string;
+  readonly expectedAnswer: string;
+  readonly imageUrl: string | null;
+};
+
+/** One thing on the screen: a word alone, a whole contrast set, or a question. */
 export type Slide = {
   readonly key: string;
   readonly pointNumber: number;
   /** Its place among the slides of its point, from 0. */
   readonly index: number;
-  /** More than one word is a contrast set, shown side by side. */
+  /**
+   * More than one word is a contrast set, shown side by side. Empty on a
+   * question slide.
+   */
   readonly words: readonly DeckWord[];
+  /**
+   * The question of a question slide, with its number among the questions of
+   * the point, from 1. Null on a presentation slide.
+   */
+  readonly question: (DeckQuestion & { readonly number: number }) | null;
 };
 
 /** Where the teacher is: a point, and a slide inside it. */
@@ -97,7 +116,7 @@ export function buildDeck(
   const push = (key: string, pointNumber: number, shownWords: DeckWord[]) => {
     const last = slides.at(-1);
     const index = last?.pointNumber === pointNumber ? last.index + 1 : 0;
-    slides.push({ key, pointNumber, index, words: shownWords });
+    slides.push({ key, pointNumber, index, words: shownWords, question: null });
   };
 
   for (const word of [...words].sort(compareInBookOrder)) {
@@ -114,7 +133,38 @@ export function buildDeck(
   return slides;
 }
 
-/** The slides of one point, in order. Empty for a point with no words. */
+/**
+ * The deck with the questions of each point after the presentation slides of
+ * that point, in the order of their position. A point that has questions and
+ * no words is a point of question slides only.
+ */
+export function withQuestions(
+  deck: readonly Slide[],
+  questions: readonly DeckQuestion[],
+): readonly Slide[] {
+  const points = new Set([
+    ...deck.map((slide) => slide.pointNumber),
+    ...questions.map((question) => question.pointNumber),
+  ]);
+  return [...points]
+    .sort((a, b) => a - b)
+    .flatMap((pointNumber) => {
+      const presented = slidesAt(deck, pointNumber);
+      const asked = questions
+        .filter((question) => question.pointNumber === pointNumber)
+        .sort((a, b) => a.position - b.position)
+        .map((question, order) => ({
+          key: question.id,
+          pointNumber,
+          index: presented.length + order,
+          words: [],
+          question: { ...question, number: order + 1 },
+        }));
+      return [...presented, ...asked];
+    });
+}
+
+/** The slides of one point, in order. Empty for a point with no slides. */
 export function slidesAt(
   deck: readonly Slide[],
   pointNumber: number,
@@ -174,4 +224,36 @@ export function clampPosition(
   const count = slidesAt(deck, position.pointNumber).length;
   const index = Math.min(Math.max(position.index, 0), Math.max(count - 1, 0));
   return { pointNumber: position.pointNumber, index };
+}
+
+/** Where the teacher is and how much of that slide is showing, from level 1. */
+export type View = {
+  readonly position: Position;
+  readonly level: number;
+};
+
+/**
+ * How many levels a slide has. A question has three: its picture or a neutral
+ * card, then the question, then the expected answer. A presentation has two,
+ * the picture and then the word; with no picture the word is all there is,
+ * and it shows at once.
+ */
+export function levelCount(slide: Slide, pictured: boolean): number {
+  if (slide.question !== null) return 3;
+  return pictured ? 2 : 1;
+}
+
+/** Arriving at a slide: always at its first level. */
+export function showAt(position: Position): View {
+  return { position, level: 1 };
+}
+
+/** One level more of the same slide, stopping at its last. */
+export function revealMore(view: View, levels: number): View {
+  return { ...view, level: Math.min(view.level + 1, levels) };
+}
+
+/** One level less of the same slide, stopping at its first. */
+export function revealLess(view: View): View {
+  return { ...view, level: Math.max(view.level - 1, 1) };
 }
