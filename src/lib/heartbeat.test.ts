@@ -4,9 +4,13 @@ import { describe, test } from "node:test";
 import {
   ACTION_BEAT_MS,
   EARLIEST_DROP_MS,
+  HeartbeatSilence,
+  SILENCE_BEATS,
+  SILENCE_LIMIT_MS,
   readHeartbeat,
   withHeartbeat,
   type Heartbeat,
+  type SilenceClock,
 } from "./heartbeat.ts";
 
 const after = <T>(ms: number, value: T) =>
@@ -101,6 +105,177 @@ describe("readHeartbeat", () => {
       Promise.resolve(withHeartbeat(after(30, { ok: true, n: 3 }), 10)),
     );
     assert.deepEqual(result, { ok: true, n: 3 });
+  });
+});
+
+/** A clock that only moves when the test moves it. */
+function handClock() {
+  let now = 0;
+  let nextId = 0;
+  const timers = new Map<number, { at: number; fire: () => void }>();
+  const clock: SilenceClock = {
+    setTimeout(fire, ms) {
+      timers.set((nextId += 1), { at: now + ms, fire });
+      return nextId;
+    },
+    clearTimeout(handle) {
+      timers.delete(handle as number);
+    },
+  };
+  /** Lets every promise already resolved run its continuation. */
+  const drain = () => new Promise<void>((wake) => setImmediate(wake));
+  return {
+    clock,
+    pending: () => timers.size,
+    async advance(ms: number) {
+      // What was pushed before the time moves is read before it moves.
+      await drain();
+      now += ms;
+      for (const [id, timer] of timers) {
+        if (timer.at > now) continue;
+        timers.delete(id);
+        timer.fire();
+      }
+      await drain();
+    },
+  };
+}
+
+/** A stream the test feeds by hand, and that is quiet in between. */
+function handStream<T>() {
+  const waiting: ((step: IteratorResult<Heartbeat<T>>) => void)[] = [];
+  const ready: Heartbeat<T>[] = [];
+  let returned = false;
+  const stream: AsyncIterable<Heartbeat<T>> = {
+    [Symbol.asyncIterator]: () => ({
+      next: () =>
+        new Promise((give) => {
+          const chunk = ready.shift();
+          if (chunk) give({ done: false, value: chunk });
+          else waiting.push(give);
+        }),
+      return: async () => {
+        returned = true;
+        return { done: true, value: undefined };
+      },
+    }),
+  };
+  return {
+    stream,
+    returned: () => returned,
+    push(chunk: Heartbeat<T>) {
+      const give = waiting.shift();
+      if (give) give({ done: false, value: chunk });
+      else ready.push(chunk);
+    },
+  };
+}
+
+/** What became of a read, without waiting on it. */
+function watch<T>(read: Promise<T>) {
+  const seen: { result?: T; error?: unknown; settled: boolean } = {
+    settled: false,
+  };
+  read.then(
+    (result) => Object.assign(seen, { result, settled: true }),
+    (error: unknown) => Object.assign(seen, { error, settled: true }),
+  );
+  return seen;
+}
+
+/*
+ * The defect: the connection died 5.5s into a contrast suggestion, no error
+ * reached the browser, and the read waited 227s on a stream that was never
+ * going to say anything again.
+ */
+describe("readHeartbeat, when the bytes stop", () => {
+  test("the limit is a count of beats, not a number of its own", () => {
+    assert.equal(SILENCE_BEATS, 3);
+    assert.equal(SILENCE_LIMIT_MS, SILENCE_BEATS * ACTION_BEAT_MS);
+  });
+
+  test("a stream gone quiet is lost at the limit, and not before", async () => {
+    const hand = handClock();
+    const source = handStream<string>();
+    const beats: number[] = [];
+    const read = watch(
+      readHeartbeat(
+        Promise.resolve(source.stream),
+        (beat) => beats.push(beat),
+        {
+          clock: hand.clock,
+        },
+      ),
+    );
+
+    source.push({ beat: 0 });
+    await hand.advance(ACTION_BEAT_MS);
+    source.push({ beat: 1 });
+    // The last byte the browser ever gets, at 5s. The limit counts from it.
+    await hand.advance(500);
+    assert.deepEqual(beats, [0, 1]);
+
+    await hand.advance(SILENCE_LIMIT_MS - 501);
+    assert.equal(read.settled, false, "one millisecond short of the limit");
+
+    await hand.advance(1);
+    assert.equal(read.settled, true);
+    assert.ok(read.error instanceof HeartbeatSilence);
+    assert.equal(read.error.silentMs, SILENCE_LIMIT_MS);
+    // The read is given up, and no timer is left behind it.
+    assert.equal(source.returned(), true);
+    assert.equal(hand.pending(), 0);
+  });
+
+  test("beats that keep arriving never trip it, however long the work", async () => {
+    const hand = handClock();
+    const source = handStream<string>();
+    const read = watch(
+      readHeartbeat(Promise.resolve(source.stream), undefined, {
+        clock: hand.clock,
+      }),
+    );
+
+    // 20 beats, 100s: many times the limit, never one gap as long as it.
+    for (let beat = 0; beat < 20; beat += 1) {
+      source.push({ beat });
+      await hand.advance(ACTION_BEAT_MS);
+      assert.equal(read.settled, false, `after beat ${beat}`);
+    }
+    // A late beat, just inside the limit, is still a beat.
+    await hand.advance(SILENCE_LIMIT_MS - ACTION_BEAT_MS - 1);
+    assert.equal(read.settled, false);
+    source.push({ beat: 20 });
+    await hand.advance(SILENCE_LIMIT_MS - 1);
+    assert.equal(read.settled, false);
+
+    source.push({ done: "ok" });
+    await hand.advance(0);
+    assert.equal(read.result, "ok");
+    assert.equal(source.returned(), false);
+    assert.equal(hand.pending(), 0);
+  });
+
+  // Next dispatches server actions one at a time, so a call queued behind
+  // another carries no byte until its turn. That wait is not silence.
+  test("the limit does not run before the stream has opened", async () => {
+    const hand = handClock();
+    const source = handStream<string>();
+    let open: (stream: AsyncIterable<Heartbeat<string>>) => void = () => {};
+    const opening = new Promise<AsyncIterable<Heartbeat<string>>>((wake) => {
+      open = wake;
+    });
+    const read = watch(
+      readHeartbeat(opening, undefined, { clock: hand.clock }),
+    );
+
+    await hand.advance(SILENCE_LIMIT_MS * 10);
+    assert.equal(read.settled, false);
+
+    open(source.stream);
+    source.push({ done: "ok" });
+    await hand.advance(0);
+    assert.equal(read.result, "ok");
   });
 });
 
