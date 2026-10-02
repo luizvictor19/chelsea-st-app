@@ -8,6 +8,10 @@
  */
 import type { Representation } from "@/lib/content/queries";
 
+// Relative, with the extension: a value import, and deck.test.ts runs under
+// node, which resolves neither the @/ alias nor a missing extension.
+import { approvedPicture } from "../../../lib/questions/shown-word.ts";
+
 import type { ContrastRow } from "../content/images/contrast-sets";
 
 /** A word as the screen needs it. */
@@ -34,7 +38,8 @@ export type DeckQuestion = {
   readonly position: number;
   readonly prompt: string;
   readonly expectedAnswer: string;
-  readonly imageUrl: string | null;
+  /** The word the question shows (0028), or null for a question with none. */
+  readonly word: DeckWord | null;
 };
 
 /** One thing on the screen: a word alone, a whole contrast set, or a question. */
@@ -224,6 +229,15 @@ export function clampPosition(
   const count = slidesAt(deck, position.pointNumber).length;
   const index = Math.min(Math.max(position.index, 0), Math.max(count - 1, 0));
   return { pointNumber: position.pointNumber, index };
+}
+
+/**
+ * What the first level of a question shows: the approved picture the word it
+ * shows has now, or null for the neutral card. Null as well when the word has
+ * lost its picture since it was chosen, which the question does not know.
+ */
+export function questionPicture(question: DeckQuestion): string | null {
+  return question.word === null ? null : approvedPicture(question.word);
 }
 
 /** Where the teacher is and how much of that slide is showing, from level 1. */

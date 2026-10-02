@@ -17,6 +17,7 @@ import {
   levelCount,
   nextPosition,
   previousPosition,
+  questionPicture,
   revealLess,
   revealMore,
   showAt,
@@ -62,8 +63,8 @@ function termSize(slide: Slide, withPicture: boolean): string {
 }
 
 /*
- * A question, one level at a time: its picture, or a neutral card that says
- * which question this is; then the question; then the expected answer under
+ * A question, one level at a time: the picture of the word it shows, or a
+ * neutral card that says which question this is; then the question; then the expected answer under
  * it. With a picture the two lines keep their place while hidden, as the term
  * of a word does, so the picture does not move.
  */
@@ -79,22 +80,23 @@ function QuestionCard({
       Ponto {question.pointNumber} · Pergunta {question.number}
     </>
   );
-  if (question.imageUrl === null && level < 2) {
+  const picture = questionPicture(question);
+  if (picture === null && level < 2) {
     return (
       <p className="text-muted m-auto text-center text-[min(6vw,12vh)] leading-tight font-extrabold tracking-tight">
         {label}
       </p>
     );
   }
-  const pictured = question.imageUrl !== null;
+  const pictured = picture !== null;
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[3vh] text-center">
-      {question.imageUrl === null ? (
+      {picture === null ? (
         <p className="text-faint font-mono text-sm">{label}</p>
       ) : (
         <div className="relative min-h-0 w-full flex-1">
           <Image
-            src={question.imageUrl}
+            src={picture}
             alt=""
             fill
             sizes={sizesFor(1)}
@@ -232,6 +234,10 @@ export function LiveLesson({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [go, next, previous, levels, toggleFullscreen]);
 
+  const upcomingPicture =
+    upcoming === null || upcoming.question === null
+      ? null
+      : questionPicture(upcoming.question);
   const hiding = level < 2;
   const question = slide?.question ?? null;
 
@@ -433,9 +439,9 @@ export function LiveLesson({
       */}
       {upcoming !== null && (
         <div aria-hidden="true" className="pointer-events-none fixed size-0">
-          {upcoming.question?.imageUrl != null && (
+          {upcomingPicture !== null && (
             <Image
-              src={upcoming.question.imageUrl}
+              src={upcomingPicture}
               alt=""
               fill
               sizes={sizesFor(1)}

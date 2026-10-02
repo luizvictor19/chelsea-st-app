@@ -7,6 +7,7 @@ import {
   levelCount,
   nextPosition,
   previousPosition,
+  questionPicture,
   revealLess,
   revealMore,
   showAt,
@@ -195,7 +196,43 @@ const question = (
   position,
   prompt: `${id}?`,
   expectedAnswer: `${id}.`,
-  imageUrl: null,
+  word: null,
+});
+
+describe("questionPicture", () => {
+  const pictured: DeckWord = {
+    ...word("pen", 1),
+    representation: "photo",
+    imageUrl: "https://images/pen.png",
+  };
+
+  test("is the approved picture of the word the question shows", () => {
+    assert.equal(
+      questionPicture({ ...question("what", 1, 0), word: pictured }),
+      "https://images/pen.png",
+    );
+  });
+
+  test("is nothing, the neutral card, for a question that shows no word", () => {
+    assert.equal(questionPicture(question("what", 1, 0)), null);
+  });
+
+  test("is nothing when the word has no approved picture any more", () => {
+    assert.equal(
+      questionPicture({
+        ...question("what", 1, 0),
+        word: { ...pictured, imageUrl: null },
+      }),
+      null,
+    );
+    assert.equal(
+      questionPicture({
+        ...question("what", 1, 0),
+        word: { ...pictured, representation: "symbol" },
+      }),
+      null,
+    );
+  });
 });
 
 describe("withQuestions", () => {
