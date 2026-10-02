@@ -22,6 +22,7 @@ import {
   revealMore,
   showAt,
   slidesAt,
+  waitingFor,
   type DeckWord,
   type Position,
   type Slide,
@@ -106,16 +107,24 @@ function QuestionCard({
         </div>
       )}
       <p
-        className={`${level < 2 ? "invisible" : ""}${
-          pictured ? "text-[min(3.5vw,6vh)]" : "text-[min(5vw,10vh)]"
-        } leading-tight font-extrabold tracking-tight`}
+        className={waitingFor(
+          2,
+          level,
+          pictured
+            ? "text-[min(3.5vw,6vh)] leading-tight font-extrabold tracking-tight"
+            : "text-[min(5vw,10vh)] leading-tight font-extrabold tracking-tight",
+        )}
       >
         {question.prompt}
       </p>
       <p
-        className={`${level < 3 ? "invisible" : ""}${
-          pictured ? "text-[min(2.8vw,5vh)]" : "text-[min(3.6vw,7vh)]"
-        } text-muted leading-tight font-semibold`}
+        className={waitingFor(
+          3,
+          level,
+          pictured
+            ? "text-muted text-[min(2.8vw,5vh)] leading-tight font-semibold"
+            : "text-muted text-[min(3.6vw,7vh)] leading-tight font-semibold",
+        )}
       >
         {question.expectedAnswer}
       </p>

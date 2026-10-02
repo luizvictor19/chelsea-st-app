@@ -12,6 +12,7 @@ import {
   revealMore,
   showAt,
   slidesAt,
+  waitingFor,
   withQuestions,
   type DeckQuestion,
   type DeckWord,
@@ -343,5 +344,25 @@ describe("levels", () => {
       position: { pointNumber: 11, index: 1 },
       level: 1,
     });
+  });
+});
+
+describe("waitingFor", () => {
+  const tokens = (classes: string) => classes.split(/\s+/);
+
+  // Found by the review on 2026-10-02: the two were joined with no space
+  // between them, which is one class that does not exist, so the answer of a
+  // question showed before its level.
+  test("hides the line below its level, as a class of its own", () => {
+    assert.deepEqual(tokens(waitingFor(3, 2, "text-muted font-semibold")), [
+      "invisible",
+      "text-muted",
+      "font-semibold",
+    ]);
+  });
+
+  test("shows the line from its level on", () => {
+    assert.equal(waitingFor(3, 3, "text-muted"), "text-muted");
+    assert.equal(waitingFor(2, 3, "text-muted"), "text-muted");
   });
 });

@@ -271,3 +271,15 @@ export function revealMore(view: View, levels: number): View {
 export function revealLess(view: View): View {
   return { ...view, level: Math.max(view.level - 1, 1) };
 }
+
+/**
+ * The classes of a line that waits for its level. Hidden, it keeps its place,
+ * so showing it moves nothing else on the card.
+ */
+export function waitingFor(
+  needed: number,
+  level: number,
+  classes: string,
+): string {
+  return level < needed ? `invisible ${classes}` : classes;
+}
