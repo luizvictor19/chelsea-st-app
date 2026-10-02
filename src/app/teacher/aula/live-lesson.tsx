@@ -12,6 +12,7 @@ import {
 
 import { situationOf } from "../content/images/filters";
 
+import { boardKey, undo, type Mark } from "./board";
 import type { Course } from "./course";
 import {
   levelCount,
@@ -27,6 +28,7 @@ import {
   type Position,
   type Slide,
 } from "./deck";
+import { Whiteboard } from "./whiteboard";
 
 function subscribeToFullscreen(onChange: () => void): () => void {
   document.addEventListener("fullscreenchange", onChange);
@@ -149,6 +151,10 @@ export function LiveLesson({
   const [view, setView] = useState(() => showAt(initial));
   const { position, level } = view;
   const screen = useRef<HTMLElement>(null);
+  // The whiteboard: kept here and not in the card, so what was drawn stays
+  // through a change of card and while minimised. Memory only, gone on reload.
+  const [boardOpen, setBoardOpen] = useState(false);
+  const [marks, setMarks] = useState<readonly Mark[]>([]);
   const fullscreen = useSyncExternalStore(
     subscribeToFullscreen,
     () => document.fullscreenElement !== null,
@@ -215,11 +221,20 @@ export function LiveLesson({
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
       const tag =
         event.target instanceof HTMLElement ? event.target.tagName : "";
-      // A list keeps its own arrows while it has the focus.
+      // A list keeps its own arrows while it has the focus, and a text being
+      // typed on the board keeps every key, the Q included.
       if (tag === "SELECT" || tag === "INPUT" || tag === "TEXTAREA") return;
+
+      const onBoard = boardKey(event, boardOpen);
+      if (onBoard !== "pass") {
+        event.preventDefault();
+        if (onBoard === "toggle") setBoardOpen((open) => !open);
+        if (onBoard === "undo") setMarks(undo);
+        return;
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
 
       if (event.key === "ArrowRight") {
         event.preventDefault();
@@ -241,7 +256,7 @@ export function LiveLesson({
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [go, next, previous, levels, toggleFullscreen]);
+  }, [go, next, previous, levels, toggleFullscreen, boardOpen]);
 
   const upcomingPicture =
     upcoming === null || upcoming.question === null
@@ -347,7 +362,23 @@ export function LiveLesson({
       </header>
 
       <div className="flex min-h-0 flex-1 gap-4">
-        <div className="bg-surface border-rule flex min-w-0 flex-1 flex-col rounded-sm border p-4">
+        <div className="bg-surface border-rule relative flex min-w-0 flex-1 flex-col rounded-sm border p-4">
+          {!boardOpen && (
+            <button
+              type="button"
+              className="border-rule bg-surface text-faint hover:text-foreground absolute top-2 right-2 z-10 rounded-sm border px-2 py-1 text-xs opacity-70 transition-opacity hover:opacity-100"
+              onClick={() => setBoardOpen(true)}
+              title="Tecla Q"
+            >
+              Quadro
+            </button>
+          )}
+          <Whiteboard
+            open={boardOpen}
+            marks={marks}
+            onMarks={setMarks}
+            onMinimise={() => setBoardOpen(false)}
+          />
           {slide === null ? (
             <p className="text-muted m-auto text-lg">
               Este ponto não tem palavras.
