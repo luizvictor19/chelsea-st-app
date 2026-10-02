@@ -107,8 +107,12 @@ port="$(docker port "$CONTAINER" 5432/tcp | head -1 | sed 's/.*://')"
 [ -n "$port" ] || die "could not read the published port"
 
 echo "gen-types: generating"
+# sslmode=disable, said out loud. The throwaway Postgres speaks no TLS, and
+# since 2.118.0 the supabase CLI asks for it unless told otherwise: without
+# this the generator exits 1 after "Connecting", having written nothing, and
+# the only place it says why is --debug.
 supabase gen types typescript \
-  --db-url "postgresql://postgres:postgres@127.0.0.1:${port}/postgres" \
+  --db-url "postgresql://postgres:postgres@127.0.0.1:${port}/postgres?sslmode=disable" \
   --schema public >"$work/body.ts"
 
 # Checked before anything is overwritten. Written straight into $OUT, a

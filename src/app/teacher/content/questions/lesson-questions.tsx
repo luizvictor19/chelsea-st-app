@@ -1,0 +1,677 @@
+"use client";
+
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+
+import {
+  placeKey,
+  wordsByPoint,
+  type LessonWord,
+  type SetRow,
+  type WordGroup,
+} from "@/lib/questions/point-words";
+import {
+  createChecker,
+  type Checker,
+  type Mark,
+  type Place,
+} from "@/lib/questions/presented";
+import type { LessonPoint, Question } from "@/lib/questions/queries";
+
+import { moveMember } from "../images/contrast-sets";
+import { settle } from "../images/panel-state";
+
+import {
+  addQuestion,
+  deleteQuestion,
+  reorderQuestions,
+  saveQuestion,
+  type QuestionResult,
+} from "./actions";
+import {
+  ANSWER_LANGUAGES,
+  EMPTY,
+  closed,
+  isAnswerLanguage,
+  isDirty,
+  opened,
+  refusal,
+  type QuestionFields,
+} from "./draft";
+import { segments, standing, summary } from "./marks";
+import {
+  pointFailed,
+  pointLabel,
+  questionAdded,
+  questionDeleted,
+  questionFailed,
+  questionSaved,
+  tell,
+  type NoticeText,
+} from "./notice-texts";
+
+/**
+ * The questions of one lesson, point by point: what each point presents, the
+ * questions written for it, and the forms that add and edit them.
+ *
+ * The validator runs here, in the browser, on what is saved and on what is
+ * being typed. It marks and never stops a save: see presented.ts.
+ */
+export function LessonQuestions({
+  book,
+  points,
+  questions,
+  words,
+  sets,
+}: {
+  readonly book: number;
+  readonly points: readonly LessonPoint[];
+  readonly questions: readonly Question[];
+  readonly words: readonly LessonWord[];
+  readonly sets: readonly SetRow[];
+}) {
+  const checker = useMemo(() => {
+    const setOf = new Map(
+      sets.map((row) => [row.vocabulary_item_id, row.set_id]),
+    );
+    return createChecker(
+      words.map((word) => ({
+        term: word.term,
+        place: word.place,
+        setId: setOf.get(word.id) ?? null,
+      })),
+    );
+  }, [words, sets]);
+  const groups = useMemo(() => wordsByPoint(words, sets), [words, sets]);
+
+  return (
+    <div className="flex flex-col gap-10">
+      {points.map((point) => {
+        const at = { book, point: point.number };
+        return (
+          <PointSection
+            key={point.id}
+            at={at}
+            pointId={point.id}
+            groups={groups.get(placeKey(at)) ?? []}
+            questions={questions.filter(
+              (question) => question.pointId === point.id,
+            )}
+            checker={checker}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function fieldsOf(question: Question): QuestionFields {
+  return {
+    prompt: question.prompt,
+    expectedAnswer: question.expectedAnswer,
+    answerLanguage: question.answerLanguage,
+    isPublished: question.isPublished,
+  };
+}
+
+/** The marks of a question as it is stored. A Portuguese answer has none. */
+function marksOf(
+  checker: Checker,
+  fields: QuestionFields,
+  at: Place,
+): { readonly prompt: readonly Mark[]; readonly answer: readonly Mark[] } {
+  return {
+    prompt: checker.check(fields.prompt, at),
+    answer:
+      fields.answerLanguage === "en"
+        ? checker.check(fields.expectedAnswer, at)
+        : [],
+  };
+}
+
+function PointSection({
+  at,
+  pointId,
+  groups,
+  questions,
+  checker,
+}: {
+  readonly at: Place;
+  readonly pointId: string;
+  readonly groups: readonly WordGroup[];
+  readonly questions: readonly Question[];
+  readonly checker: Checker;
+}) {
+  const [busy, setBusy] = useState(false);
+  // Every edit form open in this point. More than one may be: see `opened`.
+  const [editing, setEditing] = useState<ReadonlySet<string>>(new Set());
+  const [adding, setAdding] = useState(false);
+  const [doomed, setDoomed] = useState<{
+    readonly id: string;
+    readonly number: number;
+    readonly prompt: string;
+  } | null>(null);
+  const confirm = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+
+  const published = questions.filter((q) => q.isPublished).length;
+
+  /** One action at a time in a point. True when it went through. */
+  async function run(
+    action: () => Promise<QuestionResult>,
+    done: NoticeText | null,
+    failed: (message: string) => NoticeText,
+  ): Promise<boolean> {
+    if (busy) return false;
+    setBusy(true);
+    const result = await settle(action);
+    setBusy(false);
+    if (result.ok) {
+      if (done !== null) tell(done);
+      return true;
+    }
+    tell(failed(result.error));
+    return false;
+  }
+
+  /**
+   * The list moving is the news of a move that worked, so only its failure
+   * is said. The whole order is sent, as the screen holds it.
+   */
+  function move(index: number, delta: -1 | 1) {
+    const ids = questions.map((question) => question.id);
+    void run(
+      () => reorderQuestions(pointId, moveMember(ids, index, delta)),
+      null,
+      (message) => pointFailed(at.point, message),
+    );
+  }
+
+  return (
+    <section
+      aria-labelledby={titleId}
+      className="border-rule flex flex-col gap-4 border-t pt-6"
+    >
+      <header className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          <h2 id={titleId} className="text-lg font-extrabold tracking-tight">
+            {pointLabel(at.point)}
+          </h2>
+          <span className="text-faint text-xs">
+            {questions.length === 1
+              ? "1 pergunta"
+              : `${questions.length} perguntas`}
+            {questions.length > 0 &&
+              ` · ${published === 1 ? "1 publicada" : `${published} publicadas`}`}
+          </span>
+        </div>
+        {groups.length === 0 ? (
+          <p className="text-faint text-sm">
+            Nenhuma palavra apresentada neste ponto.
+          </p>
+        ) : (
+          <ul aria-label="Palavras do ponto" className="flex flex-wrap gap-2">
+            {groups.map((group) => (
+              <li
+                key={group.key}
+                title={group.isSet ? "Conjunto de contraste" : undefined}
+                className={
+                  group.isSet
+                    ? "border-foreground/40 rounded-sm border px-2 py-0.5 text-sm"
+                    : "border-rule rounded-sm border px-2 py-0.5 text-sm"
+                }
+              >
+                {group.terms.join(" · ")}
+              </li>
+            ))}
+          </ul>
+        )}
+      </header>
+
+      {questions.length === 0 ? (
+        <p className="text-faint text-sm">
+          Nenhuma pergunta neste ponto ainda.
+        </p>
+      ) : (
+        <ol className="flex flex-col gap-2">
+          {questions.map((question, index) => {
+            const number = index + 1;
+            const saved = fieldsOf(question);
+            const close = () => setEditing((open) => closed(open, question.id));
+            if (editing.has(question.id)) {
+              return (
+                <li
+                  key={question.id}
+                  className="border-rule bg-surface rounded-sm border p-4"
+                >
+                  <QuestionForm
+                    at={at}
+                    checker={checker}
+                    saved={saved}
+                    legend={`Editar a pergunta ${number}`}
+                    submitLabel="Salvar"
+                    busy={busy}
+                    onCancel={close}
+                    onSubmit={async (draft, loaded) => {
+                      const ok = await run(
+                        () => saveQuestion(question.id, loaded, draft),
+                        questionSaved(at.point, number),
+                        (message) => questionFailed(at.point, number, message),
+                      );
+                      if (ok) close();
+                      return ok;
+                    }}
+                  />
+                </li>
+              );
+            }
+            const marks = marksOf(checker, saved, at);
+            const unpresented = summary([...marks.prompt, ...marks.answer], at);
+            return (
+              <li
+                key={question.id}
+                className="border-rule flex flex-wrap items-start gap-x-3 gap-y-2 rounded-sm border px-3 py-2"
+              >
+                <span className="text-faint w-5 pt-0.5 font-mono text-xs">
+                  {number}
+                </span>
+                <div className="flex min-w-0 flex-1 basis-64 flex-col gap-1">
+                  <p className="font-semibold">
+                    <MarkedText
+                      text={question.prompt}
+                      marks={marks.prompt}
+                      at={at}
+                    />
+                  </p>
+                  <p className="text-muted">
+                    <MarkedText
+                      text={question.expectedAnswer}
+                      marks={marks.answer}
+                      at={at}
+                    />
+                  </p>
+                  {unpresented !== "" && (
+                    <p className="text-warning text-xs">
+                      Ainda não apresentadas no ponto {at.point}: {unpresented}
+                    </p>
+                  )}
+                  <p className="text-faint flex flex-wrap gap-x-3 text-xs">
+                    <span>
+                      {question.isPublished ? "Publicada" : "Não publicada"}
+                    </span>
+                    {question.answerLanguage === "pt" && (
+                      <span>Resposta em português</span>
+                    )}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    aria-label={`Subir a pergunta ${number}`}
+                    title="Subir"
+                    disabled={busy || index === 0}
+                    onClick={() => move(index, -1)}
+                    className="text-muted hover:text-foreground px-1 text-sm disabled:opacity-30"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Descer a pergunta ${number}`}
+                    title="Descer"
+                    disabled={busy || index === questions.length - 1}
+                    onClick={() => move(index, 1)}
+                    className="text-muted hover:text-foreground px-1 text-sm disabled:opacity-30"
+                  >
+                    ↓
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      setEditing((open) => opened(open, question.id))
+                    }
+                    className="border-rule hover:bg-surface rounded-sm border px-2 py-1 text-xs transition-colors disabled:opacity-50"
+                  >
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      setDoomed({
+                        id: question.id,
+                        number,
+                        prompt: question.prompt,
+                      });
+                      confirm.current?.showModal();
+                    }}
+                    className="text-muted hover:text-foreground px-2 py-1 text-xs underline-offset-2 hover:underline disabled:opacity-50"
+                  >
+                    Apagar
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+
+      {adding ? (
+        <div className="border-rule bg-surface rounded-sm border p-4">
+          <QuestionForm
+            at={at}
+            checker={checker}
+            saved={null}
+            legend={`Nova pergunta do ponto ${at.point}`}
+            submitLabel="Acrescentar"
+            busy={busy}
+            onCancel={() => setAdding(false)}
+            onSubmit={(draft) =>
+              run(
+                () => addQuestion(pointId, draft),
+                questionAdded(at.point, questions.length + 1),
+                (message) => pointFailed(at.point, message),
+              )
+            }
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="border-rule hover:bg-surface self-start rounded-sm border px-3 py-1.5 text-sm font-semibold transition-colors"
+        >
+          Acrescentar pergunta
+        </button>
+      )}
+
+      {/*
+        The native dialog, as on the images screen: Esc and the focus move
+        come with showModal. Deleting cannot be undone, so it is never one
+        click, and the dialog names the question it is about to delete.
+      */}
+      <dialog
+        ref={confirm}
+        aria-labelledby={`${titleId}-apagar`}
+        onClose={() => setDoomed(null)}
+        className="border-rule bg-surface text-foreground m-auto max-w-sm rounded-sm border p-6 backdrop:bg-black/40"
+      >
+        {doomed !== null && (
+          <div className="flex flex-col gap-4">
+            <h2
+              id={`${titleId}-apagar`}
+              className="text-base font-extrabold tracking-tight"
+            >
+              Apagar a pergunta {doomed.number} do ponto {at.point}?
+            </h2>
+            <p className="text-muted text-sm">
+              “{doomed.prompt}” e a resposta esperada dela são apagadas. Não dá
+              para desfazer.
+            </p>
+            <div className="flex flex-wrap justify-end gap-2">
+              <form method="dialog">
+                <button
+                  type="submit"
+                  className="border-rule hover:bg-background rounded-sm border px-3 py-1.5 text-sm transition-colors"
+                >
+                  Cancelar
+                </button>
+              </form>
+              <button
+                type="button"
+                onClick={() => {
+                  const { id, number } = doomed;
+                  confirm.current?.close();
+                  void run(
+                    () => deleteQuestion(id),
+                    questionDeleted(at.point, number),
+                    (message) => questionFailed(at.point, number, message),
+                  );
+                }}
+                className="border-foreground bg-foreground text-background rounded-sm border px-3 py-1.5 text-sm font-semibold"
+              >
+                Apagar
+              </button>
+            </div>
+          </div>
+        )}
+      </dialog>
+    </section>
+  );
+}
+
+/** A sentence with the words the point has not presented underlined. */
+function MarkedText({
+  text,
+  marks,
+  at,
+}: {
+  readonly text: string;
+  readonly marks: readonly Mark[];
+  readonly at: Place;
+}) {
+  return (
+    <>
+      {segments(text, marks).map((part, index) =>
+        part.mark === null ? (
+          <span key={index}>{part.text}</span>
+        ) : (
+          <mark
+            key={index}
+            title={standing(part.mark, at)}
+            className="decoration-warning text-foreground bg-transparent underline decoration-2 underline-offset-4"
+          >
+            {part.text}
+          </mark>
+        ),
+      )}
+    </>
+  );
+}
+
+/**
+ * Asks before the tab is closed or reloaded while a form holds something
+ * unsaved. A move inside the app cannot be stopped this way, which is why
+ * the form also says so in words.
+ */
+function useUnsavedWarning(dirty: boolean) {
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+}
+
+/**
+ * The form for a new question (`saved` null) or an edit.
+ *
+ * What is typed stays in the form until it is saved, and through a save that
+ * fails: a refusal is said in the snackbar and the draft is left where it
+ * is. Closing the form is the only thing here that drops a draft, and its
+ * button says so while there is one to drop.
+ */
+function QuestionForm({
+  at,
+  checker,
+  saved,
+  legend,
+  submitLabel,
+  busy,
+  onSubmit,
+  onCancel,
+}: {
+  readonly at: Place;
+  readonly checker: Checker;
+  readonly saved: QuestionFields | null;
+  readonly legend: string;
+  readonly submitLabel: string;
+  readonly busy: boolean;
+  /** `loaded` is what the form opened on: `saved` then, or EMPTY for a new one. */
+  readonly onSubmit: (
+    draft: QuestionFields,
+    loaded: QuestionFields,
+  ) => Promise<boolean>;
+  readonly onCancel: () => void;
+}) {
+  /*
+   * What the form opened on, held for as long as it is open. Not `saved` as
+   * it is now: another action on this point re-renders the list, and if the
+   * question was changed elsewhere meanwhile, `saved` would quietly become
+   * the new text. The save is only accepted while the row still holds what
+   * this form was opened on, so that is what has to be sent.
+   */
+  const [loaded] = useState<QuestionFields>(saved ?? EMPTY);
+  const [draft, setDraft] = useState<QuestionFields>(loaded);
+  const promptInput = useRef<HTMLInputElement>(null);
+  const id = useId();
+
+  // A new question is unsaved once either sentence has something in it; the
+  // language and the publish box alone are settings for the next one.
+  const dirty =
+    saved === null
+      ? draft.prompt.trim() !== "" || draft.expectedAnswer.trim() !== ""
+      : isDirty(draft, loaded);
+  useUnsavedWarning(dirty);
+
+  const why = refusal(draft);
+  const marks = marksOf(checker, draft, at);
+  const promptMarks = summary(marks.prompt, at);
+  const answerMarks = summary(marks.answer, at);
+
+  return (
+    <form
+      className="flex flex-col gap-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (busy || why !== null) return;
+        void onSubmit(draft, loaded).then((ok) => {
+          if (!ok || saved !== null) return;
+          // Added: the form stays open for the next one, in the same
+          // language and with the same publish choice. The fields are
+          // read-only while the save runs, so nothing typed since is lost.
+          setDraft({ ...draft, prompt: "", expectedAnswer: "" });
+          promptInput.current?.focus();
+        });
+      }}
+    >
+      <p className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
+        {legend}
+      </p>
+
+      <div className="flex flex-col gap-1">
+        <label htmlFor={`${id}-pergunta`} className="text-sm font-semibold">
+          Pergunta
+        </label>
+        <input
+          ref={promptInput}
+          id={`${id}-pergunta`}
+          type="text"
+          lang="en"
+          autoComplete="off"
+          readOnly={busy}
+          value={draft.prompt}
+          onChange={(event) =>
+            setDraft({ ...draft, prompt: event.target.value })
+          }
+          className="border-rule bg-background rounded-sm border px-3 py-1.5 text-sm"
+        />
+        {promptMarks !== "" && (
+          <p className="text-warning text-xs">
+            Ainda não apresentadas no ponto {at.point}: {promptMarks}
+          </p>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label htmlFor={`${id}-resposta`} className="text-sm font-semibold">
+          Resposta esperada
+        </label>
+        <input
+          id={`${id}-resposta`}
+          type="text"
+          lang={draft.answerLanguage === "pt" ? "pt-BR" : "en"}
+          autoComplete="off"
+          readOnly={busy}
+          value={draft.expectedAnswer}
+          onChange={(event) =>
+            setDraft({ ...draft, expectedAnswer: event.target.value })
+          }
+          className="border-rule bg-background rounded-sm border px-3 py-1.5 text-sm"
+        />
+        {answerMarks !== "" && (
+          <p className="text-warning text-xs">
+            Ainda não apresentadas no ponto {at.point}: {answerMarks}
+          </p>
+        )}
+        {draft.answerLanguage === "pt" && (
+          <p className="text-faint text-xs">
+            Resposta em português: as palavras dela não são conferidas.
+          </p>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+        <label className="flex items-center gap-2 text-sm">
+          Língua da resposta
+          <select
+            disabled={busy}
+            value={draft.answerLanguage}
+            onChange={(event) => {
+              const value = event.target.value;
+              if (isAnswerLanguage(value)) {
+                setDraft({ ...draft, answerLanguage: value });
+              }
+            }}
+            className="border-rule bg-background rounded-sm border px-2 py-1 text-sm"
+          >
+            {ANSWER_LANGUAGES.map((language) => (
+              <option key={language.value} value={language.value}>
+                {language.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            disabled={busy}
+            checked={draft.isPublished}
+            onChange={(event) =>
+              setDraft({ ...draft, isPublished: event.target.checked })
+            }
+          />
+          Publicada
+        </label>
+      </div>
+
+      {dirty && (
+        <p className="text-warning text-sm font-semibold">
+          Não salvo. Trocar de lição ou sair desta tela descarta o que está
+          escrito.
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="submit"
+          disabled={busy || why !== null || (saved !== null && !dirty)}
+          className="border-foreground bg-foreground text-background rounded-sm border px-3 py-1.5 text-sm font-semibold disabled:opacity-50"
+        >
+          {submitLabel}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onCancel}
+          className="border-rule hover:bg-background rounded-sm border px-3 py-1.5 text-sm transition-colors disabled:opacity-50"
+        >
+          {dirty ? "Descartar o que está escrito" : "Fechar"}
+        </button>
+        {dirty && why !== null && (
+          <span className="text-muted text-xs">{why}.</span>
+        )}
+      </div>
+    </form>
+  );
+}

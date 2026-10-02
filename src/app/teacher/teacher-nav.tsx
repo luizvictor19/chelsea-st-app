@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 const links = [
   { label: "Conteúdo", href: "/teacher/content" },
   { label: "Imagens", href: "/teacher/content/images" },
+  { label: "Perguntas", href: "/teacher/content/questions" },
   { label: "Aula ao vivo", href: "/teacher/aula" },
 ] as const;
 
@@ -20,8 +21,9 @@ const links = [
 const comingSoon = ["Aulas", "Alunos"] as const;
 
 /**
- * The section a pathname belongs to. Imagens lives under Conteúdo, so the
- * longest matching href wins and only one item is ever highlighted.
+ * The section a pathname belongs to. Imagens and Perguntas live under
+ * Conteúdo, so the longest matching href wins and only one item is ever
+ * highlighted.
  */
 function activeHref(pathname: string): string | null {
   let active: string | null = null;

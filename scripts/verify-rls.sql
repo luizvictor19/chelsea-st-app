@@ -54,6 +54,7 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0022_contrast_is_between_pictures.sql
 \i supabase/migrations/0025_an_upload_is_a_file_not_a_generation.sql
 \i supabase/migrations/0026_the_instruction_belongs_to_the_word.sql
+\i supabase/migrations/0027_an_answer_has_a_language.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
@@ -935,5 +936,340 @@ begin
   update vocabulary_items set image_subject = null where id = v_word;
 
   raise notice 'a word takes an instruction and gives it up';
+end;
+$$;
+
+-- An answer has a language, since 0027: English unless said otherwise, never
+-- null, and one of the two the type lists.
+--
+-- The column is an enum, so no check constraint refuses and there is no
+-- constraint name to compare. What is compared instead is the SQLSTATE and
+-- what the error names: the column for a null, the type for a value outside
+-- it. Any other refusal would leave these green with the clause under test
+-- removed.
+create function verify.refusal(p_sql text) returns text
+language plpgsql as $$
+declare
+  v_state text;
+  v_column text;
+  v_message text;
+begin
+  execute p_sql;
+  return null;
+exception when others then
+  get stacked diagnostics
+    v_state = returned_sqlstate,
+    v_column = column_name,
+    v_message = message_text;
+  return v_state || ' ' || coalesce(nullif(v_column, ''), v_message);
+end;
+$$;
+
+create function verify.expect_refusal(p_what text, p_refusal text, p_sql text)
+returns void
+language plpgsql as $$
+declare
+  v_by text := verify.refusal(p_sql);
+begin
+  if v_by is null then
+    insert into verify.failures values (format('%s: accepted', p_what));
+  elsif v_by <> p_refusal then
+    insert into verify.failures
+      values (format('%s: refused with %s, expected %s', p_what, v_by, p_refusal));
+  else
+    raise notice '%: refused with %', p_what, v_by;
+  end if;
+end;
+$$;
+
+do $$
+declare
+  v_point uuid;
+  v_question uuid;
+  v_language text;
+  v_failures text;
+  c_unknown constant text :=
+    '22P02 invalid input value for enum answer_language: "fr"';
+begin
+  delete from verify.failures;
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+  select id into v_point from points where number = 57;
+
+  -- A question written without naming the column, the way every caller that
+  -- predates it does.
+  insert into questions (point_id, position, prompt, expected_answer)
+    values (v_point, 0, 'a question', 'an answer')
+    returning id, answer_language into v_question, v_language;
+  if v_language is distinct from 'en' then
+    raise exception 'a question with no language said is %, expected en', v_language;
+  end if;
+
+  perform verify.expect_refusal('a question inserted with a null language',
+    '23502 answer_language',
+    format('insert into questions (point_id, position, prompt, expected_answer, answer_language)
+            values (%L, 1, ''q'', ''a'', null)', v_point));
+
+  perform verify.expect_refusal('a language set to null',
+    '23502 answer_language',
+    format('update questions set answer_language = null where id = %L', v_question));
+
+  perform verify.expect_refusal('a question inserted in a language outside the type',
+    c_unknown,
+    format('insert into questions (point_id, position, prompt, expected_answer, answer_language)
+            values (%L, 1, ''q'', ''a'', ''fr'')', v_point));
+
+  perform verify.expect_refusal('a language set outside the type',
+    c_unknown,
+    format('update questions set answer_language = ''fr'' where id = %L', v_question));
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'answer language: %', v_failures;
+  end if;
+
+  -- What is accepted: Portuguese, on the way in and by update, and back.
+  insert into questions (point_id, position, prompt, expected_answer, answer_language)
+    values (v_point, 1, 'a translation', 'uma resposta', 'pt');
+  update questions set answer_language = 'pt' where id = v_question;
+  update questions set answer_language = 'en' where id = v_question;
+
+  raise notice 'a question is in English unless said otherwise';
+  raise notice 'and takes Portuguese, on insert and on update';
+end;
+$$;
+
+-- The order of a point's questions is written whole, since 0027. Three
+-- questions at point 56, named by their prompts.
+insert into questions (point_id, position, prompt, expected_answer)
+select (select id from points where number = 56), n, prompt, 'an answer'
+  from unnest(array['first', 'second', 'third']) with ordinality as q(prompt, n0),
+       lateral (select (n0 - 1)::integer as n) as numbered;
+
+-- The order of point 56, as the prompts in position order with each
+-- position: 'first=0 second=1 third=2'.
+create function verify.order_of_56() returns text
+language sql as $$
+  select coalesce(string_agg(prompt || '=' || position, ' ' order by position), '')
+    from questions
+   where point_id = (select id from points where number = 56);
+$$;
+
+-- reorder_questions writes positions 0 to n - 1 in the order given, starting
+-- from a point with a gap in it, and trades two neighbours. The second is
+-- what two plain updates cannot do: the first of them lands on the position
+-- the second still holds, and questions_point_id_position_key refuses it.
+do $$
+declare
+  v_point uuid;
+  v_first uuid;
+  v_second uuid;
+  v_third uuid;
+  v_order text;
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+  select id into v_point from points where number = 56;
+  select id into v_first from questions where point_id = v_point and prompt = 'first';
+  select id into v_second from questions where point_id = v_point and prompt = 'second';
+  select id into v_third from questions where point_id = v_point and prompt = 'third';
+
+  -- A gap, as a row written straight into the table can leave one.
+  update questions set position = 7 where id = v_third;
+
+  perform reorder_questions(v_point, array[v_third, v_first, v_second]);
+  v_order := verify.order_of_56();
+  if v_order <> 'third=0 first=1 second=2' then
+    raise exception 'after ordering (third, first, second) the point reads: %', v_order;
+  end if;
+
+  perform reorder_questions(v_point, array[v_first, v_third, v_second]);
+  v_order := verify.order_of_56();
+  if v_order <> 'first=0 third=1 second=2' then
+    raise exception 'after trading the first two the point reads: %', v_order;
+  end if;
+
+  raise notice 'reorder_questions writes positions 0 to n - 1 in the order given';
+  raise notice 'and two neighbours trade places';
+end;
+$$;
+
+-- A list that is not exactly the point's questions is refused with QS001 and
+-- nothing is written. Two clauses hold that, and each case below gets past
+-- one of them and is stopped by the other: a list one short has only
+-- questions of the point in it, and a list of the right length with a
+-- stranger in it has the right count. A repeated id and a null are the
+-- second case again.
+--
+-- Only QS001 is caught: any other error would mean the list was refused for
+-- some other reason, or got as far as the updates, and stops the script.
+do $$
+declare
+  v_point uuid;
+  v_first uuid;
+  v_second uuid;
+  v_third uuid;
+  v_stranger uuid;
+  v_before text;
+  v_short boolean := false;
+  v_foreign boolean := false;
+  v_repeated boolean := false;
+  v_null boolean := false;
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+  select id into v_point from points where number = 56;
+  select id into v_first from questions where point_id = v_point and prompt = 'first';
+  select id into v_second from questions where point_id = v_point and prompt = 'second';
+  select id into v_third from questions where point_id = v_point and prompt = 'third';
+  -- A question of another point: the one this script opens with, at 53.
+  select id into v_stranger from questions where prompt = 'p';
+  v_before := verify.order_of_56();
+
+  begin
+    perform reorder_questions(v_point, array[v_second, v_first]);
+  exception when sqlstate 'QS001' then
+    v_short := true;
+  end;
+
+  begin
+    perform reorder_questions(v_point, array[v_second, v_first, v_stranger]);
+  exception when sqlstate 'QS001' then
+    v_foreign := true;
+  end;
+
+  begin
+    perform reorder_questions(v_point, array[v_second, v_first, v_first]);
+  exception when sqlstate 'QS001' then
+    v_repeated := true;
+  end;
+
+  begin
+    perform reorder_questions(v_point, array[v_second, v_first, null]);
+  exception when sqlstate 'QS001' then
+    v_null := true;
+  end;
+
+  if not v_short then
+    raise exception 'an order that leaves a question of the point out was accepted';
+  end if;
+
+  if not v_foreign then
+    raise exception 'an order naming a question of another point was accepted';
+  end if;
+
+  if not v_repeated then
+    raise exception 'an order naming a question twice was accepted';
+  end if;
+
+  if not v_null then
+    raise exception 'an order with a null in it was accepted';
+  end if;
+
+  if verify.order_of_56() <> v_before then
+    raise exception 'the refused orders changed the point anyway: %', verify.order_of_56();
+  end if;
+
+  raise notice 'an order that is not exactly the point''s questions is refused, and nothing moves';
+end;
+$$;
+
+-- delete_question deletes and closes the gap. The one in the middle goes
+-- (the point reads first, third, second), so a delete that only deleted
+-- would leave 0 and 2.
+do $$
+declare
+  v_point uuid;
+  v_order text;
+  v_unknown boolean := false;
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+  select id into v_point from points where number = 56;
+
+  perform delete_question(
+    (select id from questions where point_id = v_point and prompt = 'third'));
+  v_order := verify.order_of_56();
+  if v_order <> 'first=0 second=1' then
+    raise exception 'after deleting the middle question the point reads: %', v_order;
+  end if;
+
+  begin
+    perform delete_question('99999999-9999-9999-9999-999999999999');
+  exception when raise_exception then
+    if sqlerrm not like 'question % not found' then
+      raise;
+    end if;
+    v_unknown := true;
+  end;
+
+  if not v_unknown then
+    raise exception 'deleting a question that does not exist said nothing';
+  end if;
+
+  raise notice 'delete_question closes the gap it leaves';
+  raise notice 'and says so when there is nothing to delete';
+end;
+$$;
+
+-- The student can call neither. Both questions of point 56 are published
+-- first, so she sees them and the list she sends is exactly the point's: the
+-- only thing left to refuse her is the teacher check, and without it the
+-- call would return as if it had worked, having written nothing.
+--
+-- Only insufficient_privilege (42501) is caught; any other error stops the
+-- script.
+do $$
+declare
+  v_point uuid;
+  v_first uuid;
+  v_second uuid;
+  v_seen integer;
+  v_order_refused boolean := false;
+  v_delete_refused boolean := false;
+  v_order text;
+begin
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  set local role authenticated;
+  select id into v_point from points where number = 56;
+  select id into v_first from questions where point_id = v_point and prompt = 'first';
+  select id into v_second from questions where point_id = v_point and prompt = 'second';
+  update questions set is_published = true where point_id = v_point;
+
+  perform set_config('test.uid', '22222222-2222-2222-2222-222222222222', false);
+  select count(*) into v_seen from questions where point_id = v_point;
+  if v_seen <> 2 then
+    raise exception 'the student sees % of the 2 published questions of the point', v_seen;
+  end if;
+
+  begin
+    perform reorder_questions(v_point, array[v_second, v_first]);
+  exception when insufficient_privilege then
+    v_order_refused := true;
+  end;
+
+  begin
+    perform delete_question(v_first);
+  exception when insufficient_privilege then
+    v_delete_refused := true;
+  end;
+
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+  v_order := verify.order_of_56();
+
+  if not v_order_refused then
+    raise exception 'the student ordered the questions of a point';
+  end if;
+
+  if not v_delete_refused then
+    raise exception 'the student deleted a question';
+  end if;
+
+  if v_order <> 'first=0 second=1' then
+    raise exception 'the refused calls changed the point anyway: %', v_order;
+  end if;
+
+  raise notice 'the student cannot order the questions of a point';
+  raise notice 'nor delete one';
 end;
 $$;
