@@ -14,8 +14,12 @@ import { situationOf } from "../content/images/filters";
 
 import type { Course } from "./course";
 import {
+  levelCount,
   nextPosition,
   previousPosition,
+  revealLess,
+  revealMore,
+  showAt,
   slidesAt,
   type DeckWord,
   type Position,
@@ -57,6 +61,66 @@ function termSize(slide: Slide, withPicture: boolean): string {
   return `min(${width.toFixed(2)}vw, ${withPicture ? 11 : 30}vh)`;
 }
 
+/*
+ * A question, one level at a time: its picture, or a neutral card that says
+ * which question this is; then the question; then the expected answer under
+ * it. With a picture the two lines keep their place while hidden, as the term
+ * of a word does, so the picture does not move.
+ */
+function QuestionCard({
+  question,
+  level,
+}: {
+  readonly question: NonNullable<Slide["question"]>;
+  readonly level: number;
+}) {
+  const label = (
+    <>
+      Ponto {question.pointNumber} · Pergunta {question.number}
+    </>
+  );
+  if (question.imageUrl === null && level < 2) {
+    return (
+      <p className="text-muted m-auto text-center text-[min(6vw,12vh)] leading-tight font-extrabold tracking-tight">
+        {label}
+      </p>
+    );
+  }
+  const pictured = question.imageUrl !== null;
+  return (
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[3vh] text-center">
+      {question.imageUrl === null ? (
+        <p className="text-faint font-mono text-sm">{label}</p>
+      ) : (
+        <div className="relative min-h-0 w-full flex-1">
+          <Image
+            src={question.imageUrl}
+            alt=""
+            fill
+            sizes={sizesFor(1)}
+            loading="eager"
+            className="object-contain"
+          />
+        </div>
+      )}
+      <p
+        className={`${level < 2 ? "invisible" : ""}${
+          pictured ? "text-[min(3.5vw,6vh)]" : "text-[min(5vw,10vh)]"
+        } leading-tight font-extrabold tracking-tight`}
+      >
+        {question.prompt}
+      </p>
+      <p
+        className={`${level < 3 ? "invisible" : ""}${
+          pictured ? "text-[min(2.8vw,5vh)]" : "text-[min(3.6vw,7vh)]"
+        } text-muted leading-tight font-semibold`}
+      >
+        {question.expectedAnswer}
+      </p>
+    </div>
+  );
+}
+
 const controlClass =
   "border-rule bg-surface text-foreground hover:border-faint rounded-sm border px-3 py-1.5 text-sm transition-colors disabled:opacity-40";
 
@@ -70,11 +134,9 @@ export function LiveLesson({
   readonly course: Course;
   readonly initial: Position;
 }) {
-  const { books, lessons, deck, questions } = course;
-  const [position, setPosition] = useState(initial);
-  const [review, setReview] = useState(false);
-  const [revealed, setRevealed] = useState(false);
-  const [questionsOpen, setQuestionsOpen] = useState(false);
+  const { books, lessons, deck } = course;
+  const [view, setView] = useState(() => showAt(initial));
+  const { position, level } = view;
   const screen = useRef<HTMLElement>(null);
   const fullscreen = useSyncExternalStore(
     subscribeToFullscreen,
@@ -113,18 +175,16 @@ export function LiveLesson({
     { length: range.lastPoint - range.firstPoint + 1 },
     (_, offset) => range.firstPoint + offset,
   );
-  const withWords = useMemo(
+  const withSlides = useMemo(
     () => new Set(deck.map((item) => item.pointNumber)),
     [deck],
   );
-  const pointQuestions = questions.filter(
-    (question) => question.pointNumber === position.pointNumber,
-  );
+  const anyPicture = slide?.words.some(hasPicture) ?? false;
+  const levels = slide === null ? 1 : levelCount(slide, anyPicture);
 
   const go = useCallback((target: Position | null) => {
     if (target === null) return;
-    setPosition(target);
-    setRevealed(false);
+    setView(showAt(target));
     // The URL keeps the place, so a reload comes back to this slide. Replaced
     // and not pushed: forty words are not forty entries of history.
     window.history.replaceState(
@@ -156,21 +216,24 @@ export function LiveLesson({
       } else if (event.key === "ArrowLeft") {
         event.preventDefault();
         go(previous);
-      } else if (event.key === " ") {
+      } else if (event.key === "ArrowDown" || event.key === " ") {
         // On a button the space is that button's own click.
-        if (tag === "BUTTON" || !review) return;
+        if (event.key === " " && tag === "BUTTON") return;
         event.preventDefault();
-        setRevealed((shown) => !shown);
+        setView((current) => revealMore(current, levels));
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setView(revealLess);
       } else if (event.key === "f" || event.key === "F") {
         toggleFullscreen();
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [go, next, previous, review, toggleFullscreen]);
+  }, [go, next, previous, levels, toggleFullscreen]);
 
-  const anyPicture = slide?.words.some(hasPicture) ?? false;
-  const hiding = review && !revealed;
+  const hiding = level < 2;
+  const question = slide?.question ?? null;
 
   return (
     /*
@@ -250,38 +313,13 @@ export function LiveLesson({
           >
             {points.map((point) => (
               <option key={point} value={point}>
-                {withWords.has(point) ? point : `${point} · sem palavras`}
+                {withSlides.has(point) ? point : `${point} · sem palavras`}
               </option>
             ))}
           </select>
         </label>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          {pointQuestions.length > 0 && (
-            <button
-              type="button"
-              className={controlClass}
-              aria-expanded={questionsOpen}
-              onClick={() => setQuestionsOpen((open) => !open)}
-            >
-              Perguntas · {pointQuestions.length}
-            </button>
-          )}
-          <button
-            type="button"
-            className={
-              review
-                ? "bg-foreground text-background rounded-sm border border-transparent px-3 py-1.5 text-sm font-semibold"
-                : controlClass
-            }
-            aria-pressed={review}
-            onClick={() => {
-              setReview((on) => !on);
-              setRevealed(false);
-            }}
-          >
-            Modo revisão
-          </button>
           <button
             type="button"
             className={controlClass}
@@ -299,6 +337,8 @@ export function LiveLesson({
             <p className="text-muted m-auto text-lg">
               Este ponto não tem palavras.
             </p>
+          ) : question !== null ? (
+            <QuestionCard question={question} level={level} />
           ) : (
             <div
               className="grid min-h-0 flex-1 gap-4"
@@ -330,10 +370,11 @@ export function LiveLesson({
                       </div>
                     )}
                     {/*
-                      In review the term of a pictured word waits for the
-                      teacher. It keeps its place while hidden, so showing it
-                      does not move the picture. A word with no picture has
-                      nothing else to show, and is never hidden.
+                      The term of a pictured word is the second level, and
+                      waits for the arrow down. It keeps its place while
+                      hidden, so showing it does not move the picture. A word
+                      with no picture has nothing else to show, and is never
+                      hidden.
                     */}
                     <figcaption
                       className={
@@ -355,22 +396,6 @@ export function LiveLesson({
             </div>
           )}
         </div>
-
-        {questionsOpen && pointQuestions.length > 0 && (
-          <aside className="border-rule bg-surface flex w-80 shrink-0 flex-col gap-3 overflow-y-auto rounded-sm border p-4">
-            <h2 className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
-              Perguntas do ponto {position.pointNumber}
-            </h2>
-            <ol className="flex flex-col gap-3">
-              {pointQuestions.map((question) => (
-                <li key={question.id} className="flex flex-col gap-1 text-sm">
-                  <span className="font-semibold">{question.prompt}</span>
-                  <span className="text-muted">{question.expectedAnswer}</span>
-                </li>
-              ))}
-            </ol>
-          </aside>
-        )}
       </div>
 
       <footer className="flex items-center justify-between gap-3">
@@ -379,34 +404,22 @@ export function LiveLesson({
           className={controlClass}
           disabled={previous === null}
           onClick={() => go(previous)}
-          aria-label="Palavra anterior"
+          aria-label="Cartão anterior"
           title="Seta para a esquerda"
         >
           ← Anterior
         </button>
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <span className="text-faint font-mono text-xs">
-            Ponto {position.pointNumber}
-            {slides.length > 0 &&
-              ` · ${position.index + 1} de ${slides.length}`}
-          </span>
-          {review && anyPicture && (
-            <button
-              type="button"
-              className={controlClass}
-              onClick={() => setRevealed((shown) => !shown)}
-              title="Barra de espaço"
-            >
-              {revealed ? "Esconder o termo" : "Mostrar o termo"}
-            </button>
-          )}
-        </div>
+        <span className="text-faint font-mono text-xs">
+          Ponto {position.pointNumber}
+          {slides.length > 0 && ` · ${position.index + 1} de ${slides.length}`}
+          {levels > 1 && ` · ↓ revela · ↑ esconde`}
+        </span>
         <button
           type="button"
           className={controlClass}
           disabled={next === null}
           onClick={() => go(next)}
-          aria-label="Próxima palavra"
+          aria-label="Próximo cartão"
           title="Seta para a direita"
         >
           Próxima →
@@ -420,6 +433,16 @@ export function LiveLesson({
       */}
       {upcoming !== null && (
         <div aria-hidden="true" className="pointer-events-none fixed size-0">
+          {upcoming.question?.imageUrl != null && (
+            <Image
+              src={upcoming.question.imageUrl}
+              alt=""
+              fill
+              sizes={sizesFor(1)}
+              loading="eager"
+              className="opacity-0"
+            />
+          )}
           {upcoming.words.map((word) =>
             hasPicture(word) && word.imageUrl !== null ? (
               <Image
