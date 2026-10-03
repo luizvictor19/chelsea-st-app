@@ -29,6 +29,8 @@ export type WordGroup = {
   /** Stable across renders: the set's id, or the word's. */
   readonly key: string;
   readonly terms: readonly string[];
+  /** The vocabulary item behind each term, in the same order. */
+  readonly ids: readonly string[];
   readonly isSet: boolean;
 };
 
@@ -59,7 +61,11 @@ export function wordsByPoint(
     readonly key: string;
     readonly place: Place;
     readonly isSet: boolean;
-    readonly members: { readonly term: string; readonly order: number }[];
+    readonly members: {
+      readonly id: string;
+      readonly term: string;
+      readonly order: number;
+    }[];
   };
   const groups = new Map<string, Draft>();
   words.forEach((word, index) => {
@@ -71,20 +77,26 @@ export function wordsByPoint(
       isSet: row !== undefined,
       members: [],
     };
-    group.members.push({ term: word.term, order: row?.position ?? 0 });
+    group.members.push({
+      id: word.id,
+      term: word.term,
+      order: row?.position ?? 0,
+    });
     groups.set(key, group);
   });
 
   const byPoint = new Map<string, WordGroup[]>();
   const ordered = [...groups.values()]
-    .map((group) => ({
-      key: group.key,
-      place: group.place,
-      isSet: group.isSet,
-      terms: [...group.members]
-        .sort((a, b) => a.order - b.order)
-        .map((member) => member.term),
-    }))
+    .map((group) => {
+      const members = [...group.members].sort((a, b) => a.order - b.order);
+      return {
+        key: group.key,
+        place: group.place,
+        isSet: group.isSet,
+        terms: members.map((member) => member.term),
+        ids: members.map((member) => member.id),
+      };
+    })
     .sort(
       (a, b) =>
         comparePlaces(a.place, b.place) ||
