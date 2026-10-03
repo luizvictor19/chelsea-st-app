@@ -194,9 +194,15 @@ export function meanUsage(counts: readonly number[]): number {
 /**
  * The two lines between the bands, as shares of the lesson's mean: under
  * LOW_BELOW times the mean a word is little used, over HIGH_ABOVE times it
- * is much used. Given by Luiz on 2026-10-03 as a first reading, with one
- * lesson holding questions (11, in lesson 1 of book 1): they are here to be
- * tuned once more lessons have them.
+ * is much used. Given by Luiz on 2026-10-03, not fitted to anything.
+ *
+ * Measured that day on the only questions there are, the 11 of lesson 1 of
+ * book 1, against the 60 words the lesson presents: 41 words in no question,
+ * mean 1.18, so the lines fall at 0.59 and 2.37. No word is "low", since no
+ * count sits between 0 and 0.59; 9 are "medium" (1 or 2 questions) and 10
+ * are "high" (3 to 11: a, the, this, no, pen, pencil and the four of is).
+ * While most of a lesson has no question the zeros hold the mean down and
+ * the low band stays empty: tune the two factors once a lesson is filled.
  */
 export const LOW_BELOW = 0.5;
 export const HIGH_ABOVE = 2;
