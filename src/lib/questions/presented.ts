@@ -134,7 +134,7 @@ function core(raw: string): { readonly word: string; readonly cut: number } {
 }
 
 /** The form two spellings of one word share, under the rules given. */
-function fold(word: string, rules: ReadonlySet<Rule>): string {
+export function fold(word: string, rules: ReadonlySet<Rule>): string {
   let folded = word;
   if (rules.has("apostrophe")) {
     folded = folded.replace(TYPOGRAPHIC_APOSTROPHE, "'");
@@ -148,7 +148,7 @@ function fold(word: string, rules: ReadonlySet<Rule>): string {
  * same reading for a term and for a sentence, so the two cannot disagree
  * about what a word is.
  */
-function words(
+export function words(
   text: string,
   rules: ReadonlySet<Rule>,
 ): readonly { readonly word: string; readonly start: number }[] {
@@ -163,6 +163,19 @@ function words(
     if (word !== "") found.push({ word, start: token.start + cut });
   }
   return found;
+}
+
+/**
+ * What a word contracts is onto, "pen" for "pen's", or null when it ends in
+ * no 's or the rule is off. Words, not grammar: a possessive answers the same.
+ */
+export function contractedStem(
+  word: string,
+  rules: ReadonlySet<Rule>,
+): string | null {
+  return rules.has("contractedIs") && CONTRACTED_IS.test(word)
+    ? word.slice(0, -2)
+    : null;
 }
 
 /**
@@ -225,12 +238,13 @@ export function createChecker(
         let presentedAt = missing(word, at);
         if (presentedAt === undefined) continue;
 
-        if (on.has("contractedIs") && CONTRACTED_IS.test(word)) {
-          const stem = missing(word.slice(0, -2), at);
-          if (stem === undefined) continue;
+        const stem = contractedStem(word, on);
+        if (stem !== null) {
+          const stemAt = missing(stem, at);
+          if (stemAt === undefined) continue;
           // The word itself may be an item of its own ("there's"); when it
           // is not, what is known about it is what is known about its stem.
-          presentedAt ??= stem;
+          presentedAt ??= stemAt;
         }
 
         marks.push({ start, end: start + word.length, word, presentedAt });
