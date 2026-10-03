@@ -83,13 +83,13 @@ export function chipTitle(
   return parts.join(" · ");
 }
 
-/** "Média da lição: 2,3 perguntas por palavra." and where the lines fall. */
+/** The mean the bands are read against, and where the two lines fall. */
 export function meanSentence(mean: number): string {
   if (mean === 0) return "Nenhuma palavra desta lição tem pergunta ainda.";
-  return `Média da lição: ${decimal(mean)} por palavra. Pouco usada abaixo de ${decimal(LOW_BELOW * mean)}, muito usada acima de ${decimal(HIGH_ABOVE * mean)}.`;
+  return `Média das palavras com pergunta: ${decimal(mean)}. Pouco usada abaixo de ${decimal(LOW_BELOW * mean)}, muito usada acima de ${decimal(HIGH_ABOVE * mean)}.`;
 }
 
-/** The mean of a lesson: over every word it presents, the unused included. */
+/** The mean of a lesson: over the words of it some question uses. */
 export function lessonMean(
   ids: readonly string[],
   usage: ReadonlyMap<string, Usage>,

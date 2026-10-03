@@ -232,8 +232,13 @@ describe("countUsage", () => {
 });
 
 describe("meanUsage", () => {
-  test("is the mean of the counts, zeros included", () => {
-    assert.equal(meanUsage([4, 0, 2, 0]), 1.5);
+  test("is the mean of the words some question uses", () => {
+    assert.equal(meanUsage([4, 0, 2, 0]), 3);
+    assert.equal(meanUsage([4, 2]), 3);
+  });
+
+  test("is zero when no word has a question", () => {
+    assert.equal(meanUsage([0, 0, 0]), 0);
   });
 
   test("is zero for a lesson with no word", () => {
@@ -270,6 +275,17 @@ describe("bandOf", () => {
   test("over twice the mean is high, and twice it is medium", () => {
     assert.equal(bandOf(8, 4), "medium");
     assert.equal(bandOf(9, 4), "high");
+  });
+
+  test("the words with no question do not move the lines", () => {
+    // One word asked about four times, among words never asked about: the
+    // mean is 4, and that word is in the middle of its own lesson.
+    const counts = [4, 0, 0, 0];
+    const mean = meanUsage(counts);
+    assert.deepEqual(
+      counts.map((count) => bandOf(count, mean)),
+      ["medium", "none", "none", "none"],
+    );
   });
 
   test("a mean that is not whole keeps the lines where they are", () => {

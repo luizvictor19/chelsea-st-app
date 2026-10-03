@@ -185,10 +185,15 @@ export function countUsage(
   return usage;
 }
 
-/** The mean of the counts, zero for no counts at all. */
+/**
+ * The mean a lesson's words are read against: over the words some question
+ * uses, and zero when none is. A word with no question has a band of its
+ * own and stays out of the mean, see the measurement below for why.
+ */
 export function meanUsage(counts: readonly number[]): number {
-  if (counts.length === 0) return 0;
-  return counts.reduce((sum, count) => sum + count, 0) / counts.length;
+  const used = counts.filter((count) => count > 0);
+  if (used.length === 0) return 0;
+  return used.reduce((sum, count) => sum + count, 0) / used.length;
 }
 
 /**
@@ -197,12 +202,16 @@ export function meanUsage(counts: readonly number[]): number {
  * is much used. Given by Luiz on 2026-10-03, not fitted to anything.
  *
  * Measured that day on the only questions there are, the 11 of lesson 1 of
- * book 1, against the 60 words the lesson presents: 41 words in no question,
- * mean 1.18, so the lines fall at 0.59 and 2.37. No word is "low", since no
- * count sits between 0 and 0.59; 9 are "medium" (1 or 2 questions) and 10
- * are "high" (3 to 11: a, the, this, no, pen, pencil and the four of is).
- * While most of a lesson has no question the zeros hold the mean down and
- * the low band stays empty: tune the two factors once a lesson is filled.
+ * book 1, against the 60 words the lesson presents, 41 of them in no
+ * question and 19 in at least one.
+ *
+ * With the mean over all 60, as first written: 1.18, lines at 0.59 and 2.37.
+ * No word could be "low", since no count sits between 0 and 0.59, and 10 of
+ * the 19 were "high": the zeros held the mean under every word in use.
+ *
+ * With the mean over the 19 in use, as it is now: 3.74, lines at 1.87 and
+ * 7.47. 3 are "low" (box, picture and table, 1 question each), 15 are
+ * "medium" (2 to 7) and 1 is "high" (it is (it's), in all 11).
  */
 export const LOW_BELOW = 0.5;
 export const HIGH_ABOVE = 2;
@@ -210,9 +219,10 @@ export const HIGH_ABOVE = 2;
 export type Band = "none" | "low" | "medium" | "high";
 
 /**
- * Where a word's count stands against the mean of its lesson. Zero is a band
- * of its own whatever the mean is, so a lesson with no question at all, mean
- * zero, is all "none". Both lines belong to the middle: exactly half the
+ * Where a word's count stands against the mean of its lesson, which is the
+ * mean of the words in use: see meanUsage. Zero is a band of its own
+ * whatever the mean is, so a lesson with no question at all, mean zero, is
+ * all "none". Both lines belong to the middle: exactly half the
  * mean and exactly twice it are "medium".
  */
 export function bandOf(count: number, mean: number): Band {

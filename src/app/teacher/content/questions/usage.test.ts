@@ -54,7 +54,7 @@ describe("meanSentence", () => {
   test("says the mean and where the two lines fall", () => {
     assert.equal(
       meanSentence(2.25),
-      "Média da lição: 2,3 por palavra. Pouco usada abaixo de 1,1, muito usada acima de 4,5.",
+      "Média das palavras com pergunta: 2,3. Pouco usada abaixo de 1,1, muito usada acima de 4,5.",
     );
   });
 
@@ -67,12 +67,17 @@ describe("meanSentence", () => {
 });
 
 describe("lessonMean", () => {
-  test("counts the words no question uses as zero", () => {
+  test("leaves out the words no question uses", () => {
     const usage = new Map([
       ["a", { published: 2, unpublished: 1 }],
       ["b", { published: 0, unpublished: 1 }],
     ]);
-    assert.equal(lessonMean(["a", "b", "c", "d"], usage), 1);
+    assert.equal(lessonMean(["a", "b", "c", "d"], usage), 2);
+  });
+
+  test("is zero for a lesson with no question, or with no word", () => {
+    const usage = new Map([["a", { published: 2, unpublished: 1 }]]);
+    assert.equal(lessonMean(["c", "d"], usage), 0);
     assert.equal(lessonMean([], usage), 0);
   });
 });
