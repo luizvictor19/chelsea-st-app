@@ -1,7 +1,14 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import {
   placeKey,
@@ -15,13 +22,23 @@ import {
   type Mark,
   type Place,
 } from "@/lib/questions/presented";
-import type { LessonPoint, Question } from "@/lib/questions/queries";
+import type {
+  BookPoint,
+  LessonPoint,
+  Question,
+  ScreenWord,
+} from "@/lib/questions/queries";
 import {
   approvedPicture,
   shownWordOptions,
   type PicturedWord,
   type ShownWordOption,
 } from "@/lib/questions/shown-word";
+import {
+  countUsage,
+  createUsageReader,
+  type UsageQuestion,
+} from "@/lib/questions/word-usage";
 
 import { moveMember } from "../images/contrast-sets";
 import { settle } from "../images/panel-state";
@@ -54,6 +71,34 @@ import {
   tell,
   type NoticeText,
 } from "./notice-texts";
+import {
+  draftLights,
+  earlierLessons,
+  lessonMean,
+  type OpenDraft,
+} from "./usage";
+import {
+  UsageChip,
+  WordUsagePanel,
+  type ChipWord,
+  type UsageView,
+} from "./word-usage-panel";
+
+/** Whether two reports of a form say the same sentences. */
+function sameDraft(a: OpenDraft | undefined, b: OpenDraft): boolean {
+  if (a === undefined) return false;
+  const same = (x: OpenDraft["draft"], y: OpenDraft["draft"]) =>
+    x.prompt === y.prompt &&
+    x.expectedAnswer === y.expectedAnswer &&
+    x.answerLanguage === y.answerLanguage;
+  if (a.saved === null || b.saved === null) {
+    return a.saved === b.saved && same(a.draft, b.draft);
+  }
+  return same(a.saved, b.saved) && same(a.draft, b.draft);
+}
+
+/** Tells the screen what an open form holds, or null once it closes. */
+type ReportDraft = (form: string, open: OpenDraft | null) => void;
 
 /**
  * The questions of one lesson, point by point: what each point presents, the
@@ -61,19 +106,29 @@ import {
  *
  * The validator runs here, in the browser, on what is saved and on what is
  * being typed. It marks and never stops a save: see presented.ts.
+ *
+ * So does the usage count (word-usage.ts), from the questions of the whole
+ * book as the server read them: every action revalidates the screen, the
+ * props arrive new, and the counts follow with no reload.
  */
 export function LessonQuestions({
   book,
+  lesson,
   points,
   questions,
   words,
   sets,
+  bookQuestions,
+  bookPoints,
 }: {
   readonly book: number;
+  readonly lesson: number;
   readonly points: readonly LessonPoint[];
   readonly questions: readonly Question[];
-  readonly words: readonly PicturedWord[];
+  readonly words: readonly ScreenWord[];
   readonly sets: readonly SetRow[];
+  readonly bookQuestions: readonly UsageQuestion[];
+  readonly bookPoints: readonly BookPoint[];
 }) {
   const checker = useMemo(() => {
     const setOf = new Map(
@@ -93,8 +148,66 @@ export function LessonQuestions({
     [words],
   );
 
+  const reader = useMemo(() => createUsageReader(words), [words]);
+  const usage = useMemo(
+    () => countUsage(reader, bookQuestions),
+    [reader, bookQuestions],
+  );
+  // Every form open on the screen, by the key the form gives itself.
+  const [drafts, setDrafts] = useState<ReadonlyMap<string, OpenDraft>>(
+    new Map(),
+  );
+  const reportDraft = useCallback<ReportDraft>((form, open) => {
+    setDrafts((known) => {
+      // The same map for the same news, so React stops here: a form reports
+      // on every render of its point, and a new map each time would render
+      // the point again, for ever.
+      const had = known.get(form);
+      if (open === null ? had === undefined : sameDraft(had, open)) {
+        return known;
+      }
+      const next = new Map(known);
+      if (open === null) next.delete(form);
+      else next.set(form, open);
+      return next;
+    });
+  }, []);
+  const view: UsageView = useMemo(
+    () => ({ usage, lights: draftLights(reader, [...drafts.values()]) }),
+    [usage, reader, drafts],
+  );
+
+  /** The words a point presents, a set's members side by side. */
+  const wordsAt = (point: number): readonly ChipWord[] =>
+    (groups.get(placeKey({ book, point })) ?? []).flatMap((group) =>
+      group.ids.map((id, index) => ({ id, term: group.terms[index] })),
+    );
+  const meanOf = (numbers: readonly number[]) =>
+    lessonMean(
+      numbers.flatMap((number) => wordsAt(number).map((word) => word.id)),
+      usage,
+    );
+  const mean = meanOf(points.map((point) => point.number));
+
   return (
     <div className="flex flex-col gap-10">
+      <WordUsagePanel
+        lesson={lesson}
+        mean={mean}
+        points={points.map((point) => ({
+          point: point.number,
+          words: wordsAt(point.number),
+        }))}
+        earlier={earlierLessons(bookPoints, lesson).map((before) => ({
+          lesson: before.lesson,
+          mean: meanOf(before.points),
+          points: before.points.map((point) => ({
+            point,
+            words: wordsAt(point),
+          })),
+        }))}
+        view={view}
+      />
       {points.map((point) => {
         const at = { book, point: point.number };
         return (
@@ -109,6 +222,9 @@ export function LessonQuestions({
               (question) => question.pointId === point.id,
             )}
             checker={checker}
+            mean={mean}
+            view={view}
+            reportDraft={reportDraft}
           />
         );
       })}
@@ -149,6 +265,9 @@ function PointSection({
   wordOf,
   questions,
   checker,
+  mean,
+  view,
+  reportDraft,
 }: {
   readonly at: Place;
   readonly pointId: string;
@@ -158,6 +277,10 @@ function PointSection({
   readonly wordOf: ReadonlyMap<string, PicturedWord>;
   readonly questions: readonly Question[];
   readonly checker: Checker;
+  /** The mean of the lesson, which the chips of the point are read against. */
+  readonly mean: number;
+  readonly view: UsageView;
+  readonly reportDraft: ReportDraft;
 }) {
   const [busy, setBusy] = useState(false);
   // Every edit form open in this point. More than one may be: see `opened`.
@@ -234,11 +357,18 @@ function PointSection({
                 title={group.isSet ? "Conjunto de contraste" : undefined}
                 className={
                   group.isSet
-                    ? "border-foreground/40 rounded-sm border px-2 py-0.5 text-sm"
-                    : "border-rule rounded-sm border px-2 py-0.5 text-sm"
+                    ? "border-foreground/40 flex flex-wrap gap-1.5 rounded-sm border p-1"
+                    : "flex"
                 }
               >
-                {group.terms.join(" · ")}
+                {group.ids.map((id, index) => (
+                  <UsageChip
+                    key={id}
+                    word={{ id, term: group.terms[index] }}
+                    mean={mean}
+                    view={view}
+                  />
+                ))}
               </li>
             ))}
           </ul>
@@ -267,6 +397,8 @@ function PointSection({
                     shownWords={shownWords}
                     wordOf={wordOf}
                     saved={saved}
+                    draftKey={question.id}
+                    reportDraft={reportDraft}
                     legend={`Editar a pergunta ${number}`}
                     submitLabel="Salvar"
                     busy={busy}
@@ -410,6 +542,8 @@ function PointSection({
             shownWords={shownWords}
             wordOf={wordOf}
             saved={null}
+            draftKey={`novo:${pointId}`}
+            reportDraft={reportDraft}
             legend={`Nova pergunta do ponto ${at.point}`}
             submitLabel="Acrescentar"
             busy={busy}
@@ -581,6 +715,8 @@ function QuestionForm({
   shownWords,
   wordOf,
   saved,
+  draftKey,
+  reportDraft,
   legend,
   submitLabel,
   busy,
@@ -592,6 +728,9 @@ function QuestionForm({
   readonly shownWords: readonly ShownWordOption[];
   readonly wordOf: ReadonlyMap<string, PicturedWord>;
   readonly saved: QuestionFields | null;
+  /** What the screen files this form's draft under: see reportDraft. */
+  readonly draftKey: string;
+  readonly reportDraft: ReportDraft;
   readonly legend: string;
   readonly submitLabel: string;
   readonly busy: boolean;
@@ -621,6 +760,18 @@ function QuestionForm({
       ? draft.prompt.trim() !== "" || draft.expectedAnswer.trim() !== ""
       : isDirty(draft, loaded);
   useUnsavedWarning(dirty);
+
+  /*
+   * The screen is told what the form holds, so the chips of the words the
+   * draft uses are lit in the point and in the panel. Against `saved` as it
+   * is now and not `loaded`: what a save would add is measured from what the
+   * count already has. Two effects, so typing does not take the draft away
+   * and put it back: the second runs only when the form closes.
+   */
+  useEffect(() => {
+    reportDraft(draftKey, { draft, saved });
+  }, [reportDraft, draftKey, draft, saved]);
+  useEffect(() => () => reportDraft(draftKey, null), [reportDraft, draftKey]);
 
   const why = refusal(draft);
   const marks = marksOf(checker, draft, at);

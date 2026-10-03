@@ -21,11 +21,19 @@ export default async function QuestionsPage({
   readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
-  const { lessons, lesson, points, questions, words, sets } =
-    await loadQuestionsScreen({
-      book: numberOf(params.livro),
-      lesson: numberOf(params.licao),
-    });
+  const {
+    lessons,
+    lesson,
+    points,
+    questions,
+    words,
+    sets,
+    bookQuestions,
+    bookPoints,
+  } = await loadQuestionsScreen({
+    book: numberOf(params.livro),
+    lesson: numberOf(params.licao),
+  });
 
   // The picker, one row per book that has lessons.
   const books = [...new Set(lessons.map((option) => option.book))].map(
@@ -102,10 +110,13 @@ export default async function QuestionsPage({
           <LessonQuestions
             key={lesson.id}
             book={lesson.book}
+            lesson={lesson.number}
             points={points}
             questions={questions}
             words={words}
             sets={sets}
+            bookQuestions={bookQuestions}
+            bookPoints={bookPoints}
           />
         </div>
       )}

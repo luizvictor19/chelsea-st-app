@@ -43,6 +43,19 @@
   --set-4: #4d7c0f;
   --set-5: #7c3aed;
   --set-6: #8b5e34;
+  /*
+   * The four bands of the usage count on the questions screen, one colour
+   * each: how many questions use a word, against the mean of its lesson.
+   * No question is the warning's amber, since it is the one band that asks
+   * for something. The other three run cold to warm, little to much, and
+   * keep clear of the accent: a word used a lot is not an error. Each fills
+   * the pill behind a number written in the background colour, so each is
+   * held to text contrast against it in src/app/usage-palette.test.ts.
+   */
+  --usage-none: #9a5b06;
+  --usage-low: #1d4ed8;
+  --usage-medium: #166534;
+  --usage-high: #be185d;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -63,6 +76,10 @@
     --set-4: #a3e635;
     --set-5: #a78bfa;
     --set-6: #d4a373;
+    --usage-none: #e0a33c;
+    --usage-low: #60a5fa;
+    --usage-medium: #4ade80;
+    --usage-high: #f472b6;
   }
 }
 
@@ -82,6 +99,10 @@
   --color-set-4: var(--set-4);
   --color-set-5: var(--set-5);
   --color-set-6: var(--set-6);
+  --color-usage-none: var(--usage-none);
+  --color-usage-low: var(--usage-low);
+  --color-usage-medium: var(--usage-medium);
+  --color-usage-high: var(--usage-high);
   --font-sans: var(--font-archivo);
   --font-mono: var(--font-plex-mono);
 }

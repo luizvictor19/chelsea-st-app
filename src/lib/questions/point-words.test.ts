@@ -17,10 +17,10 @@ describe("wordsByPoint", () => {
   test("a word alone is a group of its own, at its own point", () => {
     const groups = wordsByPoint([word("lamp", 2), word("a", 1)], []);
     assert.deepEqual(groups.get("1:1"), [
-      { key: "id-a", terms: ["a"], isSet: false },
+      { key: "id-a", terms: ["a"], ids: ["id-a"], isSet: false },
     ]);
     assert.deepEqual(groups.get("1:2"), [
-      { key: "id-lamp", terms: ["lamp"], isSet: false },
+      { key: "id-lamp", terms: ["lamp"], ids: ["id-lamp"], isSet: false },
     ]);
   });
 
@@ -30,7 +30,12 @@ describe("wordsByPoint", () => {
       [row("sizes", "tiny", 0), row("sizes", "tall", 1)],
     );
     assert.deepEqual(groups.get("1:3"), [
-      { key: "sizes", terms: ["tiny", "tall"], isSet: true },
+      {
+        key: "sizes",
+        terms: ["tiny", "tall"],
+        ids: ["id-tiny", "id-tall"],
+        isSet: true,
+      },
     ]);
   });
 
@@ -44,10 +49,15 @@ describe("wordsByPoint", () => {
       ],
     );
     assert.deepEqual(groups.get("1:3"), [
-      { key: "id-the", terms: ["the"], isSet: false },
+      { key: "id-the", terms: ["the"], ids: ["id-the"], isSet: false },
     ]);
     assert.deepEqual(groups.get("1:7"), [
-      { key: "colours", terms: ["red", "pink", "teal"], isSet: true },
+      {
+        key: "colours",
+        terms: ["red", "pink", "teal"],
+        ids: ["id-red", "id-pink", "id-teal"],
+        isSet: true,
+      },
     ]);
   });
 
@@ -65,7 +75,7 @@ describe("wordsByPoint", () => {
   test("the same number in another book is another point", () => {
     const groups = wordsByPoint([word("lamp", 4, 1), word("shelf", 4, 2)], []);
     assert.deepEqual(groups.get(placeKey({ book: 2, point: 4 })), [
-      { key: "id-shelf", terms: ["shelf"], isSet: false },
+      { key: "id-shelf", terms: ["shelf"], ids: ["id-shelf"], isSet: false },
     ]);
   });
 });

@@ -4,6 +4,7 @@ import type { Database } from "@/lib/supabase/types";
 import { everyRow } from "./every-row";
 import type { SetRow } from "./point-words";
 import type { PicturedWord } from "./shown-word";
+import type { UsageQuestion } from "./word-usage";
 
 export type AnswerLanguage = Database["public"]["Enums"]["answer_language"];
 
@@ -17,6 +18,7 @@ const PAGE = 1000;
 /** A lesson of a book, as the lesson picker lists it. */
 export type LessonOption = {
   readonly id: string;
+  readonly bookId: string;
   readonly book: number;
   readonly bookTitle: string;
   readonly number: number;
@@ -39,6 +41,18 @@ export type Question = {
   readonly shownWordId: string | null;
 };
 
+/** A vocabulary item with what the screen shows and counts it by. */
+export type ScreenWord = PicturedWord & {
+  /** Read by the usage count: see word-usage.ts. */
+  readonly wordClass: Database["public"]["Enums"]["word_class"] | null;
+};
+
+/** A point of the book, with the number of its lesson when it has one. */
+export type BookPoint = {
+  readonly number: number;
+  readonly lesson: number | null;
+};
+
 export type QuestionsScreen = {
   /** Every lesson of every book, in book order. */
   readonly lessons: readonly LessonOption[];
@@ -52,8 +66,15 @@ export type QuestionsScreen = {
    * presented up to its point, in this book or an earlier one. Each with its
    * approved picture, for the word a question shows.
    */
-  readonly words: readonly PicturedWord[];
+  readonly words: readonly ScreenWord[];
   readonly sets: readonly SetRow[];
+  /**
+   * Every question of the lesson's book, in any lesson, for the usage count:
+   * a word presented here may be asked about anywhere after.
+   */
+  readonly bookQuestions: readonly UsageQuestion[];
+  /** Every point of the lesson's book, in order: which lesson holds which. */
+  readonly bookPoints: readonly BookPoint[];
 };
 
 /**
@@ -76,12 +97,12 @@ export async function loadQuestionsScreen(asked: {
   const [lessonRows, wordRows, sets] = await Promise.all([
     supabase
       .from("lessons_content")
-      .select("id, number, books!inner(position, title)"),
+      .select("id, number, books!inner(id, position, title)"),
     everyRow(async (from) => {
       const { data, count, error } = await supabase
         .from("vocabulary_items")
         .select(
-          "id, term, representation, image_path, points!inner(number, books!inner(position))",
+          "id, term, word_class, representation, image_path, points!inner(number, books!inner(position))",
           { count: "exact" },
         )
         .order("id")
@@ -106,6 +127,7 @@ export async function loadQuestionsScreen(asked: {
   const lessons = lessonRows.data
     .map((row) => ({
       id: row.id,
+      bookId: row.books.id,
       book: row.books.position,
       bookTitle: row.books.title,
       number: row.number,
@@ -123,6 +145,7 @@ export async function loadQuestionsScreen(asked: {
     id: row.id,
     term: row.term,
     place: { book: row.points.books.position, point: row.points.number },
+    wordClass: row.word_class,
     representation: row.representation,
     imageUrl: publicImageUrl(supabase, row.image_path),
   }));
@@ -135,8 +158,39 @@ export async function loadQuestionsScreen(asked: {
       questions: [],
       words,
       sets,
+      bookQuestions: [],
+      bookPoints: [],
     };
   }
+
+  // Both through everyRow, for the reason the vocabulary is: a short answer
+  // here is a word counted low, or shown as never asked about, with nothing
+  // on the screen to say why.
+  const [bookQuestionRows, bookPointRows] = await Promise.all([
+    everyRow(async (from) => {
+      const { data, count, error } = await supabase
+        .from("questions")
+        .select(
+          "prompt, expected_answer, answer_language, is_published, points!inner(book_id)",
+          { count: "exact" },
+        )
+        .eq("points.book_id", lesson.bookId)
+        .order("id")
+        .range(from, from + PAGE - 1);
+      if (error) throw new Error(error.message);
+      return { rows: data, total: count ?? data.length };
+    }),
+    everyRow(async (from) => {
+      const { data, count, error } = await supabase
+        .from("points")
+        .select("number, lessons_content(number)", { count: "exact" })
+        .eq("book_id", lesson.bookId)
+        .order("number")
+        .range(from, from + PAGE - 1);
+      if (error) throw new Error(error.message);
+      return { rows: data, total: count ?? data.length };
+    }),
+  ]);
 
   const pointRows = await supabase
     .from("points")
@@ -173,5 +227,15 @@ export async function loadQuestionsScreen(asked: {
     })),
     words,
     sets,
+    bookQuestions: bookQuestionRows.map((row) => ({
+      prompt: row.prompt,
+      expectedAnswer: row.expected_answer,
+      answerLanguage: row.answer_language,
+      isPublished: row.is_published,
+    })),
+    bookPoints: bookPointRows.map((row) => ({
+      number: row.number,
+      lesson: row.lessons_content?.number ?? null,
+    })),
   };
 }
