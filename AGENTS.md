@@ -42,7 +42,9 @@ so it describes the Next that actually runs here.
   never is.
 - No `any` without a comment explaining why.
 - A bug fix starts with a failing test.
-- Never commit, push or deploy unless asked.
+- Never commit, push or deploy unless asked. The approved plan of an issue
+  counts as the ask for that issue's branch, commits, push and PR, and for
+  nothing else. Deploy is never part of that exception.
 - DDL only through a migration. Write migrations, never apply them: Luiz
   applies with `supabase db push`.
 - Never choose a migration number yourself. Use the number given in the
@@ -79,21 +81,69 @@ so it describes the Next that actually runs here.
   fixing a bug in a high-rigor area. Never for layout, screen copy, docs or
   tests only.
 
+## Workflow
+
+### Every change starts with an issue
+
+- Nothing changes in this repository without an open issue first.
+- An issue body has four parts: **What happens**, **What was expected**, **Evidence** (screenshot,
+  log, link, query) and **Done when** (how to know it is finished).
+- One issue per PR. Large work becomes a parent issue with sub-issues, and each sub-issue goes
+  through the whole flow on its own.
+
+### The four stages
+
+1. **Understand.** Read the issue, the code and the docs involved. No branch, no code. If
+   information is missing, ask in the issue itself.
+2. **Plan, posted as a comment on the issue.** Files that change, steps, tests, risks, and what stays
+   out. Only what changes production, the database (migration, RLS, function, stored data) or the
+   architecture becomes a **question**. Everything else is a **decision**, with a one-line reason.
+   After posting the plan, stop.
+3. **Implement only after Luiz says "aprovado".** The approval covers that issue and authorizes its
+   branch, commits, push and PR. Branch from an up-to-date main, in a worktree, named
+   `type/NN-scope` (for example `feat/61-scene-table`), where NN is the issue number.
+4. **PR, then stop.** Body with `Closes #NN`, what changed, what differs from the plan, and how to
+   test in at most 3 steps. Green gate. Do not merge.
+
+### Along the way
+
+- **A problem found outside the scope becomes a new issue**, with the four parts, and is not fixed
+  in the same PR. Cite the new issue number in the report.
+- **A plan that changes during implementation:** update the plan comment on the issue. If the change
+  touches production, the database or the architecture, stop and wait for a new approval.
+
+### Merging
+
+- Merge only when Luiz asks, naming the PR number: `gh pr merge NN --merge`. Then, from the main
+  folder (never from inside the worktree being removed): pull, remove the worktree, delete the local
+  and the remote branch.
+- `git merge`, `git rebase` and force pushes stay blocked. Deploys are always Luiz's.
+
+### Who does what
+
+- **Luiz:** opens or approves issues, approves plans, asks for merges, applies migrations
+  (`supabase db push`) and deploys.
+- **Claude Code (terminal):** reads GitHub, runs commands, writes plans, implements and opens PRs.
+  Opens an issue when Luiz asks, or when it finds a problem outside the scope.
+- **Claude in Cowork (desktop):** helps understand, reviews plans, prepares prompts and keeps the
+  daily guide. Its documents (`claude/*.md`) do not exist in this repository: never look for them
+  here.
+
 ## Git
 
-- Branches: `feat/<scope>`, `fix/<scope>`, `chore/<scope>`, `docs/<scope>`.
+- Branches: `type/NN-scope`, where `type` is `feat`, `fix`, `chore` or `docs`
+  and NN is the issue number: `feat/61-scene-table`.
 - Conventional Commits: `feat(auth): add magic link sign-in`.
 - One commit per logical unit.
 - Before the first commit, check the current branch. Never commit on `main`.
   If on `main`, create a branch first. A hook in `.claude/settings.json`
   enforces this; the rule stands without it.
 - No amend. A second commit instead.
-- When Luiz asks, commit, push and open the PR yourself. Write the PR body to
-  a file and use `gh pr create --body-file`; never pass a long body inline.
-- Never merge: merging is Luiz's.
-- Squash merge a messy branch. A branch deliberately sliced so that every commit
-  is a valid state is merged whole: the slicing is the information, and squashing
-  it would put a broken intermediate state in history as if it had never existed.
+- Write the PR body to a file and use `gh pr create --body-file`; never pass a
+  long body inline.
+- The default merge keeps every commit (`--merge`). Squash only when Luiz asks
+  for it in the same request: a branch sliced so that every commit is a valid
+  state is information, and squashing it would hide that.
 
 ## Parallel work
 
@@ -101,9 +151,8 @@ so it describes the Next that actually runs here.
 - Stay inside the files the prompt assigns to the stream. Touching a file
   another stream owns is a question for Luiz, not a decision.
 - The dev server of each worktree runs on the port given in the prompt.
-- `merge` and `rebase` are denied to you on purpose. Bringing `main` into a
-  branch is Luiz's; after he does, `./scripts/gen-types.sh` resolves
-  `types.ts`.
+- Bringing `main` into a branch is Luiz's; after he does,
+  `./scripts/gen-types.sh` resolves `types.ts`.
 
 ## Verifying
 
