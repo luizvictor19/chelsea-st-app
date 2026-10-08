@@ -10,7 +10,9 @@ Read this before writing code in this repository.
   docs/, and every string the teacher or the student sees. Their job is to be
   read, and the reader is Brazilian.
 - Reports, summaries and answers to Luiz are written in Portuguese. English is
-  for code, identifiers, comments, commit messages and files under docs/adr/.
+  for code, identifiers, comments, commit messages, files under docs/adr/,
+  `docs/context.md` and `docs/commands.md`: those two are read by a session
+  writing a plan.
 - When unsure, ask before deciding.
 
 ## Content and licensing
@@ -93,8 +95,9 @@ so it describes the Next that actually runs here.
 
 ### The four stages
 
-1. **Understand.** Read the issue, the code and the docs involved. No branch, no code. If
-   information is missing, ask in the issue itself.
+1. **Understand.** Read the issue, the code and the docs involved. Every plan reads
+   `docs/context.md` first. The day-to-day commands are in `docs/commands.md`. No branch, no code.
+   If information is missing, ask in the issue itself.
 2. **Plan, posted as a comment on the issue.** Files that change, steps, tests, risks, and what stays
    out. Only what changes production, the database (migration, RLS, function, stored data) or the
    architecture becomes a **question**. Everything else is a **decision**, with a one-line reason.
