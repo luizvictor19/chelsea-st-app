@@ -29,6 +29,6 @@ jq -n '{
   hookSpecificOutput: {
     hookEventName: "PreToolUse",
     permissionDecision: "deny",
-    permissionDecisionReason: "Never commit on main. Create a branch first (git checkout -b feat/<scope>, fix/<scope>, chore/<scope> or docs/<scope>), then commit there."
+    permissionDecisionReason: "Never commit on main. Create a branch first, named type/NN-scope where NN is the issue number (see Workflow in AGENTS.md), then commit there."
   }
 }'

@@ -1,13 +1,13 @@
 {
   "enabledMcpjsonServers": ["supabase"],
   "permissions": {
+    "ask": ["Bash(gh pr merge*)"],
     "deny": [
       "Bash(git merge*)",
       "Bash(git rebase*)",
       "Bash(git reset --hard*)",
       "Bash(git push --force*)",
       "Bash(git push -f*)",
-      "Bash(gh pr merge*)",
       "Bash(rm -rf*)",
       "Bash(supabase db push*)",
       "Bash(supabase db reset*)",
