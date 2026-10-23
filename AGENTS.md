@@ -90,6 +90,8 @@ so it describes the Next that actually runs here.
 - Nothing changes in this repository without an open issue first.
 - An issue body has four parts: **What happens**, **What was expected**, **Evidence** (screenshot,
   log, link, query) and **Done when** (how to know it is finished).
+- Issue and PR bodies follow `.github/ISSUE_TEMPLATE/task.md` and `.github/pull_request_template.md`,
+  also when the body goes through `--body-file`: GitHub applies the templates only in the browser.
 - One issue per PR. Large work becomes a parent issue with sub-issues, and each sub-issue goes
   through the whole flow on its own.
 
