@@ -45,6 +45,34 @@ The lesson server always runs in Luiz's own terminal, never in a Claude Code ses
 
 `gh pr edit` fails in this repository; use the calls above.
 
+## Labels
+
+Type:
+
+- `feat`: new behaviour.
+- `fix`: a defect; the fix starts with a failing test.
+- `chore`: maintenance, no change in behaviour.
+- `docs`: documentation only.
+- `ops`: deploy, backup, production operation.
+
+Area:
+
+- `infra`: repository and environment configuration.
+- `ingestion`: book extraction and ingestion.
+- `images`: the images screen and image generation.
+- `lesson`: the live lesson screen.
+- `questions`: questions and question suggestion.
+- `payments`: payment through Appmax.
+- `tutor`: Robin, the voice tutor.
+
+State:
+
+- `epic`: a parent issue with sub-issues.
+- `needs-decision`: a question for Luiz before the plan.
+- `blocked`: waiting for something outside the repository.
+
+The other labels are GitHub's defaults and are not used.
+
 ## Phone testing (Android)
 
     adb reverse tcp:3100 tcp:3100  # after every cable connection
