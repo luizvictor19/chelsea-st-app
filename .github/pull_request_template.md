@@ -14,8 +14,4 @@ Closes #
 
 ## Portão
 
-- [ ] `npx prettier --check .`
-- [ ] `npm run lint`
-- [ ] `npx tsc --noEmit`
-- [ ] `npm test`
-- [ ] `npm run build`
+- [ ] `npm run check`
