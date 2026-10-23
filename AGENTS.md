@@ -27,7 +27,8 @@ The wording of every generated practice sentence is original.
 ## Stack
 
 Next.js App Router, TypeScript in strict mode, Tailwind, Supabase for
-Postgres, Auth and Storage. Deployed on Vercel.
+Postgres, Auth and Storage. Vercel is the deploy target; the platform is not
+deployed yet (see `docs/context.md`, Environments).
 
 ## Next.js 16
 
