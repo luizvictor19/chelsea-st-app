@@ -1,7 +1,17 @@
 {
   "enabledMcpjsonServers": ["supabase"],
   "permissions": {
-    "ask": ["Bash(gh pr merge*)"],
+    "allow": [
+      "EnterWorktree",
+      "ExitWorktree",
+      "Bash(git pull)",
+      "Bash(npm ci)",
+      "Bash(git worktree add:*)",
+      "Bash(git worktree remove:*)",
+      "Bash(git branch -d:*)",
+      "Bash(git push origin --delete:*)",
+      "Bash(npm run check)"
+    ],
     "deny": [
       "Bash(git merge*)",
       "Bash(git rebase*)",
