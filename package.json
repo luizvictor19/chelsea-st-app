@@ -8,6 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --test \"src/**/*.test.ts\" \"scripts/**/*.test.ts\"",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
     "calibrate": "node scripts/calibrate-extraction.ts",
     "smoke:reconcile": "node scripts/smoke-reconciliation.ts"
   },
