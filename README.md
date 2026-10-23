@@ -65,12 +65,10 @@ Android, desktop e iPhone.
 
 ## Verificação
 
-A mesma sequência que o CI roda, na mesma ordem:
-
 ```bash
-npx prettier --check .
-npm run lint
-npx tsc --noEmit
-npm test
-npm run build
+npm run check
 ```
+
+Roda `format:check`, `lint`, `typecheck`, `test` e `build`, na mesma ordem do
+CI, e para no primeiro que falhar. O CI roda ainda o `scripts/verify-rls.sql`,
+que precisa de um Postgres de verdade e fica fora do `check`.

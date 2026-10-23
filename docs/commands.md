@@ -22,7 +22,7 @@ The lesson server always runs in Luiz's own terminal, never in a Claude Code ses
 
 ## Gate (the CI steps, minus verify-rls.sql, which only CI runs)
 
-    npx prettier --check . && npm run lint && npx tsc --noEmit && npm test && npm run build
+    npm run check                  # format:check, lint, typecheck, test, build; stops at the first failure
 
 ## Merge PR NN and clean up (session in the main folder, not in the worktree)
 

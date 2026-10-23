@@ -162,12 +162,12 @@ so it describes the Next that actually runs here.
 ## Verifying
 
 ```bash
-npx prettier --check .
-npm run lint
-npx tsc --noEmit
-npm test
-npm run build
+npm run check
 ```
+
+It runs `format:check`, `lint`, `typecheck`, `test` and `build`, in the CI's
+order, and stops at the first failure. CI also runs `scripts/verify-rls.sql`,
+which needs a real Postgres and is not part of `check`.
 
 Run `./scripts/gen-types.sh` before the gate whenever a migration was added or
 changed, and after Luiz brings `main` into a branch.
