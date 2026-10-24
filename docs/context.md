@@ -23,7 +23,8 @@ architecture question for Luiz.
     `vocabulary-images`, measured 2026-10-24): a deleted file never comes back from a restore.
   - Restoring in place overwrites production and takes the project offline. "Restore to a new
     project" copies the database and `auth`, not Storage or keys, and is billed by the hour while
-    the new project exists.
+    the new project exists (Micro, about US$ 0.013/hour). Tested on 2026-10-24 with the 23 October
+    backup: every row count matched production; the new project was deleted the same day.
   - Before every large migration, Luiz takes a logical copy (`supabase db dump`) and the Storage
     files, and restores the copy on a local stack. Commands in `docs/commands.md`. First rehearsal
     on 2026-10-24: every row count matched production, and the 185 Storage files were copied.
