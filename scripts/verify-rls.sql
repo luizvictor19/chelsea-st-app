@@ -56,12 +56,19 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0026_the_instruction_belongs_to_the_word.sql
 \i supabase/migrations/0027_an_answer_has_a_language.sql
 \i supabase/migrations/0028_a_question_shows_a_word.sql
+\i supabase/migrations/0029_every_row_knows_its_school.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
   ('22222222-2222-2222-2222-222222222222', 'student@example.com', null);
-update profiles set role = 'teacher' where id = '11111111-1111-1111-1111-111111111111';
-insert into students (id) values ('22222222-2222-2222-2222-222222222222');
+-- Since 0029 the teacher is a platform admin and admin of Chelsea St, and the
+-- student is a Chelsea St student: the roles live in school_members.
+insert into platform_admins (user_id) values ('11111111-1111-1111-1111-111111111111');
+insert into school_members (school_id, user_id, role) values
+  ((select id from schools where slug = 'chelsea-st'), '11111111-1111-1111-1111-111111111111', 'admin'),
+  ((select id from schools where slug = 'chelsea-st'), '22222222-2222-2222-2222-222222222222', 'student');
+insert into students (id, school_id)
+  values ('22222222-2222-2222-2222-222222222222', (select id from schools where slug = 'chelsea-st'));
 
 insert into books (position, title) values (2, 'Book 2');
 select set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
@@ -1472,5 +1479,253 @@ begin
 
   raise notice 'the student sees only the published one of two questions that show a word';
   raise notice 'and cannot change which word a question shows';
+end;
+$$;
+
+-- Two schools (0029). Chelsea St holds the teacher and student above; a second
+-- school, B, gets a teacher and a student of its own. Nothing of one school
+-- may reach the people of the other, common content reaches both, and only a
+-- platform admin writes what is common.
+--
+-- Seeded as the owner, so the rows go in past RLS; the reads and writes under
+-- test happen as authenticated. Failures are collected and raised together,
+-- so taking one clause out of 0029 shows every assertion that rests on it.
+insert into schools (slug, name) values ('escola-b', 'Escola B');
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('33333333-3333-3333-3333-333333333333', 'teacher-b@example.com', null),
+  ('44444444-4444-4444-4444-444444444444', 'student-b@example.com', null);
+insert into school_members (school_id, user_id, role) values
+  ((select id from schools where slug = 'escola-b'), '33333333-3333-3333-3333-333333333333', 'teacher'),
+  ((select id from schools where slug = 'escola-b'), '44444444-4444-4444-4444-444444444444', 'student');
+insert into students (id, school_id)
+  values ('44444444-4444-4444-4444-444444444444', (select id from schools where slug = 'escola-b'));
+
+-- One book for each school, at the position of the common Book 2: the
+-- position is unique per scope now, not across the table. Their points and
+-- questions name no school and take their book's.
+insert into books (position, title, school_id) values
+  (2, 'Chelsea only', (select id from schools where slug = 'chelsea-st')),
+  (2, 'B only', (select id from schools where slug = 'escola-b'));
+insert into points (book_id, number)
+  select id, 1 from books where title in ('Chelsea only', 'B only');
+insert into questions (point_id, position, prompt, expected_answer, is_published)
+  select p.id, 0, 'of ' || b.title, 'a', true
+    from points p join books b on b.id = p.book_id
+   where b.title in ('Chelsea only', 'B only');
+-- A lesson for each school's student, so the reads below have something to
+-- miss.
+insert into lessons (student_id, scheduled_at) values
+  ('44444444-4444-4444-4444-444444444444', now() + interval '1 day'),
+  ('22222222-2222-2222-2222-222222222222', now() + interval '3 days');
+
+-- The stub storage schema grants nothing; Supabase grants these.
+grant usage on schema storage to authenticated;
+grant select, insert, update, delete on storage.objects to authenticated;
+
+-- True when the statement is refused for privilege: no grant, or a policy
+-- that rejects the row it would write.
+create function verify.refused_for_privilege(p_sql text) returns boolean
+language plpgsql as $$
+begin
+  execute p_sql;
+  return false;
+exception when insufficient_privilege then
+  return true;
+end;
+$$;
+
+do $$
+declare
+  c_chelsea constant uuid := (select id from schools where slug = 'chelsea-st');
+  c_b constant uuid := (select id from schools where slug = 'escola-b');
+  c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  c_teacher_b constant uuid := '33333333-3333-3333-3333-333333333333';
+  c_student_b constant uuid := '44444444-4444-4444-4444-444444444444';
+  v_chelsea_book uuid := (select id from books where title = 'Chelsea only');
+  v_chelsea_point uuid;
+  v_b_point uuid;
+  v_b_word uuid;
+  v_n integer;
+  v_failures text;
+begin
+  delete from verify.failures;
+  select id into v_chelsea_point from points where book_id = v_chelsea_book;
+  select p.id into v_b_point
+    from points p join books b on b.id = p.book_id where b.title = 'B only';
+
+  -- Rows that name no school take their parent's.
+  if (select school_id from points where id = v_b_point) is distinct from c_b then
+    insert into verify.failures values ('a point of a school book did not take the school');
+  end if;
+  if (select school_id from questions where point_id = v_b_point) is distinct from c_b then
+    insert into verify.failures values ('a question of a school point did not take the school');
+  end if;
+  if (select school_id from lessons where student_id = c_student_b) is distinct from c_b then
+    insert into verify.failures values ('a lesson did not take its student''s school');
+  end if;
+  if exists (select 1 from points p join books b on b.id = p.book_id
+              where b.school_id is null and p.school_id is not null) then
+    insert into verify.failures values ('a point of a common book took a school');
+  end if;
+
+  -- A row never points at another school's, and its school never changes.
+  insert into vocabulary_items (term, first_point_id) values ('a word of B', v_b_point)
+    returning id into v_b_word;
+  perform verify.expect_refused('a question of B on a Chelsea point', 'questions_school',
+    format('insert into questions (point_id, position, prompt, expected_answer, school_id)
+            values (%L, 1, %L, %L, %L)', v_chelsea_point, 'p', 'a', c_b));
+  perform verify.expect_refused('a common question showing a word of B', 'questions_school',
+    format('insert into questions (point_id, position, prompt, expected_answer, shown_vocabulary_item_id)
+            values ((select id from points where number = 53 and school_id is null), 9, %L, %L, %L)',
+           'p', 'a', v_b_word));
+  -- Points and questions and not books: two books at position 2 already live
+  -- in other scopes, so moving a book would trip the unique key first.
+  perform verify.expect_refused('a point moved to another school', 'points_school',
+    format('update points set school_id = %L where id = %L', c_b, v_chelsea_point));
+  perform verify.expect_refused('a common question given a school', 'questions_school',
+    format('update questions set school_id = %L
+             where id = (select id from questions where school_id is null limit 1)', c_b));
+  -- Two guards stand here, the trigger and the foreign key through the
+  -- school, and the trigger speaks first; either refusal is the right answer.
+  begin
+    insert into lessons (student_id, scheduled_at, school_id)
+      values (c_student, now() + interval '2 days', c_b);
+    insert into verify.failures values ('a lesson of B named a Chelsea student');
+  exception
+    when check_violation then
+      raise notice 'a lesson of B naming a Chelsea student: refused by the trigger';
+    when foreign_key_violation then
+      raise notice 'a lesson of B naming a Chelsea student: refused by the foreign key';
+  end;
+
+  -- People and operation always carry a school.
+  select count(*) into v_n from information_schema.columns
+   where table_schema = 'public' and column_name = 'school_id' and is_nullable = 'NO'
+     and table_name in ('students', 'lessons', 'lesson_schedules', 'assignments',
+                        'assignment_items', 'attempts', 'review_schedule');
+  if v_n <> 7 then
+    insert into verify.failures
+      values (format('%s of 7 people and operation tables have school_id not null', v_n));
+  end if;
+
+  -- The teacher of B.
+  perform set_config('test.uid', c_teacher_b::text, false);
+  set local role authenticated;
+
+  if exists (select 1 from books where school_id = c_chelsea) then
+    insert into verify.failures values ('the teacher of B reads a Chelsea book');
+  end if;
+  if exists (select 1 from questions where school_id = c_chelsea) then
+    insert into verify.failures values ('the teacher of B reads a Chelsea question');
+  end if;
+  if not exists (select 1 from books where school_id is null) then
+    insert into verify.failures values ('the teacher of B does not read common books');
+  end if;
+  if not exists (select 1 from books where school_id = c_b) then
+    insert into verify.failures values ('the teacher of B does not read her own school''s book');
+  end if;
+  if exists (select 1 from students where school_id = c_chelsea) then
+    insert into verify.failures values ('the teacher of B reads a Chelsea student');
+  end if;
+  if exists (select 1 from profiles where id in (c_student, c_admin)) then
+    insert into verify.failures values ('the teacher of B reads a Chelsea profile');
+  end if;
+  if not exists (select 1 from profiles where id = c_student_b) then
+    insert into verify.failures values ('the teacher of B does not read her student''s profile');
+  end if;
+  if exists (select 1 from lessons where school_id = c_chelsea) then
+    insert into verify.failures values ('the teacher of B reads a Chelsea lesson');
+  end if;
+  if exists (select 1 from school_members where school_id = c_chelsea) then
+    insert into verify.failures values ('the teacher of B reads who belongs to Chelsea');
+  end if;
+  if exists (select 1 from platform_admins) then
+    insert into verify.failures values ('the teacher of B reads the platform admins');
+  end if;
+
+  -- An update the policy filters matches nothing and does not raise; what the
+  -- rows hold is read back as the owner at the end.
+  update books set title = 'taken' where id = v_chelsea_book;
+  update questions set prompt = 'taken' where school_id is null;
+  if not verify.refused_for_privilege(
+       'insert into books (position, title) values (7, ''common, by B'')') then
+    insert into verify.failures values ('the teacher of B wrote a common book');
+  end if;
+  if verify.refused_for_privilege(
+       format('insert into books (position, title, school_id) values (7, %L, %L)', 'of B', c_b)) then
+    insert into verify.failures values ('the teacher of B could not write her own school''s book');
+  end if;
+  if not verify.refused_for_privilege(
+       format('insert into school_members (school_id, user_id, role) values (%L, %L, %L)',
+              c_chelsea, c_teacher_b, 'admin')) then
+    insert into verify.failures values ('the teacher of B made herself admin of Chelsea');
+  end if;
+  if not verify.refused_for_privilege(
+       format('insert into platform_admins (user_id) values (%L)', c_teacher_b)) then
+    insert into verify.failures values ('the teacher of B made herself platform admin');
+  end if;
+  if not verify.refused_for_privilege(
+       format('insert into storage.objects (bucket_id, name) values (%L, %L)',
+              'vocabulary-images', c_chelsea || '/x.png')) then
+    insert into verify.failures values ('the teacher of B wrote a file under Chelsea''s folder');
+  end if;
+  if not verify.refused_for_privilege(
+       format('insert into storage.objects (bucket_id, name) values (%L, %L)',
+              'vocabulary-images', 'references/x.png')) then
+    insert into verify.failures values ('the teacher of B wrote a file outside her school''s folder');
+  end if;
+  if verify.refused_for_privilege(
+       format('insert into storage.objects (bucket_id, name) values (%L, %L)',
+              'vocabulary-images', c_b || '/x.png')) then
+    insert into verify.failures values ('the teacher of B could not write under her school''s folder');
+  end if;
+
+  -- The student of B reads common published questions and her school's, and
+  -- not Chelsea's.
+  perform set_config('test.uid', c_student_b::text, false);
+  if not exists (select 1 from questions where school_id is null and is_published) then
+    insert into verify.failures values ('the student of B does not read a common published question');
+  end if;
+  if not exists (select 1 from questions where school_id = c_b) then
+    insert into verify.failures values ('the student of B does not read her school''s published question');
+  end if;
+  if exists (select 1 from questions where school_id = c_chelsea) then
+    insert into verify.failures values ('the student of B reads a Chelsea question');
+  end if;
+  if exists (select 1 from books) then
+    insert into verify.failures values ('the student of B reads a book');
+  end if;
+
+  -- And the Chelsea student does not read B's.
+  perform set_config('test.uid', c_student::text, false);
+  if exists (select 1 from questions where school_id = c_b) then
+    insert into verify.failures values ('the Chelsea student reads a question of B');
+  end if;
+
+  -- The platform admin reads everything, B's people included.
+  perform set_config('test.uid', c_admin::text, false);
+  if (select count(*) from students) <> 2 then
+    insert into verify.failures values ('the platform admin does not read every student');
+  end if;
+  if not exists (select 1 from books where school_id = c_b) then
+    insert into verify.failures values ('the platform admin does not read a book of B');
+  end if;
+
+  reset role;
+  if (select title from books where id = v_chelsea_book) <> 'Chelsea only' then
+    insert into verify.failures values ('the teacher of B renamed a Chelsea book');
+  end if;
+  if exists (select 1 from questions where prompt = 'taken') then
+    insert into verify.failures values ('the teacher of B changed a common question');
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'two schools: %', v_failures;
+  end if;
+
+  raise notice 'two schools: nothing of one reaches the other, common content reaches both';
+  raise notice 'and only a platform admin writes what is common';
 end;
 $$;
