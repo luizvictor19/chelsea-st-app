@@ -29,7 +29,9 @@
 create table school_invites (
   id uuid primary key default gen_random_uuid(),
   school_id uuid not null references schools (id) on delete cascade,
-  -- Stored the way auth.users stores it, so the two compare with =.
+  -- Stored the way auth.users stores it (Supabase Auth lower-cases every
+  -- address), so the two compare with = and the index on auth.users.email
+  -- serves the lookups below.
   email text not null
     constraint school_invites_email_check
     check (email = lower(btrim(email)) and email ~ '^[^@\s]+@[^@\s]+\.[^@\s]+$'),
@@ -82,6 +84,30 @@ create policy school_invites_renew on school_invites
 create policy school_invites_cancel on school_invites
   for delete using (accepted_at is null and can_invite(school_id, role));
 
+-- Fifteen days at most, whatever the API sends: renewing restarts the
+-- fifteen days from now, and an insert can ask for less but not more. Without
+-- this, an open student invite set to expire in 2100 would keep every other
+-- school from inviting that person to study (the check below).
+create function school_invites_fifteen_days()
+returns trigger
+language plpgsql
+as $$
+begin
+  if tg_op = 'UPDATE' then
+    new.expires_at := now() + interval '15 days';
+  else
+    new.expires_at := least(new.expires_at, now() + interval '15 days');
+  end if;
+  return new;
+end;
+$$;
+
+-- Before school_invites_one_school_per_student: triggers of one event fire in
+-- name order.
+create trigger school_invites_fifteen_days
+  before insert or update of expires_at on school_invites
+  for each row execute function school_invites_fifteen_days();
+
 -- One school per student --------------------------------------------------------
 --
 -- students has one row per person, so a second school's student invite could
@@ -105,7 +131,7 @@ begin
        select 1
          from students s
          join auth.users u on u.id = s.id
-        where lower(u.email) = new.email
+        where u.email = new.email
           and s.school_id <> new.school_id)
      or exists (
        select 1
@@ -212,7 +238,7 @@ declare
 begin
   select id into v_user
     from auth.users
-   where lower(email) = new.email
+   where email = new.email
      and email_confirmed_at is not null;
   if v_user is not null then
     perform accept_school_invites(v_user, new.email);

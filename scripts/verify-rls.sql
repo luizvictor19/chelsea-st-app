@@ -1824,6 +1824,13 @@ begin
        format('update school_invites set accepted_at = now() where school_id = %L', c_b)) then
     insert into verify.failures values ('the teacher of B marked an invite accepted');
   end if;
+  -- She renews, for fifteen days at most, whatever she asks for.
+  update school_invites set expires_at = '2100-01-01'
+   where school_id = c_b and email = 'someone-b@example.com';
+  if (select expires_at from school_invites
+       where school_id = c_b and email = 'someone-b@example.com') > now() + interval '15 days' then
+    insert into verify.failures values ('a renewal kept an invite open past fifteen days');
+  end if;
 
   -- A student invites no one, not even to her own school.
   perform set_config('test.uid', c_student_b::text, false);
@@ -1839,6 +1846,13 @@ begin
        format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
               c_b, 'admin-of-b@example.com', 'admin')) then
     insert into verify.failures values ('the platform admin could not invite an admin to B');
+  end if;
+  -- A new invite can ask for less than fifteen days, never for more.
+  insert into school_invites (school_id, email, role, expires_at)
+    values (c_b, 'far-future@example.com', 'teacher', '2100-01-01');
+  if (select expires_at from school_invites where email = 'far-future@example.com')
+       > now() + interval '15 days' then
+    insert into verify.failures values ('an invite was written open past fifteen days');
   end if;
 
   -- The email is stored the way auth.users stores it.
