@@ -14,7 +14,19 @@ architecture question for Luiz.
 
 - **One environment.** The single Supabase project is production. There is no staging, by
   decision. Every migration, RLS change, function change or data write is a production change.
-- Supabase Pro. Daily backups come with the plan; retention and a restore have never been checked.
+- Supabase Pro, Postgres 17. Backups, checked against the Supabase docs and the dashboard on
+  2026-10-24:
+  - Daily physical backups, the last 7 days, taken around 09:15 UTC (the dashboard listed 17 to 23
+    October). PITR is off (about US$ 100/month plus Small compute); revisit when students arrive
+    (#68).
+  - A backup holds the database only. Storage files are not in it (185 objects, 156 MB in
+    `vocabulary-images`, measured 2026-10-24): a deleted file never comes back from a restore.
+  - Restoring in place overwrites production and takes the project offline. "Restore to a new
+    project" copies the database and `auth`, not Storage or keys, and is billed by the hour while
+    the new project exists.
+  - Before every large migration, Luiz takes a logical copy (`supabase db dump`) and the Storage
+    files, and restores the copy on a local stack. Commands in `docs/commands.md`. First rehearsal
+    on 2026-10-24: every row count matched production, and the 185 Storage files were copied.
 - The platform is not deployed yet. Luiz runs it locally on port 3100 (`npm run dev`).
 - The landing page (chelsea-st.com) is a separate folder, not in git, deployed by Luiz with the
   Vercel CLI. Out of scope for this repository.
