@@ -77,6 +77,35 @@ the MCP. Every line must match.
     psql -P pager=off postgresql://postgres:postgres@127.0.0.1:54322/postgres --file scripts/row-counts.sql
     supabase stop --workdir "$S" --no-backup   # deletes the local copy
 
+## Auth settings and email templates (Luiz only, in the Supabase dashboard)
+
+Every email link carries a `token_hash` that `/auth/callback` verifies on the server. The link
+then works on any device and in any browser, because it does not depend on the PKCE cookie of
+the browser where it was requested (#96, #102).
+
+Authentication > URL Configuration:
+
+    Site URL        http://localhost:3100   (https://app.chelsea-st.com after #68)
+    Redirect URLs   http://localhost:3100/**
+
+Authentication > Providers > Email: minimum password length 8.
+
+Authentication > Email Templates. Keep each text, and make its link exactly this:
+
+    Confirm signup   {{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email
+    Magic link       {{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email
+    Invite user      {{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/definir-senha
+    Reset password   {{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/definir-senha
+
+The invite is the first email a student gets from the platform. Subject and body, in Portuguese:
+
+    Subject: Seu convite para a Chelsea St
+
+    <h2>Você foi convidada para a Chelsea St</h2>
+    <p>Clique no link abaixo para escolher a sua senha e entrar.</p>
+    <p><a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/definir-senha">Aceitar o convite</a></p>
+    <p>O link vale por pouco tempo. Se ele vencer, peça um novo à escola.</p>
+
 ## GitHub quirks
 
     gh api -X PATCH repos/luizvictor19/chelsea-st-app/pulls/NN -f base=main     # change PR base
