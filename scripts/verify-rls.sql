@@ -9,7 +9,12 @@ create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin;
 create schema auth;
-create table auth.users (id uuid primary key, email text, raw_user_meta_data jsonb);
+create table auth.users (
+  id uuid primary key,
+  email text,
+  raw_user_meta_data jsonb,
+  email_confirmed_at timestamptz
+);
 create function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('test.uid', true), '')::uuid;
 $$;
@@ -57,6 +62,7 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0027_an_answer_has_a_language.sql
 \i supabase/migrations/0028_a_question_shows_a_word.sql
 \i supabase/migrations/0029_every_row_knows_its_school.sql
+\i supabase/migrations/0031_joining_a_school_by_invite.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
@@ -1747,5 +1753,188 @@ begin
 
   raise notice 'two schools: nothing of one reaches the other, common content reaches both';
   raise notice 'and only a platform admin writes what is common';
+end;
+$$;
+
+-- Joining a school by invite (0031) ------------------------------------------------
+--
+-- Who may invite whom, and when an invite becomes a membership. The accounts
+-- are written as the owner, the way Supabase Auth writes them; the invites as
+-- authenticated, through the policies under test.
+do $$
+declare
+  c_chelsea constant uuid := (select id from schools where slug = 'chelsea-st');
+  c_b constant uuid := (select id from schools where slug = 'escola-b');
+  c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_teacher_b constant uuid := '33333333-3333-3333-3333-333333333333';
+  c_student_b constant uuid := '44444444-4444-4444-4444-444444444444';
+  c_new constant uuid := '55555555-5555-5555-5555-555555555555';
+  c_late constant uuid := '66666666-6666-6666-6666-666666666666';
+  c_created_confirmed constant uuid := '77777777-7777-7777-7777-777777777777';
+  v_failures text;
+  v_expired uuid;
+begin
+  delete from verify.failures;
+
+  -- An open invite of each school, written as the owner.
+  insert into school_invites (school_id, email, role, invited_by)
+    values (c_chelsea, 'someone@example.com', 'teacher', c_admin);
+  insert into school_invites (school_id, email, role, invited_by)
+    values (c_b, 'someone-b@example.com', 'student', c_teacher_b);
+
+  set local role authenticated;
+
+  -- The teacher of B reads her school's invites and not Chelsea's.
+  perform set_config('test.uid', c_teacher_b::text, false);
+  if exists (select 1 from school_invites where school_id = c_chelsea) then
+    insert into verify.failures values ('the teacher of B reads a Chelsea invite');
+  end if;
+  if not exists (select 1 from school_invites where school_id = c_b) then
+    insert into verify.failures values ('the teacher of B does not read her school''s invite');
+  end if;
+
+  -- She invites students to her school, and nothing else.
+  if verify.refused_for_privilege(
+       format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+              c_b, 'new-student@example.com', 'student')) then
+    insert into verify.failures values ('the teacher of B could not invite a student to B');
+  end if;
+  if not verify.refused_for_privilege(
+       format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+              c_b, 'new-teacher@example.com', 'teacher')) then
+    insert into verify.failures values ('the teacher of B invited a teacher');
+  end if;
+  if not verify.refused_for_privilege(
+       format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+              c_b, 'new-admin@example.com', 'admin')) then
+    insert into verify.failures values ('the teacher of B invited an admin');
+  end if;
+  if not verify.refused_for_privilege(
+       format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+              c_chelsea, 'other-student@example.com', 'student')) then
+    insert into verify.failures values ('the teacher of B invited a student to Chelsea');
+  end if;
+  if not verify.refused_for_privilege(
+       format('insert into school_invites (school_id, email, role, invited_by) values (%L, %L, %L, %L)',
+              c_b, 'signed-by-another@example.com', 'student', c_admin)) then
+    insert into verify.failures values ('the teacher of B wrote an invite in someone else''s name');
+  end if;
+  -- Renewing touches expires_at only: accepted_at is not hers to write.
+  if not verify.refused_for_privilege(
+       format('update school_invites set accepted_at = now() where school_id = %L', c_b)) then
+    insert into verify.failures values ('the teacher of B marked an invite accepted');
+  end if;
+
+  -- A student invites no one, not even to her own school.
+  perform set_config('test.uid', c_student_b::text, false);
+  if not verify.refused_for_privilege(
+       format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+              c_b, 'friend@example.com', 'student')) then
+    insert into verify.failures values ('the student of B invited someone');
+  end if;
+
+  -- The platform admin invites any role to any school.
+  perform set_config('test.uid', c_admin::text, false);
+  if verify.refused_for_privilege(
+       format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+              c_b, 'admin-of-b@example.com', 'admin')) then
+    insert into verify.failures values ('the platform admin could not invite an admin to B');
+  end if;
+
+  -- The email is stored the way auth.users stores it.
+  perform verify.expect_refused(
+    'an invite with an upper case email', 'school_invites_email_check',
+    format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+           c_b, 'Someone.Else@example.com', 'student'));
+
+  -- A student of Chelsea is not invited to study at B, and an open student
+  -- invite of B keeps the same email from being invited to study at Chelsea.
+  perform verify.expect_refused(
+    'a Chelsea student invited to study at B', 'school_invites_one_school_per_student',
+    format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+           c_b, 'student@example.com', 'student'));
+  perform verify.expect_refused(
+    'an email with an open student invite of B invited to study at Chelsea',
+    'school_invites_one_school_per_student',
+    format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+           c_chelsea, 'someone-b@example.com', 'student'));
+  -- Teaching at a second school is fine: only studying is one school.
+  if verify.refused_for_privilege(
+       format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+              c_chelsea, 'someone-b@example.com', 'teacher')) then
+    insert into verify.failures values ('a student of B could not be invited to teach at Chelsea');
+  end if;
+
+  reset role;
+
+  -- A new account does not join on creation, only on confirmation.
+  insert into auth.users (id, email) values (c_new, 'someone-b@example.com');
+  if exists (select 1 from school_members where user_id = c_new) then
+    insert into verify.failures values ('an unconfirmed account joined a school');
+  end if;
+  update auth.users set email_confirmed_at = now() where id = c_new;
+  if not exists (select 1 from school_members where user_id = c_new and school_id = c_b and role = 'student') then
+    insert into verify.failures values ('the first confirmation did not make the student membership');
+  end if;
+  if not exists (select 1 from students where id = c_new and school_id = c_b) then
+    insert into verify.failures values ('the first confirmation did not make the students row');
+  end if;
+  if not exists (select 1 from school_members where user_id = c_new and school_id = c_chelsea and role = 'teacher') then
+    insert into verify.failures values ('the first confirmation did not accept every invite of the email');
+  end if;
+  if exists (select 1 from school_invites where email = 'someone-b@example.com' and accepted_at is null) then
+    insert into verify.failures values ('an invite was used and left open');
+  end if;
+
+  -- An expired invite never becomes a membership.
+  insert into school_invites (school_id, email, role, invited_by, expires_at)
+    values (c_b, 'late@example.com', 'student', c_teacher_b, now() - interval '1 day')
+    returning id into v_expired;
+  insert into auth.users (id, email) values (c_late, 'late@example.com');
+  update auth.users set email_confirmed_at = now() where id = c_late;
+  if exists (select 1 from school_members where user_id = c_late) then
+    insert into verify.failures values ('an expired invite became a membership');
+  end if;
+  -- Renewed, it does, at once: the email is already confirmed.
+  update school_invites set expires_at = now() + interval '15 days' where id = v_expired;
+  if not exists (select 1 from school_members where user_id = c_late and school_id = c_b) then
+    insert into verify.failures values ('a renewed invite for a confirmed account did not become a membership');
+  end if;
+
+  -- An account created already confirmed joins on creation.
+  insert into school_invites (school_id, email, role, invited_by)
+    values (c_b, 'confirmed-at-birth@example.com', 'student', c_teacher_b);
+  insert into auth.users (id, email, email_confirmed_at)
+    values (c_created_confirmed, 'confirmed-at-birth@example.com', now());
+  if not exists (select 1 from students where id = c_created_confirmed and school_id = c_b) then
+    insert into verify.failures values ('an account created confirmed did not join');
+  end if;
+
+  -- An invite for a confirmed account becomes a membership when written.
+  update auth.users set email_confirmed_at = now() where id = c_teacher_b;
+  set local role authenticated;
+  perform set_config('test.uid', c_admin::text, false);
+  insert into school_invites (school_id, email, role) values (c_chelsea, 'teacher-b@example.com', 'teacher');
+  reset role;
+  if not exists (select 1 from school_members where user_id = c_teacher_b and school_id = c_chelsea and role = 'teacher') then
+    insert into verify.failures values ('an invite for a confirmed account did not become a membership');
+  end if;
+
+  -- An accepted invite is not cancelled: it is how someone joined.
+  set local role authenticated;
+  perform set_config('test.uid', c_teacher_b::text, false);
+  delete from school_invites where email = 'late@example.com';
+  reset role;
+  if not exists (select 1 from school_invites where email = 'late@example.com') then
+    insert into verify.failures values ('an accepted invite was cancelled');
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'invites: %', v_failures;
+  end if;
+
+  raise notice 'invites: a school''s admin invites any role, its teacher students only, a student no one';
+  raise notice 'and an invite becomes a membership on the first confirmation, never once expired';
 end;
 $$;
