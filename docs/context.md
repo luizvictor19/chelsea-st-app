@@ -49,6 +49,8 @@ architecture question for Luiz.
 
 ## Known traps
 
+- Specs live only in `docs/` (`spec-ingestao.md`, `spec-imagens.md`, `spec-f1.md`). The Cowork
+  project keeps no copy; a version found anywhere else is stale.
 - `gh pr edit` fails in this repository. Change a PR base with
   `gh api -X PATCH repos/luizvictor19/chelsea-st-app/pulls/N -f base=main`.
 - A dev server started by a Claude Code session dies with the session. The lesson server always

@@ -1,6 +1,6 @@
 # F1 · Entrar e ver a próxima aula
 
-Spec de implementação. Escrita para ser executada com a skill `implement-spec`.
+Spec de implementação.
 
 ## Objetivo
 
