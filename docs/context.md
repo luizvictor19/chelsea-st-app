@@ -44,9 +44,12 @@ architecture question for Luiz.
 - Every migration appears in `scripts/verify-rls.sql`, or in `LEFT_OUT` of
   `scripts/migrations.test.ts` with the reason, and each new clause is proven by reversion.
 - `types.ts` is generated from the migrations with `scripts/gen-types.sh`, never from the live project.
-- Schools follow ADR 0004: tables created from 0029 on carry `school_id`; people and operation rows
-  belong to one school, content rows are common (`school_id` null) or one school's. Policies check
-  membership with `is_school_member`. Until the retrofit is applied, `is_teacher()` still means any teacher.
+- Schools follow ADR 0004, applied by 0029: every table carries `school_id`; people and operation
+  rows belong to one school, content rows are common (`school_id` null) or one school's. Roles live
+  in `school_members` (`admin`, `teacher`, `student`, one row each) and `platform_admins`; there is
+  no `profiles.role` and no `is_teacher()`. Policies call `is_platform_admin()` and
+  `is_school_member()`. A new table names its school, and the `school_follows_parents` trigger
+  fills it from the parent and refuses a parent of another school.
 
 ## Sensitive data and secrets
 

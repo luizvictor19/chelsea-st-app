@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 
+import { teaches } from "@/lib/access";
+import { readAccess } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
 // Relative, with the extension: this is a value import and has to resolve
@@ -21,8 +23,9 @@ import {
 } from "./progress";
 
 /**
- * Every content screen is the teacher's. The role is read on the server; RLS is
- * the real defence and this only decides which screen someone lands on.
+ * Every content screen is for whoever teaches: an admin or teacher of a
+ * school, or a platform admin. The roles are read on the server; RLS is the
+ * real defence and this only decides which screen someone lands on.
  */
 export async function requireTeacher() {
   const supabase = await createClient();
@@ -33,18 +36,35 @@ export async function requireTeacher() {
     redirect("/login");
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role, full_name")
-    .eq("id", user.id)
-    .maybeSingle();
+  const [{ data: profile }, access] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", user.id)
+      .maybeSingle(),
+    readAccess(supabase, user.id),
+  ]);
 
-  if (profile?.role !== "teacher") {
+  if (!teaches(access)) {
     redirect("/dashboard");
   }
+  // Every account gets a profile from handle_new_user. A missing one is a
+  // fault to show, not a reason to send a teacher to /dashboard, which would
+  // send her straight back here.
+  if (!profile) {
+    throw new Error(`no profile for ${user.id}`);
+  }
 
-  return { supabase, user, profile };
+  return { supabase, user, profile, access };
 }
+
+/**
+ * The content screens show common content (school_id null), the only kind
+ * there is until a school writes its own (ADR 0004). A book's position and a
+ * word's term are unique per scope since 0029, so a lookup by either names
+ * the scope or it can meet two rows.
+ */
+export const COMMON = null;
 
 export type BookSummary = {
   readonly id: string;
@@ -86,6 +106,7 @@ export async function listBooks(): Promise<BooksOverview> {
   const { data: books } = await supabase
     .from("books")
     .select("id, position, title, first_point, last_point")
+    .is("school_id", COMMON)
     .order("position");
 
   const { data: points } = await supabase
@@ -183,6 +204,7 @@ export async function loadBook(position: number): Promise<BookDetail | null> {
   const { data: book } = await supabase
     .from("books")
     .select("id, position, title, first_point, last_point")
+    .is("school_id", COMMON)
     .eq("position", position)
     .maybeSingle();
 

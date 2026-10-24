@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
+import { studies, teaches } from "@/lib/access";
+import { readAccess } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
 import { AccountPending } from "./account-pending";
@@ -27,22 +29,26 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role, full_name, timezone")
-    .eq("id", user.id)
-    .maybeSingle();
+  const [{ data: profile }, access, { data: student }] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("full_name, timezone")
+      .eq("id", user.id)
+      .maybeSingle(),
+    readAccess(supabase, user.id),
+    supabase
+      .from("students")
+      .select("meet_url")
+      .eq("id", user.id)
+      .maybeSingle(),
+  ]);
 
-  // The teacher signs in through the same door and belongs somewhere else.
-  if (profile?.role === "teacher") {
+  // A teacher signs in through the same door and belongs somewhere else,
+  // unless she is also a student: then this screen is hers too, which is how
+  // the admin sees what a student sees without a second account.
+  if (teaches(access) && !studies(access)) {
     redirect("/teacher");
   }
-
-  const { data: student } = await supabase
-    .from("students")
-    .select("meet_url")
-    .eq("id", user.id)
-    .maybeSingle();
 
   if (!profile || !student) {
     return <AccountPending />;
