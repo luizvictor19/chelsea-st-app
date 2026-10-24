@@ -59,14 +59,17 @@ não duplica. Na v1 é chamada à mão; virar job agendado fica para depois.
 
 ## Redirecionamento por papel
 
-Lê `profiles.role` no servidor. Nunca no cliente, porque papel decidido no
+Lê os papéis no servidor, em `school_members` e `platform_admins` (desde a
+0029; antes era `profiles.role`). Nunca no cliente, porque papel decidido no
 navegador é papel que o navegador pode mentir. A RLS já é a defesa real; isto é
-só roteamento.
+só roteamento. Uma pessoa pode ter mais de um papel na mesma escola.
 
 - sem sessão: `/login`
-- `role = 'teacher'`: `/teacher`
-- `role = 'student'` com linha em `students`: `/dashboard`
-- `role = 'student'` sem linha em `students`: tela dizendo que a conta ainda não
+- admin ou professor de alguma escola, ou admin da plataforma: `/teacher`
+- aluna com linha em `students`: `/dashboard`
+- quem também é aluna abre o `/dashboard` pelo link "Ver como aluna" do menu do
+  professor, sem trocar de usuário
+- sem papel, ou aluna sem linha em `students`: tela dizendo que a conta ainda não
   foi liberada, com contato do professor. Acontece se alguém logar antes de ser
   cadastrado como aluno
 
