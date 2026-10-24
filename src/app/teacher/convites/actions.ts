@@ -13,7 +13,9 @@ export type InviteState =
   | { status: "idle" }
   | { status: "sent"; email: string }
   | { status: "joined"; email: string }
-  | { status: "error"; message: string };
+  // The typed email and role go back to the form: a refusal must not make the
+  // person type them again.
+  | { status: "error"; message: string; email?: string; role?: SchoolRole };
 
 export type RowResult =
   | { status: "sent" }
@@ -36,10 +38,40 @@ async function mailInvite(email: string): Promise<string | null> {
   if (!error) {
     return null;
   }
+  if (error.code === "email_exists") {
+    // A confirmed account would have joined when the invite was written, so
+    // this one was left open on purpose: she studies at another school, or
+    // the two schools invited her at the same moment.
+    return "Essa pessoa já tem conta e não entrou por este convite. Ela provavelmente já estuda em outra escola. Fale com ela antes de reenviar.";
+  }
   if (error.code === "over_email_send_rate_limit") {
     return "O convite foi gravado, mas o limite de e-mails do Supabase foi atingido. Use Reenviar daqui a alguns minutos.";
   }
   return "O convite foi gravado, mas o e-mail não saiu. A pessoa pode entrar pela tela de login com esse e-mail, em “Entrar com um link por e-mail”, ou você usa Reenviar mais tarde.";
+}
+
+type Supabase = Awaited<ReturnType<typeof requireTeacher>>["supabase"];
+
+/**
+ * After an invite is written or renewed: either the person already joined
+ * (0031 accepts at once for a confirmed email, in a trigger after the write,
+ * which the row returned by the write does not show), or the email goes out.
+ */
+async function joinedOrMailed(
+  supabase: Supabase,
+  inviteId: string,
+  email: string,
+): Promise<"joined" | "sent" | { problem: string }> {
+  const { data: written } = await supabase
+    .from("school_invites")
+    .select("accepted_at")
+    .eq("id", inviteId)
+    .single();
+  if (written?.accepted_at) {
+    return "joined";
+  }
+  const problem = await mailInvite(email);
+  return problem === null ? "sent" : { problem };
 }
 
 /**
@@ -58,10 +90,15 @@ export async function inviteToSchool(
   const schoolId = String(formData.get("school_id") ?? "");
 
   if (!looksLikeEmail(email)) {
-    return { status: "error", message: "Digite um e-mail válido." };
+    return {
+      status: "error",
+      message: "Digite um e-mail válido.",
+      email,
+      role,
+    };
   }
   if (!ROLES.includes(role) || schoolId === "") {
-    return { status: "error", message: "Escolha o papel e a escola." };
+    return { status: "error", message: "Escolha o papel e a escola.", email };
   }
 
   const { data: invite, error } = await supabase
@@ -70,30 +107,22 @@ export async function inviteToSchool(
     .select("id")
     .single();
   if (error) {
-    return { status: "error", message: inviteRefusal(error) };
+    return { status: "error", message: inviteRefusal(error), email, role };
   }
 
   revalidatePath("/teacher/convites");
 
-  // Read again: accepted_at is written by a trigger after the insert, which
-  // the row returned above does not see.
-  const { data: written } = await supabase
-    .from("school_invites")
-    .select("accepted_at")
-    .eq("id", invite.id)
-    .single();
-  if (written?.accepted_at) {
-    return { status: "joined", email };
+  const outcome = await joinedOrMailed(supabase, invite.id, email);
+  if (typeof outcome === "object") {
+    return { status: "error", message: outcome.problem };
   }
-
-  const mailProblem = await mailInvite(email);
-  if (mailProblem !== null) {
-    return { status: "error", message: mailProblem };
-  }
-  return { status: "sent", email };
+  return { status: outcome, email };
 }
 
-/** Opens the invite for another 15 days and mails it again. */
+/**
+ * Opens the invite for another 15 days and mails it again. The database
+ * restarts the 15 days itself; the value sent is only what it would be.
+ */
 export async function resendInvite(inviteId: string): Promise<RowResult> {
   const { supabase } = await requireTeacher();
 
@@ -107,6 +136,9 @@ export async function resendInvite(inviteId: string): Promise<RowResult> {
   if (error) {
     return { status: "error", message: inviteRefusal(error) };
   }
+
+  revalidatePath("/teacher/convites");
+
   if (!invite) {
     return {
       status: "error",
@@ -115,24 +147,11 @@ export async function resendInvite(inviteId: string): Promise<RowResult> {
     };
   }
 
-  revalidatePath("/teacher/convites");
-
-  // Renewing an invite for an email confirmed in the meantime makes the
-  // membership at once (0031).
-  const { data: written } = await supabase
-    .from("school_invites")
-    .select("accepted_at")
-    .eq("id", invite.id)
-    .single();
-  if (written?.accepted_at) {
-    return { status: "joined" };
+  const outcome = await joinedOrMailed(supabase, invite.id, invite.email);
+  if (typeof outcome === "object") {
+    return { status: "error", message: outcome.problem };
   }
-
-  const mailProblem = await mailInvite(invite.email);
-  if (mailProblem !== null) {
-    return { status: "error", message: mailProblem };
-  }
-  return { status: "sent" };
+  return { status: outcome };
 }
 
 /**

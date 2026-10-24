@@ -30,6 +30,9 @@ export default async function InvitesPage() {
   if (openError) throw new Error(openError.message);
 
   const nameOf = new Map(schools.map((school) => [school.id, school.name]));
+  // A teacher reads every invite of her school but renews and cancels only
+  // the student ones (can_invite in 0031); the others show no buttons.
+  const rolesFor = new Map(schools.map((school) => [school.id, school.roles]));
   const now = new Date();
   const invites: OpenInvite[] = open.map((invite) => ({
     id: invite.id,
@@ -37,6 +40,7 @@ export default async function InvitesPage() {
     role: invite.role,
     expiresAt: invite.expires_at,
     expired: new Date(invite.expires_at) <= now,
+    manageable: (rolesFor.get(invite.school_id) ?? []).includes(invite.role),
     schoolName: nameOf.get(invite.school_id) ?? null,
   }));
 
@@ -50,9 +54,11 @@ export default async function InvitesPage() {
           Convidar para a escola
         </h1>
         <p className="text-muted max-w-prose">
-          A pessoa recebe um e-mail, clica, define a senha e entra. O convite
-          vale por 15 dias. Quem já tem conta entra na escola na hora, sem
-          e-mail.
+          A pessoa recebe um e-mail, clica, define a senha e entra. O link do
+          e-mail vale por 24 horas; o convite fica aberto por 15 dias. Se o link
+          vencer, use Reenviar, ou a pessoa pede um link em “Esqueci minha
+          senha” com o mesmo e-mail. Quem já tem conta entra na escola na hora,
+          sem e-mail.
         </p>
       </div>
 

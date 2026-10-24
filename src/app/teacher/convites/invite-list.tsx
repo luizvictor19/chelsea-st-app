@@ -16,6 +16,8 @@ export type OpenInvite = {
   readonly expiresAt: string;
   /** Decided on the server, so the two renders agree. */
   readonly expired: boolean;
+  /** Whether the reader may renew and cancel it, which RLS also decides. */
+  readonly manageable: boolean;
   /** Null when the school is not one the reader invites to. */
   readonly schoolName: string | null;
 };
@@ -95,24 +97,30 @@ function InviteRow({
             : `vale até ${DAY.format(new Date(invite.expiresAt))}`}
         </span>
       </div>
-      <div className="flex gap-2">
-        <button
-          type="button"
-          disabled={isPending}
-          onClick={() => run(resendInvite)}
-          className="border-rule hover:border-foreground rounded-sm border px-3 py-1.5 text-sm disabled:opacity-60"
-        >
-          Reenviar
-        </button>
-        <button
-          type="button"
-          disabled={isPending}
-          onClick={() => run(cancelInvite)}
-          className="text-muted hover:text-foreground rounded-sm px-3 py-1.5 text-sm disabled:opacity-60"
-        >
-          Cancelar convite
-        </button>
-      </div>
+      {invite.manageable ? (
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => run(resendInvite)}
+            className="border-rule hover:border-foreground rounded-sm border px-3 py-1.5 text-sm disabled:opacity-60"
+          >
+            Reenviar
+          </button>
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => run(cancelInvite)}
+            className="text-muted hover:text-foreground rounded-sm px-3 py-1.5 text-sm disabled:opacity-60"
+          >
+            Cancelar convite
+          </button>
+        </div>
+      ) : (
+        <span className="text-faint text-sm">
+          Só o admin da escola reenvia ou cancela
+        </span>
+      )}
     </li>
   );
 }

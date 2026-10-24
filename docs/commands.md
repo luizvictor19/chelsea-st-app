@@ -88,7 +88,10 @@ Authentication > URL Configuration:
     Site URL        http://localhost:3100   (https://app.chelsea-st.com after #68)
     Redirect URLs   http://localhost:3100/**
 
-Authentication > Providers > Email: minimum password length 8.
+Authentication > Providers > Email: minimum password length 8, and Email OTP Expiration 86400
+seconds (24 hours, the most Supabase allows). The invite stays open 15 days in `school_invites`,
+but its email link lasts only this long; after that, "Reenviar" or "Esqueci minha senha" with
+the same email.
 
 Authentication > Email Templates. Keep each text, and make its link exactly this:
 
@@ -104,7 +107,7 @@ The invite is the first email a student gets from the platform. Subject and body
     <h2>Você foi convidada para a Chelsea St</h2>
     <p>Clique no link abaixo para escolher a sua senha e entrar.</p>
     <p><a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/definir-senha">Aceitar o convite</a></p>
-    <p>O link vale por pouco tempo. Se ele vencer, peça um novo à escola.</p>
+    <p>O link vale por 24 horas. Se ele vencer, peça um novo em "Esqueci minha senha", na tela de entrar, com este e-mail.</p>
 
 ## GitHub quirks
 

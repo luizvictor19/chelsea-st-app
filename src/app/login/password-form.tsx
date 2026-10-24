@@ -30,6 +30,7 @@ export function PasswordForm() {
           required
           autoFocus
           placeholder="voce@exemplo.com"
+          defaultValue={state.status === "error" ? state.email : undefined}
           className={inputClass}
         />
       </div>

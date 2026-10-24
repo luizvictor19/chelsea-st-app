@@ -50,7 +50,8 @@ async function ExpiredLinkNotice({
   return (
     <p role="alert" className="border-accent text-muted rounded-sm border p-4">
       Esse link não funciona mais. Links de acesso expiram e só valem uma vez.
-      Entre com a sua senha ou peça outro link.
+      Entre com a sua senha ou peça outro link. Primeiro acesso, por convite?
+      Use “Esqueci minha senha” com o e-mail do convite.
     </p>
   );
 }

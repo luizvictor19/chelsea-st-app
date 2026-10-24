@@ -11,8 +11,9 @@ export type LoginState =
   | { status: "sent"; email: string }
   | { status: "error"; message: string };
 
+// The email goes back to the form: React resets it when the action ends.
 export type PasswordLoginState =
-  { status: "idle" } | { status: "error"; message: string };
+  { status: "idle" } | { status: "error"; message: string; email: string };
 
 /**
  * Signs in with email and password, then hands over to the front door, which
@@ -31,10 +32,10 @@ export async function signInWithPassword(
   const password = String(formData.get("password") ?? "");
 
   if (!looksLikeEmail(email)) {
-    return { status: "error", message: "Digite um e-mail válido." };
+    return { status: "error", message: "Digite um e-mail válido.", email };
   }
   if (password === "") {
-    return { status: "error", message: "Digite a sua senha." };
+    return { status: "error", message: "Digite a sua senha.", email };
   }
 
   const supabase = await createClient();
@@ -44,6 +45,7 @@ export async function signInWithPassword(
     if (error.code === "invalid_credentials") {
       return {
         status: "error",
+        email,
         message:
           "E-mail ou senha não conferem. Nunca definiu uma senha? Use “Esqueci minha senha”.",
       };
@@ -51,12 +53,14 @@ export async function signInWithPassword(
     if (error.code === "email_not_confirmed") {
       return {
         status: "error",
+        email,
         message:
           "Esse e-mail ainda não foi confirmado. Abra o link que chegou por e-mail.",
       };
     }
     return {
       status: "error",
+      email,
       message:
         "Não foi possível entrar agora. Tente de novo em alguns instantes.",
     };

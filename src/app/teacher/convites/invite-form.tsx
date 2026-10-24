@@ -29,6 +29,13 @@ export function InviteForm({
   );
   const [schoolId, setSchoolId] = useState(schools[0].id);
   const school = schools.find((s) => s.id === schoolId) ?? schools[0];
+  // React resets the form when the action ends, refusal included; what the
+  // action sends back becomes the default, so a refusal keeps what was typed.
+  const kept = state.status === "error" ? state : null;
+  const role =
+    kept?.role && school.roles.includes(kept.role)
+      ? kept.role
+      : school.roles[0];
 
   return (
     <form
@@ -47,6 +54,7 @@ export function InviteForm({
             autoComplete="off"
             required
             placeholder="pessoa@exemplo.com"
+            defaultValue={kept?.email}
             className={fieldClass}
           />
         </div>
@@ -60,7 +68,7 @@ export function InviteForm({
             // Remounted when the school changes, so it never keeps a role the
             // new school does not allow.
             key={school.id}
-            defaultValue={school.roles[0]}
+            defaultValue={role}
             className={fieldClass}
           >
             {school.roles.map((role) => (
