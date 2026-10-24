@@ -45,12 +45,26 @@ export async function requireTeacher() {
     readAccess(supabase, user.id),
   ]);
 
-  if (!profile || !teaches(access)) {
+  if (!teaches(access)) {
     redirect("/dashboard");
+  }
+  // Every account gets a profile from handle_new_user. A missing one is a
+  // fault to show, not a reason to send a teacher to /dashboard, which would
+  // send her straight back here.
+  if (!profile) {
+    throw new Error(`no profile for ${user.id}`);
   }
 
   return { supabase, user, profile, access };
 }
+
+/**
+ * The content screens show common content (school_id null), the only kind
+ * there is until a school writes its own (ADR 0004). A book's position and a
+ * word's term are unique per scope since 0029, so a lookup by either names
+ * the scope or it can meet two rows.
+ */
+export const COMMON = null;
 
 export type BookSummary = {
   readonly id: string;
@@ -92,6 +106,7 @@ export async function listBooks(): Promise<BooksOverview> {
   const { data: books } = await supabase
     .from("books")
     .select("id, position, title, first_point, last_point")
+    .is("school_id", COMMON)
     .order("position");
 
   const { data: points } = await supabase
@@ -189,6 +204,7 @@ export async function loadBook(position: number): Promise<BookDetail | null> {
   const { data: book } = await supabase
     .from("books")
     .select("id, position, title, first_point, last_point")
+    .is("school_id", COMMON)
     .eq("position", position)
     .maybeSingle();
 

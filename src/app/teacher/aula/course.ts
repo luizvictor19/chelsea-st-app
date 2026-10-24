@@ -1,4 +1,4 @@
-import { publicImageUrl, requireTeacher } from "@/lib/content/queries";
+import { COMMON, publicImageUrl, requireTeacher } from "@/lib/content/queries";
 
 import { readContrastRows } from "../content/images/contrast-rows";
 
@@ -47,6 +47,7 @@ export async function loadCourse(): Promise<Course> {
   const { data: books, error: booksError } = await supabase
     .from("books")
     .select("id, position, title, first_point, last_point")
+    .is("school_id", COMMON)
     .order("position");
   if (booksError) throw new Error(booksError.message);
 

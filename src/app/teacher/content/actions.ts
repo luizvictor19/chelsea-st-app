@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { orphansToAttach, type LessonRange } from "@/lib/content/lesson-range";
+import { COMMON } from "@/lib/content/queries";
 import type { BlockKind } from "@/lib/extraction/classify";
 import { createClient } from "@/lib/supabase/server";
 
@@ -252,6 +253,7 @@ export async function confirmPoint(
     const { data: existing } = await supabase
       .from("vocabulary_items")
       .select("id")
+      .is("school_id", COMMON)
       .ilike("term", term)
       .maybeSingle();
     if (existing === null) {
