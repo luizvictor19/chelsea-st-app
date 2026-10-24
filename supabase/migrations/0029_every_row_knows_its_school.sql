@@ -157,6 +157,16 @@ update students set school_id = (select id from schools where slug = 'chelsea-st
 alter table students alter column school_id set not null;
 alter table students add constraint students_school_id_id_key unique (school_id, id);
 
+-- A students row is the same fact as a 'student' row of school_members, kept
+-- in two places because the student's own data (meet_url and the rest) lives
+-- here. The key holds them together: no student without the membership, and
+-- the membership cannot go while the row is there. The backfill above made
+-- the memberships first.
+alter table students
+  add column member_role school_role not null generated always as ('student') stored,
+  add constraint students_membership_fkey foreign key (school_id, id, member_role)
+    references school_members (school_id, user_id, role);
+
 alter table lessons add column school_id uuid;
 alter table lesson_schedules add column school_id uuid;
 alter table assignments add column school_id uuid;
@@ -274,7 +284,9 @@ begin
         into v_parent_school
         using v_parent;
 
-      if i = 0 and new.school_id is null then
+      -- Only on insert. On update the school is already written, and a common
+      -- row moved under a school's parent must be refused below, not adopted.
+      if i = 0 and new.school_id is null and tg_op = 'INSERT' then
         new.school_id := v_parent_school;
       end if;
 

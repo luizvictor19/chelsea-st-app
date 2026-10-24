@@ -1586,6 +1586,26 @@ begin
   perform verify.expect_refused('a common question given a school', 'questions_school',
     format('update questions set school_id = %L
              where id = (select id from questions where school_id is null limit 1)', c_b));
+  -- A common row moved under a school's parent is refused, not adopted: on an
+  -- update the school is already written.
+  perform verify.expect_refused('a common word moved under a point of B', 'vocabulary_items_school',
+    format('update vocabulary_items set first_point_id = %L
+             where id = (select id from vocabulary_items where term = %L)', v_b_point, 'a word'));
+
+  -- A students row needs the student membership behind it.
+  begin
+    insert into students (id, school_id) values (c_teacher_b, c_b);
+    insert into verify.failures values ('a student row without a student membership');
+  exception when foreign_key_violation then
+    raise notice 'a student row without a student membership: refused by the foreign key';
+  end;
+  begin
+    delete from school_members where user_id = c_student_b and role = 'student';
+    insert into verify.failures values ('a student membership removed under a students row');
+  exception when foreign_key_violation then
+    raise notice 'a student membership removed under a students row: refused by the foreign key';
+  end;
+
   -- Two guards stand here, the trigger and the foreign key through the
   -- school, and the trigger speaks first; either refusal is the right answer.
   begin

@@ -867,6 +867,7 @@ export type Database = {
           id: string;
           is_active: boolean;
           meet_url: string | null;
+          member_role: Database["public"]["Enums"]["school_role"];
           school_id: string;
           started_on: string | null;
         };
@@ -874,6 +875,7 @@ export type Database = {
           id: string;
           is_active?: boolean;
           meet_url?: string | null;
+          member_role?: never;
           school_id: string;
           started_on?: string | null;
         };
@@ -881,6 +883,7 @@ export type Database = {
           id?: string;
           is_active?: boolean;
           meet_url?: string | null;
+          member_role?: never;
           school_id?: string;
           started_on?: string | null;
         };
@@ -891,6 +894,13 @@ export type Database = {
             isOneToOne: true;
             referencedRelation: "profiles";
             referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "students_membership_fkey";
+            columns: ["school_id", "id", "member_role"];
+            isOneToOne: false;
+            referencedRelation: "school_members";
+            referencedColumns: ["school_id", "user_id", "role"];
           },
           {
             foreignKeyName: "students_school_id_fkey";
