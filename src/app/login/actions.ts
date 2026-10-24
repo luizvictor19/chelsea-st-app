@@ -1,5 +1,8 @@
 "use server";
 
+import { redirect } from "next/navigation";
+
+import { looksLikeEmail, normalizeEmail } from "@/lib/credentials";
 import { env } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 
@@ -8,9 +11,59 @@ export type LoginState =
   | { status: "sent"; email: string }
   | { status: "error"; message: string };
 
-// Deliberately permissive. The address is proved by the fact that a link sent
-// to it gets clicked; a stricter pattern here only rejects valid addresses.
-const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export type PasswordLoginState =
+  { status: "idle" } | { status: "error"; message: string };
+
+/**
+ * Signs in with email and password, then hands over to the front door, which
+ * decides between /teacher and /dashboard.
+ *
+ * A wrong password and an unknown address get the same sentence: telling them
+ * apart would answer "does this person study here?", which is nobody's
+ * business. The sentence also names the way out for someone who never had a
+ * password, which is everyone who joined before #96.
+ */
+export async function signInWithPassword(
+  _previous: PasswordLoginState,
+  formData: FormData,
+): Promise<PasswordLoginState> {
+  const email = normalizeEmail(formData.get("email"));
+  const password = String(formData.get("password") ?? "");
+
+  if (!looksLikeEmail(email)) {
+    return { status: "error", message: "Digite um e-mail válido." };
+  }
+  if (password === "") {
+    return { status: "error", message: "Digite a sua senha." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+  if (error) {
+    if (error.code === "invalid_credentials") {
+      return {
+        status: "error",
+        message:
+          "E-mail ou senha não conferem. Nunca definiu uma senha? Use “Esqueci minha senha”.",
+      };
+    }
+    if (error.code === "email_not_confirmed") {
+      return {
+        status: "error",
+        message:
+          "Esse e-mail ainda não foi confirmado. Abra o link que chegou por e-mail.",
+      };
+    }
+    return {
+      status: "error",
+      message:
+        "Não foi possível entrar agora. Tente de novo em alguns instantes.",
+    };
+  }
+
+  redirect("/");
+}
 
 /**
  * Sends the magic link.
@@ -21,19 +74,17 @@ const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  *
  * That falls out of the flow rather than being faked: sign-ups are allowed, so
  * an unknown address is a real success too. It creates an auth user with a
- * profile and no row in `students`, which is exactly the "account not released"
- * state the dashboard already handles. So the error below can be shown honestly
+ * profile and no membership, which is exactly the "account not released" state
+ * the dashboard already handles. So the error below can be shown honestly
  * without leaking anything, because it never depends on the address existing.
  */
 export async function sendMagicLink(
   _previous: LoginState,
   formData: FormData,
 ): Promise<LoginState> {
-  const email = String(formData.get("email") ?? "")
-    .trim()
-    .toLowerCase();
+  const email = normalizeEmail(formData.get("email"));
 
-  if (!LOOKS_LIKE_EMAIL.test(email)) {
+  if (!looksLikeEmail(email)) {
     return { status: "error", message: "Digite um e-mail válido." };
   }
 
