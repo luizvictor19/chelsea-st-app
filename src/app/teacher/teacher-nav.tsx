@@ -36,7 +36,14 @@ function activeHref(pathname: string): string | null {
   return active;
 }
 
-export function TeacherNav({ initial }: { readonly initial: string }) {
+export function TeacherNav({
+  initial,
+  alsoStudent,
+}: {
+  readonly initial: string;
+  /** Also a student: the admin who checks the student's screens. */
+  readonly alsoStudent: boolean;
+}) {
   const active = activeHref(usePathname());
 
   return (
@@ -81,6 +88,14 @@ export function TeacherNav({ initial }: { readonly initial: string }) {
         </div>
 
         <div className="flex shrink-0 items-center gap-3.5">
+          {alsoStudent ? (
+            <Link
+              href="/dashboard"
+              className="text-muted hover:text-foreground text-sm whitespace-nowrap transition-colors"
+            >
+              Ver como aluna
+            </Link>
+          ) : null}
           <span className="text-faint hidden font-mono text-[0.6875rem] sm:inline">
             professor
           </span>

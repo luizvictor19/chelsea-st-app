@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 
+import { teaches } from "@/lib/access";
+import { readAccess } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
 // Relative, with the extension: this is a value import and has to resolve
@@ -21,8 +23,9 @@ import {
 } from "./progress";
 
 /**
- * Every content screen is the teacher's. The role is read on the server; RLS is
- * the real defence and this only decides which screen someone lands on.
+ * Every content screen is for whoever teaches: an admin or teacher of a
+ * school, or a platform admin. The roles are read on the server; RLS is the
+ * real defence and this only decides which screen someone lands on.
  */
 export async function requireTeacher() {
   const supabase = await createClient();
@@ -33,17 +36,20 @@ export async function requireTeacher() {
     redirect("/login");
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role, full_name")
-    .eq("id", user.id)
-    .maybeSingle();
+  const [{ data: profile }, access] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", user.id)
+      .maybeSingle(),
+    readAccess(supabase, user.id),
+  ]);
 
-  if (profile?.role !== "teacher") {
+  if (!profile || !teaches(access)) {
     redirect("/dashboard");
   }
 
-  return { supabase, user, profile };
+  return { supabase, user, profile, access };
 }
 
 export type BookSummary = {
