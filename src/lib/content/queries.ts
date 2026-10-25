@@ -498,11 +498,18 @@ export async function listRunningAttempts(): Promise<
     .eq("status", "pending")
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
-  return (rows ?? []).map((row) => ({
-    id: row.id,
-    wordId: row.vocabulary_item_id,
-    createdAt: row.created_at,
-  }));
+  // A scene's generation (0030) is not this tracker's: it follows words.
+  return (rows ?? []).flatMap((row) =>
+    row.vocabulary_item_id === null
+      ? []
+      : [
+          {
+            id: row.id,
+            wordId: row.vocabulary_item_id,
+            createdAt: row.created_at,
+          },
+        ],
+  );
 }
 
 /** Every attempt for one word, newest first, for the panel on the right. */

@@ -98,6 +98,12 @@ const BUCKET = "vocabulary-images";
 const SCREEN = "/teacher/content/images";
 
 /**
+ * An attempt can belong to a scene since 0030. The actions here work on a
+ * word's attempts; a scene's are the Cenas section's (#64).
+ */
+const SCENE_ATTEMPT = "Essa tentativa é de uma cena, não de uma palavra.";
+
+/**
  * Where a structure reference lives, apart from the finished pictures.
  *
  * Migration 0014 holds this from three sides with checks, because a path in
@@ -243,6 +249,9 @@ export async function rejectAttempt(attemptId: string): Promise<ActionResult> {
       .eq("id", attemptId)
       .single();
     if (readError) return { ok: false, error: readError.message };
+    if (attempt.vocabulary_item_id === null) {
+      return { ok: false, error: SCENE_ATTEMPT };
+    }
 
     if (attempt.status !== "generated") {
       return {
@@ -774,6 +783,7 @@ export async function pollAttempt(attemptId: string): Promise<ActionResult> {
     if (readError) return { ok: false, error: readError.message };
 
     const wordId = attempt.vocabulary_item_id;
+    if (wordId === null) return { ok: false, error: SCENE_ATTEMPT };
 
     /*
      * Already finished, by an earlier poll or in another tab. Answering with
