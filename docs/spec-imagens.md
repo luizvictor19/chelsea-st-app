@@ -434,6 +434,13 @@ decidido" (`questions_one_image`).
 - O prompt da cena é o da palavra com a regra `SCENE_RULE` no lugar da regra do tipo: mostrar cada
   objeto e pessoa que a descrição nomeia, na relação que ela nomeia, e nada mais no fundo. A
   primeira cena gerada é a conferência da frase.
+- A imagem da cena chega de quatro jeitos, todos no painel (#120): gerar do texto, enviar pronta,
+  ou juntar de 2 a 4 imagens aprovadas (de palavras ou de outras cenas). Juntadas, elas viram uma
+  montagem feita no navegador (quadrado branco de 1536 px, cada imagem inteira na sua célula; regra
+  em `src/lib/images/montage.ts`), que entra **lado a lado** como tentativa enviada, sem crédito, ou
+  **como referência** da cena. O nome do arquivo guarda quais imagens foram juntadas
+  (`lado-a-lado-pen-book.jpg`, em `source_filename`). Qual modelo gera melhor a partir de várias
+  imagens está sendo medido (`scripts/measure-scene-references.ts`).
 - A aluna lê a cena de uma pergunta que ela pode ler; o professor e o admin, como as outras
   tabelas de conteúdo.
 - Apagar uma cena usada por uma pergunta é recusado (`on delete restrict`).
