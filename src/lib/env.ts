@@ -22,9 +22,9 @@ export const env = {
     process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
 
   /**
-   * Shown to someone who signed in before being registered as a student, so
-   * they have a way to reach a human. Optional: when it is unset the screen
-   * simply omits the address rather than inventing one.
+   * The school's contact, shown to someone signed in with no access, so they
+   * have a way to reach a human. Optional: when it is unset the screen simply
+   * omits the address rather than inventing one.
    */
   NEXT_PUBLIC_TEACHER_CONTACT_EMAIL:
     process.env.NEXT_PUBLIC_TEACHER_CONTACT_EMAIL ?? "",
