@@ -28,6 +28,7 @@ import {
 } from "./contrast-sets";
 import { FilterDrawer } from "./filter-drawer";
 import { GenerationTracking } from "./generation-tracking";
+import type { ApprovedPicture } from "./join-approved";
 import { JumpToScenes } from "./jump-to-scenes";
 import {
   activeCount,
@@ -206,6 +207,31 @@ export default async function VocabularyImagesPage({
   const selectedScene = scenes.find((scene) => scene.id === sceneId) ?? null;
   const sceneAttempts =
     selectedScene === null ? [] : await listSceneAttempts(selectedScene.id);
+  // Every approved picture but the open scene's own, for Juntar (#120); the
+  // filter does not apply, as it does not to the contrast set picker.
+  const approved: readonly ApprovedPicture[] =
+    selectedScene === null
+      ? []
+      : [
+          ...lessons.flatMap((lesson) =>
+            lesson.words.flatMap((w) =>
+              w.imageUrl === null
+                ? []
+                : [{ key: `word:${w.id}`, label: w.term, url: w.imageUrl }],
+            ),
+          ),
+          ...scenes.flatMap((s) =>
+            s.imageUrl === null || s.id === selectedScene.id
+              ? []
+              : [
+                  {
+                    key: `scene:${s.id}`,
+                    label: s.description,
+                    url: s.imageUrl,
+                  },
+                ],
+          ),
+        ].sort((a, b) => a.label.localeCompare(b.label, "en"));
 
   // Every generation still running, whichever word or scene is open, for the
   // page's tracker to follow to its end. Named by term or description for
@@ -466,6 +492,7 @@ export default async function VocabularyImagesPage({
                   scene={selectedScene}
                   attempts={sceneAttempts}
                   point={firstPoint(selectedScene)}
+                  approved={approved}
                 />
               ) : selected === null ? (
                 <p className="text-muted border-rule rounded-sm border border-dashed p-6">

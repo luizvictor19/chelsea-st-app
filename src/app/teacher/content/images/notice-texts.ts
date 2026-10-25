@@ -110,6 +110,11 @@ export function uploadSent(term: string): NoticeText {
   return success(about(term, "imagem enviada, falta aprovar"));
 }
 
+/** Side by side goes in as an upload does, and waits the same way (#120). */
+export function montageSent(term: string): NoticeText {
+  return success(about(term, "imagens juntas enviadas, falta aprovar"));
+}
+
 export function subjectGenerated(term: string): NoticeText {
   return success(about(term, "instrução gerada"));
 }

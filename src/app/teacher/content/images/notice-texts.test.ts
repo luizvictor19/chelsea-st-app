@@ -12,6 +12,7 @@ import {
   lessonFailed,
   lessonLabel,
   referenceAttached,
+  montageSent,
   referenceRemoved,
   sceneCreated,
   setDissolved,
@@ -92,6 +93,13 @@ describe("a notice about a word starts with its term", () => {
 });
 
 describe("a notice about a scene starts with its description", () => {
+  test("pictures joined side by side wait for approval, as an upload", () => {
+    assert.deepEqual(
+      montageSent("the pen on the book"),
+      ok("the pen on the book: imagens juntas enviadas, falta aprovar."),
+    );
+  });
+
   test("creating one says it has no picture yet", () => {
     assert.deepEqual(
       sceneCreated("a big box"),

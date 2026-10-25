@@ -29,6 +29,7 @@ import {
   IMAGE_STYLE_LABELS,
   imageApproved,
   imageDiscarded,
+  montageSent,
   referenceAttached,
   referenceRemoved,
   styleChanged,
@@ -37,6 +38,7 @@ import {
   wordFailed,
   type NoticeText,
 } from "./notice-texts";
+import { JoinApproved, type ApprovedPicture } from "./join-approved";
 import { attemptsToShow, settle, type LastAnswer } from "./panel-state";
 import {
   approveSceneAttempt,
@@ -72,11 +74,14 @@ export function ScenePanel({
   scene,
   attempts,
   point,
+  approved,
 }: {
   readonly scene: SceneImage;
   readonly attempts: readonly ImageAttempt[];
   /** The group the scene is filed under, for the header. */
   readonly point: number | null;
+  /** Every approved picture but this scene's, for Juntar (#120). */
+  readonly approved: readonly ApprovedPicture[];
 }) {
   const label = scene.description;
   const [busy, setBusy] = useState<Busy>(null);
@@ -457,6 +462,27 @@ export function ScenePanel({
             Entra nas tentativas e espera a sua aprovação.
           </p>
         </div>
+
+        <JoinApproved
+          pictures={approved}
+          working={working}
+          busyKey={busy?.key ?? null}
+          onSideBySide={(file) =>
+            void run(
+              "lado-a-lado",
+              async () => {
+                const refusal = refuseFile({
+                  size: file.size,
+                  type: file.type,
+                });
+                if (refusal !== null) return { ok: false, error: refusal };
+                return uploadSceneImage(scene.id, file, "");
+              },
+              () => montageSent(label),
+            )
+          }
+          onReference={attachReference}
+        />
       </div>
 
       <AttemptList
