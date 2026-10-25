@@ -404,6 +404,28 @@ A primeira comparação entre modelos foi feita em 19/09/2026, e o registro dela
 repositório. O que ela decidiu está no código: os modelos em `IMAGE_MODELS` e o padrão por tipo em
 `defaultModelFor`. A tabela `image_attempts` é a fonte de qualquer medição nova.
 
+## Cenas (migration 0030, #62 e #63)
+
+Uma cena é uma imagem com assunto próprio ("uma caixa grande", "a caneta sobre o livro"), que mais
+de uma pergunta pode usar. Uma pergunta mostra a imagem de **uma** palavra, **uma** cena, ou é
+**encenada** pelo professor na aula; no máximo uma das três, e nenhuma quer dizer "ainda não
+decidido" (`questions_one_image`).
+
+- Tabela `scenes`: descrição (nunca em branco), `image_style`, referência opcional em
+  `references/`, imagem aprovada (`approved_attempt_id` e `image_path`, juntos ou nenhum),
+  `school_id` (nulo é comum) e `based_on_id`.
+- Descrição única por escopo, sem diferenciar maiúsculas e espaços: entre as comuns, e entre as de
+  uma escola. Uma escola pode repetir a descrição de uma comum, que é como ela customiza.
+- As tentativas de imagem da cena são as mesmas de `image_attempts`: geração, upload, aprovação e
+  créditos. Cada tentativa é de uma palavra **ou** de uma cena (`image_attempts_one_owner`), e
+  `approve_image_attempt` faz para a cena o que faz para a palavra.
+- Criar uma cena não gera nada: gerar é um botão separado (#64).
+- A aluna lê a cena de uma pergunta que ela pode ler; o professor e o admin, como as outras
+  tabelas de conteúdo.
+- Apagar uma cena usada por uma pergunta é recusado (`on delete restrict`).
+- Telas: seção Cenas na tela de imagens (#64), escolha na tela de perguntas (#65), tela de aula
+  (#66). Publicar uma pergunta sem imagem, ou encenada, pede confirmação (#65).
+
 ## Fora desta entrega
 
 O **webhook do fornecedor** continua fora, por uma razão mais forte do que "depois": ele exige um

@@ -62,6 +62,7 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0027_an_answer_has_a_language.sql
 \i supabase/migrations/0028_a_question_shows_a_word.sql
 \i supabase/migrations/0029_every_row_knows_its_school.sql
+\i supabase/migrations/0030_a_question_can_show_a_scene.sql
 \i supabase/migrations/0031_joining_a_school_by_invite.sql
 \i supabase/migrations/0032_an_invite_waits_for_a_yes.sql
 
@@ -2053,5 +2054,216 @@ begin
 
   raise notice 'invite acceptance: an invite for an account waits for her yes, signed in, her own and open';
   raise notice 'and a student of one school is refused another one when she accepts, not when invited';
+end;
+$$;
+
+-- A question can show a scene (0030) ------------------------------------------------
+--
+-- Scenes, their attempts, approving, the one-of-three rule on questions, the
+-- school a scene's attempt takes, and who reads a scene. Written as the owner
+-- unless a role is set.
+do $$
+declare
+  c_chelsea constant uuid := (select id from schools where slug = 'chelsea-st');
+  c_b constant uuid := (select id from schools where slug = 'escola-b');
+  c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  -- Only of B: the teacher of B of the blocks above also teaches at Chelsea
+  -- since she accepted its invite (0032).
+  c_teacher_b constant uuid := '88888888-8888-8888-8888-888888888888';
+  c_common_point constant uuid := (select p.id from points p join books b on b.id = p.book_id
+                                    where b.title = 'Book 2' and p.number = 53);
+  c_chelsea_point constant uuid := (select p.id from points p join books b on b.id = p.book_id
+                                     where b.title = 'Chelsea only');
+  c_b_point constant uuid := (select p.id from points p join books b on b.id = p.book_id
+                               where b.title = 'B only');
+  c_word constant uuid := (select id from vocabulary_items where term = 'a word');
+  v_failures text;
+  v_common uuid;
+  v_chelsea uuid;
+  v_b uuid;
+  v_unpublished uuid;
+  v_first uuid;
+  v_second uuid;
+  v_question uuid;
+  v_word_image text;
+begin
+  delete from verify.failures;
+
+  insert into auth.users (id, email) values (c_teacher_b, 'only-b@example.com');
+  insert into school_members (school_id, user_id, role) values (c_b, c_teacher_b, 'teacher');
+
+  -- Scenes ------------------------------------------------------------------------
+  perform verify.expect_refused(
+    'a scene with a blank description', 'scenes_description_not_blank',
+    'insert into scenes (description) values (''   '')');
+  perform verify.expect_refused(
+    'a scene with a path and no approved attempt', 'scenes_approved_pair',
+    'insert into scenes (description, image_path) values (''a lone path'', ''x/y.png'')');
+
+  perform verify.expect_refused(
+    'a scene described only by tabs and line breaks', 'scenes_description_not_blank',
+    format('insert into scenes (description) values (%L)', E'\t\n '));
+
+  insert into scenes (description) values ('Big box') returning id into v_common;
+  begin
+    insert into scenes (description) values ('  big   BOX ');
+    insert into verify.failures values ('the same common description was written twice');
+  exception when unique_violation then
+    raise notice 'the same common description, cased and spaced apart: refused by scenes_description_key';
+  end;
+  begin
+    insert into scenes (description) values (E'\tBig box\n');
+    insert into verify.failures values ('the same common description with a tab and a line break was written');
+  exception when unique_violation then
+    raise notice 'the same common description between a tab and a line break: refused by scenes_description_key';
+  end;
+  insert into scenes (description, school_id) values ('Big box', c_chelsea) returning id into v_chelsea;
+  insert into scenes (description, school_id) values ('A pen on a book', c_b) returning id into v_b;
+  insert into scenes (description) values ('Only in a draft') returning id into v_unpublished;
+
+  -- Attempts belong to a word or to a scene --------------------------------------------
+  perform verify.expect_refused(
+    'an attempt of nothing', 'image_attempts_one_owner',
+    'insert into image_attempts (provider, status) values (''freepik'', ''pending'')');
+  perform verify.expect_refused(
+    'an attempt of a word and a scene', 'image_attempts_one_owner',
+    format('insert into image_attempts (vocabulary_item_id, scene_id, provider, status) values (%L, %L, %L, %L)',
+           c_word, v_common, 'freepik', 'pending'));
+
+  -- A scene's attempt takes the scene's school: its first parent, the word, is
+  -- null, and the first parent present gives the school.
+  if verify.refused_by(
+       format('insert into image_attempts (scene_id, provider, status) values (%L, %L, %L)',
+              v_chelsea, 'freepik', 'pending')) is not null then
+    insert into verify.failures values ('an attempt of a Chelsea scene was refused');
+  elsif (select school_id from image_attempts where scene_id = v_chelsea) is distinct from c_chelsea then
+    insert into verify.failures values ('an attempt of a Chelsea scene did not take Chelsea');
+  end if;
+  -- And a table of before still takes its first parent's school.
+  insert into questions (point_id, position, prompt, expected_answer)
+    values (c_chelsea_point, 100, 'q', 'a') returning id into v_question;
+  if (select school_id from questions where id = v_question) is distinct from c_chelsea then
+    insert into verify.failures values ('a question of a Chelsea point did not take Chelsea');
+  end if;
+
+  -- Approving a scene's attempt ----------------------------------------------------------
+  v_word_image := (select image_path from vocabulary_items where id = c_word);
+  insert into image_attempts (scene_id, provider, status, storage_path, credits_spent, completed_at)
+    values (v_common, 'upload', 'generated', 'scene/first.png', 0, now()) returning id into v_first;
+  insert into image_attempts (scene_id, provider, status, storage_path, credits_spent, completed_at)
+    values (v_common, 'upload', 'generated', 'scene/second.png', 0, now()) returning id into v_second;
+  perform approve_image_attempt(v_first);
+  perform approve_image_attempt(v_second);
+  if (select image_path from scenes where id = v_common) is distinct from 'scene/second.png'
+     or (select approved_attempt_id from scenes where id = v_common) is distinct from v_second then
+    insert into verify.failures values ('approving a scene''s attempt did not give the scene its picture');
+  end if;
+  if (select status from image_attempts where id = v_first) <> 'generated' then
+    insert into verify.failures values ('the scene''s picture approved before did not go back to a candidate');
+  end if;
+  if (select image_path from vocabulary_items where id = c_word) is distinct from v_word_image then
+    insert into verify.failures values ('approving a scene''s attempt changed a word');
+  end if;
+  -- One approved picture per scene, whatever writes it.
+  begin
+    insert into image_attempts (scene_id, provider, status, storage_path, credits_spent, completed_at)
+      values (v_common, 'upload', 'approved', 'scene/third.png', 0, now());
+    insert into verify.failures values ('a scene got a second approved picture');
+  exception when unique_violation then
+    raise notice 'a second approved picture of a scene: refused by image_attempts_one_approved_per_scene';
+  end;
+
+  -- What a question shows: at most one of the three -----------------------------------
+  perform verify.expect_refused(
+    'a question showing a word and a scene', 'questions_one_image',
+    format('insert into questions (point_id, position, prompt, expected_answer, shown_vocabulary_item_id, scene_id) values (%L, 101, %L, %L, %L, %L)',
+           c_common_point, 'q', 'a', c_word, v_common));
+  perform verify.expect_refused(
+    'a question showing a word and acted out', 'questions_one_image',
+    format('insert into questions (point_id, position, prompt, expected_answer, shown_vocabulary_item_id, is_acted_out) values (%L, 102, %L, %L, %L, true)',
+           c_common_point, 'q', 'a', c_word));
+  perform verify.expect_refused(
+    'a question showing a scene and acted out', 'questions_one_image',
+    format('insert into questions (point_id, position, prompt, expected_answer, scene_id, is_acted_out) values (%L, 103, %L, %L, %L, true)',
+           c_common_point, 'q', 'a', v_common));
+  if verify.refused_by(
+       format('insert into questions (point_id, position, prompt, expected_answer, is_acted_out) values (%L, 104, %L, %L, true)',
+              c_common_point, 'q', 'a')) is not null then
+    insert into verify.failures values ('a question acted out alone was refused');
+  end if;
+  insert into questions (point_id, position, prompt, expected_answer, scene_id, is_published)
+    values (c_common_point, 105, 'Is the box small?', 'No, it''s big.', v_common, true);
+  insert into questions (point_id, position, prompt, expected_answer, scene_id, is_published)
+    values (c_common_point, 106, 'Draft', 'a', v_unpublished, false);
+  insert into questions (point_id, position, prompt, expected_answer, scene_id, is_published)
+    values (c_b_point, 107, 'Where is the pen?', 'On the book.', v_b, true);
+
+  -- A common question does not show a school's scene; a school's may show a common one.
+  perform verify.expect_refused(
+    'a common question showing a Chelsea scene', 'questions_school',
+    format('insert into questions (point_id, position, prompt, expected_answer, scene_id) values (%L, 108, %L, %L, %L)',
+           c_common_point, 'q', 'a', v_chelsea));
+  if verify.refused_by(
+       format('insert into questions (point_id, position, prompt, expected_answer, scene_id) values (%L, 109, %L, %L, %L)',
+              c_chelsea_point, 'q', 'a', v_common)) is not null then
+    insert into verify.failures values ('a Chelsea question could not show a common scene');
+  end if;
+
+  -- A scene a question shows is not deleted from under it.
+  begin
+    delete from scenes where id = v_common;
+    insert into verify.failures values ('a scene shown by a question was deleted');
+  exception when foreign_key_violation then
+    raise notice 'deleting a scene a question shows: refused by questions_scene_id_fkey';
+  end;
+
+  -- Who reads and writes a scene ---------------------------------------------------------
+  set local role authenticated;
+
+  perform set_config('test.uid', c_student::text, false);
+  if not exists (select 1 from scenes where id = v_common) then
+    insert into verify.failures values ('a student does not read the scene of a published question');
+  end if;
+  if exists (select 1 from scenes where id = v_unpublished) then
+    insert into verify.failures values ('a student reads the scene of an unpublished question');
+  end if;
+  if exists (select 1 from scenes where id = v_b) then
+    insert into verify.failures values ('a Chelsea student reads a scene of B');
+  end if;
+
+  perform set_config('test.uid', c_teacher_b::text, false);
+  if exists (select 1 from scenes where id = v_chelsea) then
+    insert into verify.failures values ('the teacher of B reads a Chelsea scene');
+  end if;
+  if not exists (select 1 from scenes where id = v_common) then
+    insert into verify.failures values ('the teacher of B does not read a common scene');
+  end if;
+  if not verify.refused_for_privilege(
+       format('insert into scenes (description, school_id) values (%L, %L)', 'B writes Chelsea', c_chelsea)) then
+    insert into verify.failures values ('the teacher of B wrote a Chelsea scene');
+  end if;
+  if not verify.refused_for_privilege('insert into scenes (description) values (''B writes common'')') then
+    insert into verify.failures values ('the teacher of B wrote a common scene');
+  end if;
+  if verify.refused_for_privilege(
+       format('insert into scenes (description, school_id) values (%L, %L)', 'B writes B', c_b)) then
+    insert into verify.failures values ('the teacher of B could not write a scene of B');
+  end if;
+
+  perform set_config('test.uid', c_admin::text, false);
+  if verify.refused_for_privilege('insert into scenes (description) values (''admin writes common'')') then
+    insert into verify.failures values ('the platform admin could not write a common scene');
+  end if;
+
+  reset role;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'scenes: %', v_failures;
+  end if;
+
+  raise notice 'scenes: a question shows a word, a scene or is acted out, at most one';
+  raise notice 'and a scene''s attempt takes the scene''s school, its picture is approved as a word''s, its reader follows the question';
 end;
 $$;

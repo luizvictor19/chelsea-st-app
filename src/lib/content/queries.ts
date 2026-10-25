@@ -496,13 +496,22 @@ export async function listRunningAttempts(): Promise<
     .select("id, vocabulary_item_id, created_at")
     .eq("provider", "freepik")
     .eq("status", "pending")
+    // A scene's generation (0030) is not this tracker's: it follows words.
+    .not("vocabulary_item_id", "is", null)
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
-  return (rows ?? []).map((row) => ({
-    id: row.id,
-    wordId: row.vocabulary_item_id,
-    createdAt: row.created_at,
-  }));
+  // The filter above already drops them; this only tells the type.
+  return (rows ?? []).flatMap((row) =>
+    row.vocabulary_item_id === null
+      ? []
+      : [
+          {
+            id: row.id,
+            wordId: row.vocabulary_item_id,
+            createdAt: row.created_at,
+          },
+        ],
+  );
 }
 
 /** Every attempt for one word, newest first, for the panel on the right. */
