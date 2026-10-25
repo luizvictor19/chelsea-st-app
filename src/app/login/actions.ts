@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { looksLikeEmail, normalizeEmail } from "@/lib/credentials";
 import { env } from "@/lib/env";
+import { magicLinkOutcome } from "@/lib/magic-link";
 import { createClient } from "@/lib/supabase/server";
 
 export type LoginState =
@@ -76,11 +77,10 @@ export async function signInWithPassword(
  * Answering differently would turn this form into a way of asking "does this
  * person study here?", and the answer is nobody's business.
  *
- * That falls out of the flow rather than being faked: sign-ups are allowed, so
- * an unknown address is a real success too. It creates an auth user with a
- * profile and no membership, which is exactly the "account not released" state
- * the dashboard already handles. So the error below can be shown honestly
- * without leaking anything, because it never depends on the address existing.
+ * Nobody gets an account without an invite (0031), so an unknown address gets
+ * no link and no account: shouldCreateUser is off, and Supabase refuses. That
+ * refusal is read as sent (magicLinkOutcome), so the error below never depends
+ * on the address existing.
  */
 export async function sendMagicLink(
   _previous: LoginState,
@@ -95,10 +95,13 @@ export async function sendMagicLink(
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithOtp({
     email,
-    options: { emailRedirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback` },
+    options: {
+      emailRedirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
+      shouldCreateUser: false,
+    },
   });
 
-  if (error) {
+  if (magicLinkOutcome(error?.code, error !== null) === "error") {
     return {
       status: "error",
       message:
