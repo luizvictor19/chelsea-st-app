@@ -54,6 +54,8 @@ architecture question for Luiz.
   the invited email is first confirmed (a trigger on `auth.users`) or when the invite is written
   for an email already confirmed. Never insert into `school_members` or `students` from the app.
   A school's admin invites any role, its teacher students only; a student belongs to one school.
+  No account is created without an invite (#109): the magic link asks with
+  `shouldCreateUser: false`, and "Allow new users to sign up" is off in the Auth dashboard.
 
 ## Sensitive data and secrets
 
