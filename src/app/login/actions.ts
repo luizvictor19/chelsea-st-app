@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 
 import { looksLikeEmail, normalizeEmail } from "@/lib/credentials";
 import { env } from "@/lib/env";
-import { magicLinkOutcome } from "@/lib/magic-link";
+import { magicLinkStep } from "@/lib/magic-link";
 import { createClient } from "@/lib/supabase/server";
 
 export type LoginState =
@@ -79,8 +79,9 @@ export async function signInWithPassword(
  *
  * Nobody gets an account without an invite (0031), so an unknown address gets
  * no link and no account: shouldCreateUser is off, and Supabase refuses. That
- * refusal is read as sent (magicLinkOutcome), so the error below never depends
- * on the address existing.
+ * refusal reads as sent, and an invite not yet accepted gets the recovery link
+ * instead (magicLinkStep), so the error below never depends on the address
+ * existing.
  */
 export async function sendMagicLink(
   _previous: LoginState,
@@ -101,7 +102,18 @@ export async function sendMagicLink(
     },
   });
 
-  if (magicLinkOutcome(error?.code, error !== null) === "error") {
+  let step = magicLinkStep(error);
+  if (step === "recover") {
+    const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(
+      email,
+      {
+        redirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/definir-senha`,
+      },
+    );
+    step = recoveryError ? "error" : "sent";
+  }
+
+  if (step === "error") {
     return {
       status: "error",
       message:

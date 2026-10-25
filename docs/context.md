@@ -56,6 +56,9 @@ architecture question for Luiz.
   A school's admin invites any role, its teacher students only; a student belongs to one school.
   No account is created without an invite (#109): the magic link asks with
   `shouldCreateUser: false`, and "Allow new users to sign up" is off in the Auth dashboard.
+  With sign-ups off, GoTrue refuses the magic link to an invite not yet accepted (an unconfirmed
+  account goes through Signup), so the login action sends that one the recovery link, which
+  confirms the email and accepts the invite.
 
 ## Sensitive data and secrets
 

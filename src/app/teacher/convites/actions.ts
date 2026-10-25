@@ -47,7 +47,9 @@ async function mailInvite(email: string): Promise<string | null> {
   if (error.code === "over_email_send_rate_limit") {
     return "O convite foi gravado, mas o limite de e-mails do Supabase foi atingido. Use Reenviar daqui a alguns minutos.";
   }
-  return "O convite foi gravado, mas o e-mail não saiu. A pessoa pode entrar pela tela de login com esse e-mail, em “Entrar com um link por e-mail”, ou você usa Reenviar mais tarde.";
+  // Not the login screen as a way in: when this call fails the account may not
+  // exist, and then no link of the login screen goes out (#109).
+  return "O convite foi gravado, mas o e-mail não saiu. Use Reenviar daqui a alguns minutos.";
 }
 
 type Supabase = Awaited<ReturnType<typeof requireTeacher>>["supabase"];
@@ -156,8 +158,10 @@ export async function resendInvite(inviteId: string): Promise<RowResult> {
 
 /**
  * Cancels an open invite. The account Supabase created when it was mailed
- * stays, unconfirmed and with no school: signing in with it leads to the
- * "account not released" screen, like any address without an invite.
+ * stays, unconfirmed and with no school. Its only way in is the recovery link
+ * ("Esqueci minha senha", or the magic link, which falls back to it): that
+ * confirms the email with no invite left to accept, and leads to the screen
+ * of an account with no access.
  */
 export async function cancelInvite(inviteId: string): Promise<RowResult> {
   const { supabase } = await requireTeacher();

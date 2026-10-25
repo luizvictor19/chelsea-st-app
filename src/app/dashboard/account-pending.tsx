@@ -6,8 +6,9 @@ import { SignOutButton } from "../auth/sign-out-button";
  * Someone signed in with no membership in any school.
  *
  * Rare since 0031, but still reachable: an account whose invite was cancelled
- * or expired after the account existed. A blank screen here would read as a
- * bug, so it says how one gets in (an invite) and how to get unstuck.
+ * or expired after the account existed. Anyone here has a confirmed email, so
+ * a new invite is accepted the moment it is written (0031) and no email comes:
+ * the copy says to reload, not to wait for a link.
  */
 export function AccountPending() {
   const contact = env.NEXT_PUBLIC_TEACHER_CONTACT_EMAIL;
@@ -25,9 +26,9 @@ export function AccountPending() {
         Sua conta ainda não tem acesso.
       </h1>
       <p className="text-muted">
-        A entrada na Chelsea St é por convite. Se você recebeu um convite por
-        e-mail, abra o link dele. Se o link venceu, peça um novo a quem convidou
-        você.
+        A entrada na Chelsea St é por convite. Peça um convite a quem cuida da
+        sua turma, para este mesmo e-mail. Como você já tem conta, ele vale
+        assim que for enviado: depois, é só recarregar esta página.
       </p>
       {contact ? (
         <p className="text-muted">

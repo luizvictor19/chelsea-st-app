@@ -1,28 +1,30 @@
-/** What the magic-link form says after asking Supabase for a link. */
-export type MagicLinkOutcome = "sent" | "error";
+/**
+ * What to do after asking Supabase for a magic link: tell the form it went
+ * out, send the recovery link instead, or say it failed.
+ */
+export type MagicLinkStep = "sent" | "recover" | "error";
 
 /**
- * The refusals Supabase gives for an address with no account: `otp_disabled`
- * when the call says shouldCreateUser: false, `signup_disabled` once sign-ups
- * are off in the Auth dashboard. Nobody joins without an invite (0031), so no
- * link goes out and no account is made.
+ * Read from GoTrue's source (supabase/auth, internal/api/otp.go,
+ * magic_link.go, recover.go and verify.go, 2026-10-25):
+ *
+ * - `otp_disabled`: shouldCreateUser is false and no account has the address.
+ *   Nobody joins without an invite (0031), so no link and no account, and the
+ *   form says sent, exactly as for an address with an account: telling them
+ *   apart would answer "does this person study here?".
+ * - `signup_disabled`: the account exists but is not confirmed, which is an
+ *   invite not yet accepted. GoTrue sends it through Signup, refused once
+ *   sign-ups are off. The recovery link has no such check, and verifying it
+ *   confirms the email, which accepts the invite: so that one goes out.
  */
-const NO_ACCOUNT_CODES: ReadonlySet<string> = new Set([
-  "otp_disabled",
-  "signup_disabled",
-]);
-
-/**
- * An address without an account reads as sent, exactly like one with an
- * account: telling them apart would answer "does this person study here?",
- * which is nobody's business. Every other failure is said as one.
- */
-export function magicLinkOutcome(
-  errorCode: string | null | undefined,
-  failed: boolean,
-): MagicLinkOutcome {
-  if (!failed) {
+export function magicLinkStep(
+  error: { readonly code?: string } | null,
+): MagicLinkStep {
+  if (error === null || error.code === "otp_disabled") {
     return "sent";
   }
-  return errorCode && NO_ACCOUNT_CODES.has(errorCode) ? "sent" : "error";
+  if (error.code === "signup_disabled") {
+    return "recover";
+  }
+  return "error";
 }
