@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 import { BODY_SIZE_LIMIT_BYTES } from "./src/lib/images/body-limit";
+import { RENAMED_PATHS } from "./src/lib/renamed-paths";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -11,6 +12,17 @@ const nextConfig: NextConfig = {
   // next dev would otherwise write its own block into AGENTS.md on every
   // start. The instruction it carries is kept, in our words, in AGENTS.md.
   agentRules: false,
+
+  // The paths that were in Portuguese (#116), each to its English one, with
+  // whatever follows it (":rest*" also matches nothing) and the query, which
+  // Next passes through. Permanent: they never come back.
+  async redirects() {
+    return RENAMED_PATHS.map(({ from, to }) => ({
+      source: `${from}/:rest*`,
+      destination: `${to}/:rest*`,
+      permanent: true,
+    }));
+  },
 
   images: {
     /*

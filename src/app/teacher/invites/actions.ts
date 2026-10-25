@@ -26,13 +26,13 @@ const ROLES: readonly SchoolRole[] = ["student", "teacher", "admin"];
 /**
  * Asks Supabase to mail the invite. For a new email it creates the account,
  * unconfirmed: the membership waits for the click (0031), and the link leads
- * to /definir-senha through the invite template of docs/commands.md. For an
+ * to /set-password through the invite template of docs/commands.md. For an
  * account that already exists it mails nothing, and that reads as sent: she
  * accepts when she signs in (0032). See mailProblem.
  */
 async function mailInvite(email: string): Promise<string | null> {
   const { error } = await createInviteMailer().inviteUserByEmail(email, {
-    redirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/definir-senha`,
+    redirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/set-password`,
   });
   return mailProblem(error);
 }
@@ -71,7 +71,7 @@ export async function inviteToSchool(
     return { status: "error", message: inviteRefusal(error), email, role };
   }
 
-  revalidatePath("/teacher/convites");
+  revalidatePath("/teacher/invites");
 
   const problem = await mailInvite(email);
   if (problem !== null) {
@@ -98,7 +98,7 @@ export async function resendInvite(inviteId: string): Promise<RowResult> {
     return { status: "error", message: inviteRefusal(error) };
   }
 
-  revalidatePath("/teacher/convites");
+  revalidatePath("/teacher/invites");
 
   if (!invite) {
     return {
@@ -135,7 +135,7 @@ export async function cancelInvite(inviteId: string): Promise<RowResult> {
     return { status: "error", message: inviteRefusal(error) };
   }
 
-  revalidatePath("/teacher/convites");
+  revalidatePath("/teacher/invites");
 
   if (data.length === 0) {
     return {

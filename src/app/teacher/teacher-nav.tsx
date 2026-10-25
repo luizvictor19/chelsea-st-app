@@ -10,8 +10,8 @@ const links = [
   { label: "Conteúdo", href: "/teacher/content" },
   { label: "Imagens", href: "/teacher/content/images" },
   { label: "Perguntas", href: "/teacher/content/questions" },
-  { label: "Aula ao vivo", href: "/teacher/aula" },
-  { label: "Convites", href: "/teacher/convites" },
+  { label: "Aula ao vivo", href: "/teacher/lesson" },
+  { label: "Convites", href: "/teacher/invites" },
 ] as const;
 
 /*
