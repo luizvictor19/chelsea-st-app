@@ -68,11 +68,15 @@ export function NewScene({
       }}
       className="flex flex-wrap items-center gap-2"
     >
-      <label htmlFor="nova-cena" className="sr-only">
-        Descrição da nova cena
-      </label>
+      {/*
+        aria-label, not an sr-only label: sr-only is absolute, and with no
+        positioned ancestor it was placed against the page at the foot of the
+        word list, outside the column that scrolls, so the window grew a long
+        empty scroll down to it (seen on 2026-10-25).
+      */}
       <input
         id="nova-cena"
+        aria-label="Descrição da nova cena"
         value={description}
         onChange={(event) => setDescription(event.target.value)}
         placeholder="nova cena, em inglês: a big box"
