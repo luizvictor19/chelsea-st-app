@@ -63,6 +63,7 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0028_a_question_shows_a_word.sql
 \i supabase/migrations/0029_every_row_knows_its_school.sql
 \i supabase/migrations/0031_joining_a_school_by_invite.sql
+\i supabase/migrations/0032_an_invite_waits_for_a_yes.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
@@ -1861,17 +1862,15 @@ begin
     format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
            c_b, 'Someone.Else@example.com', 'student'));
 
-  -- A student of Chelsea is not invited to study at B, and an open student
-  -- invite of B keeps the same email from being invited to study at Chelsea.
-  perform verify.expect_refused(
-    'a Chelsea student invited to study at B', 'school_invites_one_school_per_student',
-    format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
-           c_b, 'student@example.com', 'student'));
-  perform verify.expect_refused(
-    'an email with an open student invite of B invited to study at Chelsea',
-    'school_invites_one_school_per_student',
-    format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
-           c_chelsea, 'someone-b@example.com', 'student'));
+  -- Since 0032 a student invite is written whatever the person studies
+  -- elsewhere: refusing it here told the inviting school. One school per
+  -- student is checked on acceptance (the 0032 block below).
+  perform set_config('test.uid', c_admin::text, false);
+  if verify.refused_by(
+       format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+              c_b, 'student@example.com', 'student')) is not null then
+    insert into verify.failures values ('a student invite for a Chelsea student was refused when written');
+  end if;
   -- Teaching at a second school is fine: only studying is one school.
   if verify.refused_for_privilege(
        format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
@@ -1909,10 +1908,10 @@ begin
   if exists (select 1 from school_members where user_id = c_late) then
     insert into verify.failures values ('an expired invite became a membership');
   end if;
-  -- Renewed, it does, at once: the email is already confirmed.
+  -- Renewed, it still waits for her yes (0032), though the email is confirmed.
   update school_invites set expires_at = now() + interval '15 days' where id = v_expired;
-  if not exists (select 1 from school_members where user_id = c_late and school_id = c_b) then
-    insert into verify.failures values ('a renewed invite for a confirmed account did not become a membership');
+  if exists (select 1 from school_members where user_id = c_late) then
+    insert into verify.failures values ('a renewed invite for a confirmed account became a membership without a yes');
   end if;
 
   -- An account created already confirmed joins on creation.
@@ -1924,22 +1923,22 @@ begin
     insert into verify.failures values ('an account created confirmed did not join');
   end if;
 
-  -- An invite for a confirmed account becomes a membership when written.
+  -- An invite for a confirmed account is written and waits for her yes (0032).
   update auth.users set email_confirmed_at = now() where id = c_teacher_b;
   set local role authenticated;
   perform set_config('test.uid', c_admin::text, false);
   insert into school_invites (school_id, email, role) values (c_chelsea, 'teacher-b@example.com', 'teacher');
   reset role;
-  if not exists (select 1 from school_members where user_id = c_teacher_b and school_id = c_chelsea and role = 'teacher') then
-    insert into verify.failures values ('an invite for a confirmed account did not become a membership');
+  if exists (select 1 from school_members where user_id = c_teacher_b and school_id = c_chelsea) then
+    insert into verify.failures values ('an invite for a confirmed account became a membership without a yes');
   end if;
 
   -- An accepted invite is not cancelled: it is how someone joined.
   set local role authenticated;
   perform set_config('test.uid', c_teacher_b::text, false);
-  delete from school_invites where email = 'late@example.com';
+  delete from school_invites where email = 'someone-b@example.com';
   reset role;
-  if not exists (select 1 from school_invites where email = 'late@example.com') then
+  if not exists (select 1 from school_invites where email = 'someone-b@example.com') then
     insert into verify.failures values ('an accepted invite was cancelled');
   end if;
 
@@ -1950,5 +1949,109 @@ begin
 
   raise notice 'invites: a school''s admin invites any role, its teacher students only, a student no one';
   raise notice 'and an invite becomes a membership on the first confirmation, never once expired';
+end;
+$$;
+
+-- An invite waits for a yes (0032) ---------------------------------------------------
+--
+-- Continues from the block above: Chelsea has an open teacher invite for the
+-- teacher of B (confirmed), B an open student invite for late@ (confirmed) and
+-- one for the Chelsea student. Each person accepts only her own, open invite,
+-- signed in; a student of one school is refused another at acceptance.
+do $$
+declare
+  c_chelsea constant uuid := (select id from schools where slug = 'chelsea-st');
+  c_b constant uuid := (select id from schools where slug = 'escola-b');
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  c_teacher_b constant uuid := '33333333-3333-3333-3333-333333333333';
+  c_late constant uuid := '66666666-6666-6666-6666-666666666666';
+  v_failures text;
+  v_teacher_invite uuid := (select id from school_invites
+                             where school_id = c_chelsea and email = 'teacher-b@example.com');
+  v_late_invite uuid := (select id from school_invites
+                          where school_id = c_b and email = 'late@example.com');
+  v_student_invite uuid := (select id from school_invites
+                             where school_id = c_b and email = 'student@example.com');
+  v_expired uuid;
+begin
+  delete from verify.failures;
+
+  if has_function_privilege('anon', 'accept_my_school_invite(uuid)', 'execute')
+     or has_function_privilege('anon', 'my_open_school_invites()', 'execute') then
+    insert into verify.failures values ('anon may call the invite functions');
+  end if;
+
+  -- An expired invite for the teacher of B, written as the owner.
+  insert into school_invites (school_id, email, role, expires_at)
+    values (c_b, 'teacher-b@example.com', 'student', now() - interval '1 day')
+    returning id into v_expired;
+
+  set local role authenticated;
+
+  -- She sees her open invite and nobody else's.
+  perform set_config('test.uid', c_teacher_b::text, false);
+  if not exists (select 1 from my_open_school_invites() where id = v_teacher_invite) then
+    insert into verify.failures values ('the invited person does not see her open invite');
+  end if;
+  if exists (select 1 from my_open_school_invites() where id <> v_teacher_invite) then
+    insert into verify.failures values ('my_open_school_invites returned an invite of another email or an expired one');
+  end if;
+
+  -- Someone else, signed in, cannot accept it.
+  perform set_config('test.uid', c_late::text, false);
+  perform verify.expect_refused(
+    'another account accepting her invite', 'accept_my_school_invite_open',
+    format('select accept_my_school_invite(%L)', v_teacher_invite));
+
+  -- An expired invite is not accepted, even by its own person.
+  perform set_config('test.uid', c_teacher_b::text, false);
+  perform verify.expect_refused(
+    'an expired invite accepted', 'accept_my_school_invite_open',
+    format('select accept_my_school_invite(%L)', v_expired));
+
+  -- Her yes makes the membership and closes the invite.
+  if verify.refused_by(format('select accept_my_school_invite(%L)', v_teacher_invite)) is not null then
+    insert into verify.failures values ('she could not accept her own open invite');
+  end if;
+  reset role;
+  if not exists (select 1 from school_members
+                  where user_id = c_teacher_b and school_id = c_chelsea and role = 'teacher') then
+    insert into verify.failures values ('accepting did not make the membership');
+  end if;
+  if (select accepted_at from school_invites where id = v_teacher_invite) is null then
+    insert into verify.failures values ('an accepted invite was left open');
+  end if;
+  if exists (select 1 from school_members where user_id = c_teacher_b and school_id = c_b and role = 'student') then
+    insert into verify.failures values ('an expired invite became a membership');
+  end if;
+
+  -- A student invite accepted makes the students row too.
+  set local role authenticated;
+  perform set_config('test.uid', c_late::text, false);
+  perform accept_my_school_invite(v_late_invite);
+  reset role;
+  if not exists (select 1 from students where id = c_late and school_id = c_b) then
+    insert into verify.failures values ('accepting a student invite did not make the students row');
+  end if;
+
+  -- A Chelsea student is refused a student invite of B when she accepts it.
+  update auth.users set email_confirmed_at = now() where id = c_student;
+  set local role authenticated;
+  perform set_config('test.uid', c_student::text, false);
+  perform verify.expect_refused(
+    'a Chelsea student accepting a student invite of B', 'accept_my_school_invite_one_school',
+    format('select accept_my_school_invite(%L)', v_student_invite));
+  reset role;
+  if exists (select 1 from school_members where user_id = c_student and school_id = c_b) then
+    insert into verify.failures values ('a student of one school joined another as a student');
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'invite acceptance: %', v_failures;
+  end if;
+
+  raise notice 'invite acceptance: an invite for an account waits for her yes, signed in, her own and open';
+  raise notice 'and a student of one school is refused another one when she accepts, not when invited';
 end;
 $$;
