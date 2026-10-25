@@ -14,7 +14,7 @@ import {
 
 /**
  * Every generation the images page knows is running, followed to its end
- * from outside React, whichever word is open.
+ * from outside React, whichever word or scene is open.
  *
  * It used to live in the word's panel, and the panel is remounted per word:
  * moving to another word stopped the questions, so the picture was not
@@ -32,8 +32,10 @@ import {
 /** A generation to follow. */
 export type Generation = {
   readonly attemptId: string;
-  readonly wordId: string;
-  readonly term: string;
+  /** The word or the scene the attempt belongs to (0030). */
+  readonly ownerId: string;
+  /** How its notices name it: the word's term, or the scene's description. */
+  readonly label: string;
   /** The attempt's created_at, which the window is counted from. */
   readonly startedAt: string;
 };
@@ -50,7 +52,7 @@ export type PollAnswer =
   | {
       readonly ok: false;
       readonly error: string;
-      /** The word's list, when the failure was written on the row. */
+      /** The owner's list, when the failure was written on the row. */
       readonly attempts?: readonly Row[];
       /** Present when the answer was lost on the way, not given. */
       readonly cause?: unknown;
@@ -136,7 +138,7 @@ export function createGenerationTracker(deps: TrackerDeps): GenerationTracker {
       // the row says so), or lost past the window.
       end(
         generation,
-        wordFailed(generation.term, answer.error),
+        wordFailed(generation.label, answer.error),
         answer.attempts !== undefined &&
           endedIn(generation.attemptId, answer.attempts),
       );
@@ -157,7 +159,7 @@ export function createGenerationTracker(deps: TrackerDeps): GenerationTracker {
     // left to wait for and nothing true to say about a generation.
     end(
       generation,
-      generationNotice(generation.term, generation.attemptId, answer.attempts),
+      generationNotice(generation.label, generation.attemptId, answer.attempts),
       true,
     );
   }

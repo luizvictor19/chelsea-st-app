@@ -2,25 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 
-import {
-  readWordAttempts,
-  requireTeacher,
-  type ImageAttempt,
-} from "@/lib/content/queries";
+import { ownerOf, readAttempts, requireTeacher } from "@/lib/content/queries";
 import { compareWords } from "@/lib/content/word-order";
 import { createFreepikProvider } from "@/lib/images/freepik";
-import {
-  GENERATION_WINDOW_MS,
-  MAX_REFERENCE_BYTES,
-  REFERENCE_TOO_BIG,
-  hasExpired,
-} from "@/lib/images/generation";
-import {
-  isImageModelId,
-  modelCredits,
-  referenceDelivery,
-  takesReference,
-} from "@/lib/images/provider";
+import { GENERATION_WINDOW_MS, hasExpired } from "@/lib/images/generation";
+import { isImageModelId, takesReference } from "@/lib/images/provider";
 import {
   buildContrastPrompt,
   contrastCandidates,
@@ -28,12 +14,7 @@ import {
   parseContrastSuggestions,
 } from "@/lib/images/contrast-suggest";
 import { buildPrompt } from "@/lib/images/style";
-import {
-  afterWrite,
-  readImageFile,
-  refuseUpload,
-  uploadFilename,
-} from "@/lib/images/upload";
+import { readImageFile, refuseUpload } from "@/lib/images/upload";
 import { ACTION_BEAT_MS, withHeartbeat, type Heartbeat } from "@/lib/heartbeat";
 import { buildSubjectPrompt, parseSubject } from "@/lib/images/subject";
 import {
@@ -44,6 +25,20 @@ import {
 import { createDeepSeekProvider } from "@/lib/text/deepseek";
 import type { Database } from "@/lib/supabase/types";
 
+import {
+  SCREEN,
+  discardAttempt,
+  errorMessage,
+  failure,
+  openGeneration,
+  publicReferenceUrl,
+  recordFailure,
+  storeGenerated,
+  storeReference,
+  storeUpload,
+  type ActionResult,
+  type Supabase,
+} from "./attempt-store";
 import { planWrite, type BulkChange, type WordOutcome } from "./bulk";
 import { contrastError } from "./contrast-sets";
 import {
@@ -53,101 +48,21 @@ import {
   type SubjectDb,
 } from "./subject-store";
 
+export type { ActionResult } from "./attempt-store";
+
 type Representation = Database["public"]["Enums"]["representation_kind"];
 
 /**
- * What an action answers with.
- *
- * `attempts` is the list of the word as the action left it, and it is there
- * because the call returning is the only proof the panel has that anything at
- * all reached the browser. The re-render that `revalidatePath` triggers
- * travels in the same response, but nothing proves that half of it landed: on
- * 19/09/2026 it twice did not, after a generation that had taken 8s and 21s.
- *
- * Only the actions that rewrite the list say so. Absent means "I changed
- * nothing there", and the panel keeps what it has. A poll that finds the
- * generation still running says nothing, which is also what makes it cheap.
- *
- * A failure can carry a list too: a generation the provider refused leaves a
- * 'failed' row, and the teacher should see the row as well as the reason.
- *
- * `reference` follows the same convention one step further: absent means the
- * action did not touch the word's structure reference, a string is the one it
- * now has, and null is "there is none any more". Three states, because two
- * could not tell "I changed nothing" apart from "I took it off".
- */
-export type ActionResult =
-  | {
-      ok: true;
-      attempts?: readonly ImageAttempt[];
-      reference?: string | null;
-    }
-  | {
-      ok: false;
-      error: string;
-      attempts?: readonly ImageAttempt[];
-      /**
-       * The technical reason, in whatever language it came in. The panel
-       * sends it to the console; `error` is the Portuguese sentence the
-       * teacher reads.
-       */
-      cause?: string;
-    };
-
-const BUCKET = "vocabulary-images";
-const SCREEN = "/teacher/content/images";
-
-/**
  * An attempt can belong to a scene since 0030. The actions here work on a
- * word's attempts; a scene's are the Cenas section's (#64).
+ * word's attempts; a scene's are scene-actions.ts's (#64). pollAttempt is
+ * the one that serves both.
  */
 const SCENE_ATTEMPT = "Essa tentativa é de uma cena, não de uma palavra.";
 
-/**
- * Where a structure reference lives, apart from the finished pictures.
- *
- * Migration 0014 holds this from three sides with checks, because a path in
- * the wrong prefix would still read back, still resolve to a public URL and
- * still look right: the only one to notice would be whoever comes to clean
- * the bucket up, and everything under this prefix is meant to be a
- * discardable input.
- */
-const REFERENCE_PREFIX = "references";
-
 /** An update on the word's instruction, for subject-store. */
-function subjectUpdate(
-  supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
-): SubjectDb {
+function subjectUpdate(supabase: Supabase): SubjectDb {
   return (values) => supabase.from("vocabulary_items").update(values);
 }
-
-/** Whatever was thrown, as a string the screen can show. */
-function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
-
-function failure(error: unknown): ActionResult {
-  return { ok: false, error: errorMessage(error) };
-}
-
-/**
- * The file extension to store an image under. Taken from the content type
- * rather than from the URL, because a generated image arrives from a signed
- * URL whose path says nothing about the format.
- */
-function extensionFor(contentType: string | null, fallback: string): string {
-  const known: Record<string, string> = {
-    "image/png": "png",
-    "image/jpeg": "jpg",
-    "image/webp": "webp",
-    "image/gif": "gif",
-    "image/svg+xml": "svg",
-  };
-  const type = (contentType ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
-  return known[type] ?? fallback;
-}
-
-type Supabase = Awaited<ReturnType<typeof requireTeacher>>["supabase"];
 
 /*
  * The per-word writes, shared by the action for one word and by applyToWords
@@ -232,23 +147,7 @@ export async function approveAttempt(attemptId: string): Promise<ActionResult> {
   }
 }
 
-/**
- * Discard a generated attempt: the file goes, the row stays.
- *
- * The row is accounting — what it cost, which model, which prompt, which
- * reference — and deleting it would make the sum of credits_spent read low,
- * silently and always. The file is what takes up space, and the bin is the
- * teacher saying to get rid of that.
- *
- * Only a generated attempt. The screen offers the bin nowhere else, and this
- * says the same thing where it cannot be worked around. An approved one is
- * replaced by approving another, which demotes it inside one transaction and
- * moves the word's pointer with it; discarding it here would leave
- * vocabulary_items naming a rejected attempt, and now also a file that no
- * longer exists. A failed one is terminal already, and reclassifying it as
- * rejected is what made the two the API refused indistinguishable from
- * eleven pictures the teacher simply disliked.
- */
+/** Discard a word's generated attempt; see discardAttempt. */
 export async function rejectAttempt(attemptId: string): Promise<ActionResult> {
   try {
     const { supabase } = await requireTeacher();
@@ -263,50 +162,12 @@ export async function rejectAttempt(attemptId: string): Promise<ActionResult> {
       return { ok: false, error: SCENE_ATTEMPT };
     }
 
-    if (attempt.status !== "generated") {
-      return {
-        ok: false,
-        error: "Só uma tentativa pronta pode ser descartada.",
-      };
-    }
-
-    /*
-     * The row is marked before the file is removed, never the other way
-     * round. A rejected row whose file is still there is an orphan for a
-     * cleanup to find later; a generated row whose file is already gone is a
-     * broken picture on the screen, now.
-     */
-    const { error } = await supabase
-      .from("image_attempts")
-      .update({ status: "rejected", decided_at: new Date().toISOString() })
-      .eq("id", attemptId);
-    if (error) return { ok: false, error: error.message };
-
-    if (attempt.storage_path !== null) {
-      const { error: removeError } = await supabase.storage
-        .from(BUCKET)
-        .remove([attempt.storage_path]);
-      /*
-       * Cleared only when the file really went. A path kept next to a deleted
-       * file would paint a thumbnail with nothing behind it; a path cleared
-       * next to a file that survived would lose the only thing that could
-       * find it again. The failure is not raised to the teacher: the attempt
-       * is discarded either way, and a file left behind is a cleanup's
-       * problem rather than theirs.
-       */
-      if (removeError === null) {
-        await supabase
-          .from("image_attempts")
-          .update({ storage_path: null })
-          .eq("id", attemptId);
-      }
-    }
-
-    revalidatePath(SCREEN);
-    return {
-      ok: true,
-      attempts: await readWordAttempts(supabase, attempt.vocabulary_item_id),
-    };
+    return await discardAttempt(
+      supabase,
+      attemptId,
+      { kind: "word", id: attempt.vocabulary_item_id },
+      attempt,
+    );
   } catch (cause) {
     return failure(cause);
   }
@@ -318,57 +179,32 @@ export async function rejectAttempt(attemptId: string): Promise<ActionResult> {
  * The file is kept and the column points at it, so the teacher uploads once
  * and generates several times, changing the instruction between tries,
  * without the reference going anywhere on a reload or on a trip to another
- * word.
- *
- * The old file is not deleted when a new one replaces it. Attempts made under
- * it still name it in their own reference_path, and that is the whole reason
- * the attempt has a column of its own: deleting the file would leave those
- * rows pointing at nothing and the record would stop being able to say what
- * produced a picture. Cleaning the bucket is a job that has to read both
- * columns, and it is not this one.
+ * word. See storeReference for why the old file stays.
  */
 export async function setReference(
   wordId: string,
   file: File,
 ): Promise<ActionResult> {
   try {
-    if (file.size === 0) return { ok: false, error: "O arquivo está vazio." };
-    // The browser has already shrunk it. This is the net under that, and it
-    // has to be ours: Next refuses a bigger body with a 413 that reaches the
-    // panel as a lost connection.
-    if (file.size > MAX_REFERENCE_BYTES) {
-      return { ok: false, error: REFERENCE_TOO_BIG };
-    }
     const { supabase } = await requireTeacher();
-
-    // The type and the extension from the bytes, and the bytes as the body:
-    // given the File, storage-js drops contentType and the bucket would serve
-    // whatever the browser declared. See readImageFile.
-    const image = await readImageFile(file);
-    if (image === null) {
-      return {
-        ok: false,
-        error: "Não consegui ler esse arquivo como PNG, JPEG ou WebP.",
-      };
-    }
-    const path = `${REFERENCE_PREFIX}/${wordId}/${crypto.randomUUID()}.${image.extension}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from(BUCKET)
-      .upload(path, image.body, { contentType: image.type });
-    if (uploadError) return { ok: false, error: uploadError.message };
+    const stored = await storeReference(
+      supabase,
+      { kind: "word", id: wordId },
+      file,
+    );
+    if (!stored.ok) return stored;
 
     // After the file is in the bucket, never before: a column pointing at a
     // file that is not there yet is a generation that fails for a reason the
     // teacher cannot see.
     const { error } = await supabase
       .from("vocabulary_items")
-      .update({ reference_path: path })
+      .update({ reference_path: stored.path })
       .eq("id", wordId);
     if (error) return { ok: false, error: error.message };
 
     revalidatePath(SCREEN);
-    return { ok: true, reference: publicReferenceUrl(supabase, path) };
+    return { ok: true, reference: publicReferenceUrl(supabase, stored.path) };
   } catch (cause) {
     return failure(cause);
   }
@@ -376,17 +212,7 @@ export async function setReference(
 
 /**
  * Send a finished picture, made outside the platform, as an attempt of the
- * word.
- *
- * Not a reference: that one guides a generation and lives under its own
- * prefix. This is the picture itself, stored where a generated one is, and it
- * waits in the list to be approved like any other. Nothing here approves it.
- *
- * The file goes in first and the row after, as with a reference. The row is
- * written once, already 'generated' and with its path, so there is never an
- * upload row in 'pending': nothing polls an upload, and one left there by a
- * failed file would wait forever. The attempt id is made here so the path can
- * name it before the row exists.
+ * word. See storeUpload.
  */
 export async function uploadFinishedImage(
   wordId: string,
@@ -453,58 +279,13 @@ export async function uploadFinishedImage(
       };
     }
 
-    const attemptId = crypto.randomUUID();
-    const path = `${wordId}/${attemptId}.${image.extension}`;
-
-    // The bytes and not the File: see readImageFile.
-    const { error: uploadError } = await supabase.storage
-      .from(BUCKET)
-      .upload(path, image.body, { contentType: image.type });
-    if (uploadError) {
-      return {
-        ok: false,
-        error:
-          "Não consegui guardar o arquivo. Nada foi gravado; tente de novo.",
-        cause: uploadError.message,
-      };
-    }
-
-    const { error: insertError } = await supabase
-      .from("image_attempts")
-      .insert({
-        id: attemptId,
-        vocabulary_item_id: wordId,
-        provider: "upload",
-        status: "generated",
-        storage_path: path,
-        // Zero and not null: null means nobody knows what an attempt cost, and
-        // an upload is known to have cost nothing. 0025 holds this with a check.
-        credits_spent: 0,
-        source_filename: uploadFilename(file.name),
-        // What the teacher says the picture was made from, when made on the
-        // Freepik site. Optional, and null rather than blank when left empty.
-        // 0025's upload shape leaves subject free.
-        subject: usedSubject,
-        // Stamped although an upload never waited: null on completed_at is what
-        // "still running" looks like, and this row is not.
-        completed_at: new Date().toISOString(),
-      });
-    if (insertError) {
-      // A file no row names would sit in a public bucket with nothing to
-      // find it by. Removing it is the best effort there is; if that fails
-      // too, the error the teacher sees is still the one that matters.
-      await supabase.storage.from(BUCKET).remove([path]);
-      return {
-        ok: false,
-        error: "Não consegui registrar a tentativa. Tente de novo.",
-        cause: insertError.message,
-      };
-    }
-
-    revalidatePath(SCREEN);
-    // The write has landed. A list that fails to come back now is not a
-    // failed upload; see afterWrite.
-    return await afterWrite(() => readWordAttempts(supabase, wordId));
+    return await storeUpload(
+      supabase,
+      { kind: "word", id: wordId },
+      image,
+      file.name,
+      usedSubject,
+    );
   } catch (cause) {
     return {
       ok: false,
@@ -535,86 +316,7 @@ export async function clearReference(wordId: string): Promise<ActionResult> {
   }
 }
 
-/** The public URL of a reference, which the bucket serves without signing. */
-function publicReferenceUrl(
-  supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
-  path: string,
-): string {
-  return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
-}
-
-/**
- * The reference as the provider wants it: raw base64, downloaded on the
- * server so the file never travels through the browser twice.
- */
-async function readReference(
-  supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
-  path: string,
-): Promise<string> {
-  const { data, error } = await supabase.storage.from(BUCKET).download(path);
-  if (error) throw new Error(`Não deu para ler a referência: ${error.message}`);
-  return Buffer.from(await data.arrayBuffer()).toString("base64");
-}
-
-/**
- * Mark an attempt as finished, whichever way it finished.
- *
- * completed_at is written here and nowhere else, so "when it stopped waiting"
- * has one meaning across every row: the moment it left 'pending', for an
- * image or for an error. That is the half of the measurement the old polling
- * loop never wrote down.
- */
-async function finish(
-  supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
-  attemptId: string,
-  fields: {
-    status: "generated" | "failed";
-    error?: string;
-    storage_path?: string;
-    credits_spent?: number | null;
-  },
-): Promise<{ error: string | null }> {
-  const { error } = await supabase
-    .from("image_attempts")
-    .update({ ...fields, completed_at: new Date().toISOString() })
-    .eq("id", attemptId);
-  return { error: error?.message ?? null };
-}
-
-/** Close an attempt with a reason, and answer with the list it leaves behind. */
-async function recordFailure(
-  supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
-  attemptId: string,
-  wordId: string,
-  message: string,
-): Promise<ActionResult> {
-  const { error } = await finish(supabase, attemptId, {
-    status: "failed",
-    error: message,
-  });
-  revalidatePath(SCREEN);
-  return {
-    ok: false,
-    error: error === null ? message : `${message} (${error})`,
-    attempts: await readWordAttempts(supabase, wordId),
-  };
-}
-
-/**
- * Open a generation at the provider and come back.
- *
- * This used to be the whole generation: a POST, then a polling loop, then the
- * download and the upload, all inside one HTTP request held open for 8 to 21
- * seconds. Twice on 2026-09-19 that request was cut after the work was done
- * and paid for, and the teacher's screen never heard about a picture that was
- * sitting in the bucket.
- *
- * So the wait moved to the row. What is left here is one call to the
- * provider, which leaves a 'pending' attempt carrying the task handle. The
- * panel asks about it from there, and because the waiting is in the database
- * rather than in a connection, it survives a reload, a change of word, and
- * anything on the path deciding a request has gone on long enough.
- */
+/** Open a generation of a word at the provider; see openGeneration. */
 export async function startGeneration(
   wordId: string,
   subject: string,
@@ -666,118 +368,38 @@ export async function startGeneration(
 
     /*
      * The instruction this generation is drawn from becomes the word's, the
-     * same text the attempt records below. Before the insert, so a word
-     * reopened later shows what the newest attempt used even if the provider
-     * call fails.
+     * same text the attempt records. Before the insert, so a word reopened
+     * later shows what the newest attempt used even if the provider call
+     * fails.
      */
     await storeSubject(subjectUpdate(supabase), wordId, subject);
 
-    const { data: attempt, error: insertError } = await supabase
-      .from("image_attempts")
-      .insert({
-        vocabulary_item_id: wordId,
-        provider: "freepik",
-        model,
-        prompt,
-        // Stored next to the prompt it went into, because the prompt cannot
-        // be taken apart again once the style constant has moved on.
-        subject: subject.trim(),
-        // What this attempt used, which is not the same column as what the
-        // word is set up with: that one can change afterwards, and this one
-        // has to go on being true about a picture already in the bucket.
-        reference_path: referencePath,
-        status: "pending",
-      })
-      .select("id")
-      .single();
-    if (insertError) return { ok: false, error: insertError.message };
-
-    /*
-     * Read after the row exists, so a reference that cannot be read closes
-     * the attempt with the reason on it rather than throwing into a caller
-     * that has nowhere to put it.
-     */
-    let reference: string | null = null;
-    if (referencePath !== null) {
-      try {
-        /*
-         * Two forms, and the model says which. Mystic wants the bytes, so
-         * the file is downloaded on the server and encoded; Kontext wants a
-         * URL, and the bucket is public, so there is nothing to fetch and
-         * nothing to encode — the address of the file we already stored is
-         * the whole handover.
-         */
-        reference =
-          referenceDelivery(model) === "url"
-            ? publicReferenceUrl(supabase, referencePath)
-            : await readReference(supabase, referencePath);
-      } catch (cause) {
-        return recordFailure(supabase, attempt.id, wordId, errorMessage(cause));
-      }
-    }
-
-    let requestId: string;
-    try {
-      ({ requestId } = await createFreepikProvider().generate({
-        prompt,
-        model,
-        reference,
-      }));
-    } catch (cause) {
-      return recordFailure(supabase, attempt.id, wordId, errorMessage(cause));
-    }
-
-    /*
-     * The handle is what makes the row pollable by anyone later, so a row
-     * that cannot store it is a row nobody can ever ask about. It is closed
-     * here rather than left pending forever.
-     *
-     * The cost is written in the same breath, and it is OUR number, taken
-     * from IMAGE_MODELS — the provider's response carries no credit figure at
-     * all, which is why credits_spent was null on all fifty rows that existed
-     * before this. Null still means "nobody knows", for a model whose price
-     * has not been measured, and it is not zero.
-     *
-     * Here and not at the insert, because here is the first moment a charge
-     * can exist: the provider has taken the task and given back a handle.
-     *
-     * And here is also exactly the right line, which is now measured rather
-     * than assumed. On 2026-09-19 the backfill summed to 3130 against a
-     * dashboard reading of 3130, to the credit, with every accepted task
-     * charged — including one that ran past the 90 second window — and only
-     * the request refused at the door costing nothing. So a handle is the
-     * line between charged and not, and credits_spent is a statement of what
-     * was spent rather than a ceiling on it.
-     */
-    const { error: handleError } = await supabase
-      .from("image_attempts")
-      .update({
-        provider_request_id: requestId,
-        credits_spent: modelCredits(model),
-      })
-      .eq("id", attempt.id);
-    if (handleError) {
-      return recordFailure(supabase, attempt.id, wordId, handleError.message);
-    }
-
-    revalidatePath(SCREEN);
-    return { ok: true, attempts: await readWordAttempts(supabase, wordId) };
+    return await openGeneration(
+      supabase,
+      { kind: "word", id: wordId },
+      { model, prompt, subject, referencePath },
+    );
   } catch (cause) {
     return failure(cause);
   }
 }
 
 /**
- * Ask the provider once about one attempt, and write down what it said.
+ * Ask the provider once about one attempt, of a word or of a scene, and write
+ * down what it said.
  *
- * One question, never a loop: this is the call the panel repeats every couple
- * of seconds, and the whole point of the shape is that no single call is long
- * enough for anything on the path to object to it.
+ * One question, never a loop: this is the call the page's tracker repeats
+ * every couple of seconds, and the whole point of the shape is that no single
+ * call is long enough for anything on the path to object to it.
  *
  * A generation still running answers with nothing at all — no list, no
  * revalidatePath. The screen already knows the row is running and counts the
  * seconds off created_at by itself, so the common answer costs one provider
  * GET and no page render.
+ *
+ * Both owners here, since 0030 (#64): the tracker asks by attempt id, and the
+ * row says whose it is. Approving and discarding stay with each owner's
+ * actions, so a panel only ever acts on its own attempts.
  */
 export async function pollAttempt(attemptId: string): Promise<ActionResult> {
   try {
@@ -786,14 +408,17 @@ export async function pollAttempt(attemptId: string): Promise<ActionResult> {
     const { data: attempt, error: readError } = await supabase
       .from("image_attempts")
       .select(
-        "vocabulary_item_id, provider, status, provider_request_id, created_at",
+        "vocabulary_item_id, scene_id, provider, status, provider_request_id, created_at",
       )
       .eq("id", attemptId)
       .single();
     if (readError) return { ok: false, error: readError.message };
 
-    const wordId = attempt.vocabulary_item_id;
-    if (wordId === null) return { ok: false, error: SCENE_ATTEMPT };
+    const owner = ownerOf(attempt);
+    // image_attempts_one_owner (0030) makes this unreachable.
+    if (owner === null) {
+      return { ok: false, error: "Essa tentativa não é de ninguém." };
+    }
 
     /*
      * Already finished, by an earlier poll or in another tab. Answering with
@@ -801,14 +426,14 @@ export async function pollAttempt(attemptId: string): Promise<ActionResult> {
      * how it went, and it went.
      */
     if (attempt.provider !== "freepik" || attempt.status !== "pending") {
-      return { ok: true, attempts: await readWordAttempts(supabase, wordId) };
+      return { ok: true, attempts: await readAttempts(supabase, owner) };
     }
 
     if (attempt.provider_request_id === null) {
       return recordFailure(
         supabase,
         attemptId,
-        wordId,
+        owner,
         "A geração não chegou a ser aberta no fornecedor.",
       );
     }
@@ -817,14 +442,14 @@ export async function pollAttempt(attemptId: string): Promise<ActionResult> {
     try {
       poll = await createFreepikProvider().poll(attempt.provider_request_id);
     } catch (cause) {
-      return recordFailure(supabase, attemptId, wordId, errorMessage(cause));
+      return recordFailure(supabase, attemptId, owner, errorMessage(cause));
     }
 
     if (poll.status === "failed") {
       return recordFailure(
         supabase,
         attemptId,
-        wordId,
+        owner,
         poll.error ?? "A geração falhou sem dizer por quê.",
       );
     }
@@ -834,7 +459,7 @@ export async function pollAttempt(attemptId: string): Promise<ActionResult> {
         return recordFailure(
           supabase,
           attemptId,
-          wordId,
+          owner,
           `A geração passou de ${GENERATION_WINDOW_MS / 1000} segundos sem responder.`,
         );
       }
@@ -846,7 +471,7 @@ export async function pollAttempt(attemptId: string): Promise<ActionResult> {
       return recordFailure(
         supabase,
         attemptId,
-        wordId,
+        owner,
         "A geração terminou sem imagem.",
       );
     }
@@ -860,67 +485,13 @@ export async function pollAttempt(attemptId: string): Promise<ActionResult> {
     return storeGenerated(
       supabase,
       attemptId,
-      wordId,
+      owner,
       poll.imageUrl,
       poll.creditsSpent,
     );
   } catch (cause) {
     return failure(cause);
   }
-}
-
-/**
- * Download on the server, then into the bucket. The URL never reaches the
- * browser.
- *
- * This is the one poll that is not short: a PNG from Mystic has to come down
- * and go back up before the row can be called finished. It is seconds rather
- * than the tens of seconds the old shape held open, and it happens once per
- * generation rather than on every question.
- */
-async function storeGenerated(
-  supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
-  attemptId: string,
-  wordId: string,
-  imageUrl: string,
-  creditsSpent: number | undefined,
-): Promise<ActionResult> {
-  const response = await fetch(imageUrl, { cache: "no-store" });
-  if (!response.ok) {
-    return recordFailure(
-      supabase,
-      attemptId,
-      wordId,
-      `Não deu para baixar a imagem: ${response.status}`,
-    );
-  }
-  const contentType = response.headers.get("content-type");
-  const bytes = await response.arrayBuffer();
-  const path = `${wordId}/${attemptId}.${extensionFor(contentType, "png")}`;
-
-  const { error: uploadError } = await supabase.storage
-    .from(BUCKET)
-    .upload(path, bytes, { contentType: contentType ?? undefined });
-  if (uploadError) {
-    return recordFailure(supabase, attemptId, wordId, uploadError.message);
-  }
-
-  const { error: doneError } = await finish(supabase, attemptId, {
-    status: "generated",
-    storage_path: path,
-    /*
-     * Only if the provider ever starts reporting one. Today it does not, and
-     * the figure already on the row is ours, written when the task was
-     * accepted; overwriting it with null here would erase the only record of
-     * the charge. A provider figure, if one ever arrives, is the better
-     * source and wins.
-     */
-    ...(creditsSpent === undefined ? {} : { credits_spent: creditsSpent }),
-  });
-  if (doneError !== null) return { ok: false, error: doneError };
-
-  revalidatePath(SCREEN);
-  return { ok: true, attempts: await readWordAttempts(supabase, wordId) };
 }
 
 /**

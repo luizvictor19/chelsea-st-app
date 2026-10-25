@@ -138,6 +138,31 @@ export function imageCounts(
   return { withImage, takesImage };
 }
 
+/**
+ * Where a scene stands. Only two of the four: a scene exists to be drawn, so
+ * it is never "Não leva imagem" and never "Sem decidir".
+ */
+export function sceneSituation(imageUrl: string | null): Situation {
+  return imageUrl === null ? "sem-imagem" : "com-imagem";
+}
+
+/**
+ * Whether a scene survives the filters. Tipo and Classe are about words, and
+ * a scene has neither, so either one on hides every scene; Situação applies
+ * as it does to a word, and so the section is gone under "Não leva imagem"
+ * or "Sem decidir" alone.
+ */
+export function matchesSceneSelection(
+  scene: { readonly imageUrl: string | null },
+  selection: Selection,
+): boolean {
+  if (selection.tipo.length > 0 || selection.classe.length > 0) return false;
+  return (
+    selection.situacao.length === 0 ||
+    selection.situacao.includes(sceneSituation(scene.imageUrl))
+  );
+}
+
 /** Case insensitive substring on the term. An empty search matches all. */
 export function matchesSearch(term: string, search: string): boolean {
   const needle = search.trim().toLowerCase();
@@ -145,16 +170,39 @@ export function matchesSearch(term: string, search: string): boolean {
 }
 
 /**
+ * What the panel shows: one word, one scene (#64), or nothing. One value, so
+ * a link can never open both.
+ */
+export type Opened = {
+  readonly kind: "word" | "scene";
+  readonly id: string;
+} | null;
+
+/** The open word or scene from the query string; a word wins a tie. */
+export function parseOpened(
+  palavra: string | string[] | undefined,
+  cena: string | string[] | undefined,
+): Opened {
+  if (typeof palavra === "string" && palavra !== "") {
+    return { kind: "word", id: palavra };
+  }
+  if (typeof cena === "string" && cena !== "") {
+    return { kind: "scene", id: cena };
+  }
+  return null;
+}
+
+/**
  * The whole state of the screen as a link: three filter axes, the search and
- * the selected word. Every control is a link, so the back button walks the
- * filters and a view can be handed to someone as a URL.
+ * the open word or scene. Every control is a link, so the back button walks
+ * the filters and a view can be handed to someone as a URL.
  *
  * Lives here rather than in the page because the drawer builds these too, and
  * two copies of a URL format drift.
  */
 export function filterHref(
   selection: Selection,
-  word: string | null,
+  opened: Opened,
   term = "",
 ): string {
   const search = new URLSearchParams();
@@ -163,7 +211,9 @@ export function filterHref(
     if (chosen.length > 0) search.set(key, chosen.join(","));
   }
   if (term.trim() !== "") search.set("busca", term.trim());
-  if (word) search.set("palavra", word);
+  if (opened !== null) {
+    search.set(opened.kind === "word" ? "palavra" : "cena", opened.id);
+  }
   const query = search.toString();
   return query === "" ? "/teacher/content/images" : `?${query}`;
 }

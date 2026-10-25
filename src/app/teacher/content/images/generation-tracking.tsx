@@ -34,7 +34,7 @@ export function trackGeneration(generation: Generation) {
 
 /**
  * Mounted once on the images page. Hands the tracker every generation the
- * page found running when it rendered, of any word, and the refresh to call
+ * page found running when it rendered, of any word or scene, and the refresh to call
  * when one ends.
  *
  * The refresh is there for the page, not for the notice. pollAttempt
@@ -62,12 +62,12 @@ export function GenerationTracking({
 
 const NONE: readonly Generation[] = [];
 
-/** The generation running for this word, or null, as the tracker has it. */
-export function useRunningGeneration(wordId: string): Generation | null {
+/** The generation running for this word or scene, or null, as the tracker has it. */
+export function useRunningGeneration(ownerId: string): Generation | null {
   const list = useSyncExternalStore(
     tracker.subscribe,
     tracker.getSnapshot,
     () => NONE,
   );
-  return list.find((generation) => generation.wordId === wordId) ?? null;
+  return list.find((generation) => generation.ownerId === ownerId) ?? null;
 }

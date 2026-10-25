@@ -3,6 +3,8 @@ import Link from "next/link";
 
 import {
   listRunningAttempts,
+  listSceneAttempts,
+  listScenes,
   listVocabularyImages,
   listWordAttempts,
 } from "@/lib/content/queries";
@@ -27,61 +29,29 @@ import {
 import { FilterDrawer } from "./filter-drawer";
 import { GenerationTracking } from "./generation-tracking";
 import {
+  activeCount,
   filterHref,
   imageCounts,
+  matchesSceneSelection,
   matchesSearch,
   matchesSelection,
+  parseOpened,
   parseSelection,
   situationOf,
   type Selection,
-  type Situation,
 } from "./filters";
 import { lessonLabel, suggestedCount } from "./notice-texts";
 import { disagreement, labelFor } from "./representation";
+import { ScenePanel } from "./scene-panel";
+import { firstPoint, groupScenes } from "./scenes";
+import { ScenesSection } from "./scenes-section";
+import { StatusMark } from "./status-mark";
 import { SuggestButton } from "./suggest-button";
 import { WordPanel } from "./word-panel";
 
 export const metadata: Metadata = {
   title: "Imagens do vocabulário · Chelsea St",
 };
-
-/** The tick, the waiting circle, or nothing. */
-function StatusMark({ situation }: { readonly situation: Situation }) {
-  if (situation === "com-imagem") {
-    return (
-      <svg
-        viewBox="0 0 16 16"
-        className="text-foreground size-3.5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        role="img"
-        aria-label="com imagem"
-      >
-        <path d="M3 8.5l3.5 3.5L13 4.5" />
-      </svg>
-    );
-  }
-  if (situation === "sem-imagem") {
-    return (
-      <svg
-        viewBox="0 0 16 16"
-        className="text-faint size-3.5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeDasharray="2.5 2"
-        role="img"
-        aria-label="sem imagem ainda"
-      >
-        <circle cx="8" cy="8" r="5.25" />
-      </svg>
-    );
-  }
-  return <span className="size-3.5" aria-hidden="true" />;
-}
 
 /*
  * The set palette, one class per token in globals.css. Spelled out whole so
@@ -147,7 +117,9 @@ export default async function VocabularyImagesPage({
     situacao: parseSelection(params.situacao),
   };
   const term = typeof params.busca === "string" ? params.busca : "";
-  const selectedId = typeof params.palavra === "string" ? params.palavra : null;
+  const opened = parseOpened(params.palavra, params.cena);
+  const selectedId = opened?.kind === "word" ? opened.id : null;
+  const sceneId = opened?.kind === "scene" ? opened.id : null;
 
   const { lessons, progress } = await listVocabularyImages();
   // One read of every membership, for the marks on the whole list, the open
@@ -216,15 +188,33 @@ export default async function VocabularyImagesPage({
       .find((word) => word.id === selectedId) ?? null;
   const attempts = selected === null ? [] : await listWordAttempts(selected.id);
 
-  // Every generation still running in the book, whichever word is open, for
-  // the page's tracker to follow to its end. Named by term for its notice.
-  const termOf = new Map(
-    lessons.flatMap((lesson) => lesson.words.map((w) => [w.id, w.term])),
+  // Cenas (#64), filtered by the search on the description and by Situação;
+  // the count beside the heading is over all of them.
+  const scenes = await listScenes();
+  const sceneGroups = groupScenes(
+    scenes.filter(
+      (scene) =>
+        matchesSceneSelection(scene, selection) &&
+        matchesSearch(scene.description, term),
+    ),
   );
+  const selectedScene = scenes.find((scene) => scene.id === sceneId) ?? null;
+  const sceneAttempts =
+    selectedScene === null ? [] : await listSceneAttempts(selectedScene.id);
+
+  // Every generation still running, whichever word or scene is open, for the
+  // page's tracker to follow to its end. Named by term or description for
+  // its notice.
+  const labelOf = new Map([
+    ...lessons.flatMap((lesson) =>
+      lesson.words.map((w) => [`word:${w.id}`, w.term] as const),
+    ),
+    ...scenes.map((s) => [`scene:${s.id}`, s.description] as const),
+  ]);
   const running = (await listRunningAttempts()).map((attempt) => ({
     attemptId: attempt.id,
-    wordId: attempt.wordId,
-    term: termOf.get(attempt.wordId) ?? "?",
+    ownerId: attempt.owner.id,
+    label: labelOf.get(`${attempt.owner.kind}:${attempt.owner.id}`) ?? "?",
     startedAt: attempt.createdAt,
   }));
 
@@ -280,7 +270,7 @@ export default async function VocabularyImagesPage({
           <FilterDrawer
             selection={selection}
             term={term}
-            selectedId={selectedId}
+            opened={opened}
             shown={shown}
             total={progress.total}
           />
@@ -353,7 +343,11 @@ export default async function VocabularyImagesPage({
                           */}
                             <SelectBox id={word.id} term={word.term} />
                             <Link
-                              href={filterHref(selection, word.id, term)}
+                              href={filterHref(
+                                selection,
+                                { kind: "word", id: word.id },
+                                term,
+                              )}
                               aria-current={
                                 selectedId === word.id ? "true" : undefined
                               }
@@ -434,6 +428,22 @@ export default async function VocabularyImagesPage({
                   ))
                 )}
               </BulkSelection>
+              {/*
+                Outside the bulk selection: a scene is not a word, and the bar
+                acts on words. Gone when a filter leaves no scene in it, as a
+                lesson is; with no filter on it stays, empty, for Nova cena.
+              */}
+              {(sceneGroups.length > 0 ||
+                activeCount(selection, term) === 0) && (
+                <ScenesSection
+                  groups={sceneGroups}
+                  withImage={scenes.filter((s) => s.imageUrl !== null).length}
+                  total={scenes.length}
+                  selection={selection}
+                  term={term}
+                  openId={sceneId}
+                />
+              )}
             </div>
 
             {/*
@@ -443,9 +453,16 @@ export default async function VocabularyImagesPage({
               and the height is what is left of the viewport below it.
             */}
             <div className="lg:min-h-0 lg:overflow-y-auto lg:pr-1">
-              {selected === null ? (
+              {selectedScene !== null ? (
+                <ScenePanel
+                  key={selectedScene.id}
+                  scene={selectedScene}
+                  attempts={sceneAttempts}
+                  point={firstPoint(selectedScene)}
+                />
+              ) : selected === null ? (
                 <p className="text-muted border-rule rounded-sm border border-dashed p-6">
-                  Escolha uma palavra na lista para decidir o tipo e cuidar da
+                  Escolha uma palavra ou uma cena na lista para cuidar da
                   imagem.
                 </p>
               ) : (

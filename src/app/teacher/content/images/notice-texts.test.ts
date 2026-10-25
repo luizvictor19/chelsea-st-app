@@ -13,6 +13,7 @@ import {
   lessonLabel,
   referenceAttached,
   referenceRemoved,
+  sceneCreated,
   setDissolved,
   setFailed,
   setSaved,
@@ -87,6 +88,28 @@ describe("a notice about a word starts with its term", () => {
 
   test("the style labels are the ones the screen shows", () => {
     assert.equal(IMAGE_STYLE_LABELS.realistic, "Realista");
+  });
+});
+
+describe("a notice about a scene starts with its description", () => {
+  test("creating one says it has no picture yet", () => {
+    assert.deepEqual(
+      sceneCreated("a big box"),
+      ok("a big box: cena criada, sem imagem ainda."),
+    );
+  });
+
+  test("the word notices read the same with a description at their head", () => {
+    assert.deepEqual(
+      imageApproved("a pen on the book"),
+      ok("a pen on the book: imagem aprovada."),
+    );
+    assert.deepEqual(
+      generationNotice("a big box", "a1", [
+        { id: "a1", status: "generated", error: null },
+      ]),
+      ok("a big box: imagem gerada."),
+    );
   });
 });
 

@@ -474,18 +474,74 @@ export async function listVocabularyImages(): Promise<{
   };
 }
 
-/** An attempt still running at the provider, of any word. */
+/** A scene with the state of its image, for the Cenas section (#64). */
+export type SceneImage = {
+  readonly id: string;
+  readonly description: string;
+  /** The next generation's style; not null, 'flat' by default (0030). */
+  readonly imageStyle: ImageStyle;
+  readonly imageUrl: string | null;
+  /** The structure reference it generates from, as a URL, or null. */
+  readonly referenceUrl: string | null;
+  /** The point numbers of the questions that show it, for groupScenes. */
+  readonly questionPoints: readonly number[];
+  /** The newest attempt's instruction, which the panel opens on, or null. */
+  readonly latestSubject: string | null;
+};
+
+/**
+ * Every scene the teacher can read, with where the book first needs it.
+ *
+ * No school filter, as listVocabularyImages has none: RLS answers which
+ * scenes are readable, and the content screens show what it lets through.
+ * Both embeds name their foreign key, for the reason listVocabularyImages
+ * gives: scenes and image_attempts reference each other.
+ */
+export async function listScenes(): Promise<readonly SceneImage[]> {
+  const { supabase } = await requireTeacher();
+  const { data: rows, error } = await supabase
+    .from("scenes")
+    .select(
+      "id, description, image_style, image_path, reference_path, questions!questions_scene_id_fkey(points(number)), image_attempts!image_attempts_scene_id_fkey(subject, created_at)",
+    );
+  if (error) throw new Error(error.message);
+
+  return (rows ?? []).map((row) => {
+    const newest = [...(row.image_attempts ?? [])].sort((a, b) =>
+      b.created_at.localeCompare(a.created_at),
+    )[0];
+    return {
+      id: row.id,
+      description: row.description,
+      imageStyle: row.image_style,
+      imageUrl: publicImageUrl(supabase, row.image_path),
+      referenceUrl: publicImageUrl(supabase, row.reference_path),
+      questionPoints: (row.questions ?? []).flatMap((question) =>
+        question.points === null ? [] : [question.points.number],
+      ),
+      latestSubject: newest?.subject ?? null,
+    };
+  });
+}
+
+/** Whose attempt it is: a word's, or a scene's since 0030. */
+export type AttemptOwner = {
+  readonly kind: "word" | "scene";
+  readonly id: string;
+};
+
+/** An attempt still running at the provider, of any word or scene. */
 export type RunningAttempt = {
   readonly id: string;
-  readonly wordId: string;
+  readonly owner: AttemptOwner;
   readonly createdAt: string;
 };
 
 /**
- * Every generation still running in the whole book, for the page's tracker to
- * follow whichever word is open. The same test as isRunning: a Freepik
- * attempt in 'pending'. An upload is never pending (0025), so the provider
- * clause only keeps the two saying the same thing.
+ * Every generation still running on the screen, for the page's tracker to
+ * follow whichever word or scene is open. The same test as isRunning: a
+ * Freepik attempt in 'pending'. An upload is never pending (0025), so the
+ * provider clause only keeps the two saying the same thing.
  */
 export async function listRunningAttempts(): Promise<
   readonly RunningAttempt[]
@@ -493,25 +549,31 @@ export async function listRunningAttempts(): Promise<
   const { supabase } = await requireTeacher();
   const { data: rows, error } = await supabase
     .from("image_attempts")
-    .select("id, vocabulary_item_id, created_at")
+    .select("id, vocabulary_item_id, scene_id, created_at")
     .eq("provider", "freepik")
     .eq("status", "pending")
-    // A scene's generation (0030) is not this tracker's: it follows words.
-    .not("vocabulary_item_id", "is", null)
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
-  // The filter above already drops them; this only tells the type.
-  return (rows ?? []).flatMap((row) =>
-    row.vocabulary_item_id === null
+  // image_attempts_one_owner (0030) sets exactly one of the two. A row with
+  // neither cannot exist, and is dropped here only to tell the type.
+  return (rows ?? []).flatMap((row) => {
+    const owner = ownerOf(row);
+    return owner === null
       ? []
-      : [
-          {
-            id: row.id,
-            wordId: row.vocabulary_item_id,
-            createdAt: row.created_at,
-          },
-        ],
-  );
+      : [{ id: row.id, owner, createdAt: row.created_at }];
+  });
+}
+
+/** The owner an attempt row names, from its two parent columns. */
+export function ownerOf(row: {
+  readonly vocabulary_item_id: string | null;
+  readonly scene_id: string | null;
+}): AttemptOwner | null {
+  if (row.vocabulary_item_id !== null) {
+    return { kind: "word", id: row.vocabulary_item_id };
+  }
+  if (row.scene_id !== null) return { kind: "scene", id: row.scene_id };
+  return null;
 }
 
 /** Every attempt for one word, newest first, for the panel on the right. */
@@ -536,12 +598,28 @@ export async function readWordAttempts(
   supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
   wordId: string,
 ): Promise<readonly ImageAttempt[]> {
+  return readAttempts(supabase, { kind: "word", id: wordId });
+}
+
+/** Every attempt for one scene, newest first, for the scene's panel. */
+export async function listSceneAttempts(
+  sceneId: string,
+): Promise<readonly ImageAttempt[]> {
+  const { supabase } = await requireTeacher();
+  return readAttempts(supabase, { kind: "scene", id: sceneId });
+}
+
+/** The list of a word or of a scene, for a caller that already has a client. */
+export async function readAttempts(
+  supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
+  owner: AttemptOwner,
+): Promise<readonly ImageAttempt[]> {
   const { data: rows, error } = await supabase
     .from("image_attempts")
     .select(
       "id, status, provider, model, subject, storage_path, error, credits_spent, created_at, completed_at, source_filename",
     )
-    .eq("vocabulary_item_id", wordId)
+    .eq(owner.kind === "word" ? "vocabulary_item_id" : "scene_id", owner.id)
     .order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
 
