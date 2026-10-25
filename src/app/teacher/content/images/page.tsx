@@ -246,14 +246,16 @@ export default async function VocabularyImagesPage({
     /*
       The screen is the viewport, not the document. Below lg it is ordinary
       flow, one column, panel under the list. From lg the section is exactly
-      as tall as what the app chrome leaves it (the 3.5rem nav plus the 5rem
-      of padding on the layout's main), the header and filters take their
+      as tall as what the app chrome leaves it (the 3.5rem nav, its 1px
+      bottom border, and the 5rem of padding on the layout's main; without
+      the 1px the page ran a pixel past the window, which then scrolled too,
+      seen on 2026-10-25), the header and filters take their
       natural height off the top, and the two columns share whatever is left
       and scroll inside it. The previous attempt used a viewport max-height on
       a sticky panel, which only described the right height once the panel had
       scrolled up to the top: on first paint it still ran off the screen.
     */
-    <section className="flex flex-col gap-8 lg:h-[calc(100dvh-8.5rem)]">
+    <section className="flex flex-col gap-8 lg:h-[calc(100dvh-8.5rem-1px)]">
       <GenerationTracking running={running} />
       <header className="flex flex-col gap-3">
         <Link
