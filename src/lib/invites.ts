@@ -68,16 +68,17 @@ export function inviteRefusal(error: DatabaseError): string {
 
 /**
  * What the inviter is told after the invite email was asked for, by the
- * error code of inviteUserByEmail: null when there is nothing to say beyond
+ * error of inviteUserByEmail: null when there is nothing to say beyond
  * "sent". email_exists is a confirmed account: Supabase mails her nothing, she
  * sees the invite when she signs in (0032), and saying anything else would
- * tell the inviter she has an account.
+ * tell the inviter she has an account. The whole error is read, not just its
+ * code: a network failure has no code, and it did not send anything.
  */
-export function mailProblem(code: string | undefined): string | null {
-  if (code === undefined || code === "email_exists") {
+export function mailProblem(error: DatabaseError | null): string | null {
+  if (error === null || error.code === "email_exists") {
     return null;
   }
-  if (code === "over_email_send_rate_limit") {
+  if (error.code === "over_email_send_rate_limit") {
     return "O convite foi gravado, mas o limite de e-mails do Supabase foi atingido. Use Reenviar daqui a alguns minutos.";
   }
   return "O convite foi gravado, mas o e-mail não saiu. Use Reenviar daqui a alguns minutos.";

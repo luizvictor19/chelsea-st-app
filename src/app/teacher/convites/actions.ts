@@ -34,7 +34,7 @@ async function mailInvite(email: string): Promise<string | null> {
   const { error } = await createInviteMailer().inviteUserByEmail(email, {
     redirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/definir-senha`,
   });
-  return mailProblem(error?.code);
+  return mailProblem(error);
 }
 
 /**

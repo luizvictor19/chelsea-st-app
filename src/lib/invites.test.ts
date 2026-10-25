@@ -76,13 +76,18 @@ describe("mailProblem", () => {
   test("an account that already exists reads like any email sent", () => {
     // inviteUserByEmail refuses a confirmed account with email_exists: she sees
     // the invite when she signs in, and the inviter is told nothing more.
-    assert.equal(mailProblem(undefined), null);
-    assert.equal(mailProblem("email_exists"), null);
+    assert.equal(mailProblem(null), null);
+    assert.equal(mailProblem({ code: "email_exists" }), null);
   });
 
   test("a mail that did not go out says so", () => {
-    assert.match(mailProblem("over_email_send_rate_limit") ?? "", /limite/);
-    assert.match(mailProblem("unexpected_failure") ?? "", /não saiu/);
+    assert.match(
+      mailProblem({ code: "over_email_send_rate_limit" }) ?? "",
+      /limite/,
+    );
+    assert.match(mailProblem({ code: "unexpected_failure" }) ?? "", /não saiu/);
+    // A network failure comes with no code at all, and it is not a success.
+    assert.match(mailProblem({}) ?? "", /não saiu/);
   });
 });
 
