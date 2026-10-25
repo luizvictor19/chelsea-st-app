@@ -88,6 +88,9 @@ Authentication > URL Configuration:
     Site URL        http://localhost:3100   (https://app.chelsea-st.com after #68)
     Redirect URLs   http://localhost:3100/**
 
+Authentication > Sign In / Providers: "Allow new users to sign up" off (#109). Nobody gets an
+account without an invite; `inviteUserByEmail` is an admin call and still works.
+
 Authentication > Providers > Email: minimum password length 8, and Email OTP Expiration 86400
 seconds (24 hours, the most Supabase allows). The invite stays open 15 days in `school_invites`,
 but its email link lasts only this long; after that, "Reenviar" or "Esqueci minha senha" with

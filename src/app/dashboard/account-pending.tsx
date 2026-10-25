@@ -3,11 +3,12 @@ import { env } from "@/lib/env";
 import { SignOutButton } from "../auth/sign-out-button";
 
 /**
- * Someone signed in before being registered as a student.
+ * Someone signed in with no membership in any school.
  *
- * Reachable by design: sign-in creates the auth user, and only the teacher
- * creates the row in `students`. A blank screen here would read as a bug, so it
- * says what happened and how to get unstuck.
+ * Rare since 0031, but still reachable: an account whose invite was cancelled
+ * or expired after the account existed. Anyone here has a confirmed email, so
+ * a new invite is accepted the moment it is written (0031) and no email comes:
+ * the copy says to reload, not to wait for a link.
  */
 export function AccountPending() {
   const contact = env.NEXT_PUBLIC_TEACHER_CONTACT_EMAIL;
@@ -22,15 +23,16 @@ export function AccountPending() {
         <SignOutButton />
       </div>
       <h1 className="text-3xl font-extrabold tracking-tight">
-        Sua conta ainda não foi liberada.
+        Sua conta ainda não tem acesso.
       </h1>
       <p className="text-muted">
-        O acesso funcionou, mas você ainda não está cadastrada como aluna. Isso
-        é o professor quem faz.
+        A entrada na Chelsea St é por convite. Peça um convite a quem cuida da
+        sua turma, para este mesmo e-mail. Como você já tem conta, ele vale
+        assim que for enviado: depois, é só recarregar esta página.
       </p>
       {contact ? (
         <p className="text-muted">
-          Fale com o professor em{" "}
+          Dúvidas:{" "}
           <a
             href={`mailto:${contact}`}
             className="text-accent hover:text-foreground font-semibold transition-colors"
@@ -39,11 +41,7 @@ export function AccountPending() {
           </a>
           .
         </p>
-      ) : (
-        <p className="text-muted">
-          Fale com o professor pelo canal de sempre para liberar o acesso.
-        </p>
-      )}
+      ) : null}
     </main>
   );
 }
