@@ -211,6 +211,16 @@ export async function setRepresentation(
 export async function approveAttempt(attemptId: string): Promise<ActionResult> {
   try {
     const { supabase } = await requireTeacher();
+    const { data: attempt, error: readError } = await supabase
+      .from("image_attempts")
+      .select("vocabulary_item_id")
+      .eq("id", attemptId)
+      .single();
+    if (readError) return { ok: false, error: readError.message };
+    if (attempt.vocabulary_item_id === null) {
+      return { ok: false, error: SCENE_ATTEMPT };
+    }
+
     const { error } = await supabase.rpc("approve_image_attempt", {
       p_attempt: attemptId,
     });

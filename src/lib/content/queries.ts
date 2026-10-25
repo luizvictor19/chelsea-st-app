@@ -496,9 +496,11 @@ export async function listRunningAttempts(): Promise<
     .select("id, vocabulary_item_id, created_at")
     .eq("provider", "freepik")
     .eq("status", "pending")
+    // A scene's generation (0030) is not this tracker's: it follows words.
+    .not("vocabulary_item_id", "is", null)
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
-  // A scene's generation (0030) is not this tracker's: it follows words.
+  // The filter above already drops them; this only tells the type.
   return (rows ?? []).flatMap((row) =>
     row.vocabulary_item_id === null
       ? []
