@@ -29,3 +29,16 @@ export const env = {
   NEXT_PUBLIC_TEACHER_CONTACT_EMAIL:
     process.env.NEXT_PUBLIC_TEACHER_CONTACT_EMAIL ?? "",
 } as const;
+
+/**
+ * The service role key, read only when an invite email is sent. A function
+ * and not a field of env: env is imported by the browser bundle too, where
+ * the key never exists, and the build in CI runs without it. Required at
+ * startup, it would fail both, for a page that never sends an invite.
+ */
+export function serviceRoleKey(): string {
+  return required(
+    "SUPABASE_SERVICE_ROLE_KEY",
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+  );
+}

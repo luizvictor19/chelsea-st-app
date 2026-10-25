@@ -77,6 +77,60 @@ the MCP. Every line must match.
     psql -P pager=off postgresql://postgres:postgres@127.0.0.1:54322/postgres --file scripts/row-counts.sql
     supabase stop --workdir "$S" --no-backup   # deletes the local copy
 
+## Auth settings and email templates (Luiz only, in the Supabase dashboard)
+
+Every email link carries a `token_hash` that `/auth/callback` verifies on the server. The link
+then works on any device and in any browser, because it does not depend on the PKCE cookie of
+the browser where it was requested (#96, #102).
+
+Authentication > URL Configuration:
+
+    Site URL        http://localhost:3100   (https://app.chelsea-st.com after #68)
+    Redirect URLs   http://localhost:3100/**
+
+Authentication > Providers > Email: minimum password length 8, and Email OTP Expiration 86400
+seconds (24 hours, the most Supabase allows). The invite stays open 15 days in `school_invites`,
+but its email link lasts only this long; after that, "Reenviar" or "Esqueci minha senha" with
+the same email.
+
+Authentication > Emails. Each template's link is exactly this:
+
+    Confirm signup   {{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email
+    Magic link       {{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email
+    Invite user      {{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/definir-senha
+    Reset password   {{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/definir-senha
+
+Every template is in Portuguese, like every string a teacher or student reads. Subject and body
+of each, as set in the dashboard on 2026-10-25:
+
+    Subject: Confirme o seu e-mail na Chelsea St
+
+    <h2>Confirme o seu e-mail</h2>
+    <p>Clique no link abaixo para confirmar este e-mail e entrar na Chelsea St.</p>
+    <p><a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email">Confirmar e-mail</a></p>
+    <p>Se não foi você, ignore esta mensagem.</p>
+
+    Subject: Seu convite para a Chelsea St
+
+    <h2>Você foi convidada para a Chelsea St</h2>
+    <p>Clique no link abaixo para escolher a sua senha e entrar.</p>
+    <p><a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/definir-senha">Aceitar o convite</a></p>
+    <p>O link vale por 24 horas. Se ele vencer, peça um novo em "Esqueci minha senha", na tela de entrar, com este e-mail.</p>
+
+    Subject: Seu link para entrar na Chelsea St
+
+    <h2>Entrar na Chelsea St</h2>
+    <p>Clique no link abaixo para entrar. Ele vale uma vez só.</p>
+    <p><a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email">Entrar</a></p>
+    <p>Se não foi você que pediu, ignore esta mensagem.</p>
+
+    Subject: Nova senha na Chelsea St
+
+    <h2>Escolher uma nova senha</h2>
+    <p>Clique no link abaixo para escolher uma nova senha.</p>
+    <p><a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/definir-senha">Escolher nova senha</a></p>
+    <p>O link vale por 24 horas. Se não foi você que pediu, ignore esta mensagem: a sua senha continua a mesma.</p>
+
 ## GitHub quirks
 
     gh api -X PATCH repos/luizvictor19/chelsea-st-app/pulls/NN -f base=main     # change PR base

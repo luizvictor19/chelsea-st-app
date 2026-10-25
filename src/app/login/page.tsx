@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
-import { LoginForm } from "./login-form";
+import { PasswordForm } from "./password-form";
 
 export const metadata: Metadata = {
   title: "Entrar · Chelsea St",
@@ -18,13 +19,19 @@ export default function LoginPage({
           Chelsea St
         </p>
         <h1 className="text-3xl font-extrabold tracking-tight">Entrar</h1>
-        <p className="text-muted">
-          Sem senha. Você recebe um link por e-mail e entra com um clique.
-        </p>
+        <p className="text-muted">Com o seu e-mail e a sua senha.</p>
       </div>
 
       <ExpiredLinkNotice searchParams={searchParams} />
-      <LoginForm />
+      <PasswordForm />
+
+      <p className="text-muted text-sm">
+        Prefere não usar senha?{" "}
+        <Link href="/login/link" className="text-foreground underline">
+          Entrar com um link por e-mail
+        </Link>
+        .
+      </p>
     </main>
   );
 }
@@ -43,7 +50,8 @@ async function ExpiredLinkNotice({
   return (
     <p role="alert" className="border-accent text-muted rounded-sm border p-4">
       Esse link não funciona mais. Links de acesso expiram e só valem uma vez.
-      Peça outro abaixo.
+      Entre com a sua senha ou peça outro link. Primeiro acesso, por convite?
+      Use “Esqueci minha senha” com o e-mail do convite.
     </p>
   );
 }

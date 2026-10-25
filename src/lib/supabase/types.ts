@@ -805,6 +805,54 @@ export type Database = {
           },
         ];
       };
+      school_invites: {
+        Row: {
+          accepted_at: string | null;
+          created_at: string;
+          email: string;
+          expires_at: string;
+          id: string;
+          invited_by: string | null;
+          role: Database["public"]["Enums"]["school_role"];
+          school_id: string;
+        };
+        Insert: {
+          accepted_at?: string | null;
+          created_at?: string;
+          email: string;
+          expires_at?: string;
+          id?: string;
+          invited_by?: string | null;
+          role: Database["public"]["Enums"]["school_role"];
+          school_id: string;
+        };
+        Update: {
+          accepted_at?: string | null;
+          created_at?: string;
+          email?: string;
+          expires_at?: string;
+          id?: string;
+          invited_by?: string | null;
+          role?: Database["public"]["Enums"]["school_role"];
+          school_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "school_invites_invited_by_fkey";
+            columns: ["invited_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "school_invites_school_id_fkey";
+            columns: ["school_id"];
+            isOneToOne: false;
+            referencedRelation: "schools";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       school_members: {
         Row: {
           created_at: string;
@@ -1005,11 +1053,22 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      accept_school_invites: {
+        Args: { p_email: string; p_user: string };
+        Returns: undefined;
+      };
       approve_image_attempt: {
         Args: { p_attempt: string };
         Returns: undefined;
       };
       belongs_anywhere: { Args: Record<PropertyKey, never>; Returns: boolean };
+      can_invite: {
+        Args: {
+          p_role: Database["public"]["Enums"]["school_role"];
+          p_school: string;
+        };
+        Returns: boolean;
+      };
       can_write_content: { Args: { p_school: string }; Returns: boolean };
       clear_word_representation: {
         Args: {

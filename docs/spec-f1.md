@@ -4,14 +4,15 @@ Spec de implementação.
 
 ## Objetivo
 
-A aluna abre o link, entra sem senha, e vê quando é a próxima aula e como entrar nela.
+A aluna entra com e-mail e senha (desde a #96; antes, só pelo link mágico) e vê quando é a
+próxima aula e como entrar nela.
 O professor entra pelo mesmo login e é levado para outra área.
 
 ## Decisões
 
 | Tema         | Decisão                                                                     |
 | ------------ | --------------------------------------------------------------------------- |
-| Login        | Magic link por e-mail. Sem senha em nenhum momento                          |
+| Login        | E-mail e senha; link mágico como opção (#96). Senha definida pelo link      |
 | Agenda       | Regra recorrente por aluno (ex.: seg e qui às 19h) que materializa as aulas |
 | Meet         | Sala fixa por aluno, colada uma vez pelo professor em `students.meet_url`   |
 | Fuso         | Guardar em UTC (`timestamptz`), exibir no fuso de `profiles.timezone`       |
@@ -45,16 +46,20 @@ não duplica. Na v1 é chamada à mão; virar job agendado fica para depois.
 
 ## Rotas
 
-| Rota             | Quem acessa | O que faz                                               |
-| ---------------- | ----------- | ------------------------------------------------------- |
-| `/login`         | anônimo     | Campo de e-mail, envia o magic link, mostra confirmação |
-| `/auth/callback` | anônimo     | Troca o código pela sessão e redireciona                |
-| `/`              | qualquer    | Redireciona conforme o papel                            |
-| `/dashboard`     | aluno       | Próxima aula e desafio do dia                           |
-| `/teacher`       | professor   | Placeholder nesta fase                                  |
+| Rota                | Quem acessa        | O que faz                                               |
+| ------------------- | ------------------ | ------------------------------------------------------- |
+| `/login`            | anônimo            | E-mail e senha; links para as duas rotas abaixo         |
+| `/login/link`       | anônimo            | Campo de e-mail, envia o magic link, mostra confirmação |
+| `/esqueci-senha`    | anônimo            | Envia o link que leva a `/definir-senha`                |
+| `/definir-senha`    | com sessão         | Define a senha; onde caem o convite e o "esqueci"       |
+| `/auth/callback`    | anônimo            | Troca o código ou o `token_hash` pela sessão            |
+| `/`                 | qualquer           | Redireciona conforme o papel                            |
+| `/dashboard`        | aluno              | Próxima aula e desafio do dia                           |
+| `/teacher`          | professor          | Placeholder nesta fase                                  |
+| `/teacher/convites` | admin ou professor | Convida por e-mail e acompanha os convites              |
 
-`src/proxy.ts` renova a sessão em toda requisição e protege `/dashboard` e
-`/teacher`. O nome é esse porque o Next 16 depreciou a convenção
+`src/proxy.ts` renova a sessão em toda requisição e protege `/dashboard`,
+`/teacher` e `/definir-senha`. O nome é esse porque o Next 16 depreciou a convenção
 `middleware.ts` em favor de `proxy.ts`; o papel é o mesmo.
 
 ## Redirecionamento por papel
@@ -70,8 +75,24 @@ só roteamento. Uma pessoa pode ter mais de um papel na mesma escola.
 - quem também é aluna abre o `/dashboard` pelo link "Ver como aluna" do menu do
   professor, sem trocar de usuário
 - sem papel, ou aluna sem linha em `students`: tela dizendo que a conta ainda não
-  foi liberada, com contato do professor. Acontece se alguém logar antes de ser
-  cadastrado como aluno
+  foi liberada, com contato do professor. Acontece se alguém logar sem convite
+
+## Convite (#96, migration 0031)
+
+O vínculo com a escola nasce só de um convite por e-mail (ADR 0004), em
+`school_invites`:
+
+- o admin da escola convida qualquer papel, o professor só aluna, a aluna
+  ninguém; o admin da plataforma convida em qualquer escola;
+- o convite vale 15 dias; "Reenviar" renova e manda o e-mail de novo;
+- o vínculo (e a linha de `students`, para aluna) nasce na primeira confirmação
+  do e-mail, ou na hora em que o convite é gravado, se o e-mail já estava
+  confirmado; convite vencido nunca vira vínculo;
+- uma aluna estuda em uma escola só: o convite de aluna para quem já é aluna de
+  outra escola é recusado;
+- o e-mail sai pelo `inviteUserByEmail` do Supabase, com a chave de service role
+  só no servidor (`src/lib/supabase/admin.ts`), depois de a RLS aceitar o
+  convite gravado com o cliente de quem convidou.
 
 ## Estados da tela do aluno
 
@@ -107,6 +128,8 @@ link chega antes da aula. Não inventar link nem esconder a aula.
 1. Pedir magic link com e-mail cadastrado leva à sessão ativa depois do clique.
 2. Pedir magic link com e-mail desconhecido mostra a mesma mensagem de sucesso.
    Resposta diferente por e-mail existente entrega a lista de quem tem conta.
+   Vale também para "Esqueci minha senha" e para senha errada: a mesma frase
+   para e-mail sem conta.
 3. Acessar `/dashboard` sem sessão redireciona para `/login`.
 4. Professor logado em `/dashboard` é levado para `/teacher`.
 5. Com uma aula amanhã às 19h e fuso America/Sao_Paulo, a tela mostra amanhã

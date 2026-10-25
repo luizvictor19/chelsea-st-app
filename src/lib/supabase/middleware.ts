@@ -5,7 +5,7 @@ import { env } from "@/lib/env";
 import type { Database } from "@/lib/supabase/types";
 
 /** Routes that require a session. Role is decided by the page, not here. */
-const PROTECTED_PREFIXES = ["/dashboard", "/teacher"];
+const PROTECTED_PREFIXES = ["/dashboard", "/teacher", "/definir-senha"];
 
 /**
  * Refreshes the auth cookies on every request and turns anonymous visitors away

@@ -50,11 +50,17 @@ architecture question for Luiz.
   no `profiles.role` and no `is_teacher()`. Policies call `is_platform_admin()` and
   `is_school_member()`. A new table names its school, and the `school_follows_parents` trigger
   fills it from the parent and refuses a parent of another school.
+- Joining a school follows 0031: a membership is born only from a row of `school_invites`, when
+  the invited email is first confirmed (a trigger on `auth.users`) or when the invite is written
+  for an email already confirmed. Never insert into `school_members` or `students` from the app.
+  A school's admin invites any role, its teacher students only; a student belongs to one school.
 
 ## Sensitive data and secrets
 
 - `.env.local` is never read, printed or committed. Worktrees get a copy with `cp`.
 - API keys are server-only, never `NEXT_PUBLIC_`.
+- `SUPABASE_SERVICE_ROLE_KEY` is read only by `src/lib/supabase/admin.ts`, to send invite emails
+  (#96). It passes every policy: never use it to read or write tables.
 - Student personal data (name, email, audio) is processed under the privacy terms published on the
   landing. Never log it, never paste it into an issue.
 
