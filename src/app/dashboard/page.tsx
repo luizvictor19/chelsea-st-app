@@ -5,6 +5,7 @@ import { studies, teaches } from "@/lib/access";
 import { readAccess } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
+import { PendingInvites } from "../auth/pending-invites";
 import { SignOutButton } from "../auth/sign-out-button";
 import { AccountPending } from "./account-pending";
 import { DailyChallenge } from "./daily-challenge";
@@ -92,6 +93,8 @@ export default async function DashboardPage() {
           Olá, {profile.full_name}.
         </h1>
       </div>
+
+      <PendingInvites />
 
       {nextLesson ? (
         <NextLessonCard

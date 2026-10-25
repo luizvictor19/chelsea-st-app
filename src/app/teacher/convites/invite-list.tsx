@@ -73,11 +73,6 @@ function InviteRow({
         notices.push("error", result.message);
       } else if (result.status === "sent") {
         notices.push("success", `Convite reenviado para ${invite.email}.`);
-      } else if (result.status === "joined") {
-        notices.push(
-          "success",
-          `${invite.email} já tinha conta e entrou na escola agora.`,
-        );
       } else {
         notices.push("success", `Convite para ${invite.email} cancelado.`);
       }

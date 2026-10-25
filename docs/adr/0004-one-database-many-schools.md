@@ -66,8 +66,9 @@ common row or hold content of its own.
   An invite expires after 15 days and can be sent again. On the first
   sign-in with that email, the database creates the `school_members` row
   (and the `students` row for a student) and marks the invite accepted.
-  A person who already has an account gets the membership as soon as the
-  invite is written. Without an invite, the account stays pending and sees
+  A person who already has an account accepts the invite herself, signed in
+  (changed by 0032, #103: until then she joined as soon as the invite was
+  written, without saying yes). Without an invite, the account stays pending and sees
   nothing. A new school starts with the platform admin creating it and
   inviting its first admin. At Chelsea St, once payments exist (#72), a
   confirmed payment writes the invite.

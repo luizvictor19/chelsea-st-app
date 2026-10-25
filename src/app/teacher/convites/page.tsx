@@ -57,8 +57,8 @@ export default async function InvitesPage() {
           A pessoa recebe um e-mail, clica, define a senha e entra. O link do
           e-mail vale por 24 horas; o convite fica aberto por 15 dias. Se o link
           vencer, use Reenviar, ou a pessoa pede um link em “Esqueci minha
-          senha” com o mesmo e-mail. Quem já tem conta entra na escola na hora,
-          sem e-mail.
+          senha” com o mesmo e-mail. Quem já tem conta não recebe e-mail: vê o
+          convite ao entrar na plataforma e aceita ali. Avise a pessoa.
         </p>
       </div>
 

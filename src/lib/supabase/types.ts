@@ -31,6 +31,7 @@ export type Database = {
           question_id: string;
           school_id: string;
         };
+        ComputedFields: never;
         Insert: {
           assignment_id: string;
           id?: string;
@@ -71,6 +72,7 @@ export type Database = {
           school_id: string;
           student_id: string;
         };
+        ComputedFields: never;
         Insert: {
           completed_at?: string | null;
           created_at?: string;
@@ -112,6 +114,7 @@ export type Database = {
           transcript: string | null;
           verdict: Database["public"]["Enums"]["attempt_verdict"];
         };
+        ComputedFields: never;
         Insert: {
           assignment_item_id?: string | null;
           audio_path: string;
@@ -184,6 +187,7 @@ export type Database = {
           school_id: string | null;
           source_page: string | null;
         };
+        ComputedFields: never;
         Insert: {
           based_on_id?: string | null;
           content: string;
@@ -243,6 +247,7 @@ export type Database = {
           school_id: string | null;
           title: string;
         };
+        ComputedFields: never;
         Insert: {
           based_on_id?: string | null;
           created_at?: string;
@@ -287,6 +292,7 @@ export type Database = {
           set_id: string;
           vocabulary_item_id: string;
         };
+        ComputedFields: never;
         Insert: {
           position: number;
           school_id?: string | null;
@@ -330,6 +336,7 @@ export type Database = {
           id: string;
           school_id: string | null;
         };
+        ComputedFields: never;
         Insert: {
           based_on_id?: string | null;
           created_at?: string;
@@ -379,6 +386,7 @@ export type Database = {
           subject: string | null;
           vocabulary_item_id: string;
         };
+        ComputedFields: never;
         Insert: {
           completed_at?: string | null;
           created_at?: string;
@@ -446,6 +454,7 @@ export type Database = {
           timezone: string;
           weekday: number;
         };
+        ComputedFields: never;
         Insert: {
           created_at?: string;
           duration_minutes?: number;
@@ -490,6 +499,7 @@ export type Database = {
           student_id: string;
           teacher_note: string | null;
         };
+        ComputedFields: never;
         Insert: {
           created_at?: string;
           duration_minutes?: number;
@@ -533,6 +543,7 @@ export type Database = {
           number: number;
           school_id: string | null;
         };
+        ComputedFields: never;
         Insert: {
           based_on_id?: string | null;
           book_id: string;
@@ -582,6 +593,7 @@ export type Database = {
           created_at: string;
           user_id: string;
         };
+        ComputedFields: never;
         Insert: {
           created_at?: string;
           user_id: string;
@@ -611,6 +623,7 @@ export type Database = {
           number: number;
           school_id: string | null;
         };
+        ComputedFields: never;
         Insert: {
           based_on_id?: string | null;
           book_id: string;
@@ -669,6 +682,7 @@ export type Database = {
           id: string;
           timezone: string;
         };
+        ComputedFields: never;
         Insert: {
           created_at?: string;
           full_name: string;
@@ -699,6 +713,7 @@ export type Database = {
           school_id: string | null;
           shown_vocabulary_item_id: string | null;
         };
+        ComputedFields: never;
         Insert: {
           answer_language?: Database["public"]["Enums"]["answer_language"];
           based_on_id?: string | null;
@@ -770,6 +785,7 @@ export type Database = {
           school_id: string;
           student_id: string;
         };
+        ComputedFields: never;
         Insert: {
           due_on?: string;
           ease?: number;
@@ -816,6 +832,7 @@ export type Database = {
           role: Database["public"]["Enums"]["school_role"];
           school_id: string;
         };
+        ComputedFields: never;
         Insert: {
           accepted_at?: string | null;
           created_at?: string;
@@ -860,6 +877,7 @@ export type Database = {
           school_id: string;
           user_id: string;
         };
+        ComputedFields: never;
         Insert: {
           created_at?: string;
           role: Database["public"]["Enums"]["school_role"];
@@ -896,6 +914,7 @@ export type Database = {
           name: string;
           slug: string;
         };
+        ComputedFields: never;
         Insert: {
           created_at?: string;
           id?: string;
@@ -919,6 +938,7 @@ export type Database = {
           school_id: string;
           started_on: string | null;
         };
+        ComputedFields: never;
         Insert: {
           id: string;
           is_active?: boolean;
@@ -979,6 +999,7 @@ export type Database = {
           term: string;
           word_class: Database["public"]["Enums"]["word_class"] | null;
         };
+        ComputedFields: never;
         Insert: {
           approved_attempt_id?: string | null;
           based_on_id?: string | null;
@@ -1053,6 +1074,10 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      accept_my_school_invite: {
+        Args: { p_invite: string };
+        Returns: undefined;
+      };
       accept_school_invites: {
         Args: { p_email: string; p_user: string };
         Returns: undefined;
@@ -1101,6 +1126,16 @@ export type Database = {
           p_last_point: number;
         };
         Returns: number;
+      };
+      my_open_school_invites: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          expires_at: string;
+          id: string;
+          role: Database["public"]["Enums"]["school_role"];
+          school_id: string;
+          school_name: string;
+        }[];
       };
       pgp_armor_headers: {
         Args: { "": string };

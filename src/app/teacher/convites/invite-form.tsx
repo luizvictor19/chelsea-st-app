@@ -113,12 +113,6 @@ export function InviteForm({
           Convite enviado para <span className="font-mono">{state.email}</span>.
         </p>
       )}
-      {state.status === "joined" && (
-        <p role="status" className="text-muted text-sm">
-          <span className="font-mono">{state.email}</span> já tinha conta e
-          entrou na escola agora.
-        </p>
-      )}
 
       <button
         type="submit"

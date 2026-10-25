@@ -6,80 +6,41 @@ import type { SchoolRole } from "@/lib/access";
 import { requireTeacher } from "@/lib/content/queries";
 import { looksLikeEmail, normalizeEmail } from "@/lib/credentials";
 import { env } from "@/lib/env";
-import { inviteRefusal, renewedExpiry } from "@/lib/invites";
+import { inviteRefusal, mailProblem, renewedExpiry } from "@/lib/invites";
 import { createInviteMailer } from "@/lib/supabase/admin";
 
 export type InviteState =
   | { status: "idle" }
   | { status: "sent"; email: string }
-  | { status: "joined"; email: string }
   // The typed email and role go back to the form: a refusal must not make the
   // person type them again.
   | { status: "error"; message: string; email?: string; role?: SchoolRole };
 
 export type RowResult =
   | { status: "sent" }
-  | { status: "joined" }
   | { status: "cancelled" }
   | { status: "error"; message: string };
 
 const ROLES: readonly SchoolRole[] = ["student", "teacher", "admin"];
 
 /**
- * Sends the email of an invite the database has already accepted. Supabase
- * creates the account here, unconfirmed: the membership waits for the click
- * (0031). The link leads to /definir-senha through the invite template of
- * docs/commands.md.
+ * Asks Supabase to mail the invite. For a new email it creates the account,
+ * unconfirmed: the membership waits for the click (0031), and the link leads
+ * to /definir-senha through the invite template of docs/commands.md. For an
+ * account that already exists it mails nothing, and that reads as sent: she
+ * accepts when she signs in (0032). See mailProblem.
  */
 async function mailInvite(email: string): Promise<string | null> {
   const { error } = await createInviteMailer().inviteUserByEmail(email, {
     redirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/definir-senha`,
   });
-  if (!error) {
-    return null;
-  }
-  if (error.code === "email_exists") {
-    // A confirmed account would have joined when the invite was written, so
-    // this one was left open on purpose: she studies at another school, or
-    // the two schools invited her at the same moment.
-    return "Essa pessoa já tem conta e não entrou por este convite. Ela provavelmente já estuda em outra escola. Fale com ela antes de reenviar.";
-  }
-  if (error.code === "over_email_send_rate_limit") {
-    return "O convite foi gravado, mas o limite de e-mails do Supabase foi atingido. Use Reenviar daqui a alguns minutos.";
-  }
-  // Not the login screen as a way in: when this call fails the account may not
-  // exist, and then no link of the login screen goes out (#109).
-  return "O convite foi gravado, mas o e-mail não saiu. Use Reenviar daqui a alguns minutos.";
-}
-
-type Supabase = Awaited<ReturnType<typeof requireTeacher>>["supabase"];
-
-/**
- * After an invite is written or renewed: either the person already joined
- * (0031 accepts at once for a confirmed email, in a trigger after the write,
- * which the row returned by the write does not show), or the email goes out.
- */
-async function joinedOrMailed(
-  supabase: Supabase,
-  inviteId: string,
-  email: string,
-): Promise<"joined" | "sent" | { problem: string }> {
-  const { data: written } = await supabase
-    .from("school_invites")
-    .select("accepted_at")
-    .eq("id", inviteId)
-    .single();
-  if (written?.accepted_at) {
-    return "joined";
-  }
-  const problem = await mailInvite(email);
-  return problem === null ? "sent" : { problem };
+  return mailProblem(error);
 }
 
 /**
  * Writes the invite with the inviter's own client, so RLS decides whether she
- * may (0031), and only then mails it. Someone whose email is already
- * confirmed joins as the row is written: there is nothing to mail.
+ * may (0031), and only then mails it. Nobody joins here: every invite waits
+ * for the person's yes (0032).
  */
 export async function inviteToSchool(
   _previous: InviteState,
@@ -103,22 +64,20 @@ export async function inviteToSchool(
     return { status: "error", message: "Escolha o papel e a escola.", email };
   }
 
-  const { data: invite, error } = await supabase
+  const { error } = await supabase
     .from("school_invites")
-    .insert({ school_id: schoolId, email, role })
-    .select("id")
-    .single();
+    .insert({ school_id: schoolId, email, role });
   if (error) {
     return { status: "error", message: inviteRefusal(error), email, role };
   }
 
   revalidatePath("/teacher/convites");
 
-  const outcome = await joinedOrMailed(supabase, invite.id, email);
-  if (typeof outcome === "object") {
-    return { status: "error", message: outcome.problem };
+  const problem = await mailInvite(email);
+  if (problem !== null) {
+    return { status: "error", message: problem };
   }
-  return { status: outcome, email };
+  return { status: "sent", email };
 }
 
 /**
@@ -149,11 +108,11 @@ export async function resendInvite(inviteId: string): Promise<RowResult> {
     };
   }
 
-  const outcome = await joinedOrMailed(supabase, invite.id, invite.email);
-  if (typeof outcome === "object") {
-    return { status: "error", message: outcome.problem };
+  const problem = await mailInvite(invite.email);
+  if (problem !== null) {
+    return { status: "error", message: problem };
   }
-  return { status: outcome };
+  return { status: "sent" };
 }
 
 /**
