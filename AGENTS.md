@@ -29,8 +29,8 @@ The wording of every generated practice sentence is original.
 ## Stack
 
 Next.js App Router, TypeScript in strict mode, Tailwind, Supabase for
-Postgres, Auth and Storage. Vercel is the deploy target; the platform is not
-deployed yet (see `docs/context.md`, Environments).
+Postgres, Auth and Storage. Vercel deploys `main` to app.chelsea-st.com on
+every merge (see `docs/context.md`, Environments).
 
 ## Next.js 16
 
@@ -125,6 +125,8 @@ so it describes the Next that actually runs here.
 - Merge only when Luiz asks, naming the PR number: `gh pr merge NN --merge`. Then, from the main
   folder (never from inside the worktree being removed): pull, remove the worktree, delete the local
   and the remote branch.
+- A merge is a production deploy. In a PR with a migration, Luiz runs `supabase db push` before
+  asking for the merge; do not merge such a PR before the migration is applied (query the MCP).
 - `git merge`, `git rebase` and force pushes stay blocked. Deploys are always Luiz's.
 
 ### Who does what

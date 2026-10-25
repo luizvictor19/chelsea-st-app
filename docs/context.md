@@ -28,7 +28,19 @@ architecture question for Luiz.
   - Before every large migration, Luiz takes a logical copy (`supabase db dump`) and the Storage
     files, and restores the copy on a local stack. Commands in `docs/commands.md`. First rehearsal
     on 2026-10-24: every row count matched production, and the 185 Storage files were copied.
-- The platform is not deployed yet. Luiz runs it locally on port 3100 (`npm run dev`).
+- The platform runs at `app.chelsea-st.com` on Vercel (#68), set up by Luiz:
+  - Hobby plan, by Luiz's decision on 2026-10-25. Vercel restricts Hobby to non-commercial use;
+    if Vercel pauses the project for that, the way out is Pro or another host.
+  - Functions in `gru1` (São Paulo, `vercel.json`), next to the database in `sa-east-1`.
+  - Every merge to `main` is a production deploy. A PR with a migration is merged only after
+    Luiz's `supabase db push`: the new code may read what only the migration creates.
+  - A preview per PR, behind Vercel's login, against the production database (there is no
+    staging). Preview variables are only the public Supabase ones and the contact: no service
+    role and no paid API key, so a preview sends no invite and spends no credit.
+  - Supabase Site URL is `https://app.chelsea-st.com`, so every auth email links there, also one
+    asked for from `localhost`. To test one locally, swap the start of the link for
+    `http://localhost:3100`: the `token_hash` works on any host.
+- Luiz also runs it locally on port 3100 (`npm run dev`).
 - The landing page (chelsea-st.com) is a separate folder, not in git, deployed by Luiz with the
   Vercel CLI. Out of scope for this repository.
 - DNS on Cloudflare (grey cloud). Email: Cloudflare Email Routing, Resend, Supabase SMTP from
