@@ -62,6 +62,9 @@ não duplica. Na v1 é chamada à mão; virar job agendado fica para depois.
 `/teacher` e `/definir-senha`. O nome é esse porque o Next 16 depreciou a convenção
 `middleware.ts` em favor de `proxy.ts`; o papel é o mesmo.
 
+"Sair" fica no menu do professor, na tela da aluna e na de conta ainda não liberada
+(#106). Encerra a sessão só neste aparelho e leva para `/login`, sem confirmação.
+
 ## Redirecionamento por papel
 
 Lê os papéis no servidor, em `school_members` e `platform_admins` (desde a
