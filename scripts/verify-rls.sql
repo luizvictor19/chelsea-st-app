@@ -2101,12 +2101,22 @@ begin
     'a scene with a path and no approved attempt', 'scenes_approved_pair',
     'insert into scenes (description, image_path) values (''a lone path'', ''x/y.png'')');
 
+  perform verify.expect_refused(
+    'a scene described only by tabs and line breaks', 'scenes_description_not_blank',
+    format('insert into scenes (description) values (%L)', E'\t\n '));
+
   insert into scenes (description) values ('Big box') returning id into v_common;
   begin
     insert into scenes (description) values ('  big   BOX ');
     insert into verify.failures values ('the same common description was written twice');
   exception when unique_violation then
     raise notice 'the same common description, cased and spaced apart: refused by scenes_description_key';
+  end;
+  begin
+    insert into scenes (description) values (E'\tBig box\n');
+    insert into verify.failures values ('the same common description with a tab and a line break was written');
+  exception when unique_violation then
+    raise notice 'the same common description between a tab and a line break: refused by scenes_description_key';
   end;
   insert into scenes (description, school_id) values ('Big box', c_chelsea) returning id into v_chelsea;
   insert into scenes (description, school_id) values ('A pen on a book', c_b) returning id into v_b;
@@ -2155,6 +2165,14 @@ begin
   if (select image_path from vocabulary_items where id = c_word) is distinct from v_word_image then
     insert into verify.failures values ('approving a scene''s attempt changed a word');
   end if;
+  -- One approved picture per scene, whatever writes it.
+  begin
+    insert into image_attempts (scene_id, provider, status, storage_path, credits_spent, completed_at)
+      values (v_common, 'upload', 'approved', 'scene/third.png', 0, now());
+    insert into verify.failures values ('a scene got a second approved picture');
+  exception when unique_violation then
+    raise notice 'a second approved picture of a scene: refused by image_attempts_one_approved_per_scene';
+  end;
 
   -- What a question shows: at most one of the three -----------------------------------
   perform verify.expect_refused(

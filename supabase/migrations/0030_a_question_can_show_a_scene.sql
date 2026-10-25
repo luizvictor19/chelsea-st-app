@@ -21,7 +21,9 @@ create table scenes (
   -- Null is common content, as in every content table since 0029.
   school_id uuid references schools (id),
   description text not null
-    constraint scenes_description_not_blank check (btrim(description) <> ''),
+    -- Some character that is not white space: a tab or a line break is not a
+    -- description either.
+    constraint scenes_description_not_blank check (description ~ '\S'),
   image_style image_style not null default 'flat',
   reference_path text
     constraint scenes_reference_path_prefix
@@ -37,10 +39,11 @@ create table scenes (
 );
 
 -- One description per scope: among the common scenes, and among one school's.
--- Case and repeated or outer spaces do not make a new scene. A school may
--- repeat a common description: that is how it customizes one.
+-- Case and repeated or outer white space (spaces, tabs, line breaks) do not
+-- make a new scene. A school may repeat a common description: that is how it
+-- customizes one.
 create unique index scenes_description_key
-  on scenes (school_id, lower(regexp_replace(btrim(description), '\s+', ' ', 'g')))
+  on scenes (school_id, lower(btrim(regexp_replace(description, '\s+', ' ', 'g'))))
   nulls not distinct;
 
 alter table scenes enable row level security;
@@ -71,7 +74,14 @@ alter table image_attempts
   add constraint image_attempts_one_owner
     check (num_nonnulls(vocabulary_item_id, scene_id) = 1);
 
-create index image_attempts_scene_idx on image_attempts (scene_id);
+-- As image_attempts_item_idx (0008): a scene's attempts, newest first.
+create index image_attempts_scene_idx on image_attempts (scene_id, created_at);
+
+-- One approved picture per scene, as image_attempts_one_approved_per_item
+-- (0008) holds for a word. That index is on vocabulary_item_id, null for every
+-- scene's attempt, so it never sees two of the same scene.
+create unique index image_attempts_one_approved_per_scene
+  on image_attempts (scene_id) where status = 'approved';
 
 alter table scenes
   add constraint scenes_approved_attempt_id_fkey
