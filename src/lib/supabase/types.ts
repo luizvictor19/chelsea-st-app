@@ -379,12 +379,13 @@ export type Database = {
           provider: string;
           provider_request_id: string | null;
           reference_path: string | null;
+          scene_id: string | null;
           school_id: string | null;
           source_filename: string | null;
           status: string;
           storage_path: string | null;
           subject: string | null;
-          vocabulary_item_id: string;
+          vocabulary_item_id: string | null;
         };
         ComputedFields: never;
         Insert: {
@@ -399,12 +400,13 @@ export type Database = {
           provider: string;
           provider_request_id?: string | null;
           reference_path?: string | null;
+          scene_id?: string | null;
           school_id?: string | null;
           source_filename?: string | null;
           status: string;
           storage_path?: string | null;
           subject?: string | null;
-          vocabulary_item_id: string;
+          vocabulary_item_id?: string | null;
         };
         Update: {
           completed_at?: string | null;
@@ -418,14 +420,22 @@ export type Database = {
           provider?: string;
           provider_request_id?: string | null;
           reference_path?: string | null;
+          scene_id?: string | null;
           school_id?: string | null;
           source_filename?: string | null;
           status?: string;
           storage_path?: string | null;
           subject?: string | null;
-          vocabulary_item_id?: string;
+          vocabulary_item_id?: string | null;
         };
         Relationships: [
+          {
+            foreignKeyName: "image_attempts_scene_id_fkey";
+            columns: ["scene_id"];
+            isOneToOne: false;
+            referencedRelation: "scenes";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "image_attempts_school_id_fkey";
             columns: ["school_id"];
@@ -705,11 +715,13 @@ export type Database = {
           expected_answer: string;
           id: string;
           image_path: string | null;
+          is_acted_out: boolean;
           is_published: boolean;
           point_id: string;
           position: number;
           prompt: string;
           prompt_audio_path: string | null;
+          scene_id: string | null;
           school_id: string | null;
           shown_vocabulary_item_id: string | null;
         };
@@ -721,11 +733,13 @@ export type Database = {
           expected_answer: string;
           id?: string;
           image_path?: string | null;
+          is_acted_out?: boolean;
           is_published?: boolean;
           point_id: string;
           position: number;
           prompt: string;
           prompt_audio_path?: string | null;
+          scene_id?: string | null;
           school_id?: string | null;
           shown_vocabulary_item_id?: string | null;
         };
@@ -736,11 +750,13 @@ export type Database = {
           expected_answer?: string;
           id?: string;
           image_path?: string | null;
+          is_acted_out?: boolean;
           is_published?: boolean;
           point_id?: string;
           position?: number;
           prompt?: string;
           prompt_audio_path?: string | null;
+          scene_id?: string | null;
           school_id?: string | null;
           shown_vocabulary_item_id?: string | null;
         };
@@ -757,6 +773,13 @@ export type Database = {
             columns: ["point_id"];
             isOneToOne: false;
             referencedRelation: "points";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "questions_scene_id_fkey";
+            columns: ["scene_id"];
+            isOneToOne: false;
+            referencedRelation: "scenes";
             referencedColumns: ["id"];
           },
           {
@@ -818,6 +841,65 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: "students";
             referencedColumns: ["school_id", "id"];
+          },
+        ];
+      };
+      scenes: {
+        Row: {
+          approved_attempt_id: string | null;
+          based_on_id: string | null;
+          created_at: string;
+          description: string;
+          id: string;
+          image_path: string | null;
+          image_style: Database["public"]["Enums"]["image_style"];
+          reference_path: string | null;
+          school_id: string | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          approved_attempt_id?: string | null;
+          based_on_id?: string | null;
+          created_at?: string;
+          description: string;
+          id?: string;
+          image_path?: string | null;
+          image_style?: Database["public"]["Enums"]["image_style"];
+          reference_path?: string | null;
+          school_id?: string | null;
+        };
+        Update: {
+          approved_attempt_id?: string | null;
+          based_on_id?: string | null;
+          created_at?: string;
+          description?: string;
+          id?: string;
+          image_path?: string | null;
+          image_style?: Database["public"]["Enums"]["image_style"];
+          reference_path?: string | null;
+          school_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "scenes_approved_attempt_id_fkey";
+            columns: ["approved_attempt_id"];
+            isOneToOne: false;
+            referencedRelation: "image_attempts";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "scenes_based_on_id_fkey";
+            columns: ["based_on_id"];
+            isOneToOne: false;
+            referencedRelation: "scenes";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "scenes_school_id_fkey";
+            columns: ["school_id"];
+            isOneToOne: false;
+            referencedRelation: "schools";
+            referencedColumns: ["id"];
           },
         ];
       };
