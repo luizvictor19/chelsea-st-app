@@ -93,14 +93,22 @@ seconds (24 hours, the most Supabase allows). The invite stays open 15 days in `
 but its email link lasts only this long; after that, "Reenviar" or "Esqueci minha senha" with
 the same email.
 
-Authentication > Email Templates. Keep each text, and make its link exactly this:
+Authentication > Emails. Each template's link is exactly this:
 
     Confirm signup   {{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email
     Magic link       {{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email
     Invite user      {{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/definir-senha
     Reset password   {{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/definir-senha
 
-The invite is the first email a student gets from the platform. Subject and body, in Portuguese:
+Every template is in Portuguese, like every string a teacher or student reads. Subject and body
+of each, as set in the dashboard on 2026-10-25:
+
+    Subject: Confirme o seu e-mail na Chelsea St
+
+    <h2>Confirme o seu e-mail</h2>
+    <p>Clique no link abaixo para confirmar este e-mail e entrar na Chelsea St.</p>
+    <p><a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email">Confirmar e-mail</a></p>
+    <p>Se não foi você, ignore esta mensagem.</p>
 
     Subject: Seu convite para a Chelsea St
 
@@ -108,6 +116,20 @@ The invite is the first email a student gets from the platform. Subject and body
     <p>Clique no link abaixo para escolher a sua senha e entrar.</p>
     <p><a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/definir-senha">Aceitar o convite</a></p>
     <p>O link vale por 24 horas. Se ele vencer, peça um novo em "Esqueci minha senha", na tela de entrar, com este e-mail.</p>
+
+    Subject: Seu link para entrar na Chelsea St
+
+    <h2>Entrar na Chelsea St</h2>
+    <p>Clique no link abaixo para entrar. Ele vale uma vez só.</p>
+    <p><a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email">Entrar</a></p>
+    <p>Se não foi você que pediu, ignore esta mensagem.</p>
+
+    Subject: Nova senha na Chelsea St
+
+    <h2>Escolher uma nova senha</h2>
+    <p>Clique no link abaixo para escolher uma nova senha.</p>
+    <p><a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/definir-senha">Escolher nova senha</a></p>
+    <p>O link vale por 24 horas. Se não foi você que pediu, ignore esta mensagem: a sua senha continua a mesma.</p>
 
 ## GitHub quirks
 
