@@ -397,6 +397,13 @@ mesma transação em que ele é acrescentado, então qualquer consulta, função
   instrução"), referência de estrutura, modelo, Gerar, Enviar imagem pronta, tentativas com Aprovar e
   Descartar.
 - Conjuntos de contraste da palavra.
+- Seção Cenas, abaixo das lições (#64): "Nova cena" (só a descrição; uma descrição que já existe
+  abre a cena que a tem), contador de cenas com imagem e as cenas agrupadas pelo ponto da primeira
+  pergunta que usa cada uma, na ordem do livro, com "Sem pergunta ainda" no fim. A busca vale para
+  a descrição e Situação vale como para a palavra; com Tipo ou Classe ligados, a seção some.
+- Painel da cena (`?cena=`): estilo, Instrução (começa pela instrução da tentativa mais nova, ou
+  pela descrição, e fica gravada só na tentativa), referência de estrutura, modelo (Seedream 4 por
+  padrão, como figura), Gerar, Enviar imagem pronta, tentativas com Aprovar e Descartar.
 
 ## Medição
 
@@ -420,6 +427,13 @@ decidido" (`questions_one_image`).
   créditos. Cada tentativa é de uma palavra **ou** de uma cena (`image_attempts_one_owner`), e
   `approve_image_attempt` faz para a cena o que faz para a palavra.
 - Criar uma cena não gera nada: gerar é um botão separado (#64).
+- No bucket `vocabulary-images`, a imagem de uma tentativa de cena fica em
+  `scenes/{scene_id}/{attempt_id}.ext` e a referência em `references/scenes/{scene_id}/...`
+  (decisão de 25/10, #64). As da palavra continuam em `{vocabulary_item_id}/` e
+  `references/{vocabulary_item_id}/`. Regra em `src/lib/images/paths.ts`.
+- O prompt da cena é o da palavra com a regra `SCENE_RULE` no lugar da regra do tipo: mostrar cada
+  objeto e pessoa que a descrição nomeia, na relação que ela nomeia, e nada mais no fundo. A
+  primeira cena gerada é a conferência da frase.
 - A aluna lê a cena de uma pergunta que ela pode ler; o professor e o admin, como as outras
   tabelas de conteúdo.
 - Apagar uma cena usada por uma pergunta é recusado (`on delete restrict`).
