@@ -41,7 +41,7 @@ export function PasswordForm() {
             Senha
           </label>
           <Link
-            href="/esqueci-senha"
+            href="/forgot-password"
             className="text-muted hover:text-foreground text-sm"
           >
             Esqueci minha senha

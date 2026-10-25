@@ -10,11 +10,11 @@ export type ResetState =
   | { status: "error"; message: string };
 
 /**
- * Sends the link that leads to /definir-senha.
+ * Sends the link that leads to /set-password.
  *
  * Same answer for an address with an account and one without, for the reason
  * the login gives. The redirect matters only while the email templates still
- * use Supabase's default link; the templates of #96 name /definir-senha
+ * use Supabase's default link; the templates of #96 name /set-password
  * themselves (docs/commands.md).
  */
 export async function sendPasswordReset(
@@ -29,7 +29,7 @@ export async function sendPasswordReset(
 
   const supabase = await createClient();
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/definir-senha`,
+    redirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/set-password`,
   });
 
   if (error) {

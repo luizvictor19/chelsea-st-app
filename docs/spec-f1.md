@@ -46,20 +46,24 @@ não duplica. Na v1 é chamada à mão; virar job agendado fica para depois.
 
 ## Rotas
 
-| Rota                | Quem acessa        | O que faz                                               |
-| ------------------- | ------------------ | ------------------------------------------------------- |
-| `/login`            | anônimo            | E-mail e senha; links para as duas rotas abaixo         |
-| `/login/link`       | anônimo            | Campo de e-mail, envia o magic link, mostra confirmação |
-| `/esqueci-senha`    | anônimo            | Envia o link que leva a `/definir-senha`                |
-| `/definir-senha`    | com sessão         | Define a senha; onde caem o convite e o "esqueci"       |
-| `/auth/callback`    | anônimo            | Troca o código ou o `token_hash` pela sessão            |
-| `/`                 | qualquer           | Redireciona conforme o papel                            |
-| `/dashboard`        | aluno              | Próxima aula e desafio do dia                           |
-| `/teacher`          | professor          | Placeholder nesta fase                                  |
-| `/teacher/convites` | admin ou professor | Convida por e-mail e acompanha os convites              |
+| Rota               | Quem acessa        | O que faz                                               |
+| ------------------ | ------------------ | ------------------------------------------------------- |
+| `/login`           | anônimo            | E-mail e senha; links para as duas rotas abaixo         |
+| `/login/link`      | anônimo            | Campo de e-mail, envia o magic link, mostra confirmação |
+| `/forgot-password` | anônimo            | Envia o link que leva a `/set-password`                 |
+| `/set-password`    | com sessão         | Define a senha; onde caem o convite e o "esqueci"       |
+| `/auth/callback`   | anônimo            | Troca o código ou o `token_hash` pela sessão            |
+| `/`                | qualquer           | Redireciona conforme o papel                            |
+| `/dashboard`       | aluno              | Próxima aula e desafio do dia                           |
+| `/teacher`         | professor          | Placeholder nesta fase                                  |
+| `/teacher/invites` | admin ou professor | Convida por e-mail e acompanha os convites              |
+
+Desde a #116 todos os caminhos são em inglês. Os antigos em português (`/definir-senha`,
+`/esqueci-senha`, `/teacher/convites`, `/teacher/aula`) redirecionam para os novos, para sempre:
+e-mails já enviados levam o caminho antigo (`src/lib/renamed-paths.ts`).
 
 `src/proxy.ts` renova a sessão em toda requisição e protege `/dashboard`,
-`/teacher` e `/definir-senha`. O nome é esse porque o Next 16 depreciou a convenção
+`/teacher` e `/set-password`. O nome é esse porque o Next 16 depreciou a convenção
 `middleware.ts` em favor de `proxy.ts`; o papel é o mesmo.
 
 "Sair da conta" fica no menu do professor, na tela da aluna e na de conta ainda não

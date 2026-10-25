@@ -107,7 +107,7 @@ export async function sendMagicLink(
     const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(
       email,
       {
-        redirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/definir-senha`,
+        redirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/set-password`,
       },
     );
     step = recoveryError ? "error" : "sent";
