@@ -37,6 +37,38 @@ The lesson server always runs in Luiz's own terminal, never in a Claude Code ses
     supabase db push               # from the worktree that holds the new file
     scripts/gen-types.sh           # regenerate types from the migrations
 
+Every merge to `main` deploys to production (#68). In a PR with a migration, push first, then
+merge: the new code may read what only the migration creates.
+
+## Vercel (Luiz only, set up once in #68)
+
+Hobby plan. Project imported from `luizvictor19/chelsea-st-app`, framework Next.js, Node 24
+(`engines` in `package.json`). Functions in `gru1` (`vercel.json`).
+
+Settings > Environment Variables, by name only (values live in Vercel and in `.env.local`):
+
+    Production   NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
+                 NEXT_PUBLIC_SITE_URL=https://app.chelsea-st.com,
+                 NEXT_PUBLIC_TEACHER_CONTACT_EMAIL=contato@chelsea-st.com,
+                 SUPABASE_SERVICE_ROLE_KEY, FREEPIK_API_KEY, DEEPSEEK_API_KEY
+    Preview      NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
+                 NEXT_PUBLIC_TEACHER_CONTACT_EMAIL
+
+`OPENAI_API_KEY` and `DEEPGRAM_API_KEY` are read only by the measurement scripts, never by the
+app: they stay out of Vercel.
+
+Settings > Deployment Protection: Vercel Authentication on for previews (the default).
+
+Settings > Domains: `app.chelsea-st.com`. On Cloudflare, the CNAME record Vercel shows, grey
+cloud (DNS only).
+
+Supabase, Authentication > URL Configuration:
+
+    Site URL        https://app.chelsea-st.com
+    Redirect URLs   https://app.chelsea-st.com/**
+                    https://*-<vercel-account>.vercel.app/**   (previews)
+                    http://localhost:3100/**
+
 ## Backup and local restore (Luiz only)
 
 The copy holds personal data (`auth.users`). It lives in `~/backups/chelsea-st/`, outside the
