@@ -1,5 +1,6 @@
 import { env } from "@/lib/env";
 
+import { PendingInvites } from "../auth/pending-invites";
 import { SignOutButton } from "../auth/sign-out-button";
 
 /**
@@ -7,8 +8,8 @@ import { SignOutButton } from "../auth/sign-out-button";
  *
  * Rare since 0031, but still reachable: an account whose invite was cancelled
  * or expired after the account existed. Anyone here has a confirmed email, so
- * a new invite is accepted the moment it is written (0031) and no email comes:
- * the copy says to reload, not to wait for a link.
+ * a new invite mails nothing and waits here for her yes (0032): the copy says
+ * to reload, not to wait for a link.
  */
 export function AccountPending() {
   const contact = env.NEXT_PUBLIC_TEACHER_CONTACT_EMAIL;
@@ -27,9 +28,10 @@ export function AccountPending() {
       </h1>
       <p className="text-muted">
         A entrada na Chelsea St é por convite. Peça um convite a quem cuida da
-        sua turma, para este mesmo e-mail. Como você já tem conta, ele vale
-        assim que for enviado: depois, é só recarregar esta página.
+        sua turma, para este mesmo e-mail. Como você já tem conta, ele aparece
+        aqui para você aceitar: depois de enviado, é só recarregar esta página.
       </p>
+      <PendingInvites />
       {contact ? (
         <p className="text-muted">
           Dúvidas:{" "}

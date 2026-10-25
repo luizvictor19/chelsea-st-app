@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  acceptRefusal,
   INVITE_DAYS,
   inviteRefusal,
   invitableRoles,
+  mailProblem,
   renewedExpiry,
 } from "./invites.ts";
 
@@ -43,13 +45,6 @@ describe("invites", () => {
     assert.match(
       inviteRefusal({
         code: "23514",
-        message: "this person already studies at another school",
-      }),
-      /outra escola/,
-    );
-    assert.match(
-      inviteRefusal({
-        code: "23514",
         message:
           'new row for relation "school_invites" violates check constraint "school_invites_email_check"',
       }),
@@ -64,5 +59,53 @@ describe("invites", () => {
       /Não foi possível/,
     );
     assert.match(inviteRefusal({}), /Não foi possível/);
+  });
+
+  test("writing an invite never says the person studies elsewhere (0032)", () => {
+    assert.doesNotMatch(
+      inviteRefusal({
+        code: "23514",
+        message: "this person already studies at another school",
+      }),
+      /outra escola/,
+    );
+  });
+});
+
+describe("mailProblem", () => {
+  test("an account that already exists reads like any email sent", () => {
+    // inviteUserByEmail refuses a confirmed account with email_exists: she sees
+    // the invite when she signs in, and the inviter is told nothing more.
+    assert.equal(mailProblem(undefined), null);
+    assert.equal(mailProblem("email_exists"), null);
+  });
+
+  test("a mail that did not go out says so", () => {
+    assert.match(mailProblem("over_email_send_rate_limit") ?? "", /limite/);
+    assert.match(mailProblem("unexpected_failure") ?? "", /não saiu/);
+  });
+});
+
+describe("acceptRefusal", () => {
+  test("each refusal of accept_my_school_invite has its own sentence", () => {
+    assert.match(
+      acceptRefusal({
+        code: "23514",
+        message: "invite 1 is not open for this account",
+      }),
+      /venceu ou já foi usado/,
+    );
+    assert.match(
+      acceptRefusal({
+        code: "23514",
+        message: "this person already studies at another school",
+      }),
+      /já estuda em outra escola/,
+    );
+  });
+
+  test("an unknown failure is not dressed as one of the rules", () => {
+    assert.match(acceptRefusal({ code: "23514" }), /Não foi possível/);
+    assert.match(acceptRefusal({}), /Não foi possível/);
   });
 });
