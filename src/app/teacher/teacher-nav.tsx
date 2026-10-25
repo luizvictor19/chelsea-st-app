@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { SignOutButton } from "../auth/sign-out-button";
+
 /** The areas that already have a screen behind them. */
 const links = [
   { label: "Conteúdo", href: "/teacher/content" },
@@ -106,6 +108,7 @@ export function TeacherNav({
           >
             {initial}
           </span>
+          <SignOutButton />
         </div>
       </div>
     </header>

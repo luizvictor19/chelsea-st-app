@@ -1,5 +1,7 @@
 import { env } from "@/lib/env";
 
+import { SignOutButton } from "../auth/sign-out-button";
+
 /**
  * Someone signed in before being registered as a student.
  *
@@ -12,9 +14,13 @@ export function AccountPending() {
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-4 p-6">
-      <p className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
-        Chelsea St
-      </p>
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
+          Chelsea St
+        </p>
+        {/* Signed in with the wrong email, perhaps: the way back out. */}
+        <SignOutButton />
+      </div>
       <h1 className="text-3xl font-extrabold tracking-tight">
         Sua conta ainda não foi liberada.
       </h1>

@@ -5,6 +5,7 @@ import { studies, teaches } from "@/lib/access";
 import { readAccess } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
+import { SignOutButton } from "../auth/sign-out-button";
 import { AccountPending } from "./account-pending";
 import { DailyChallenge } from "./daily-challenge";
 import { NextLessonCard } from "./next-lesson-card";
@@ -81,9 +82,12 @@ export default async function DashboardPage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-6 p-6">
       <div className="flex flex-col gap-1">
-        <p className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
-          Chelsea St
-        </p>
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
+            Chelsea St
+          </p>
+          <SignOutButton />
+        </div>
         <h1 className="text-3xl font-extrabold tracking-tight">
           Olá, {profile.full_name}.
         </h1>
