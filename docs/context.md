@@ -61,7 +61,12 @@ architecture question for Luiz.
   in `school_members` (`admin`, `teacher`, `student`, one row each) and `platform_admins`; there is
   no `profiles.role` and no `is_teacher()`. Policies call `is_platform_admin()` and
   `is_school_member()`. A new table names its school, and the `school_follows_parents` trigger
-  fills it from the parent and refuses a parent of another school.
+  fills it, on insert, from the first parent present in its list and refuses a parent of another
+  school (first present since 0030: an image attempt's parent is a word or a scene).
+- What a question shows follows 0030: the picture of one word (`shown_vocabulary_item_id`), one
+  scene (`scene_id`), or acted out (`is_acted_out`), at most one of the three, checked by
+  `questions_one_image`; none of them means not decided yet. An image attempt belongs to exactly
+  one word or one scene (`image_attempts_one_owner`).
 - Joining a school follows 0031 and 0032: a membership is born only from a row of
   `school_invites`, when the invited email is first confirmed (a trigger on `auth.users`) or, for
   an account that already exists, when that person accepts it signed in
