@@ -198,6 +198,10 @@ export default async function VocabularyImagesPage({
         matchesSearch(scene.description, term),
     ),
   );
+  // Gone when a filter leaves no scene in it, as a lesson is; with no filter
+  // on it stays, empty, for Nova cena.
+  const showScenes =
+    sceneGroups.length > 0 || activeCount(selection, term) === 0;
   const selectedScene = scenes.find((scene) => scene.id === sceneId) ?? null;
   const sceneAttempts =
     selectedScene === null ? [] : await listSceneAttempts(selectedScene.id);
@@ -267,13 +271,28 @@ export default async function VocabularyImagesPage({
           here is the button, the count on it, and the filters that are on.
         */}
         {progress.total > 0 && (
-          <FilterDrawer
-            selection={selection}
-            term={term}
-            opened={opened}
-            shown={shown}
-            total={progress.total}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <FilterDrawer
+              selection={selection}
+              term={term}
+              opened={opened}
+              shown={shown}
+              total={progress.total}
+            />
+            {/*
+              The scenes sit under every lesson, a long scroll down. A plain
+              anchor, not a Link: the browser scrolls the list's own column
+              to the fragment, and nothing needs to render again.
+            */}
+            {showScenes && (
+              <a
+                href="#cenas"
+                className="border-rule hover:bg-surface rounded-sm border px-3 py-1.5 text-sm font-semibold transition-colors"
+              >
+                Cenas ({scenes.length}) ↓
+              </a>
+            )}
+          </div>
         )}
       </header>
 
@@ -428,13 +447,9 @@ export default async function VocabularyImagesPage({
                   ))
                 )}
               </BulkSelection>
-              {/*
-                Outside the bulk selection: a scene is not a word, and the bar
-                acts on words. Gone when a filter leaves no scene in it, as a
-                lesson is; with no filter on it stays, empty, for Nova cena.
-              */}
-              {(sceneGroups.length > 0 ||
-                activeCount(selection, term) === 0) && (
+              {/* Outside the bulk selection: a scene is not a word, and the
+                  bar acts on words. */}
+              {showScenes && (
                 <ScenesSection
                   groups={sceneGroups}
                   withImage={scenes.filter((s) => s.imageUrl !== null).length}
