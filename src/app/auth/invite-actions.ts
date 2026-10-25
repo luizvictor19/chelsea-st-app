@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { acceptRefusal } from "@/lib/invites";
@@ -27,5 +28,8 @@ export async function acceptInvite(
     return { status: "error", message: acceptRefusal(error) };
   }
 
+  // The new role changes the teacher layout too (the notice, "Ver como aluna"),
+  // and the redirect alone may reuse it.
+  revalidatePath("/", "layout");
   redirect("/");
 }

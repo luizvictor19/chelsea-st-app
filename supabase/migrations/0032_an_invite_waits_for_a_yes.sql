@@ -85,6 +85,11 @@ declare
   v_user uuid := auth.uid();
   v_invite school_invites;
 begin
+  -- One acceptance per person at a time. Two student invites of different
+  -- schools accepted at once (two tabs) would both pass the one-school check
+  -- below, and the second students insert would be swallowed by on conflict.
+  perform pg_advisory_xact_lock(hashtextextended('accept_my_school_invite:' || v_user::text, 0));
+
   select i.* into v_invite
     from school_invites i
    where i.id = p_invite

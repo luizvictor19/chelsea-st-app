@@ -7,12 +7,21 @@ import { AcceptInviteForm } from "./accept-invite-form";
  * The open invites of the signed-in person, each with "Aceitar". Since 0032
  * someone who already has an account joins another school, or takes another
  * role, only by saying yes here: Supabase mails her no invite. Renders nothing
- * when there is none.
+ * when there is none, and says so when the list cannot be read: this is her
+ * only way in, so it never disappears in silence.
  */
 export async function PendingInvites() {
   const supabase = await createClient();
-  const { data: invites } = await supabase.rpc("my_open_school_invites");
-  if (!invites || invites.length === 0) {
+  const { data: invites, error } = await supabase.rpc("my_open_school_invites");
+  if (error) {
+    return (
+      <p role="alert" className="text-accent text-sm">
+        Não foi possível ver se você tem convites agora. Recarregue a página
+        daqui a pouco.
+      </p>
+    );
+  }
+  if (invites.length === 0) {
     return null;
   }
 

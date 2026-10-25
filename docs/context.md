@@ -66,8 +66,8 @@ architecture question for Luiz.
   `school_invites`, when the invited email is first confirmed (a trigger on `auth.users`) or, for
   an account that already exists, when that person accepts it signed in
   (`accept_my_school_invite`, offered by `my_open_school_invites` on `/teacher` and `/dashboard`).
-  Writing an invite never makes a membership, and the inviter reads "Convite enviado" in every
-  case. Never insert into `school_members` or `students` from the app. A school's admin invites
+  Writing an invite never makes a membership, and the inviter reads the same "Convite enviado"
+  whether or not the email has an account (a mail that failed is still said as failed). Never insert into `school_members` or `students` from the app. A school's admin invites
   any role, its teacher students only; a student belongs to one school, checked on acceptance.
   No account is created without an invite (#109): the magic link asks with
   `shouldCreateUser: false`, and "Allow new users to sign up" is off in the Auth dashboard.
