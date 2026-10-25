@@ -62,10 +62,13 @@ architecture question for Luiz.
   no `profiles.role` and no `is_teacher()`. Policies call `is_platform_admin()` and
   `is_school_member()`. A new table names its school, and the `school_follows_parents` trigger
   fills it from the parent and refuses a parent of another school.
-- Joining a school follows 0031: a membership is born only from a row of `school_invites`, when
-  the invited email is first confirmed (a trigger on `auth.users`) or when the invite is written
-  for an email already confirmed. Never insert into `school_members` or `students` from the app.
-  A school's admin invites any role, its teacher students only; a student belongs to one school.
+- Joining a school follows 0031 and 0032: a membership is born only from a row of
+  `school_invites`, when the invited email is first confirmed (a trigger on `auth.users`) or, for
+  an account that already exists, when that person accepts it signed in
+  (`accept_my_school_invite`, offered by `my_open_school_invites` on `/teacher` and `/dashboard`).
+  Writing an invite never makes a membership, and the inviter reads "Convite enviado" in every
+  case. Never insert into `school_members` or `students` from the app. A school's admin invites
+  any role, its teacher students only; a student belongs to one school, checked on acceptance.
   No account is created without an invite (#109): the magic link asks with
   `shouldCreateUser: false`, and "Allow new users to sign up" is off in the Auth dashboard.
   With sign-ups off, GoTrue refuses the magic link to an invite not yet accepted (an unconfirmed
