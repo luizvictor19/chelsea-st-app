@@ -31,11 +31,7 @@ export function ScenesSection({
   readonly openId: string | null;
 }) {
   return (
-    <section
-      id="cenas"
-      aria-label="Cenas"
-      className="flex scroll-mt-4 flex-col gap-3"
-    >
+    <section id="cenas" aria-label="Cenas" className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
         <h2 className="text-faint mr-auto font-mono text-xs tracking-[0.16em] uppercase">
           Cenas

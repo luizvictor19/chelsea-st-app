@@ -28,6 +28,7 @@ import {
 } from "./contrast-sets";
 import { FilterDrawer } from "./filter-drawer";
 import { GenerationTracking } from "./generation-tracking";
+import { JumpToScenes } from "./jump-to-scenes";
 import {
   activeCount,
   filterHref,
@@ -279,19 +280,8 @@ export default async function VocabularyImagesPage({
               shown={shown}
               total={progress.total}
             />
-            {/*
-              The scenes sit under every lesson, a long scroll down. A plain
-              anchor, not a Link: the browser scrolls the list's own column
-              to the fragment, and nothing needs to render again.
-            */}
-            {showScenes && (
-              <a
-                href="#cenas"
-                className="border-rule hover:bg-surface rounded-sm border px-3 py-1.5 text-sm font-semibold transition-colors"
-              >
-                Cenas ({scenes.length}) ↓
-              </a>
-            )}
+            {/* The scenes sit under every lesson, a long scroll down. */}
+            {showScenes && <JumpToScenes count={scenes.length} />}
           </div>
         )}
       </header>
