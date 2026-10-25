@@ -133,16 +133,30 @@ export function refuseUpload(file: {
   readonly type: string;
   readonly kind: string | null;
 }): string | null {
-  if (file.size === 0) return "O arquivo está vazio.";
-  if (file.size > MAX_UPLOAD_BYTES) return tooBig(file.size);
-  if (file.type !== "" && !isUploadType(file.type)) {
-    return "Envie um arquivo PNG, JPEG ou WebP.";
-  }
+  const refusal = refuseFile(file);
+  if (refusal !== null) return refusal;
   if (file.kind === null) {
     return "Escolha o tipo da palavra antes de enviar a imagem.";
   }
   if (!isDrawableKind(file.kind)) {
     return "Este tipo de palavra não leva imagem.";
+  }
+  return null;
+}
+
+/**
+ * Why a file cannot be sent at all, whoever it is for, or null when it can.
+ * The half of refuseUpload that is about the file; a scene (#64) has no kind
+ * to decide first, so this half is all it asks.
+ */
+export function refuseFile(file: {
+  readonly size: number;
+  readonly type: string;
+}): string | null {
+  if (file.size === 0) return "O arquivo está vazio.";
+  if (file.size > MAX_UPLOAD_BYTES) return tooBig(file.size);
+  if (file.type !== "" && !isUploadType(file.type)) {
+    return "Envie um arquivo PNG, JPEG ou WebP.";
   }
   return null;
 }

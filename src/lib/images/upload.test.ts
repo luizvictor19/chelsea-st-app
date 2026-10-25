@@ -7,6 +7,7 @@ import {
   UPLOAD_LIMIT_LABEL,
   afterWrite,
   megabytes,
+  refuseFile,
   refuseUpload,
   readImageFile,
   sniffImageType,
@@ -94,6 +95,26 @@ describe("refuseUpload", () => {
       refuseUpload({ ...fine, size: 5 * 1024 * 1024, kind: "symbol" }),
       tooBig(5 * 1024 * 1024),
     );
+  });
+});
+
+describe("refuseFile", () => {
+  const fine = { size: 900_000, type: "image/png" };
+
+  test("judges the file alone, with no kind to ask for", () => {
+    assert.equal(refuseFile(fine), null);
+    assert.equal(refuseFile({ ...fine, type: "" }), null);
+  });
+
+  test("refuses what refuseUpload refuses about the file, in the same words", () => {
+    for (const file of [
+      { ...fine, size: 0 },
+      { ...fine, size: MAX_UPLOAD_BYTES + 1 },
+      { ...fine, type: "image/svg+xml" },
+    ]) {
+      assert.notEqual(refuseFile(file), null);
+      assert.equal(refuseFile(file), refuseUpload({ ...file, kind: "photo" }));
+    }
   });
 });
 
