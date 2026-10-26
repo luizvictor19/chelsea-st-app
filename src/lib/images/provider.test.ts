@@ -3,7 +3,11 @@ import { describe, test } from "node:test";
 
 import { Constants } from "../supabase/types.ts";
 import {
+  COMPOSE_MODELS,
   IMAGE_MODELS,
+  TEXT_MODELS,
+  composesPictures,
+  defaultComposeModel,
   defaultModelFor,
   defaultReferenceModel,
   isImageModelId,
@@ -18,16 +22,16 @@ const KINDS = Constants.public.Enums.representation_kind;
 describe("IMAGE_MODELS", () => {
   /*
    * Three since 2026-09-19, when Flux Kontext Pro went in to stop Mystic
-   * being the only way to generate from a reference at all. Flux 2 Pro is
-   * still out: its price is unmeasured too, and it brings nothing Kontext
-   * does not.
+   * being the only way to generate from a reference at all; four since
+   * 2026-10-26, when Seedream 4.5 Edit went in to draw a scene from approved
+   * pictures (#120). Flux 2 Pro is still out: on 2026-10-26 it ignored both.
    */
-  test("has three models, each with a distinct id and label", () => {
-    assert.equal(IMAGE_MODELS.length, 3);
+  test("has four models, each with a distinct id and label", () => {
+    assert.equal(IMAGE_MODELS.length, 4);
     const ids = IMAGE_MODELS.map((model) => model.id);
-    assert.equal(new Set(ids).size, 3);
+    assert.equal(new Set(ids).size, 4);
     const labels = IMAGE_MODELS.map((model) => model.label);
-    assert.equal(new Set(labels).size, 3);
+    assert.equal(new Set(labels).size, 4);
   });
 
   /*
@@ -191,5 +195,48 @@ describe("defaultModelFor", () => {
       const model = defaultModelFor(kind);
       assert.equal(model !== null, isDrawableKind(kind), kind);
     }
+  });
+});
+
+describe("composesPictures", () => {
+  /*
+   * Measured on the dashboard on 2026-10-26, 12355 to 12405 across one
+   * isolated generation of "the pen on the book".
+   */
+  test("Seedream 4.5 Edit composes, at 50 credits", () => {
+    assert.equal(composesPictures("seedream-v4-5-edit"), true);
+    assert.equal(modelCredits("seedream-v4-5-edit"), 50);
+  });
+
+  /*
+   * An edit model has nothing to edit without its pictures, so it is never
+   * offered where there are none: a word, or a scene with none chosen.
+   */
+  test("a model that composes is not one that draws from text", () => {
+    for (const { id } of IMAGE_MODELS) {
+      const inText = TEXT_MODELS.some((model) => model.id === id);
+      const inCompose = COMPOSE_MODELS.some((model) => model.id === id);
+      assert.notEqual(inText, inCompose, id);
+      assert.equal(inCompose, composesPictures(id), id);
+    }
+  });
+
+  /* One picture whose shape is kept is reference_path, a different column. */
+  test("a model that composes takes no single reference", () => {
+    for (const { id } of COMPOSE_MODELS) {
+      assert.equal(takesReference(id), false, id);
+    }
+  });
+});
+
+describe("defaultComposeModel", () => {
+  test("is Seedream 4.5 Edit", () => {
+    assert.equal(defaultComposeModel(), "seedream-v4-5-edit");
+  });
+
+  test("composes, and has a price somebody measured", () => {
+    const chosen = defaultComposeModel();
+    assert.ok(chosen !== null && composesPictures(chosen));
+    assert.notEqual(modelCredits(chosen), null);
   });
 });

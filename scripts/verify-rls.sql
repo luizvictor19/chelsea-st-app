@@ -65,6 +65,7 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0030_a_question_can_show_a_scene.sql
 \i supabase/migrations/0031_joining_a_school_by_invite.sql
 \i supabase/migrations/0032_an_invite_waits_for_a_yes.sql
+\i supabase/migrations/0033_a_scene_is_drawn_from_pictures.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
@@ -2265,5 +2266,66 @@ begin
 
   raise notice 'scenes: a question shows a word, a scene or is acted out, at most one';
   raise notice 'and a scene''s attempt takes the scene''s school, its picture is approved as a word''s, its reader follows the question';
+end;
+$$;
+
+-- A scene is drawn from approved pictures (0033) ---------------------------------------
+--
+-- A list of 1 to 5 paths under references/, on a scene or on a generated
+-- attempt of one, and never next to a single reference_path.
+do $$
+declare
+  c_word constant uuid := (select id from vocabulary_items where term = 'a word');
+  c_two constant text := '{references/scenes/s/pen.jpg,references/scenes/s/book.jpg}';
+  v_failures text;
+  v_scene uuid;
+begin
+  delete from verify.failures;
+
+  insert into scenes (description) values ('The pen on the book') returning id into v_scene;
+
+  -- The list, on a scene ----------------------------------------------------------------
+  if verify.refused_by(format('update scenes set composed_from = %L where id = %L', c_two, v_scene)) is not null then
+    insert into verify.failures values ('a scene could not be drawn from two pictures');
+  end if;
+  perform verify.expect_refused('a scene drawn from no picture', 'scenes_composed_from_shape',
+    format('update scenes set composed_from = ''{}'' where id = %L', v_scene));
+  perform verify.expect_refused('a scene drawn from six pictures', 'scenes_composed_from_shape',
+    format('update scenes set composed_from = ''{references/1,references/2,references/3,references/4,references/5,references/6}'' where id = %L', v_scene));
+  perform verify.expect_refused('a scene drawn from a word''s own picture', 'scenes_composed_from_shape',
+    format('update scenes set composed_from = ''{references/scenes/s/pen.jpg,w/book.jpg}'' where id = %L', v_scene));
+  perform verify.expect_refused('a scene drawn from a null picture', 'scenes_composed_from_shape',
+    format('update scenes set composed_from = ''{references/scenes/s/pen.jpg,NULL}'' where id = %L', v_scene));
+  perform verify.expect_refused('a scene drawn from a grid of pictures', 'scenes_composed_from_shape',
+    format('update scenes set composed_from = ''{{references/a,references/b},{references/c,references/d}}'' where id = %L', v_scene));
+  perform verify.expect_refused('a scene with a reference and a list', 'scenes_one_kind_of_reference',
+    format('update scenes set reference_path = ''references/scenes/s/r.jpg'' where id = %L', v_scene));
+
+  -- The list, on an attempt -------------------------------------------------------------
+  if verify.refused_by(
+       format('insert into image_attempts (scene_id, provider, model, status, composed_from) values (%L, ''freepik'', ''seedream-v4-5-edit'', ''pending'', %L)',
+              v_scene, c_two)) is not null then
+    insert into verify.failures values ('a scene''s generation could not be drawn from two pictures');
+  end if;
+  perform verify.expect_refused('a generation drawn from no picture', 'image_attempts_composed_from_shape',
+    format('insert into image_attempts (scene_id, provider, status, composed_from) values (%L, ''freepik'', ''pending'', ''{}'')', v_scene));
+  perform verify.expect_refused('a generation drawn from a word''s own picture', 'image_attempts_composed_from_shape',
+    format('insert into image_attempts (scene_id, provider, status, composed_from) values (%L, ''freepik'', ''pending'', ''{w/book.jpg}'')', v_scene));
+  perform verify.expect_refused('a generation with a reference and a list', 'image_attempts_one_kind_of_reference',
+    format('insert into image_attempts (scene_id, provider, status, reference_path, composed_from) values (%L, ''freepik'', ''pending'', ''references/scenes/s/r.jpg'', %L)',
+           v_scene, c_two));
+  perform verify.expect_refused('a word''s generation drawn from a list', 'image_attempts_composed_only_for_a_generated_scene',
+    format('insert into image_attempts (vocabulary_item_id, provider, status, composed_from) values (%L, ''freepik'', ''pending'', %L)',
+           c_word, c_two));
+  perform verify.expect_refused('an upload drawn from a list', 'image_attempts_composed_only_for_a_generated_scene',
+    format('insert into image_attempts (scene_id, provider, status, storage_path, credits_spent, completed_at, composed_from) values (%L, ''upload'', ''generated'', ''scenes/s/a.png'', 0, now(), %L)',
+           v_scene, c_two));
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'composed_from: %', v_failures;
+  end if;
+
+  raise notice 'composed_from: 1 to 5 pictures under references/, on a scene or its generated attempt, never with reference_path';
 end;
 $$;

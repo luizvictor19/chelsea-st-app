@@ -369,6 +369,7 @@ export type Database = {
       image_attempts: {
         Row: {
           completed_at: string | null;
+          composed_from: string[] | null;
           created_at: string;
           credits_spent: number | null;
           decided_at: string | null;
@@ -390,6 +391,7 @@ export type Database = {
         ComputedFields: never;
         Insert: {
           completed_at?: string | null;
+          composed_from?: string[] | null;
           created_at?: string;
           credits_spent?: number | null;
           decided_at?: string | null;
@@ -410,6 +412,7 @@ export type Database = {
         };
         Update: {
           completed_at?: string | null;
+          composed_from?: string[] | null;
           created_at?: string;
           credits_spent?: number | null;
           decided_at?: string | null;
@@ -848,6 +851,7 @@ export type Database = {
         Row: {
           approved_attempt_id: string | null;
           based_on_id: string | null;
+          composed_from: string[] | null;
           created_at: string;
           description: string;
           id: string;
@@ -860,6 +864,7 @@ export type Database = {
         Insert: {
           approved_attempt_id?: string | null;
           based_on_id?: string | null;
+          composed_from?: string[] | null;
           created_at?: string;
           description: string;
           id?: string;
@@ -871,6 +876,7 @@ export type Database = {
         Update: {
           approved_attempt_id?: string | null;
           based_on_id?: string | null;
+          composed_from?: string[] | null;
           created_at?: string;
           description?: string;
           id?: string;
@@ -1190,6 +1196,7 @@ export type Database = {
       gen_random_uuid: { Args: Record<PropertyKey, never>; Returns: string };
       gen_salt: { Args: { "": string }; Returns: string };
       is_platform_admin: { Args: Record<PropertyKey, never>; Returns: boolean };
+      is_reference_list: { Args: { p_paths: string[] }; Returns: boolean };
       is_school_member: {
         Args: {
           p_roles?: Database["public"]["Enums"]["school_role"][];

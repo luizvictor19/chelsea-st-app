@@ -434,6 +434,19 @@ decidido" (`questions_one_image`).
 - O prompt da cena é o da palavra com a regra `SCENE_RULE` no lugar da regra do tipo: mostrar cada
   objeto e pessoa que a descrição nomeia, na relação que ela nomeia, e nada mais no fundo. A
   primeira cena gerada é a conferência da frase.
+- A imagem da cena chega de quatro jeitos, todos no painel (#120): gerar do texto, enviar pronta,
+  ou juntar de 2 a 4 imagens aprovadas (de palavras ou de outras cenas).
+  - **Lado a lado:** uma montagem feita no navegador (quadrado branco de 1536 px, cada imagem
+    inteira na sua célula; regra em `src/lib/images/montage.ts`) entra como tentativa enviada, sem
+    crédito. O nome do arquivo guarda quais imagens foram juntadas (`lado-a-lado-pen-book.jpg`, em
+    `source_filename`).
+  - **Como referência:** as imagens vão **separadas**, não a montagem, para o Seedream 4.5 Edit
+    (50 créditos), que desenha a cena com elas. Na hora de escolher, cada uma é copiada para
+    `references/scenes/{scene_id}/` e a lista fica em `scenes.composed_from`, na ordem; cada tentativa
+    guarda a sua em `image_attempts.composed_from` (0033). De 1 a 5 caminhos, nunca junto com
+    `reference_path`. Medido em 26/10 com "the pen on the book" (`scripts/measure-scene-references.ts`):
+    separadas, a caneta saiu sobre o livro nas 2 vezes; com a montagem, saiu ao lado no Seedream 4.5
+    Edit, e o Flux Kontext desenhou só a caneta.
 - A aluna lê a cena de uma pergunta que ela pode ler; o professor e o admin, como as outras
   tabelas de conteúdo.
 - Apagar uma cena usada por uma pergunta é recusado (`on delete restrict`).

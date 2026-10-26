@@ -12,6 +12,9 @@ import {
   lessonFailed,
   lessonLabel,
   referenceAttached,
+  montageSent,
+  picturesChosen,
+  picturesRemoved,
   referenceRemoved,
   sceneCreated,
   setDissolved,
@@ -92,6 +95,24 @@ describe("a notice about a word starts with its term", () => {
 });
 
 describe("a notice about a scene starts with its description", () => {
+  test("pictures joined side by side wait for approval, as an upload", () => {
+    assert.deepEqual(
+      montageSent("the pen on the book"),
+      ok("the pen on the book: imagens juntas enviadas, falta aprovar."),
+    );
+  });
+
+  test("choosing pictures says how many, and that nothing was generated", () => {
+    assert.deepEqual(
+      picturesChosen("the pen on the book", 2),
+      ok("the pen on the book: 2 imagens escolhidas para gerar."),
+    );
+    assert.deepEqual(
+      picturesRemoved("the pen on the book"),
+      ok("the pen on the book: imagens escolhidas removidas."),
+    );
+  });
+
   test("creating one says it has no picture yet", () => {
     assert.deepEqual(
       sceneCreated("a big box"),
