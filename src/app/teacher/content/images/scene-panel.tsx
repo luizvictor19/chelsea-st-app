@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import type { ImageAttempt, SceneImage } from "@/lib/content/queries";
@@ -28,6 +27,7 @@ import {
 } from "@/lib/images/upload";
 
 import type { ActionResult } from "./attempt-store";
+import { ArchiveScene } from "./archive-scene";
 import { AttemptList } from "./attempt-list";
 import { trackGeneration, useRunningGeneration } from "./generation-tracking";
 import {
@@ -39,7 +39,6 @@ import {
   picturesRemoved,
   referenceAttached,
   referenceRemoved,
-  sceneArchived,
   styleChanged,
   tell,
   uploadSent,
@@ -50,7 +49,6 @@ import { JoinApproved, type ApprovedPicture } from "./join-approved";
 import { attemptsToShow, settle, type LastAnswer } from "./panel-state";
 import {
   approveSceneAttempt,
-  archiveScene,
   clearScenePictures,
   clearSceneReference,
   rejectSceneAttempt,
@@ -137,8 +135,7 @@ export function ScenePanel({
   const finishedInput = useRef<HTMLInputElement>(null);
   const [usedSubject, setUsedSubject] = useState("");
   const zoom = useRef<HTMLDialogElement>(null);
-  const confirmArchive = useRef<HTMLDialogElement>(null);
-  const router = useRouter();
+
   const [zoomed, setZoomed] = useState<string | null>(null);
 
   function openZoom(url: string) {
@@ -268,7 +265,6 @@ export function ScenePanel({
   }
 
   const working = busy !== null;
-  const shownByQuestion = scene.questionPoints.length > 0;
 
   return (
     <section
@@ -287,73 +283,13 @@ export function ScenePanel({
             {groupLabel(point).toLowerCase()}
           </span>
         </div>
-        {/*
-          Not while a generation runs, which would finish on a scene nobody
-          can open, nor for one a question shows, which the server refuses.
-        */}
-        <button
-          type="button"
-          disabled={working || running !== null || shownByQuestion}
-          title={
-            shownByQuestion
-              ? "Uma pergunta mostra esta cena: troque a imagem dela antes."
-              : undefined
-          }
-          onClick={() => confirmArchive.current?.showModal()}
-          className="border-rule hover:bg-background shrink-0 rounded-sm border px-3 py-1.5 text-sm transition-colors disabled:opacity-50"
-        >
-          {busy?.key === "excluir" ? "excluindo" : "Excluir"}
-        </button>
+        <ArchiveScene
+          scene={scene}
+          closeHref={closeHref}
+          variant="button"
+          disabled={working || running !== null}
+        />
       </header>
-
-      {/* Esc or Cancelar closes it; only Excluir acts. */}
-      <dialog
-        ref={confirmArchive}
-        aria-labelledby={`excluir-${scene.id}`}
-        className="border-rule bg-surface text-foreground m-auto max-w-sm rounded-sm border p-6 backdrop:bg-black/40"
-      >
-        <div className="flex flex-col gap-4">
-          <h2
-            id={`excluir-${scene.id}`}
-            className="text-base font-extrabold tracking-tight wrap-anywhere"
-          >
-            Excluir a cena “{label}”?
-          </h2>
-          <p className="text-muted text-sm">
-            Ela sai da lista e do Juntar imagens aprovadas. As tentativas e o
-            gasto delas continuam registrados. Uma cena que uma pergunta mostra
-            não é excluída.
-          </p>
-          <div className="flex flex-wrap justify-end gap-2">
-            <form method="dialog">
-              <button
-                type="submit"
-                className="border-rule hover:bg-background rounded-sm border px-3 py-1.5 text-sm transition-colors"
-              >
-                Cancelar
-              </button>
-            </form>
-            <button
-              type="button"
-              onClick={() => {
-                confirmArchive.current?.close();
-                void run(
-                  "excluir",
-                  async () => {
-                    const result = await archiveScene(scene.id);
-                    if (result.ok) router.replace(closeHref);
-                    return result;
-                  },
-                  () => sceneArchived(label),
-                );
-              }}
-              className="border-foreground bg-foreground text-background rounded-sm border px-3 py-1.5 text-sm font-semibold"
-            >
-              Excluir
-            </button>
-          </div>
-        </div>
-      </dialog>
 
       <div className="flex flex-col gap-2">
         <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">

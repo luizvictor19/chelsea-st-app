@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import type { SceneImage } from "@/lib/content/queries";
 
+import { ArchiveScene } from "./archive-scene";
 import { filterHref, sceneSituation, type Selection } from "./filters";
 import { NewScene } from "./new-scene";
 import { groupLabel, type SceneGroup } from "./scenes";
@@ -54,7 +55,7 @@ export function ScenesSection({
           </h3>
           <ul className="flex flex-col">
             {group.scenes.map((scene) => (
-              <li key={scene.id}>
+              <li key={scene.id} className="flex min-w-0 items-center gap-1">
                 <Link
                   href={filterHref(
                     selection,
@@ -64,8 +65,8 @@ export function ScenesSection({
                   aria-current={openId === scene.id ? "true" : undefined}
                   className={
                     openId === scene.id
-                      ? "bg-surface border-rule flex min-w-0 items-center justify-between gap-3 rounded-sm border px-3 py-2"
-                      : "border-rule hover:bg-surface flex min-w-0 items-center justify-between gap-3 rounded-sm border border-transparent px-3 py-2 transition-colors"
+                      ? "bg-surface border-rule flex min-w-0 flex-1 items-center justify-between gap-3 rounded-sm border px-3 py-2"
+                      : "border-rule hover:bg-surface flex min-w-0 flex-1 items-center justify-between gap-3 rounded-sm border border-transparent px-3 py-2 transition-colors"
                   }
                 >
                   <span className="truncate font-semibold">
@@ -73,6 +74,16 @@ export function ScenesSection({
                   </span>
                   <StatusMark situation={sceneSituation(scene.imageUrl)} />
                 </Link>
+                {/* Beside the link, never in it: a click here opens nothing. */}
+                <ArchiveScene
+                  scene={scene}
+                  closeHref={
+                    openId === scene.id
+                      ? filterHref(selection, null, term)
+                      : null
+                  }
+                  variant="icon"
+                />
               </li>
             ))}
           </ul>
