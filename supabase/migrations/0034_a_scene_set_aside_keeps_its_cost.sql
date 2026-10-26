@@ -29,6 +29,9 @@ create unique index scenes_description_key
 
 -- A question and an archived scene never meet ------------------------------------------
 --
+-- Refused as a check, named by the trigger, as school_follows_parents is
+-- (0030): the app tells this refusal apart from a failure by its name.
+--
 -- From both sides, since either write can come second. The question's side
 -- reads the scene for share: an archive running at the same moment holds the
 -- scene's row, so the question waits for it and then sees it archived; and
@@ -46,7 +49,8 @@ as $$
 begin
   if new.archived_at is not null and old.archived_at is null
      and exists (select 1 from questions where scene_id = new.id) then
-    raise exception 'scene % is shown by a question and cannot be archived', new.id;
+    raise exception 'scene % is shown by a question and cannot be archived', new.id
+      using errcode = 'check_violation', constraint = tg_name;
   end if;
   return new;
 end;
@@ -73,7 +77,8 @@ begin
   -- archived yet, and take no lock at all.
   select archived_at into v_archived_at from scenes where id = new.scene_id for share;
   if v_archived_at is not null then
-    raise exception 'scene % is archived and cannot be shown by a question', new.scene_id;
+    raise exception 'scene % is archived and cannot be shown by a question', new.scene_id
+      using errcode = 'check_violation', constraint = tg_name;
   end if;
   return new;
 end;

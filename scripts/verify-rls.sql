@@ -2358,8 +2358,7 @@ begin
     values (v_loose, 'freepik', 'seedream-v4', 'pending', 50);
 
   -- A scene a question shows is not archived.
-  perform verify.expect_refusal('archiving a scene a question shows',
-    format('P0001 scene %s is shown by a question and cannot be archived', v_shown),
+  perform verify.expect_refused('archiving a scene a question shows', 'scenes_in_use_stays',
     format('update scenes set archived_at = now() where id = %L', v_shown));
 
   -- One that no question shows is, and its attempts and their cost stay.
@@ -2373,12 +2372,10 @@ begin
   end if;
 
   -- An archived scene is shown by no question, written new or moved to it.
-  perform verify.expect_refusal('a new question showing an archived scene',
-    format('P0001 scene %s is archived and cannot be shown by a question', v_loose),
+  perform verify.expect_refused('a new question showing an archived scene', 'questions_scene_in_use',
     format('insert into questions (point_id, position, prompt, expected_answer, scene_id) values (%L, 202, %L, %L, %L)',
            c_point, 'q', 'a', v_loose));
-  perform verify.expect_refusal('a question moved to an archived scene',
-    format('P0001 scene %s is archived and cannot be shown by a question', v_loose),
+  perform verify.expect_refused('a question moved to an archived scene', 'questions_scene_in_use',
     format('update questions set scene_id = %L where id = %L', v_loose, v_question));
   -- Moving it to a scene in use still works.
   if verify.refusal(format('update questions set scene_id = %L where id = %L', v_other, v_question)) is not null then
