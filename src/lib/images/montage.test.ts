@@ -104,25 +104,22 @@ describe("montageLayout", () => {
 
 describe("montageFilename", () => {
   test("names the pictures it was made of, in order", () => {
+    assert.equal(montageFilename(["pen", "book"]), "lado-a-lado-pen-book.jpg");
     assert.equal(
-      montageFilename("lado-a-lado", ["pen", "book"]),
-      "lado-a-lado-pen-book.jpg",
-    );
-    assert.equal(
-      montageFilename("referencia", ["a big box", "the cat"]),
-      "referencia-a-big-box-the-cat.jpg",
+      montageFilename(["a big box", "the cat"]),
+      "lado-a-lado-a-big-box-the-cat.jpg",
     );
   });
 
   test("no accent, space or symbol survives", () => {
     assert.equal(
-      montageFilename("lado-a-lado", ["Café  à la carte!", "it's"]),
+      montageFilename(["Café  à la carte!", "it's"]),
       "lado-a-lado-cafe-a-la-carte-it-s.jpg",
     );
   });
 
   test("a long description is cut, and a label with nothing left drops", () => {
-    const name = montageFilename("lado-a-lado", [
+    const name = montageFilename([
       "a very long description of a scene that goes on",
       "???",
     ]);

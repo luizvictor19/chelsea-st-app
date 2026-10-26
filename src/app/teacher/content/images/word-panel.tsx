@@ -14,6 +14,7 @@ import {
 } from "@/lib/images/generation";
 import {
   IMAGE_MODELS,
+  TEXT_MODELS,
   defaultModelFor,
   defaultReferenceModel,
   isImageModelId,
@@ -334,7 +335,8 @@ export function WordPanel({
   const modelOptions =
     reference !== null && ACCEPT_REFERENCE.length > 0
       ? ACCEPT_REFERENCE
-      : IMAGE_MODELS;
+      : // Not a model that composes: a word is one thing (#120).
+        TEXT_MODELS;
 
   /*
    * Which model accepts a reference is knowledge the program has and the

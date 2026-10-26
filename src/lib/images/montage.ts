@@ -67,12 +67,9 @@ export function montageLayout(
  * it was made of: source_filename keeps it on the attempt, so there is no
  * column for it. "lado-a-lado-pen-book.jpg".
  */
-export function montageFilename(
-  purpose: "lado-a-lado" | "referencia",
-  labels: readonly string[],
-): string {
+export function montageFilename(labels: readonly string[]): string {
   const parts = labels.map(slug).filter((part) => part !== "");
-  return `${[purpose, ...parts].join("-")}.jpg`;
+  return `${["lado-a-lado", ...parts].join("-")}.jpg`;
 }
 
 /** Lower case, no accents, one hyphen between words, at most 30 characters. */

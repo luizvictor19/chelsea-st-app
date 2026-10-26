@@ -9,8 +9,12 @@ import {
   runningAttempt,
 } from "@/lib/images/generation";
 import {
+  COMPOSE_MODELS,
   DEFAULT_SCENE_MODEL,
   IMAGE_MODELS,
+  TEXT_MODELS,
+  composesPictures,
+  defaultComposeModel,
   defaultReferenceModel,
   isImageModelId,
   modelCredits,
@@ -30,6 +34,8 @@ import {
   imageApproved,
   imageDiscarded,
   montageSent,
+  picturesChosen,
+  picturesRemoved,
   referenceAttached,
   referenceRemoved,
   styleChanged,
@@ -42,8 +48,10 @@ import { JoinApproved, type ApprovedPicture } from "./join-approved";
 import { attemptsToShow, settle, type LastAnswer } from "./panel-state";
 import {
   approveSceneAttempt,
+  clearScenePictures,
   clearSceneReference,
   rejectSceneAttempt,
+  setScenePictures,
   setSceneReference,
   setSceneStyle,
   startSceneGeneration,
@@ -99,12 +107,18 @@ export function ScenePanel({
     () => scene.latestSubject ?? scene.description,
   );
   const [model, setModel] = useState<string>(() =>
-    scene.referenceUrl === null
-      ? DEFAULT_SCENE_MODEL
-      : (defaultReferenceModel() ?? DEFAULT_SCENE_MODEL),
+    scene.pictureUrls !== null
+      ? (defaultComposeModel() ?? DEFAULT_SCENE_MODEL)
+      : scene.referenceUrl === null
+        ? DEFAULT_SCENE_MODEL
+        : (defaultReferenceModel() ?? DEFAULT_SCENE_MODEL),
   );
   const [reference, setReferenceUrl] = useState<string | null>(
     scene.referenceUrl,
+  );
+  // The chosen pictures (#120): one or the other with the reference (0033).
+  const [pictures, setPictures] = useState<readonly string[] | null>(
+    scene.pictureUrls,
   );
   const [modelNote, setModelNote] = useState<string | null>(null);
   const credits = isImageModelId(model) ? modelCredits(model) : null;
@@ -145,6 +159,9 @@ export function ScenePanel({
     if ("reference" in result && result.reference !== undefined) {
       setReferenceUrl(result.reference);
     }
+    if ("pictures" in result && result.pictures !== undefined) {
+      setPictures(result.pictures);
+    }
     if (result.ok) {
       const notice = done?.() ?? null;
       if (notice !== null) tell(notice);
@@ -154,10 +171,37 @@ export function ScenePanel({
     }
   }
 
+  // A model that composes has nothing to draw without the pictures, and one
+  // that does not would ignore them: with pictures, only those that compose.
   const modelOptions =
-    reference !== null && ACCEPT_REFERENCE.length > 0
-      ? ACCEPT_REFERENCE
-      : IMAGE_MODELS;
+    pictures !== null && COMPOSE_MODELS.length > 0
+      ? COMPOSE_MODELS
+      : reference !== null && ACCEPT_REFERENCE.length > 0
+        ? ACCEPT_REFERENCE
+        : TEXT_MODELS;
+
+  function choosePictures(chosen: readonly ApprovedPicture[]) {
+    void run(
+      "compor",
+      async () => {
+        const result = await setScenePictures(
+          scene.id,
+          chosen.map((picture) => picture.key),
+        );
+        if (result.ok) {
+          const target = defaultComposeModel();
+          if (target !== null && target !== model) {
+            setModel(target);
+            setModelNote(
+              `Mudei para ${modelLabel(target)}, que desenha a cena a partir das imagens escolhidas.`,
+            );
+          }
+        }
+        return result;
+      },
+      () => picturesChosen(label, chosen.length),
+    );
+  }
 
   function moveModelToTakeReference() {
     const target = defaultReferenceModel();
@@ -356,6 +400,61 @@ export function ScenePanel({
           </p>
         </div>
 
+        {pictures !== null && (
+          <div className="flex flex-col gap-2 pt-2">
+            <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
+              Imagens escolhidas
+            </span>
+            <div className="flex flex-wrap items-start gap-2">
+              {pictures.map((url, i) => (
+                <button
+                  key={url}
+                  type="button"
+                  onClick={() => openZoom(url)}
+                  title="Ver grande"
+                  className="border-rule shrink-0 rounded-sm border"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- a public bucket URL, shown as stored */}
+                  <img
+                    src={url}
+                    alt={`Imagem ${i + 1} de ${label}`}
+                    className="size-20 rounded-sm object-cover"
+                  />
+                </button>
+              ))}
+              <button
+                type="button"
+                disabled={working}
+                onClick={() =>
+                  void run(
+                    "tirar-imagens",
+                    async () => {
+                      const result = await clearScenePictures(scene.id);
+                      if (
+                        result.ok &&
+                        isImageModelId(model) &&
+                        composesPictures(model)
+                      ) {
+                        setModel(DEFAULT_SCENE_MODEL);
+                      }
+                      if (result.ok) setModelNote(null);
+                      return result;
+                    },
+                    () => picturesRemoved(label),
+                  )
+                }
+                className="border-rule hover:bg-background rounded-sm border px-3 py-1 text-xs transition-colors disabled:opacity-50"
+              >
+                {busy?.key === "tirar-imagens" ? "tirando" : "Tirar"}
+              </button>
+            </div>
+            <p className="text-faint text-xs">
+              Vão separadas, nesta ordem, para o Gerar: o modelo desenha a cena
+              com elas. Para trocar, escolha outras em Juntar imagens aprovadas.
+            </p>
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center gap-2">
           {IMAGE_MODELS.length > 1 && (
             <select
@@ -408,10 +507,12 @@ export function ScenePanel({
             {busy?.key === "gerar" ? "enviando" : "Gerar"}
           </button>
         </div>
-        {(modelNote !== null || reference !== null) && (
+        {(modelNote !== null || reference !== null || pictures !== null) && (
           <p className="text-faint text-xs">
             {modelNote ??
-              "Com uma referência anexada, só os modelos que aceitam uma. Tire a referência para escolher os outros."}
+              (pictures !== null
+                ? "Com imagens escolhidas, só os modelos que desenham a partir delas. Tire as imagens para escolher os outros."
+                : "Com uma referência anexada, só os modelos que aceitam uma. Tire a referência para escolher os outros.")}
           </p>
         )}
         <p className="text-faint text-xs">
@@ -481,7 +582,7 @@ export function ScenePanel({
               () => montageSent(label),
             )
           }
-          onReference={attachReference}
+          onCompose={choosePictures}
         />
       </div>
 

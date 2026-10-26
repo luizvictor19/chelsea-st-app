@@ -38,7 +38,6 @@ export type MontagePicture = {
  */
 export async function drawMontage(
   pictures: readonly MontagePicture[],
-  purpose: "lado-a-lado" | "referencia",
 ): Promise<File> {
   const images = await Promise.all(pictures.map(({ url }) => load(url)));
   const placed = montageLayout(
@@ -75,14 +74,9 @@ export async function drawMontage(
   if (blob === null) {
     throw new MontageFailed("O navegador não conseguiu gerar a montagem.");
   }
-  return new File(
-    [blob],
-    montageFilename(
-      purpose,
-      pictures.map(({ label }) => label),
-    ),
-    { type: "image/jpeg" },
-  );
+  return new File([blob], montageFilename(pictures.map(({ label }) => label)), {
+    type: "image/jpeg",
+  });
 }
 
 async function load(url: string): Promise<HTMLImageElement> {

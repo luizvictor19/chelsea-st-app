@@ -2,11 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import {
-  MONTAGE_MAX,
-  MONTAGE_MIN,
-  montageFilename,
-} from "@/lib/images/montage";
+import { MONTAGE_MAX, MONTAGE_MIN } from "@/lib/images/montage";
 
 import { MontageFailed, drawMontage } from "./draw-montage";
 
@@ -25,8 +21,12 @@ type Preview = { readonly url: string; readonly file: File };
 
 /**
  * Juntar imagens aprovadas (#120): pick two to four approved pictures, see
- * them joined, and send the montage either as the scene's own picture or as
- * the reference it is generated from.
+ * them joined, and either send the montage as the scene's own picture or
+ * choose the pictures themselves for the scene to be generated from.
+ *
+ * Generated from, the pictures go apart and not as the montage: on
+ * 2026-10-26 Seedream 4.5 Edit handed the montage put the pen beside the
+ * book on its white, and handed the two apart put it on the book.
  *
  * The montage is drawn again on every change of the selection, so what the
  * preview shows is the file that is sent, byte for byte. Nothing is sent by
@@ -37,13 +37,13 @@ export function JoinApproved({
   working,
   busyKey,
   onSideBySide,
-  onReference,
+  onCompose,
 }: {
   readonly pictures: readonly ApprovedPicture[];
   readonly working: boolean;
   readonly busyKey: string | null;
   readonly onSideBySide: (file: File) => void;
-  readonly onReference: (file: File) => void;
+  readonly onCompose: (pictures: readonly ApprovedPicture[]) => void;
 }) {
   const [query, setQuery] = useState("");
   const [chosen, setChosen] = useState<readonly ApprovedPicture[]>([]);
@@ -78,7 +78,7 @@ export function JoinApproved({
     }
     setDrawing(true);
     try {
-      const file = await drawMontage(next, "lado-a-lado");
+      const file = await drawMontage(next);
       if (draw !== latest.current) return;
       show({ url: URL.createObjectURL(file), file });
     } catch (cause) {
@@ -207,27 +207,17 @@ export function JoinApproved({
               <button
                 type="button"
                 disabled={working || !ready}
-                onClick={() =>
-                  onReference(
-                    new File(
-                      [preview.file],
-                      montageFilename(
-                        "referencia",
-                        chosen.map((item) => item.label),
-                      ),
-                      { type: preview.file.type },
-                    ),
-                  )
-                }
+                onClick={() => onCompose(chosen)}
                 className="border-rule hover:bg-background rounded-sm border px-4 py-2 text-sm transition-colors disabled:opacity-50"
               >
-                {busyKey === "referencia" ? "subindo" : "Usar como referência"}
+                {busyKey === "compor" ? "copiando" : "Usar como referência"}
               </button>
             </div>
             <p className="text-faint text-xs">
               Lado a lado: a montagem é a imagem da cena, sem gerar e sem
               crédito; entra nas tentativas e espera a sua aprovação. Como
-              referência: a montagem guia o Gerar acima.
+              referência: as imagens vão separadas para o Gerar acima, que
+              desenha a cena com elas.
             </p>
           </div>
         )}

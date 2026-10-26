@@ -13,6 +13,8 @@ import {
   lessonLabel,
   referenceAttached,
   montageSent,
+  picturesChosen,
+  picturesRemoved,
   referenceRemoved,
   sceneCreated,
   setDissolved,
@@ -97,6 +99,17 @@ describe("a notice about a scene starts with its description", () => {
     assert.deepEqual(
       montageSent("the pen on the book"),
       ok("the pen on the book: imagens juntas enviadas, falta aprovar."),
+    );
+  });
+
+  test("choosing pictures says how many, and that nothing was generated", () => {
+    assert.deepEqual(
+      picturesChosen("the pen on the book", 2),
+      ok("the pen on the book: 2 imagens escolhidas para gerar."),
+    );
+    assert.deepEqual(
+      picturesRemoved("the pen on the book"),
+      ok("the pen on the book: imagens escolhidas removidas."),
     );
   });
 
