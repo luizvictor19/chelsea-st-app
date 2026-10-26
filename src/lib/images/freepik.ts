@@ -11,9 +11,11 @@
  */
 
 import {
+  COMPOSE_MAX,
   type ImageModelId,
   type ImageProvider,
   type PollResult,
+  composesPictures,
   isImageModelId,
   takesReference,
 } from "./provider";
@@ -101,6 +103,7 @@ type ModelSpec = {
   readonly body: (
     prompt: string,
     reference: string | null,
+    pictures: readonly string[],
   ) => Record<string, unknown>;
 };
 
@@ -129,6 +132,18 @@ const SPECS: Record<ImageModelId, ModelSpec> = {
       prompt,
       aspect_ratio: "square_1_1",
       ...(reference === null ? {} : { input_image: reference }),
+    }),
+  },
+  /*
+   * The scene's pictures by URL, as Kontext's reference: the bucket is
+   * public. 1 to 5, in the order chosen (docs.magnific.com, 2026-10-25).
+   */
+  "seedream-v4-5-edit": {
+    path: "/v1/ai/text-to-image/seedream-v4-5-edit",
+    body: (prompt, _reference, pictures) => ({
+      prompt,
+      reference_images: pictures,
+      aspect_ratio: "square_1_1",
     }),
   },
   mystic: {
@@ -249,6 +264,7 @@ export function createFreepikProvider(): ImageProvider {
       prompt,
       model,
       reference,
+      pictures,
     }): Promise<{ requestId: string }> {
       if (!isImageModelId(model)) {
         throw new Error(`Unknown image model: ${model}`);
@@ -256,11 +272,21 @@ export function createFreepikProvider(): ImageProvider {
       if (reference !== null && !takesReference(model)) {
         throw new Error(`${model} takes no structure reference`);
       }
+      // Both ways round, for the reason a reference is refused above.
+      if (composesPictures(model)) {
+        if (pictures.length === 0 || pictures.length > COMPOSE_MAX) {
+          throw new Error(
+            `${model} takes 1 to ${COMPOSE_MAX} pictures, got ${pictures.length}`,
+          );
+        }
+      } else if (pictures.length > 0) {
+        throw new Error(`${model} takes no pictures to compose`);
+      }
 
       const spec = SPECS[model];
       const body = await call(spec.path, {
         method: "POST",
-        body: spec.body(prompt, reference),
+        body: spec.body(prompt, reference, pictures),
       });
 
       const task = readTaskBody(body);

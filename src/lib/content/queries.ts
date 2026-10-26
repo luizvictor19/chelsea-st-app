@@ -483,6 +483,8 @@ export type SceneImage = {
   readonly imageUrl: string | null;
   /** The structure reference it generates from, as a URL, or null. */
   readonly referenceUrl: string | null;
+  /** The approved pictures it is drawn from, as URLs in order, or null (#120). */
+  readonly pictureUrls: readonly string[] | null;
   /** The point numbers of the questions that show it, for groupScenes. */
   readonly questionPoints: readonly number[];
   /** The newest attempt's instruction, which the panel opens on, or null. */
@@ -502,7 +504,7 @@ export async function listScenes(): Promise<readonly SceneImage[]> {
   const { data: rows, error } = await supabase
     .from("scenes")
     .select(
-      "id, description, image_style, image_path, reference_path, questions!questions_scene_id_fkey(points(number)), image_attempts!image_attempts_scene_id_fkey(subject, created_at)",
+      "id, description, image_style, image_path, reference_path, composed_from, questions!questions_scene_id_fkey(points(number)), image_attempts!image_attempts_scene_id_fkey(subject, created_at)",
     );
   if (error) throw new Error(error.message);
 
@@ -516,6 +518,12 @@ export async function listScenes(): Promise<readonly SceneImage[]> {
       imageStyle: row.image_style,
       imageUrl: publicImageUrl(supabase, row.image_path),
       referenceUrl: publicImageUrl(supabase, row.reference_path),
+      pictureUrls:
+        row.composed_from === null
+          ? null
+          : row.composed_from.flatMap(
+              (path) => publicImageUrl(supabase, path) ?? [],
+            ),
       questionPoints: (row.questions ?? []).flatMap((question) =>
         question.points === null ? [] : [question.points.number],
       ),

@@ -6,7 +6,11 @@ import { ownerOf, readAttempts, requireTeacher } from "@/lib/content/queries";
 import { compareWords } from "@/lib/content/word-order";
 import { createFreepikProvider } from "@/lib/images/freepik";
 import { GENERATION_WINDOW_MS, hasExpired } from "@/lib/images/generation";
-import { isImageModelId, takesReference } from "@/lib/images/provider";
+import {
+  composesPictures,
+  isImageModelId,
+  takesReference,
+} from "@/lib/images/provider";
 import {
   buildContrastPrompt,
   contrastCandidates,
@@ -326,6 +330,13 @@ export async function startGeneration(
     if (!isImageModelId(model)) {
       return { ok: false, error: `Modelo desconhecido: ${model}` };
     }
+    // A word is one thing, and these draw only from a scene's pictures.
+    if (composesPictures(model)) {
+      return {
+        ok: false,
+        error: "Esse modelo só desenha cena, a partir das imagens escolhidas.",
+      };
+    }
     const { supabase } = await requireTeacher();
 
     /*
@@ -377,7 +388,7 @@ export async function startGeneration(
     return await openGeneration(
       supabase,
       { kind: "word", id: wordId },
-      { model, prompt, subject, referencePath },
+      { model, prompt, subject, referencePath, composedFrom: null },
     );
   } catch (cause) {
     return failure(cause);

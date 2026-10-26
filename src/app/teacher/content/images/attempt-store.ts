@@ -66,6 +66,8 @@ export type ActionResult =
       ok: true;
       attempts?: readonly ImageAttempt[];
       reference?: string | null;
+      /** A scene's chosen pictures, as public URLs; three states as `reference`. */
+      pictures?: readonly string[] | null;
     }
   | {
       ok: false;
@@ -198,7 +200,9 @@ export async function recordFailure(
  *
  * The caller has already read the owner's row, built the prompt (which
  * refuses before anything is paid for) and decided whether the model can use
- * the owner's reference: `referencePath` is null when it cannot.
+ * the owner's reference: `referencePath` is null when it cannot. The same for
+ * `composedFrom`, a scene's chosen pictures (#120): null unless the model
+ * composes, and never next to a reference (0033).
  */
 export async function openGeneration(
   supabase: Supabase,
@@ -208,9 +212,10 @@ export async function openGeneration(
     readonly prompt: string;
     readonly subject: string;
     readonly referencePath: string | null;
+    readonly composedFrom: readonly string[] | null;
   },
 ): Promise<ActionResult> {
-  const { model, prompt, subject, referencePath } = request;
+  const { model, prompt, subject, referencePath, composedFrom } = request;
   const { data: attempt, error: insertError } = await supabase
     .from("image_attempts")
     .insert({
@@ -225,6 +230,8 @@ export async function openGeneration(
       // owner is set up with: that one can change afterwards, and this one
       // has to go on being true about a picture already in the bucket.
       reference_path: referencePath,
+      // The same, for the pictures a scene is drawn from.
+      composed_from: composedFrom === null ? null : [...composedFrom],
       status: "pending",
     })
     .select("id")
@@ -261,6 +268,10 @@ export async function openGeneration(
       prompt,
       model,
       reference,
+      // Public URLs, as Kontext's reference: nothing to download.
+      pictures: (composedFrom ?? []).map((path) =>
+        publicReferenceUrl(supabase, path),
+      ),
     }));
   } catch (cause) {
     return recordFailure(supabase, attempt.id, owner, errorMessage(cause));
@@ -498,6 +509,35 @@ export async function discardAttempt(
 
   revalidatePath(SCREEN);
   return { ok: true, attempts: await readAttempts(supabase, owner) };
+}
+
+/**
+ * Copy approved pictures under the owner's references, in order, and answer
+ * with the new paths for the caller to write on its row (#120).
+ *
+ * Copied, not pointed at: an approved picture can be replaced, and an attempt
+ * has to go on saying what it was drawn from; see storeReference for why a
+ * reference is never deleted. The copy stays inside the bucket, so no byte
+ * goes through the server. A copy that fails removes the ones made before it,
+ * so nothing is left that no row names.
+ */
+export async function storePictures(
+  supabase: Supabase,
+  owner: AttemptOwner,
+  sources: readonly string[],
+): Promise<{ ok: true; paths: string[] } | { ok: false; error: string }> {
+  const paths: string[] = [];
+  for (const source of sources) {
+    const extension = /\.([a-z0-9]+)$/iu.exec(source)?.[1] ?? "jpg";
+    const path = referencePath(owner, crypto.randomUUID(), extension);
+    const { error } = await supabase.storage.from(BUCKET).copy(source, path);
+    if (error) {
+      if (paths.length > 0) await supabase.storage.from(BUCKET).remove(paths);
+      return { ok: false, error: error.message };
+    }
+    paths.push(path);
+  }
+  return { ok: true, paths };
 }
 
 /**

@@ -22,6 +22,12 @@ export interface ImageProvider {
      * ignored it, and the attempt row would still say which file it used.
      */
     reference: string | null;
+    /**
+     * The public URLs of the scene's chosen pictures, in order, for a model
+     * that composes (#120); empty for every other. Not optional, for the
+     * reason `reference` is not.
+     */
+    pictures: readonly string[];
   }): Promise<{ requestId: string }>;
   poll(requestId: string): Promise<PollResult>;
 }
@@ -84,7 +90,8 @@ export interface ImageProvider {
  * and in what form it wants it. Read off the Freepik documentation on
  * 2026-09-19:
  *
- *   Seedream 4 and 4.5 take no input image at all.
+ *   Seedream 4 and 4.5 take no input image at all. Their Edit variants
+ *   take several (2026-10-25), which is `composes`, not this.
  *   Mystic takes structure_reference and style_reference, both base64.
  *   Flux Kontext Pro takes one, input_image, by URL.
  *   Flux 2 Pro takes up to four, base64.
@@ -113,6 +120,12 @@ export interface ImageProvider {
  * `preferredForReference` marks the one a new reference is generated on. It
  * is a judgement and it has to be, so see defaultReferenceModel for what it
  * was judged on and how thin the evidence is.
+ *
+ * `composes` is a different thing from `reference` (#120): several approved
+ * pictures whose objects appear in a scene, handed over apart, rather than
+ * one picture whose shape is kept. A model that composes cannot draw from
+ * text alone, so it is offered only when a scene has its pictures chosen, and
+ * never for a word. See defaultComposeModel for why it is Seedream 4.5 Edit.
  */
 export const IMAGE_MODELS = [
   {
@@ -121,6 +134,7 @@ export const IMAGE_MODELS = [
     credits: 50,
     reference: "none",
     preferredForReference: false,
+    composes: false,
   },
   {
     /**
@@ -147,6 +161,7 @@ export const IMAGE_MODELS = [
     credits: 80,
     reference: "base64",
     preferredForReference: false,
+    composes: false,
   },
   {
     /**
@@ -161,6 +176,23 @@ export const IMAGE_MODELS = [
     credits: 150,
     reference: "url",
     preferredForReference: true,
+    composes: false,
+  },
+  {
+    /**
+     * 50 credits, measured by Luiz on 2026-10-26 off "API keys spent",
+     * immediately before and after one isolated generation: 12355 to 12405.
+     *
+     * reference_images, 1 to 5, by URL (docs.magnific.com, 2026-10-25). It is
+     * an edit model: with no picture it has nothing to edit, so it composes
+     * and takes no single reference.
+     */
+    id: "seedream-v4-5-edit",
+    label: "Seedream 4.5 Edit",
+    credits: 50,
+    reference: "none",
+    preferredForReference: false,
+    composes: true,
   },
 ] as const satisfies readonly {
   id: string;
@@ -168,6 +200,7 @@ export const IMAGE_MODELS = [
   credits: number | null;
   reference: "none" | "base64" | "url";
   preferredForReference: boolean;
+  composes: boolean;
 }[];
 
 /** How a model wants its reference handed over, or that it takes none. */
@@ -181,6 +214,34 @@ export function isImageModelId(value: string): value is ImageModelId {
 
 export function modelLabel(id: ImageModelId): string {
   return IMAGE_MODELS.find((model) => model.id === id)?.label ?? id;
+}
+
+/** The most pictures a scene is composed from; is_reference_list (0033). */
+export const COMPOSE_MAX = 5;
+
+/** Whether this model draws from a scene's chosen pictures (#120). */
+export function composesPictures(id: ImageModelId): boolean {
+  return IMAGE_MODELS.find((model) => model.id === id)?.composes ?? false;
+}
+
+/** The models that draw from text, with or without one reference. */
+export const TEXT_MODELS = IMAGE_MODELS.filter((model) => !model.composes);
+
+/** The models that draw from a scene's chosen pictures. */
+export const COMPOSE_MODELS = IMAGE_MODELS.filter((model) => model.composes);
+
+/**
+ * The model choosing a scene's pictures moves to (#120).
+ *
+ * Seedream 4.5 Edit, on "the pen on the book" from the approved pen and book,
+ * one generation per arm on 2026-10-26: handed the two apart it put the pen
+ * on the open book, twice out of two. Seedream 4 Edit copied both but drew
+ * the pen out of scale; Flux 2 Pro drew a closed book and another pen; Flux
+ * Kontext Pro, handed one montage of both, drew only the pen. One scene, so
+ * a second that disagrees is worth writing here.
+ */
+export function defaultComposeModel(): ImageModelId | null {
+  return COMPOSE_MODELS[0]?.id ?? null;
 }
 
 /** Whether this model can be handed a picture to work from. */

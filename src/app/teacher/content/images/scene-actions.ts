@@ -3,17 +3,24 @@
 import { revalidatePath } from "next/cache";
 
 import { requireTeacher } from "@/lib/content/queries";
-import { isImageModelId, takesReference } from "@/lib/images/provider";
+import { parsePictureKeys } from "@/lib/images/pictures";
+import {
+  composesPictures,
+  isImageModelId,
+  takesReference,
+} from "@/lib/images/provider";
 import { buildScenePrompt, type ImageStyle } from "@/lib/images/style";
 import { readImageFile, refuseFile } from "@/lib/images/upload";
 
 import {
+  BUCKET,
   SCREEN,
   discardAttempt,
   errorMessage,
   failure,
   openGeneration,
   publicReferenceUrl,
+  storePictures,
   storeReference,
   storeUpload,
   type ActionResult,
@@ -145,15 +152,21 @@ export async function setSceneReference(
     );
     if (!stored.ok) return stored;
 
-    // After the file is in the bucket, never before; see setReference.
+    // After the file is in the bucket, never before; see setReference. The
+    // chosen pictures go in the same write: a scene has one or the other
+    // (scenes_one_kind_of_reference, 0033).
     const { error } = await supabase
       .from("scenes")
-      .update({ reference_path: stored.path })
+      .update({ reference_path: stored.path, composed_from: null })
       .eq("id", sceneId);
     if (error) return { ok: false, error: error.message };
 
     revalidatePath(SCREEN);
-    return { ok: true, reference: publicReferenceUrl(supabase, stored.path) };
+    return {
+      ok: true,
+      reference: publicReferenceUrl(supabase, stored.path),
+      pictures: null,
+    };
   } catch (cause) {
     return failure(cause);
   }
@@ -172,6 +185,106 @@ export async function clearSceneReference(
     if (error) return { ok: false, error: error.message };
     revalidatePath(SCREEN);
     return { ok: true, reference: null };
+  } catch (cause) {
+    return failure(cause);
+  }
+}
+
+/**
+ * Choose the approved pictures a scene is drawn from (#120), by the keys the
+ * screen lists them under, in order.
+ *
+ * Each path is read from its row here, never taken from the browser, and has
+ * to be an approved picture now: a list the screen drew a refresh ago can
+ * name one that was replaced. The files are copied under the scene's
+ * references (storePictures) before the row names them, and the single
+ * reference goes in the same write: a scene has one or the other (0033).
+ */
+export async function setScenePictures(
+  sceneId: string,
+  keys: readonly string[],
+): Promise<ActionResult> {
+  try {
+    const parsed = parsePictureKeys(keys, sceneId);
+    if (!parsed.ok) return parsed;
+    const { supabase } = await requireTeacher();
+
+    const wordIds = parsed.sources
+      .filter((source) => source.kind === "word")
+      .map((source) => source.id);
+    const sceneIds = parsed.sources
+      .filter((source) => source.kind === "scene")
+      .map((source) => source.id);
+    const [words, scenes] = await Promise.all([
+      supabase
+        .from("vocabulary_items")
+        .select("id, image_path")
+        .in("id", wordIds),
+      supabase.from("scenes").select("id, image_path").in("id", sceneIds),
+    ]);
+    if (words.error) return { ok: false, error: words.error.message };
+    if (scenes.error) return { ok: false, error: scenes.error.message };
+    const found = new Map(
+      [...words.data, ...scenes.data].map((row) => [row.id, row.image_path]),
+    );
+    const sources: string[] = [];
+    for (const source of parsed.sources) {
+      const path = found.get(source.id);
+      if (path === undefined || path === null) {
+        return {
+          ok: false,
+          error:
+            "Uma das imagens escolhidas não está mais aprovada. Recarregue a página e escolha de novo.",
+        };
+      }
+      sources.push(path);
+    }
+
+    const owner = { kind: "scene", id: sceneId } as const;
+    const stored = await storePictures(supabase, owner, sources);
+    if (!stored.ok) {
+      return {
+        ok: false,
+        error:
+          "Não consegui copiar as imagens. Nada foi gravado; tente de novo.",
+        cause: stored.error,
+      };
+    }
+
+    const { error } = await supabase
+      .from("scenes")
+      .update({ composed_from: stored.paths, reference_path: null })
+      .eq("id", sceneId);
+    if (error) {
+      // Copies no row names; the best effort there is, as in storeUpload.
+      await supabase.storage.from(BUCKET).remove(stored.paths);
+      return { ok: false, error: error.message };
+    }
+
+    revalidatePath(SCREEN);
+    return {
+      ok: true,
+      pictures: stored.paths.map((path) => publicReferenceUrl(supabase, path)),
+      reference: null,
+    };
+  } catch (cause) {
+    return failure(cause);
+  }
+}
+
+/** The column only, never the files; see clearReference. */
+export async function clearScenePictures(
+  sceneId: string,
+): Promise<ActionResult> {
+  try {
+    const { supabase } = await requireTeacher();
+    const { error } = await supabase
+      .from("scenes")
+      .update({ composed_from: null })
+      .eq("id", sceneId);
+    if (error) return { ok: false, error: error.message };
+    revalidatePath(SCREEN);
+    return { ok: true, pictures: null };
   } catch (cause) {
     return failure(cause);
   }
@@ -199,10 +312,21 @@ export async function startSceneGeneration(
     // refresh behind the teacher's last decision.
     const { data: scene, error: sceneError } = await supabase
       .from("scenes")
-      .select("image_style, reference_path")
+      .select("image_style, reference_path, composed_from")
       .eq("id", sceneId)
       .single();
     if (sceneError) return { ok: false, error: sceneError.message };
+
+    // A model that composes has nothing to draw without the pictures, and
+    // the provider would refuse an empty list after the row is written.
+    const composes = composesPictures(model);
+    if (composes && scene.composed_from === null) {
+      return {
+        ok: false,
+        error:
+          "Escolha as imagens em Juntar imagens aprovadas antes de gerar com esse modelo.",
+      };
+    }
 
     // Before anything is inserted or paid for: an empty subject throws here.
     const prompt = buildScenePrompt(subject, scene.image_style);
@@ -210,11 +334,12 @@ export async function startSceneGeneration(
     // Only this attempt's reference if the model can take one; see
     // startGeneration.
     const referencePath = takesReference(model) ? scene.reference_path : null;
+    const composedFrom = composes ? scene.composed_from : null;
 
     return await openGeneration(
       supabase,
       { kind: "scene", id: sceneId },
-      { model, prompt, subject, referencePath },
+      { model, prompt, subject, referencePath, composedFrom },
     );
   } catch (cause) {
     return failure(cause);
