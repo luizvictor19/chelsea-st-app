@@ -449,7 +449,13 @@ decidido" (`questions_one_image`).
     Edit, e o Flux Kontext desenhou só a caneta.
 - A aluna lê a cena de uma pergunta que ela pode ler; o professor e o admin, como as outras
   tabelas de conteúdo.
-- Apagar uma cena usada por uma pergunta é recusado (`on delete restrict`).
+- **Excluir** uma cena é arquivar (`scenes.archived_at`, 0034, #121): ela sai da lista, do Juntar
+  imagens aprovadas e da contagem; as tentativas, o gasto delas e os arquivos ficam. Apagar a linha
+  levaria as tentativas junto (`on delete cascade`) e a soma de créditos ficaria menor que o painel
+  do Freepik. Uma cena que uma pergunta mostra não é arquivada, e uma pergunta não passa a mostrar
+  uma cena arquivada (triggers dos dois lados). A descrição só é única entre as cenas em uso: criar
+  de novo uma cena excluída cria outra.
+- Apagar de verdade uma cena usada por uma pergunta é recusado (`on delete restrict`).
 - Telas: seção Cenas na tela de imagens (#64), escolha na tela de perguntas (#65), tela de aula
   (#66). Publicar uma pergunta sem imagem, ou encenada, pede confirmação (#65).
 
