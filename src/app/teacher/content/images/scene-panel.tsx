@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import type { ImageAttempt, SceneImage } from "@/lib/content/queries";
@@ -86,6 +86,7 @@ export function ScenePanel({
   attempts,
   point,
   approved,
+  closeHref,
 }: {
   readonly scene: SceneImage;
   readonly attempts: readonly ImageAttempt[];
@@ -93,6 +94,8 @@ export function ScenePanel({
   readonly point: number | null;
   /** Every approved picture but this scene's, for Juntar (#120). */
   readonly approved: readonly ApprovedPicture[];
+  /** The screen as it is, with no scene open: where Excluir leaves. */
+  readonly closeHref: string;
 }) {
   const label = scene.description;
   const [busy, setBusy] = useState<Busy>(null);
@@ -136,16 +139,6 @@ export function ScenePanel({
   const zoom = useRef<HTMLDialogElement>(null);
   const confirmArchive = useRef<HTMLDialogElement>(null);
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-
-  /** The same screen with no scene open, filters and search kept. */
-  function closeScene() {
-    const next = new URLSearchParams(searchParams.toString());
-    next.delete("cena");
-    const query = next.toString();
-    router.replace(query === "" ? pathname : `${pathname}?${query}`);
-  }
   const [zoomed, setZoomed] = useState<string | null>(null);
 
   function openZoom(url: string) {
@@ -275,6 +268,7 @@ export function ScenePanel({
   }
 
   const working = busy !== null;
+  const shownByQuestion = scene.questionPoints.length > 0;
 
   return (
     <section
@@ -293,9 +287,18 @@ export function ScenePanel({
             {groupLabel(point).toLowerCase()}
           </span>
         </div>
+        {/*
+          Not while a generation runs, which would finish on a scene nobody
+          can open, nor for one a question shows, which the server refuses.
+        */}
         <button
           type="button"
-          disabled={working}
+          disabled={working || running !== null || shownByQuestion}
+          title={
+            shownByQuestion
+              ? "Uma pergunta mostra esta cena: troque a imagem dela antes."
+              : undefined
+          }
           onClick={() => confirmArchive.current?.showModal()}
           className="border-rule hover:bg-background shrink-0 rounded-sm border px-3 py-1.5 text-sm transition-colors disabled:opacity-50"
         >
@@ -338,7 +341,7 @@ export function ScenePanel({
                   "excluir",
                   async () => {
                     const result = await archiveScene(scene.id);
-                    if (result.ok) closeScene();
+                    if (result.ok) router.replace(closeHref);
                     return result;
                   },
                   () => sceneArchived(label),

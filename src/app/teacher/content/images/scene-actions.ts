@@ -25,7 +25,7 @@ import {
   storeUpload,
   type ActionResult,
 } from "./attempt-store";
-import { descriptionKey, isDescriptionTaken } from "./scenes";
+import { descriptionKey, isDescriptionTaken, isSceneInUse } from "./scenes";
 
 /**
  * The Cenas section's actions (#64): a scene's own row, and its attempts
@@ -154,14 +154,31 @@ export async function archiveScene(sceneId: string): Promise<ActionResult> {
       .is("archived_at", null)
       .select("id");
     if (error) {
+      // The trigger, when a question took the scene after the check above,
+      // or is one this teacher cannot read.
       return {
         ok: false,
-        error: "Não consegui excluir a cena. Tente de novo.",
+        error: isSceneInUse(error)
+          ? "Uma pergunta mostra esta cena. Troque a imagem dela antes de excluir."
+          : "Não consegui excluir a cena. Tente de novo.",
         cause: error.message,
       };
     }
     if (data.length === 0) {
-      return { ok: false, error: "Essa cena já foi excluída." };
+      // No row changed: archived already, or one her policies do not let
+      // her write (a common scene, for anyone but the platform admin).
+      const { data: row } = await supabase
+        .from("scenes")
+        .select("archived_at")
+        .eq("id", sceneId)
+        .maybeSingle();
+      return {
+        ok: false,
+        error:
+          row?.archived_at != null
+            ? "Essa cena já foi excluída."
+            : "Você não pode excluir esta cena: ela é comum a todas as escolas.",
+      };
     }
     revalidatePath(SCREEN);
     return { ok: true };
@@ -271,7 +288,12 @@ export async function setScenePictures(
         .from("vocabulary_items")
         .select("id, image_path")
         .in("id", wordIds),
-      supabase.from("scenes").select("id, image_path").in("id", sceneIds),
+      // An excluded scene is not offered, and not taken either (#121).
+      supabase
+        .from("scenes")
+        .select("id, image_path")
+        .in("id", sceneIds)
+        .is("archived_at", null),
     ]);
     if (words.error) return { ok: false, error: words.error.message };
     if (scenes.error) return { ok: false, error: scenes.error.message };
@@ -369,10 +391,17 @@ export async function startSceneGeneration(
     // refresh behind the teacher's last decision.
     const { data: scene, error: sceneError } = await supabase
       .from("scenes")
-      .select("image_style, reference_path, composed_from")
+      .select("image_style, reference_path, composed_from, archived_at")
       .eq("id", sceneId)
       .single();
     if (sceneError) return { ok: false, error: sceneError.message };
+    // A tab opened before the scene was excluded must not pay for it.
+    if (scene.archived_at !== null) {
+      return {
+        ok: false,
+        error: "Essa cena foi excluída. Recarregue a página.",
+      };
+    }
 
     // A model that composes has nothing to draw without the pictures, and
     // the provider would refuse an empty list after the row is written.
