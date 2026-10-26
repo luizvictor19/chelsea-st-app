@@ -518,24 +518,29 @@ export async function discardAttempt(
  * Copied, not pointed at: an approved picture can be replaced, and an attempt
  * has to go on saying what it was drawn from; see storeReference for why a
  * reference is never deleted. The copy stays inside the bucket, so no byte
- * goes through the server. A copy that fails removes the ones made before it,
- * so nothing is left that no row names.
+ * goes through the server. A copy that fails removes the others that were
+ * made, so nothing is left that no row names.
  */
 export async function storePictures(
   supabase: Supabase,
   owner: AttemptOwner,
   sources: readonly string[],
 ): Promise<{ ok: true; paths: string[] } | { ok: false; error: string }> {
-  const paths: string[] = [];
-  for (const source of sources) {
+  const paths = sources.map((source) => {
     const extension = /\.([a-z0-9]+)$/iu.exec(source)?.[1] ?? "jpg";
-    const path = referencePath(owner, crypto.randomUUID(), extension);
-    const { error } = await supabase.storage.from(BUCKET).copy(source, path);
-    if (error) {
-      if (paths.length > 0) await supabase.storage.from(BUCKET).remove(paths);
-      return { ok: false, error: error.message };
-    }
-    paths.push(path);
+    return referencePath(owner, crypto.randomUUID(), extension);
+  });
+  // In parallel, each to its own path, so the order chosen is kept.
+  const copies = await Promise.all(
+    sources.map((source, i) =>
+      supabase.storage.from(BUCKET).copy(source, paths[i]),
+    ),
+  );
+  const failed = copies.find((copy) => copy.error !== null);
+  if (failed?.error) {
+    const made = paths.filter((_, i) => copies[i].error === null);
+    if (made.length > 0) await supabase.storage.from(BUCKET).remove(made);
+    return { ok: false, error: failed.error.message };
   }
   return { ok: true, paths };
 }

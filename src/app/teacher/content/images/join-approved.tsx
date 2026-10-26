@@ -38,12 +38,19 @@ export function JoinApproved({
   busyKey,
   onSideBySide,
   onCompose,
+  composeBlocked,
 }: {
   readonly pictures: readonly ApprovedPicture[];
   readonly working: boolean;
   readonly busyKey: string | null;
   readonly onSideBySide: (file: File) => void;
   readonly onCompose: (pictures: readonly ApprovedPicture[]) => void;
+  /**
+   * Why the pictures cannot be chosen now, or null. A scene has them or one
+   * reference (0033), and choosing them must not take the reference away
+   * without the teacher seeing it go.
+   */
+  readonly composeBlocked: string | null;
 }) {
   const [query, setQuery] = useState("");
   const [chosen, setChosen] = useState<readonly ApprovedPicture[]>([]);
@@ -187,32 +194,40 @@ export function JoinApproved({
         )}
         {drawing && <p className="text-faint text-xs">juntando</p>}
         {problem !== null && <p className="text-sm">{problem}</p>}
-        {preview !== null && (
+        {chosen.length >= MONTAGE_MIN && (
           <div className="flex flex-col gap-2">
-            {/* eslint-disable-next-line @next/next/no-img-element -- a local object URL, the file that is sent */}
-            <img
-              src={preview.url}
-              alt={`Montagem de ${chosen.map((item) => item.label).join(", ")}`}
-              className="border-rule w-full max-w-80 rounded-sm border"
-            />
+            {preview !== null && (
+              /* eslint-disable-next-line @next/next/no-img-element -- a local object URL, the file that is sent */
+              <img
+                src={preview.url}
+                alt={`Montagem de ${chosen.map((item) => item.label).join(", ")}`}
+                className="border-rule w-full max-w-80 rounded-sm border"
+              />
+            )}
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 disabled={working || !ready}
-                onClick={() => onSideBySide(preview.file)}
+                onClick={() => {
+                  if (preview !== null) onSideBySide(preview.file);
+                }}
                 className="border-rule hover:bg-background rounded-sm border px-4 py-2 text-sm transition-colors disabled:opacity-50"
               >
                 {busyKey === "lado-a-lado" ? "enviando" : "Enviar lado a lado"}
               </button>
+              {/* The pictures themselves, so a montage that failed does not stop it. */}
               <button
                 type="button"
-                disabled={working || !ready}
+                disabled={working || composeBlocked !== null}
                 onClick={() => onCompose(chosen)}
                 className="border-rule hover:bg-background rounded-sm border px-4 py-2 text-sm transition-colors disabled:opacity-50"
               >
                 {busyKey === "compor" ? "copiando" : "Usar como referência"}
               </button>
             </div>
+            {composeBlocked !== null && (
+              <p className="text-faint text-xs">{composeBlocked}</p>
+            )}
             <p className="text-faint text-xs">
               Lado a lado: a montagem é a imagem da cena, sem gerar e sem
               crédito; entra nas tentativas e espera a sua aprovação. Como

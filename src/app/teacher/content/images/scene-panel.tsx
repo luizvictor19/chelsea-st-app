@@ -328,7 +328,13 @@ export function ScenePanel({
           <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
             Referência
           </span>
-          {reference === null ? (
+          {reference === null && pictures !== null ? (
+            // One or the other (0033): attaching here would drop the chosen
+            // pictures, and the teacher has to see that, not find it later.
+            <p className="text-faint text-xs">
+              Tire as imagens escolhidas, abaixo, para anexar uma referência.
+            </p>
+          ) : reference === null ? (
             <div>
               <button
                 type="button"
@@ -583,6 +589,11 @@ export function ScenePanel({
             )
           }
           onCompose={choosePictures}
+          composeBlocked={
+            reference === null
+              ? null
+              : "Tire a referência, acima, para usar as imagens como referência."
+          }
         />
       </div>
 

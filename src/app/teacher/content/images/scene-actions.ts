@@ -251,14 +251,20 @@ export async function setScenePictures(
       };
     }
 
-    const { error } = await supabase
+    // Selected back, because a scene gone or out of reach updates no row
+    // and says nothing: the panel would show pictures the row does not have.
+    const { data: written, error } = await supabase
       .from("scenes")
       .update({ composed_from: stored.paths, reference_path: null })
-      .eq("id", sceneId);
-    if (error) {
+      .eq("id", sceneId)
+      .select("id");
+    if (error || written.length === 0) {
       // Copies no row names; the best effort there is, as in storeUpload.
       await supabase.storage.from(BUCKET).remove(stored.paths);
-      return { ok: false, error: error.message };
+      return {
+        ok: false,
+        error: error?.message ?? "Essa cena não existe mais.",
+      };
     }
 
     revalidatePath(SCREEN);
@@ -319,12 +325,21 @@ export async function startSceneGeneration(
 
     // A model that composes has nothing to draw without the pictures, and
     // the provider would refuse an empty list after the row is written.
+    // Both ways round: one that does not compose would ignore the pictures
+    // and still be paid for. The panel offers neither; a stale tab could.
     const composes = composesPictures(model);
     if (composes && scene.composed_from === null) {
       return {
         ok: false,
         error:
           "Escolha as imagens em Juntar imagens aprovadas antes de gerar com esse modelo.",
+      };
+    }
+    if (!composes && scene.composed_from !== null) {
+      return {
+        ok: false,
+        error:
+          "Essa cena tem imagens escolhidas, e esse modelo não desenha a partir delas. Recarregue a página ou tire as imagens.",
       };
     }
 
