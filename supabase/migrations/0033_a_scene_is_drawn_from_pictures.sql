@@ -29,17 +29,21 @@
 -- docs.magnific.com on 2026-10-25), and the screen asks for 2 to 4. One
 -- dimension, no null in it, every path under references/. A check cannot
 -- hold a subquery, hence the function; immutable, because it reads only its
--- argument.
+-- argument. The dimension is tested first in a case, not in the same and:
+-- array_position raises on a grid instead of answering, and SQL does not
+-- promise the order an and is evaluated in.
 create function is_reference_list(p_paths text[])
 returns boolean
 language sql
 immutable
 set search_path = pg_catalog
 as $$
-  select array_ndims(p_paths) = 1
-     and cardinality(p_paths) between 1 and 5
-     and array_position(p_paths, null) is null
-     and not exists (select 1 from unnest(p_paths) as path where path not like 'references/%');
+  select case when array_ndims(p_paths) = 1 then
+           cardinality(p_paths) between 1 and 5
+           and array_position(p_paths, null) is null
+           and not exists (select 1 from unnest(p_paths) as path where path not like 'references/%')
+         else false
+         end;
 $$;
 
 -- Scenes ------------------------------------------------------------------------------
