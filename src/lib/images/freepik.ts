@@ -318,9 +318,9 @@ export function createFreepikProvider(): ImageProvider {
             return { status: "failed", error: "Finished with no image" };
           }
           // creditsSpent is deliberately absent: the response carries no
-          // credit figure, so image_attempts.credits_spent stays null. What
-          // an image actually costs was measured from the dashboard instead
-          // and is recorded next to IMAGE_MODELS in provider.ts.
+          // credit figure. credits_spent was already written when the task was
+          // accepted (openGeneration in attempt-store.ts), from the measured
+          // costs next to IMAGE_MODELS in provider.ts, and storeGenerated keeps it.
           return { status: "done", imageUrl };
         }
         case "FAILED":
