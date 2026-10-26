@@ -23,6 +23,13 @@
  *   node --env-file=../chelsea-st-app/.env.local scripts/measure-scene-references.ts --model seedream-v4-edit
  *   node --env-file=../chelsea-st-app/.env.local scripts/measure-scene-references.ts --model seedream-v4-5-edit
  *   node --env-file=../chelsea-st-app/.env.local scripts/measure-scene-references.ts --model flux-2-pro
+ *
+ * --ref replaces pen and book with other paths in the same bucket, once per
+ * picture. One --ref with the montage that "Usar como referência" stored
+ * asks whether a model needs the pictures apart at all: if the montage does
+ * as well, scenes keep their single reference_path.
+ *
+ *   ... --model seedream-v4-5-edit --ref <scenes.reference_path>
  */
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -58,6 +65,15 @@ const REFERENCES = [
     path: "9c65031f-6944-4cd0-abde-36a921cb3294/16c7c281-e025-430a-8034-086e5cabb864.jpg",
   },
 ] as const;
+
+/* Every path after a --ref, in order; none keeps pen and book. */
+const REFS = args.flatMap((arg, i) => {
+  const value = args[i + 1];
+  return arg === "--ref" && value !== undefined && !value.startsWith("--")
+    ? [{ term: value.split("/").pop() ?? value, path: value }]
+    : [];
+});
+const PICKED = REFS.length > 0 ? REFS : REFERENCES;
 
 type Model = {
   readonly path: string;
@@ -164,7 +180,7 @@ function record(line: Record<string, unknown>): void {
 }
 
 const bucket = `${env("NEXT_PUBLIC_SUPABASE_URL")}/storage/v1/object/public/vocabulary-images`;
-const urls = REFERENCES.map((reference) => `${bucket}/${reference.path}`);
+const urls = PICKED.map((reference) => `${bucket}/${reference.path}`);
 const prompt = buildScenePrompt(SUBJECT, "flat");
 
 mkdirSync(PICTURES, { recursive: true });
@@ -174,7 +190,7 @@ record({
   phase: "posted",
   taskId: posted.taskId,
   subject: SUBJECT,
-  references: REFERENCES.map((reference) => reference.term),
+  references: PICKED.map((reference) => reference.term),
   prompt,
 });
 if (posted.taskId === "") throw new Error("No task id in the answer");
