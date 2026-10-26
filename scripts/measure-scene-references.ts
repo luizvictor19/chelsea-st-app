@@ -25,9 +25,8 @@
  *   node --env-file=../chelsea-st-app/.env.local scripts/measure-scene-references.ts --model flux-2-pro
  *
  * --ref replaces pen and book with other paths in the same bucket, once per
- * picture. One --ref with the montage that "Usar como referência" stored
- * asks whether a model needs the pictures apart at all: if the montage does
- * as well, scenes keep their single reference_path.
+ * picture. One --ref with a montage asked, on 2026-10-26, whether a model
+ * needs the pictures apart at all: it did (#120, 0033).
  *
  *   ... --model seedream-v4-5-edit --ref <scenes.reference_path>
  */
@@ -105,7 +104,15 @@ const MODELS: Record<string, Model> = {
     path: "/v1/ai/text-to-image/flux-2-pro",
     body: async (prompt, urls) => {
       const encoded = await Promise.all(urls.map(download));
-      const fields = ["input_image", "input_image_2", "input_image_3"];
+      const fields = [
+        "input_image",
+        "input_image_2",
+        "input_image_3",
+        "input_image_4",
+      ];
+      if (encoded.length > fields.length) {
+        throw new Error(`flux-2-pro takes at most ${fields.length} pictures`);
+      }
       return {
         prompt,
         width: 1024,
