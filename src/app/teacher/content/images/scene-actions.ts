@@ -85,7 +85,9 @@ export async function createScene(
       const { data: common } = await supabase
         .from("scenes")
         .select("id, description")
-        .is("school_id", null);
+        .is("school_id", null)
+        // The index holds only the scenes in use (0034).
+        .is("archived_at", null);
       const key = descriptionKey(text);
       const existing = (common ?? []).find(
         (scene) => descriptionKey(scene.description) === key,
@@ -116,6 +118,55 @@ export async function createScene(
       error: "Não consegui criar a cena. Tente de novo.",
       cause: errorMessage(cause),
     };
+  }
+}
+
+/**
+ * Excluir a scene (#121): archive it. It leaves every list; its attempts and
+ * what they cost stay, which deleting the row would take with it (0034).
+ *
+ * A scene a question shows is refused here with the question named, before
+ * the trigger refuses it with an id the teacher cannot use.
+ */
+export async function archiveScene(sceneId: string): Promise<ActionResult> {
+  try {
+    const { supabase } = await requireTeacher();
+    const { data: shown, error: shownError } = await supabase
+      .from("questions")
+      .select("prompt, points(number)")
+      .eq("scene_id", sceneId)
+      .limit(1);
+    if (shownError) return { ok: false, error: shownError.message };
+    const question = shown[0];
+    if (question !== undefined) {
+      const point =
+        question.points === null ? "" : ` do ponto ${question.points.number}`;
+      return {
+        ok: false,
+        error: `A pergunta "${question.prompt}"${point} mostra esta cena. Troque a imagem dela antes de excluir.`,
+      };
+    }
+
+    const { data, error } = await supabase
+      .from("scenes")
+      .update({ archived_at: new Date().toISOString() })
+      .eq("id", sceneId)
+      .is("archived_at", null)
+      .select("id");
+    if (error) {
+      return {
+        ok: false,
+        error: "Não consegui excluir a cena. Tente de novo.",
+        cause: error.message,
+      };
+    }
+    if (data.length === 0) {
+      return { ok: false, error: "Essa cena já foi excluída." };
+    }
+    revalidatePath(SCREEN);
+    return { ok: true };
+  } catch (cause) {
+    return failure(cause);
   }
 }
 

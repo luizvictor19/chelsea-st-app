@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import type { ImageAttempt, SceneImage } from "@/lib/content/queries";
@@ -38,6 +39,7 @@ import {
   picturesRemoved,
   referenceAttached,
   referenceRemoved,
+  sceneArchived,
   styleChanged,
   tell,
   uploadSent,
@@ -48,6 +50,7 @@ import { JoinApproved, type ApprovedPicture } from "./join-approved";
 import { attemptsToShow, settle, type LastAnswer } from "./panel-state";
 import {
   approveSceneAttempt,
+  archiveScene,
   clearScenePictures,
   clearSceneReference,
   rejectSceneAttempt,
@@ -131,6 +134,18 @@ export function ScenePanel({
   const finishedInput = useRef<HTMLInputElement>(null);
   const [usedSubject, setUsedSubject] = useState("");
   const zoom = useRef<HTMLDialogElement>(null);
+  const confirmArchive = useRef<HTMLDialogElement>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  /** The same screen with no scene open, filters and search kept. */
+  function closeScene() {
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("cena");
+    const query = next.toString();
+    router.replace(query === "" ? pathname : `${pathname}?${query}`);
+  }
   const [zoomed, setZoomed] = useState<string | null>(null);
 
   function openZoom(url: string) {
@@ -266,17 +281,76 @@ export function ScenePanel({
       aria-label={`Imagem da cena ${label}`}
       className="border-rule bg-surface flex flex-col gap-6 rounded-sm border p-6"
     >
-      <header className="flex flex-col gap-1">
-        <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
-          Cena
-        </span>
-        <h2 className="text-2xl font-extrabold tracking-tight wrap-anywhere">
-          {label}
-        </h2>
-        <span className="text-faint font-mono text-xs">
-          {groupLabel(point).toLowerCase()}
-        </span>
+      <header className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
+            Cena
+          </span>
+          <h2 className="text-2xl font-extrabold tracking-tight wrap-anywhere">
+            {label}
+          </h2>
+          <span className="text-faint font-mono text-xs">
+            {groupLabel(point).toLowerCase()}
+          </span>
+        </div>
+        <button
+          type="button"
+          disabled={working}
+          onClick={() => confirmArchive.current?.showModal()}
+          className="border-rule hover:bg-background shrink-0 rounded-sm border px-3 py-1.5 text-sm transition-colors disabled:opacity-50"
+        >
+          {busy?.key === "excluir" ? "excluindo" : "Excluir"}
+        </button>
       </header>
+
+      {/* Esc or Cancelar closes it; only Excluir acts. */}
+      <dialog
+        ref={confirmArchive}
+        aria-labelledby={`excluir-${scene.id}`}
+        className="border-rule bg-surface text-foreground m-auto max-w-sm rounded-sm border p-6 backdrop:bg-black/40"
+      >
+        <div className="flex flex-col gap-4">
+          <h2
+            id={`excluir-${scene.id}`}
+            className="text-base font-extrabold tracking-tight wrap-anywhere"
+          >
+            Excluir a cena “{label}”?
+          </h2>
+          <p className="text-muted text-sm">
+            Ela sai da lista e do Juntar imagens aprovadas. As tentativas e o
+            gasto delas continuam registrados. Uma cena que uma pergunta mostra
+            não é excluída.
+          </p>
+          <div className="flex flex-wrap justify-end gap-2">
+            <form method="dialog">
+              <button
+                type="submit"
+                className="border-rule hover:bg-background rounded-sm border px-3 py-1.5 text-sm transition-colors"
+              >
+                Cancelar
+              </button>
+            </form>
+            <button
+              type="button"
+              onClick={() => {
+                confirmArchive.current?.close();
+                void run(
+                  "excluir",
+                  async () => {
+                    const result = await archiveScene(scene.id);
+                    if (result.ok) closeScene();
+                    return result;
+                  },
+                  () => sceneArchived(label),
+                );
+              }}
+              className="border-foreground bg-foreground text-background rounded-sm border px-3 py-1.5 text-sm font-semibold"
+            >
+              Excluir
+            </button>
+          </div>
+        </div>
+      </dialog>
 
       <div className="flex flex-col gap-2">
         <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">

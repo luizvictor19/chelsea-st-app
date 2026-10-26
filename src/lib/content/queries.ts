@@ -505,7 +505,9 @@ export async function listScenes(): Promise<readonly SceneImage[]> {
     .from("scenes")
     .select(
       "id, description, image_style, image_path, reference_path, composed_from, questions!questions_scene_id_fkey(points(number)), image_attempts!image_attempts_scene_id_fkey(subject, created_at)",
-    );
+    )
+    // An excluded scene is archived, not deleted (0034, #121).
+    .is("archived_at", null);
   if (error) throw new Error(error.message);
 
   return (rows ?? []).map((row) => {
