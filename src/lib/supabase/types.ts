@@ -850,6 +850,7 @@ export type Database = {
       scenes: {
         Row: {
           approved_attempt_id: string | null;
+          archived_at: string | null;
           based_on_id: string | null;
           composed_from: string[] | null;
           created_at: string;
@@ -863,6 +864,7 @@ export type Database = {
         ComputedFields: never;
         Insert: {
           approved_attempt_id?: string | null;
+          archived_at?: string | null;
           based_on_id?: string | null;
           composed_from?: string[] | null;
           created_at?: string;
@@ -875,6 +877,7 @@ export type Database = {
         };
         Update: {
           approved_attempt_id?: string | null;
+          archived_at?: string | null;
           based_on_id?: string | null;
           composed_from?: string[] | null;
           created_at?: string;
