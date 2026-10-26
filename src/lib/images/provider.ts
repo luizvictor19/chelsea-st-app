@@ -250,3 +250,12 @@ export function defaultModelFor(kind: string | null): ImageModelId | null {
   if (kind === null) return null;
   return DEFAULT_MODEL[kind] ?? null;
 }
+
+/**
+ * Which model a scene starts on (#64). The same HYPOTHESIS as the table
+ * above, and the same model as figure: a scene is several things together
+ * ("a pen on the book"), which is what figure already asks of Seedream. The
+ * teacher changes it on the panel, and comparing attempts on a scene is what
+ * replaces the guess.
+ */
+export const DEFAULT_SCENE_MODEL: ImageModelId = "seedream-v4";

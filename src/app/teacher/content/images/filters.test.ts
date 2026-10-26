@@ -8,8 +8,10 @@ import {
   activeCount,
   filterHref,
   imageCounts,
+  matchesSceneSelection,
   matchesSearch,
   matchesSelection,
+  parseOpened,
   parseSelection,
   situationOf,
   toggled,
@@ -191,7 +193,7 @@ describe("filterHref", () => {
   test("carries the axes, the search and the word", () => {
     const url = filterHref(
       { tipo: ["photo", "pose"], classe: ["noun"], situacao: [] },
-      "abc",
+      { kind: "word", id: "abc" },
       " book ",
     );
     assert.match(url, /tipo=photo%2Cpose/u);
@@ -199,6 +201,57 @@ describe("filterHref", () => {
     assert.match(url, /busca=book/u);
     assert.match(url, /palavra=abc/u);
     assert.doesNotMatch(url, /situacao/u);
+    assert.doesNotMatch(url, /cena/u);
+  });
+
+  test("carries an open scene as cena, and never a word beside it", () => {
+    const url = filterHref(EMPTY, { kind: "scene", id: "s1" });
+    assert.equal(url, "?cena=s1");
+  });
+});
+
+describe("parseOpened", () => {
+  test("reads a word or a scene, and nothing from empty values", () => {
+    assert.deepEqual(parseOpened("w1", undefined), { kind: "word", id: "w1" });
+    assert.deepEqual(parseOpened(undefined, "s1"), { kind: "scene", id: "s1" });
+    assert.equal(parseOpened(undefined, undefined), null);
+    assert.equal(parseOpened("", ""), null);
+    assert.equal(parseOpened(["w1", "w2"], undefined), null);
+  });
+
+  test("a hand-written link with both opens the word", () => {
+    assert.deepEqual(parseOpened("w1", "s1"), { kind: "word", id: "w1" });
+  });
+});
+
+describe("matchesSceneSelection", () => {
+  const drawn = { imageUrl: "https://x/s.png" };
+  const owed = { imageUrl: null };
+
+  test("no filter shows every scene", () => {
+    assert.ok(matchesSceneSelection(drawn, EMPTY));
+    assert.ok(matchesSceneSelection(owed, EMPTY));
+  });
+
+  test("Situação applies as to a word", () => {
+    const withImage = { ...EMPTY, situacao: ["com-imagem"] };
+    assert.ok(matchesSceneSelection(drawn, withImage));
+    assert.ok(!matchesSceneSelection(owed, withImage));
+    const waiting = { ...EMPTY, situacao: ["sem-imagem"] };
+    assert.ok(matchesSceneSelection(owed, waiting));
+  });
+
+  test("a scene is never one that takes no picture or is undecided", () => {
+    for (const value of ["nao-leva", "sem-decidir"]) {
+      const selection = { ...EMPTY, situacao: [value] };
+      assert.ok(!matchesSceneSelection(drawn, selection), value);
+      assert.ok(!matchesSceneSelection(owed, selection), value);
+    }
+  });
+
+  test("Tipo or Classe on hides every scene", () => {
+    assert.ok(!matchesSceneSelection(drawn, { ...EMPTY, tipo: ["photo"] }));
+    assert.ok(!matchesSceneSelection(owed, { ...EMPTY, classe: ["noun"] }));
   });
 });
 

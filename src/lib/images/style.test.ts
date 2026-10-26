@@ -6,8 +6,10 @@ import { Constants } from "../supabase/types.ts";
 import {
   type ImageStyle,
   STYLES,
+  SCENE_RULE,
   SUBJECT_RULES,
   buildPrompt,
+  buildScenePrompt,
 } from "./style.ts";
 
 const SUBJECT = "a man sitting on a chair";
@@ -432,5 +434,47 @@ describe("the rule each kind adds", () => {
         if (other !== kind) assert.ok(!prompt.includes(otherRule), other);
       }
     }
+  });
+});
+
+describe("buildScenePrompt", () => {
+  test("is a word's prompt with the scene rule in place of the kind's", () => {
+    for (const style of STYLE_NAMES) {
+      assert.equal(
+        buildScenePrompt("a pen on the book", style),
+        buildPrompt("a pen on the book", "figure", style).replace(
+          SUBJECT_RULES.figure,
+          SCENE_RULE,
+        ),
+      );
+    }
+  });
+
+  test("says the subject before the rule, and the rule before the rest", () => {
+    for (const style of STYLE_NAMES) {
+      const prompt = buildScenePrompt("a pen on the book", style);
+      const subjectAt = prompt.indexOf("a pen on the book");
+      const ruleAt = prompt.indexOf(SCENE_RULE);
+      const restAt = prompt.indexOf(STYLES[style].rest);
+      assert.ok(subjectAt >= 0 && subjectAt < ruleAt && ruleAt < restAt);
+    }
+  });
+
+  test("refuses an empty subject instead of paying for nothing", () => {
+    for (const style of STYLE_NAMES) {
+      assert.throws(() => buildScenePrompt("  ", style), /subject/);
+      assert.throws(() => buildScenePrompt(".", style), /subject/);
+    }
+  });
+
+  test("the scene rule names no technique either", () => {
+    assert.doesNotMatch(
+      SCENE_RULE,
+      /\b(draw|draws|drawn|drawing|paint|painted|render|rendered|shoot|shot|photograph|photographed|illustrate|illustration)\b/iu,
+    );
+  });
+
+  test("the scene rule is no word kind's", () => {
+    assert.ok(!(Object.values(SUBJECT_RULES) as string[]).includes(SCENE_RULE));
   });
 });

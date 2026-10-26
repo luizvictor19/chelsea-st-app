@@ -123,6 +123,11 @@ export function imageDiscarded(term: string): NoticeText {
   return success(about(term, "imagem descartada"));
 }
 
+/** A scene is named by its description, as a word is by its term (#64). */
+export function sceneCreated(description: string): NoticeText {
+  return success(about(description, "cena criada, sem imagem ainda"));
+}
+
 /** The instruction saves by itself, so only its failure is said. */
 export function subjectNotSaved(term: string): NoticeText {
   return error(about(term, "a instrução não foi salva"));

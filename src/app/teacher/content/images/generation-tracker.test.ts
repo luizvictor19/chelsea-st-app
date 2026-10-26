@@ -111,14 +111,14 @@ function setup() {
 
 const APPLE: Generation = {
   attemptId: "a1",
-  wordId: "apple",
-  term: "apple",
+  ownerId: "apple",
+  label: "apple",
   startedAt: new Date(START).toISOString(),
 };
 const PEAR: Generation = {
   attemptId: "p1",
-  wordId: "pear",
-  term: "pear",
+  ownerId: "pear",
+  label: "pear",
   startedAt: new Date(START).toISOString(),
 };
 

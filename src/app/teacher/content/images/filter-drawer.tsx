@@ -10,6 +10,7 @@ import {
   activeCount,
   filterHref,
   toggled,
+  type Opened,
   type Selection,
 } from "./filters";
 
@@ -19,13 +20,13 @@ const DEBOUNCE_MS = 250;
 export function FilterDrawer({
   selection,
   term,
-  selectedId,
+  opened,
   shown,
   total,
 }: {
   readonly selection: Selection;
   readonly term: string;
-  readonly selectedId: string | null;
+  readonly opened: Opened;
   readonly shown: number;
   readonly total: number;
 }) {
@@ -61,7 +62,7 @@ export function FilterDrawer({
     if (timer.current !== null) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       setSentTerm(next.trim());
-      navigate(filterHref(selection, selectedId, next));
+      navigate(filterHref(selection, opened, next));
     }, DEBOUNCE_MS);
   }
 
@@ -101,7 +102,7 @@ export function FilterDrawer({
           key={`${chip.key}-${chip.value}`}
           href={filterHref(
             toggled(selection, chip.key, chip.value),
-            selectedId,
+            opened,
             draft,
           )}
           title={`Remover o filtro ${chip.label}`}
@@ -192,7 +193,7 @@ export function FilterDrawer({
                         key={option.value}
                         href={filterHref(
                           toggled(selection, group.key, option.value),
-                          selectedId,
+                          opened,
                           draft,
                         )}
                         scroll={false}

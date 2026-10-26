@@ -220,6 +220,35 @@ export function buildPrompt(
   if (!isDrawableKind(kind)) {
     throw new Error(`No image is generated for ${kind}`);
   }
+  return assemble(subject, SUBJECT_RULES[kind], style);
+}
+
+/**
+ * What a scene's picture has to contain (#64): a scene is a subject of its
+ * own ("a big box", "a pen on the book"), so the rule is the description,
+ * whole, and how its parts stand to each other.
+ *
+ * Its own constant and not a key of SUBJECT_RULES. Those keys are the word
+ * kinds that take a picture, held to the database by drawable-kinds.test.ts,
+ * and a scene is not a kind of word.
+ *
+ * Decided on 2026-10-25. Like the rules above it names no technique, and no
+ * credit was spent to check the wording: the first scene generated under it
+ * is the one to look at closely, and if it comes back with an object missing
+ * or a person nobody asked for, this sentence is the first suspect.
+ */
+export const SCENE_RULE =
+  "Show every object and person the subject names, and no person it does " +
+  "not name, standing to each other as the subject says (on, under, next " +
+  "to, in). Nothing else in the background.";
+
+/** The full prompt for one scene, in the same order as a word's. */
+export function buildScenePrompt(subject: string, style: ImageStyle): string {
+  return assemble(subject, SCENE_RULE, style);
+}
+
+/** The medium and the subject, then the rule, then the rest of the style. */
+function assemble(subject: string, rule: string, style: ImageStyle): string {
   // A trailing stop would land next to the one this sentence ends with.
   const cleaned = subject.trim().replace(/[.\s]+$/u, "");
   if (cleaned === "") {
@@ -227,5 +256,5 @@ export function buildPrompt(
   }
   const { medium, rest } = STYLES[style];
   const opening = medium.replace(SUBJECT_SLOT, cleaned);
-  return `${opening} ${SUBJECT_RULES[kind]} ${rest}`;
+  return `${opening} ${rule} ${rest}`;
 }
