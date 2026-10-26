@@ -7,6 +7,7 @@ import {
   groupLabel,
   groupScenes,
   isDescriptionTaken,
+  isSceneInUse,
 } from "./scenes.ts";
 
 function scene(id: string, description: string, questionPoints: number[]) {
@@ -57,6 +58,25 @@ describe("groupLabel", () => {
   test("names the point, or says no question uses it", () => {
     assert.equal(groupLabel(12), "Ponto 12");
     assert.equal(groupLabel(null), "Sem pergunta ainda");
+  });
+});
+
+describe("isSceneInUse", () => {
+  test("only the check violation the archive trigger raises", () => {
+    const inUse = {
+      code: "23514",
+      message:
+        "scene 1bb824bd-bb15-4b69-bc5e-8b7ab2671632 is shown by a question and cannot be archived",
+    };
+    assert.ok(isSceneInUse(inUse));
+    assert.ok(!isSceneInUse({ ...inUse, code: "P0001" }));
+    assert.ok(
+      !isSceneInUse({
+        code: "23514",
+        message:
+          'new row violates check constraint "scenes_composed_from_shape"',
+      }),
+    );
   });
 });
 

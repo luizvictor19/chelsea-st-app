@@ -27,6 +27,7 @@ import {
 } from "@/lib/images/upload";
 
 import type { ActionResult } from "./attempt-store";
+import { ArchiveScene } from "./archive-scene";
 import { AttemptList } from "./attempt-list";
 import { trackGeneration, useRunningGeneration } from "./generation-tracking";
 import {
@@ -83,6 +84,7 @@ export function ScenePanel({
   attempts,
   point,
   approved,
+  closeHref,
 }: {
   readonly scene: SceneImage;
   readonly attempts: readonly ImageAttempt[];
@@ -90,6 +92,8 @@ export function ScenePanel({
   readonly point: number | null;
   /** Every approved picture but this scene's, for Juntar (#120). */
   readonly approved: readonly ApprovedPicture[];
+  /** The screen as it is, with no scene open: where Excluir leaves. */
+  readonly closeHref: string;
 }) {
   const label = scene.description;
   const [busy, setBusy] = useState<Busy>(null);
@@ -131,6 +135,7 @@ export function ScenePanel({
   const finishedInput = useRef<HTMLInputElement>(null);
   const [usedSubject, setUsedSubject] = useState("");
   const zoom = useRef<HTMLDialogElement>(null);
+
   const [zoomed, setZoomed] = useState<string | null>(null);
 
   function openZoom(url: string) {
@@ -266,16 +271,24 @@ export function ScenePanel({
       aria-label={`Imagem da cena ${label}`}
       className="border-rule bg-surface flex flex-col gap-6 rounded-sm border p-6"
     >
-      <header className="flex flex-col gap-1">
-        <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
-          Cena
-        </span>
-        <h2 className="text-2xl font-extrabold tracking-tight wrap-anywhere">
-          {label}
-        </h2>
-        <span className="text-faint font-mono text-xs">
-          {groupLabel(point).toLowerCase()}
-        </span>
+      <header className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
+            Cena
+          </span>
+          <h2 className="text-2xl font-extrabold tracking-tight wrap-anywhere">
+            {label}
+          </h2>
+          <span className="text-faint font-mono text-xs">
+            {groupLabel(point).toLowerCase()}
+          </span>
+        </div>
+        <ArchiveScene
+          scene={scene}
+          closeHref={closeHref}
+          variant="button"
+          disabled={working || running !== null}
+        />
       </header>
 
       <div className="flex flex-col gap-2">

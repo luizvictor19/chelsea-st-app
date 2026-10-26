@@ -25,7 +25,7 @@ import {
   storeUpload,
   type ActionResult,
 } from "./attempt-store";
-import { descriptionKey, isDescriptionTaken } from "./scenes";
+import { descriptionKey, isDescriptionTaken, isSceneInUse } from "./scenes";
 
 /**
  * The Cenas section's actions (#64): a scene's own row, and its attempts
@@ -85,7 +85,9 @@ export async function createScene(
       const { data: common } = await supabase
         .from("scenes")
         .select("id, description")
-        .is("school_id", null);
+        .is("school_id", null)
+        // The index holds only the scenes in use (0034).
+        .is("archived_at", null);
       const key = descriptionKey(text);
       const existing = (common ?? []).find(
         (scene) => descriptionKey(scene.description) === key,
@@ -116,6 +118,72 @@ export async function createScene(
       error: "Não consegui criar a cena. Tente de novo.",
       cause: errorMessage(cause),
     };
+  }
+}
+
+/**
+ * Excluir a scene (#121): archive it. It leaves every list; its attempts and
+ * what they cost stay, which deleting the row would take with it (0034).
+ *
+ * A scene a question shows is refused here with the question named, before
+ * the trigger refuses it with an id the teacher cannot use.
+ */
+export async function archiveScene(sceneId: string): Promise<ActionResult> {
+  try {
+    const { supabase } = await requireTeacher();
+    const { data: shown, error: shownError } = await supabase
+      .from("questions")
+      .select("prompt, points(number)")
+      .eq("scene_id", sceneId)
+      .limit(1);
+    if (shownError) return { ok: false, error: shownError.message };
+    const question = shown[0];
+    if (question !== undefined) {
+      const point =
+        question.points === null ? "" : ` do ponto ${question.points.number}`;
+      return {
+        ok: false,
+        error: `A pergunta "${question.prompt}"${point} mostra esta cena. Troque a imagem dela antes de excluir.`,
+      };
+    }
+
+    const { data, error } = await supabase
+      .from("scenes")
+      .update({ archived_at: new Date().toISOString() })
+      .eq("id", sceneId)
+      .is("archived_at", null)
+      .select("id");
+    if (error) {
+      // The trigger, when a question took the scene after the check above,
+      // or is one this teacher cannot read.
+      return {
+        ok: false,
+        error: isSceneInUse(error)
+          ? "Uma pergunta mostra esta cena. Troque a imagem dela antes de excluir."
+          : "Não consegui excluir a cena. Tente de novo.",
+        cause: error.message,
+      };
+    }
+    if (data.length === 0) {
+      // No row changed: archived already, or one her policies do not let
+      // her write (a common scene, for anyone but the platform admin).
+      const { data: row } = await supabase
+        .from("scenes")
+        .select("archived_at")
+        .eq("id", sceneId)
+        .maybeSingle();
+      return {
+        ok: false,
+        error:
+          row?.archived_at != null
+            ? "Essa cena já foi excluída."
+            : "Você não pode excluir esta cena: ela é comum a todas as escolas.",
+      };
+    }
+    revalidatePath(SCREEN);
+    return { ok: true };
+  } catch (cause) {
+    return failure(cause);
   }
 }
 
@@ -220,7 +288,12 @@ export async function setScenePictures(
         .from("vocabulary_items")
         .select("id, image_path")
         .in("id", wordIds),
-      supabase.from("scenes").select("id, image_path").in("id", sceneIds),
+      // An excluded scene is not offered, and not taken either (#121).
+      supabase
+        .from("scenes")
+        .select("id, image_path")
+        .in("id", sceneIds)
+        .is("archived_at", null),
     ]);
     if (words.error) return { ok: false, error: words.error.message };
     if (scenes.error) return { ok: false, error: scenes.error.message };
@@ -318,10 +391,17 @@ export async function startSceneGeneration(
     // refresh behind the teacher's last decision.
     const { data: scene, error: sceneError } = await supabase
       .from("scenes")
-      .select("image_style, reference_path, composed_from")
+      .select("image_style, reference_path, composed_from, archived_at")
       .eq("id", sceneId)
       .single();
     if (sceneError) return { ok: false, error: sceneError.message };
+    // A tab opened before the scene was excluded must not pay for it.
+    if (scene.archived_at !== null) {
+      return {
+        ok: false,
+        error: "Essa cena foi excluída. Recarregue a página.",
+      };
+    }
 
     // A model that composes has nothing to draw without the pictures, and
     // the provider would refuse an empty list after the row is written.

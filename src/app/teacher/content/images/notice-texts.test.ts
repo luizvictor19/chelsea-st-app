@@ -16,6 +16,7 @@ import {
   picturesChosen,
   picturesRemoved,
   referenceRemoved,
+  sceneArchived,
   sceneCreated,
   setDissolved,
   setFailed,
@@ -99,6 +100,15 @@ describe("a notice about a scene starts with its description", () => {
     assert.deepEqual(
       montageSent("the pen on the book"),
       ok("the pen on the book: imagens juntas enviadas, falta aprovar."),
+    );
+  });
+
+  test("excluding one says its cost stays", () => {
+    assert.deepEqual(
+      sceneArchived("the pen on the book"),
+      ok(
+        "the pen on the book: cena excluída; o gasto dela continua registrado.",
+      ),
     );
   });
 

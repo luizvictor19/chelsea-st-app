@@ -493,6 +493,7 @@ export default async function VocabularyImagesPage({
                   attempts={sceneAttempts}
                   point={firstPoint(selectedScene)}
                   approved={approved}
+                  closeHref={filterHref(selection, null, term)}
                 />
               ) : selected === null ? (
                 <p className="text-muted border-rule rounded-sm border border-dashed p-6">

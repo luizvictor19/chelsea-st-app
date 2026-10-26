@@ -82,6 +82,21 @@ export function isDescriptionTaken(error: {
 }
 
 /**
+ * Whether archiving was refused because a question shows the scene: the
+ * check violation scenes_in_use_stays raises (0034), told apart by its
+ * sentence, since the trigger's name does not reach the message.
+ */
+export function isSceneInUse(error: {
+  readonly code?: string | null;
+  readonly message: string;
+}): boolean {
+  return (
+    error.code === "23514" &&
+    error.message.includes("is shown by a question and cannot be archived")
+  );
+}
+
+/**
  * A description the way scenes_description_key (0030) compares it: case
  * folded and every run of white space one space, trimmed. Used to find the
  * scene a refused description collides with, so the screen can open it.

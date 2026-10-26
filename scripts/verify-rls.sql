@@ -66,6 +66,7 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0031_joining_a_school_by_invite.sql
 \i supabase/migrations/0032_an_invite_waits_for_a_yes.sql
 \i supabase/migrations/0033_a_scene_is_drawn_from_pictures.sql
+\i supabase/migrations/0034_a_scene_set_aside_keeps_its_cost.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
@@ -2327,5 +2328,76 @@ begin
   end if;
 
   raise notice 'composed_from: 1 to 5 pictures under references/, on a scene or its generated attempt, never with reference_path';
+end;
+$$;
+
+-- A scene set aside keeps its cost (0034) ----------------------------------------------
+--
+-- Archiving keeps the row and its attempts; a question and an archived scene
+-- never meet, from either side; a description is unique among the scenes in
+-- use only.
+do $$
+declare
+  c_point constant uuid := (select p.id from points p join books b on b.id = p.book_id
+                             where b.title = 'Book 2' and p.number = 53);
+  v_failures text;
+  v_shown uuid;
+  v_loose uuid;
+  v_other uuid;
+  v_question uuid;
+  v_credits bigint;
+begin
+  delete from verify.failures;
+
+  insert into scenes (description) values ('A shown box') returning id into v_shown;
+  insert into scenes (description) values ('A loose box') returning id into v_loose;
+  insert into scenes (description) values ('Another box') returning id into v_other;
+  insert into questions (point_id, position, prompt, expected_answer, scene_id)
+    values (c_point, 201, 'q', 'a', v_shown) returning id into v_question;
+  insert into image_attempts (scene_id, provider, model, status, credits_spent)
+    values (v_loose, 'freepik', 'seedream-v4', 'pending', 50);
+
+  -- A scene a question shows is not archived.
+  perform verify.expect_refused('archiving a scene a question shows', 'scenes_in_use_stays',
+    format('update scenes set archived_at = now() where id = %L', v_shown));
+
+  -- One that no question shows is, and its attempts and their cost stay.
+  v_credits := (select sum(credits_spent) from image_attempts);
+  if verify.refusal(format('update scenes set archived_at = now() where id = %L', v_loose)) is not null then
+    insert into verify.failures values ('a scene no question shows could not be archived');
+  end if;
+  if (select sum(credits_spent) from image_attempts) is distinct from v_credits
+     or not exists (select 1 from image_attempts where scene_id = v_loose) then
+    insert into verify.failures values ('archiving a scene took its attempts or their cost');
+  end if;
+
+  -- An archived scene is shown by no question, written new or moved to it.
+  perform verify.expect_refused('a new question showing an archived scene', 'questions_scene_in_use',
+    format('insert into questions (point_id, position, prompt, expected_answer, scene_id) values (%L, 202, %L, %L, %L)',
+           c_point, 'q', 'a', v_loose));
+  perform verify.expect_refused('a question moved to an archived scene', 'questions_scene_in_use',
+    format('update questions set scene_id = %L where id = %L', v_loose, v_question));
+  -- Moving it to a scene in use still works.
+  if verify.refusal(format('update questions set scene_id = %L where id = %L', v_other, v_question)) is not null then
+    insert into verify.failures values ('a question could not move to a scene in use');
+  end if;
+
+  -- A description is taken only among the scenes in use.
+  begin
+    insert into scenes (description) values ('another   BOX');
+    insert into verify.failures values ('a description in use was written twice');
+  exception when unique_violation then
+    raise notice 'a description in use, written again: refused by scenes_description_key';
+  end;
+  if verify.refusal('insert into scenes (description) values (''a loose box'')') is not null then
+    insert into verify.failures values ('the description of an archived scene could not be used again');
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'archived scenes: %', v_failures;
+  end if;
+
+  raise notice 'archived scenes: kept with their cost, shown by no question, their description free again';
 end;
 $$;
