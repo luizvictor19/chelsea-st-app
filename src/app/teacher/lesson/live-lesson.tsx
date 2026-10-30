@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -9,10 +10,12 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  useTransition,
 } from "react";
 
 import { situationOf } from "../content/images/filters";
 
+import { markStop, type StopResult } from "./actions";
 import { boardKey, cardScale, shareAt, SPLIT, undo, type Mark } from "./board";
 import type { Course } from "./course";
 import {
@@ -29,6 +32,7 @@ import {
   type Position,
   type Slide,
 } from "./deck";
+import type { LessonStudent } from "./students";
 import { stateNotRestored, Whiteboard } from "./whiteboard";
 
 function subscribeToFullscreen(onChange: () => void): () => void {
@@ -146,11 +150,21 @@ const selectClass =
 export function LiveLesson({
   course,
   initial,
+  students,
+  studentId,
 }: {
   readonly course: Course;
   readonly initial: Position;
+  readonly students: readonly LessonStudent[];
+  /** The student of this lesson, from `aluno` in the URL; null for none. */
+  readonly studentId: string | null;
 }) {
   const { books, lessons, deck } = course;
+  const router = useRouter();
+  const [marking, startMarking] = useTransition();
+  // What the last "Parei aqui" wrote, or why it wrote nothing. Stays on the
+  // screen until the next mark: a mark that failed must not pass unseen.
+  const [stopNote, setStopNote] = useState<StopResult | null>(null);
   const [view, setView] = useState(() => showAt(initial));
   const { position, level } = view;
   const screen = useRef<HTMLElement>(null);
@@ -220,13 +234,30 @@ export function LiveLesson({
     if (target === null) return;
     setView(showAt(target));
     // The URL keeps the place, so a reload comes back to this slide. Replaced
-    // and not pushed: forty words are not forty entries of history.
-    window.history.replaceState(
-      null,
-      "",
-      `?ponto=${target.pointNumber}&item=${target.index + 1}`,
-    );
+    // and not pushed: forty words are not forty entries of history. The
+    // student stays in it, so a reload keeps her too.
+    const query = new URLSearchParams(window.location.search);
+    query.set("ponto", String(target.pointNumber));
+    query.set("item", String(target.index + 1));
+    window.history.replaceState(null, "", `?${query}`);
   }, []);
+
+  const markHere = useCallback(() => {
+    if (studentId === null) return;
+    const pointNumber = position.pointNumber;
+    startMarking(async () => {
+      let result: StopResult;
+      try {
+        result = await markStop(studentId, pointNumber);
+      } catch {
+        result = {
+          ok: false,
+          error: "A resposta não chegou. Marque de novo.",
+        };
+      }
+      setStopNote(result);
+    });
+  }, [studentId, position.pointNumber]);
 
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement !== null) {
@@ -300,6 +331,30 @@ export function LiveLesson({
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <h1 className="sr-only">Aula ao vivo</h1>
         <label className="text-faint flex items-center gap-2 text-xs">
+          Aluno
+          <select
+            className={selectClass}
+            value={studentId ?? ""}
+            onChange={(event) => {
+              // Without `ponto`, so the page opens where she stopped.
+              const chosen = event.target.value;
+              router.replace(
+                chosen === ""
+                  ? "/teacher/lesson"
+                  : `/teacher/lesson?aluno=${encodeURIComponent(chosen)}`,
+              );
+              event.target.blur();
+            }}
+          >
+            <option value="">nenhum</option>
+            {students.map((student) => (
+              <option key={student.id} value={student.id}>
+                {student.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-faint flex items-center gap-2 text-xs">
           Livro
           <select
             className={selectClass}
@@ -367,6 +422,33 @@ export function LiveLesson({
         </label>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          {stopNote !== null && (
+            <span
+              role="status"
+              className={
+                stopNote.ok ? "text-muted text-xs" : "text-accent text-xs"
+              }
+            >
+              {stopNote.ok ? stopNote.message : stopNote.error}
+            </span>
+          )}
+          {studentId !== null && (
+            <button
+              type="button"
+              className={controlClass}
+              disabled={marking}
+              onClick={(event) => {
+                // Let go of the focus: the deck's Space and Enter on a
+                // focused button would press it again on the next slide and
+                // overwrite the mark.
+                event.currentTarget.blur();
+                markHere();
+              }}
+              title="Grava este ponto como onde o aluno parou"
+            >
+              {marking ? "marcando" : "Parei aqui"}
+            </button>
+          )}
           <button
             type="button"
             className={controlClass}
