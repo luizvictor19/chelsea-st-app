@@ -509,6 +509,7 @@ export type Database = {
           scheduled_at: string;
           school_id: string;
           status: Database["public"]["Enums"]["lesson_status"];
+          stopped_at_point_id: string | null;
           student_id: string;
           teacher_note: string | null;
         };
@@ -521,6 +522,7 @@ export type Database = {
           scheduled_at: string;
           school_id: string;
           status?: Database["public"]["Enums"]["lesson_status"];
+          stopped_at_point_id?: string | null;
           student_id: string;
           teacher_note?: string | null;
         };
@@ -532,10 +534,18 @@ export type Database = {
           scheduled_at?: string;
           school_id?: string;
           status?: Database["public"]["Enums"]["lesson_status"];
+          stopped_at_point_id?: string | null;
           student_id?: string;
           teacher_note?: string | null;
         };
         Relationships: [
+          {
+            foreignKeyName: "lessons_stopped_at_point_fkey";
+            columns: ["stopped_at_point_id"];
+            isOneToOne: false;
+            referencedRelation: "points";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "lessons_student_fkey";
             columns: ["school_id", "student_id"];

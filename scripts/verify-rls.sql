@@ -67,6 +67,7 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0032_an_invite_waits_for_a_yes.sql
 \i supabase/migrations/0033_a_scene_is_drawn_from_pictures.sql
 \i supabase/migrations/0034_a_scene_set_aside_keeps_its_cost.sql
+\i supabase/migrations/0035_a_lesson_marks_where_she_stopped.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
@@ -2399,5 +2400,58 @@ begin
   end if;
 
   raise notice 'archived scenes: kept with their cost, shown by no question, their description free again';
+end;
+$$;
+
+-- A lesson marks where she stopped (0035) -------------------------------------------
+--
+-- A mark names a common point or one of the lesson's school, and a point
+-- someone stopped at is not deleted. Seeded as the owner: the rules under test
+-- are a trigger and a foreign key, which no policy decides.
+do $$
+declare
+  c_lesson constant uuid := (select id from lessons
+                              where student_id = '22222222-2222-2222-2222-222222222222'
+                              order by scheduled_at limit 1);
+  c_common constant uuid := (select p.id from points p join books b on b.id = p.book_id
+                              where b.title = 'Book 2' and p.number = 53);
+  c_own constant uuid := (select p.id from points p join books b on b.id = p.book_id
+                           where b.title = 'Chelsea only');
+  c_other constant uuid := (select p.id from points p join books b on b.id = p.book_id
+                             where b.title = 'B only');
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  -- Another school's point is refused, on update and on insert.
+  perform verify.expect_refused('a lesson marking a point of another school', 'lessons_stop_in_school',
+    format('update lessons set stopped_at_point_id = %L where id = %L', c_other, c_lesson));
+  perform verify.expect_refused('a lesson written with a point of another school', 'lessons_stop_in_school',
+    format('insert into lessons (student_id, scheduled_at, stopped_at_point_id) values (%L, now() + interval ''9 days'', %L)',
+           '22222222-2222-2222-2222-222222222222', c_other));
+
+  -- A common point and its own school's point are accepted.
+  if verify.refusal(format('update lessons set stopped_at_point_id = %L where id = %L', c_common, c_lesson)) is not null then
+    insert into verify.failures values ('a lesson could not mark a common point');
+  end if;
+  if verify.refusal(format('update lessons set stopped_at_point_id = %L where id = %L', c_own, c_lesson)) is not null then
+    insert into verify.failures values ('a lesson could not mark a point of its own school');
+  end if;
+
+  -- The point a lesson stopped at is not deleted. The school's own point,
+  -- which no word holds: a word's point is restricted already, and the
+  -- refusal would come from vocabulary_items instead.
+  perform verify.expect_refusal('deleting a point a lesson stopped at',
+    '23503 update or delete on table "points" violates foreign key constraint "lessons_stopped_at_point_fkey" on table "lessons"',
+    format('delete from points where id = %L', c_own));
+
+  update lessons set stopped_at_point_id = null where id = c_lesson;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'where she stopped: %', v_failures;
+  end if;
+
+  raise notice 'where she stopped: a common or own point only, and a marked point stays';
 end;
 $$;
