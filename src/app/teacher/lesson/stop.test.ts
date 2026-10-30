@@ -28,12 +28,26 @@ describe("lessonToMark", () => {
     );
   });
 
-  test("none for a lesson already over", () => {
-    // 21:00 UTC plus 45 minutes ended at 21:45, before 22:20.
+  test("a lesson that just ended, marked as it closes", () => {
+    // 21:30 UTC plus 45 minutes ended at 22:15, five minutes before 22:20:
+    // "Parei aqui" comes at the end, and a lesson often runs over.
+    const ended = lesson("ended", "2026-11-02T21:30:00Z");
+    assert.equal(lessonToMark([ended], NOW), ended);
+  });
+
+  test("none for a lesson over for more than the grace", () => {
+    // 20:00 UTC plus 45 minutes ended at 20:45, 95 minutes before 22:20.
     assert.equal(
-      lessonToMark([lesson("over", "2026-11-02T21:00:00Z")], NOW),
+      lessonToMark([lesson("over", "2026-11-02T20:00:00Z")], NOW),
       null,
     );
+  });
+
+  test("the lesson running wins over a closer one about to start", () => {
+    // Started 40 minutes ago; the other starts in 20.
+    const running = lesson("running", "2026-11-02T21:40:00Z", 90);
+    const soon = lesson("soon", "2026-11-02T22:40:00Z");
+    assert.equal(lessonToMark([soon, running], NOW), running);
   });
 
   test("a long lesson that started early is still running", () => {

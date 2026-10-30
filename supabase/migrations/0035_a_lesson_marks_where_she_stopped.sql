@@ -20,10 +20,11 @@ alter table lessons
 comment on column lessons.stopped_at_point_id is
   'The point the teacher marked as where this lesson stopped (#127); null until marked.';
 
--- On delete restrict, and neither of the others. Raising a book's range
--- discards points (materialize_points, 0006): set null would erase a student's
--- mark without a word, and cascade would take her lesson with it. A point
--- someone stopped at refuses to go, and the refusal is what gets said.
+-- On delete restrict, and neither of the others. Narrowing a book's range
+-- discards points (materialize_points): set null would erase a student's mark
+-- without a word, and cascade would take her lesson with it. A point someone
+-- stopped at refuses to go. materialize_points does not name this refusal in
+-- its own words yet: the teacher reads the foreign key's message (#131).
 
 -- A mark names a point of the lesson's school ---------------------------------------
 --

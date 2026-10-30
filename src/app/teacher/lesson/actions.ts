@@ -3,7 +3,12 @@
 import { requireTeacher } from "@/lib/content/queries";
 import { formatLessonDate, formatLessonTime } from "@/lib/datetime";
 
-import { LESSON_MINUTES, lessonToMark } from "./stop";
+import {
+  AHEAD_MINUTES,
+  GRACE_MINUTES,
+  LESSON_MINUTES,
+  lessonToMark,
+} from "./stop";
 
 export type StopResult =
   | { readonly ok: true; readonly message: string }
@@ -13,9 +18,9 @@ export type StopResult =
 const LONGEST_PLAUSIBLE_LESSON_MINUTES = 8 * 60;
 
 /**
- * "Parei aqui": writes the point to the student's lesson running now or
- * starting within the hour, or creates a lesson for her now when there is
- * none (a lesson outside the agenda). Marking again overwrites. The answer
+ * "Parei aqui": writes the point to the student's lesson running now, just
+ * ended or starting within the hour (lessonToMark), or creates a lesson for
+ * her now when there is none (a lesson outside the agenda). Marking again overwrites. The answer
  * names the student, which is what makes a mark on the wrong one visible.
  *
  * The point comes by number, as the deck knows it: every point is common
@@ -53,15 +58,19 @@ export async function markStop(
   }
   const name = student.data.profiles.full_name;
 
+  // Only the rows that can be candidates: the agenda holds weeks of lessons
+  // ahead, and lessonToMark would drop all but the next hour's anyway.
   const earliest = new Date(
-    now.getTime() - LONGEST_PLAUSIBLE_LESSON_MINUTES * 60_000,
+    now.getTime() - (LONGEST_PLAUSIBLE_LESSON_MINUTES + GRACE_MINUTES) * 60_000,
   );
+  const latest = new Date(now.getTime() + AHEAD_MINUTES * 60_000);
   const { data: lessons, error: lessonsError } = await supabase
     .from("lessons")
     .select("id, scheduled_at, duration_minutes")
     .eq("student_id", studentId)
     .eq("status", "scheduled")
-    .gte("scheduled_at", earliest.toISOString());
+    .gte("scheduled_at", earliest.toISOString())
+    .lte("scheduled_at", latest.toISOString());
   if (lessonsError) return { ok: false, error: lessonsError.message };
 
   const target = lessonToMark(

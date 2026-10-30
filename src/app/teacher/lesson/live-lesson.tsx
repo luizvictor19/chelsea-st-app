@@ -437,7 +437,13 @@ export function LiveLesson({
               type="button"
               className={controlClass}
               disabled={marking}
-              onClick={markHere}
+              onClick={(event) => {
+                // Let go of the focus: the deck's Space and Enter on a
+                // focused button would press it again on the next slide and
+                // overwrite the mark.
+                event.currentTarget.blur();
+                markHere();
+              }}
               title="Grava este ponto como onde o aluno parou"
             >
               {marking ? "marcando" : "Parei aqui"}
