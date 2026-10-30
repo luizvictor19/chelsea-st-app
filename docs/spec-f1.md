@@ -46,17 +46,19 @@ não duplica. Na v1 é chamada à mão; virar job agendado fica para depois.
 
 ## Rotas
 
-| Rota               | Quem acessa        | O que faz                                               |
-| ------------------ | ------------------ | ------------------------------------------------------- |
-| `/login`           | anônimo            | E-mail e senha; links para as duas rotas abaixo         |
-| `/login/link`      | anônimo            | Campo de e-mail, envia o magic link, mostra confirmação |
-| `/forgot-password` | anônimo            | Envia o link que leva a `/set-password`                 |
-| `/set-password`    | com sessão         | Define a senha; onde caem o convite e o "esqueci"       |
-| `/auth/callback`   | anônimo            | Troca o código ou o `token_hash` pela sessão            |
-| `/`                | qualquer           | Redireciona conforme o papel                            |
-| `/dashboard`       | aluno              | Próxima aula e desafio do dia                           |
-| `/teacher`         | professor          | Placeholder nesta fase                                  |
-| `/teacher/invites` | admin ou professor | Convida por e-mail e acompanha os convites              |
+| Rota                     | Quem acessa        | O que faz                                               |
+| ------------------------ | ------------------ | ------------------------------------------------------- |
+| `/login`                 | anônimo            | E-mail e senha; links para as duas rotas abaixo         |
+| `/login/link`            | anônimo            | Campo de e-mail, envia o magic link, mostra confirmação |
+| `/forgot-password`       | anônimo            | Envia o link que leva a `/set-password`                 |
+| `/set-password`          | com sessão         | Define a senha; onde caem o convite e o "esqueci"       |
+| `/auth/callback`         | anônimo            | Troca o código ou o `token_hash` pela sessão            |
+| `/`                      | qualquer           | Redireciona conforme o papel                            |
+| `/dashboard`             | aluno              | Próxima aula e desafio do dia                           |
+| `/teacher`               | professor          | Placeholder nesta fase                                  |
+| `/teacher/invites`       | admin ou professor | Convida por e-mail e acompanha os convites              |
+| `/teacher/students`      | professor          | Alunos, com o que falta na agenda de cada um (#129)     |
+| `/teacher/students/[id]` | professor          | Link do Meet, horários, gerar, cancelar e remarcar      |
 
 Desde a #116 todos os caminhos são em inglês. Os antigos em português (`/definir-senha`,
 `/esqueci-senha`, `/teacher/convites`, `/teacher/aula`) redirecionam para os novos, para sempre:
@@ -132,6 +134,27 @@ que faz a aula em andamento continuar aparecendo.
 Se `students.meet_url` estiver vazio, mostra o horário sem botão e avisa que o
 link chega antes da aula. Não inventar link nem esconder a aula.
 
+## Agenda do aluno (#129)
+
+Sem migration: as tabelas, as policies e `materialize_lessons` da 0003 bastam.
+
+- **Link do Meet:** um por aluno, em `students.meet_url`, colado uma vez. Só `https://`;
+  vazio apaga, e o aluno volta a ver que o link chega antes da aula.
+- **Horários:** dia da semana, hora e duração (o formulário começa em 45 min; o padrão
+  do banco, 50, não é usado pela tela). A hora é a do fuso do professor
+  (`profiles.timezone`), e o horário é gravado nesse fuso. Adicionar já gera as aulas.
+- **Gerar aulas:** `materialize_lessons(aluno, 8)`, oito semanas à frente. Nunca duplica,
+  e uma aula cancelada não volta, porque a vaga continua ocupada pela linha cancelada.
+  A lista e a agenda avisam quando faltam menos de 14 dias de aulas geradas.
+- **Cancelar:** `status = 'cancelled'`, depois de uma confirmação com a data.
+- **Remarcar:** cria a aula nova e só depois cancela a original. Se a segunda escrita
+  falhar, o aluno vê duas aulas e a tela mostra o erro; a ordem inversa poderia deixá-lo
+  sem aula em silêncio.
+- **Remover um horário:** apaga a linha do horário e **apaga** as aulas `scheduled`
+  futuras que caem exatamente naquele dia e hora, no fuso do horário. Apagar, não
+  cancelar: uma linha cancelada bloquearia a vaga se o horário voltasse. A aula em
+  andamento, as passadas e as canceladas ficam. A confirmação diz quantas saem.
+
 ## Critérios de aceite
 
 1. Pedir magic link com e-mail cadastrado leva à sessão ativa depois do clique.
@@ -151,4 +174,4 @@ link chega antes da aula. Não inventar link nem esconder a aula.
 ## Fora de escopo
 
 Correção de resposta, gravação de áudio, e-mail de lembrete, tela de professor
-de verdade, cancelamento e remarcação pela interface. Cada um tem sua fase.
+de verdade. Cada um tem sua fase. Cancelar e remarcar entraram com a agenda (#129).
