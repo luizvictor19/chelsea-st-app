@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 
+import { requireTeacher } from "@/lib/content/queries";
+
 import { loadCourse } from "./course";
 import { clampPosition, type Position } from "./deck";
 import { LiveLesson } from "./live-lesson";
+import { lastStop, loadStudents } from "./students";
 
 export const metadata: Metadata = {
   title: "Aula ao vivo · Chelsea St",
@@ -20,7 +23,11 @@ export default async function LiveLessonPage({
   readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
-  const course = await loadCourse();
+  const { supabase } = await requireTeacher();
+  const [course, students] = await Promise.all([
+    loadCourse(),
+    loadStudents(supabase),
+  ]);
 
   if (course.books.length === 0) {
     return (
@@ -34,10 +41,18 @@ export default async function LiveLessonPage({
     );
   }
 
+  // `aluno` names the student of this lesson (#127). One the reader does not
+  // teach is no student at all, and the screen works as it did before.
+  const studentId =
+    students.find((student) => student.id === params.aluno)?.id ?? null;
+
   // The URL holds the place: `ponto` is the point and `item` the slide inside
-  // it, counted from 1. A point outside every book is no place at all, and
-  // the lesson starts at the first slide of the course instead.
-  const asked = wholeNumber(params.ponto);
+  // it, counted from 1. Without `ponto`, a student's lesson starts where her
+  // last one stopped. A point outside every book is no place at all, and the
+  // lesson starts at the first slide of the course instead.
+  const asked =
+    wholeNumber(params.ponto) ??
+    (studentId === null ? null : await lastStop(supabase, studentId));
   const inABook =
     asked !== null &&
     course.books.some(
@@ -54,5 +69,15 @@ export default async function LiveLessonPage({
         index: 0,
       };
 
-  return <LiveLesson course={course} initial={initial} />;
+  // Keyed by the student: choosing another one starts the screen again at
+  // her place, not at the one left on the screen.
+  return (
+    <LiveLesson
+      key={studentId ?? "none"}
+      course={course}
+      initial={initial}
+      students={students}
+      studentId={studentId}
+    />
+  );
 }
