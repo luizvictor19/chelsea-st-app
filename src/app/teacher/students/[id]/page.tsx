@@ -72,7 +72,7 @@ export default async function StudentAgendaPage({
           ← Alunos
         </Link>
         <h1 className="text-3xl font-extrabold tracking-tight">
-          {agenda.name}
+          Agenda de {agenda.name}
         </h1>
       </div>
 
