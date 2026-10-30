@@ -67,6 +67,11 @@ architecture question for Luiz.
   scene (`scene_id`), or acted out (`is_acted_out`), at most one of the three, checked by
   `questions_one_image`; none of them means not decided yet. An image attempt belongs to exactly
   one word or one scene (`image_attempts_one_owner`).
+- Where a student stopped follows 0035: one point per lesson, `lessons.stopped_at_point_id`,
+  written by "Parei aqui" on the live lesson screen. The points of a lesson are the ones between
+  the previous lesson's mark and its own; they are not stored. A marked point cannot be deleted
+  (`on delete restrict`), and a mark names a common point or one of the lesson's school
+  (`lessons_stop_in_school`).
 - Joining a school follows 0031 and 0032: a membership is born only from a row of
   `school_invites`, when the invited email is first confirmed (a trigger on `auth.users`) or, for
   an account that already exists, when that person accepts it signed in
