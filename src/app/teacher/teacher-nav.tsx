@@ -11,17 +11,18 @@ const links = [
   { label: "Imagens", href: "/teacher/content/images" },
   { label: "Perguntas", href: "/teacher/content/questions" },
   { label: "Aula ao vivo", href: "/teacher/lesson" },
+  { label: "Alunos", href: "/teacher/students" },
   { label: "Convites", href: "/teacher/invites" },
 ] as const;
 
 /*
- * Aulas and Alunos have no screens yet, and are rendered as plain disabled
- * labels instead of being left out. The bar is the map of the teacher area:
- * showing all four says what the product is, and the two that are not ready
- * read as not ready. Omitting them would hide the shape now and make the bar
+ * Aulas has no screen yet, and is rendered as a plain disabled label
+ * instead of being left out. The bar is the map of the teacher area: showing
+ * every area says what the product is, and the one that is not ready reads
+ * as not ready. Omitting them would hide the shape now and make the bar
  * grow under the teacher later, which is a worse surprise than a muted label.
  */
-const comingSoon = ["Aulas", "Alunos"] as const;
+const comingSoon = ["Aulas"] as const;
 
 /**
  * The section a pathname belongs to. Imagens and Perguntas live under

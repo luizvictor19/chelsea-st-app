@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { requireTeacher } from "@/lib/content/queries";
 
@@ -19,8 +20,11 @@ export default async function TeacherPage() {
         Olá, {profile.full_name}.
       </h1>
       <p className="text-muted max-w-prose">
-        Esta área ainda não faz nada. Por enquanto, aulas e horários são criados
-        direto no banco.
+        O link do Meet, os horários e as aulas de cada aluno ficam em{" "}
+        <Link href="/teacher/students" className="underline">
+          Alunos
+        </Link>
+        .
       </p>
     </section>
   );
