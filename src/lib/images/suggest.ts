@@ -82,16 +82,29 @@ Give one entry for every word you were sent, using the id exactly as it was give
 /**
  * How many words one suggestion request carries.
  *
- * Measured on 2026-09-19 against the real sixty words of lesson 1:
+ * Measured on 2026-09-19 against the real sixty words of lesson 1, with the
+ * prompt of that day, which offered six kinds:
  *
  *   all 60 in one call   36.4s, one request
  *   batches of 10        56.5s total, worst call 15.9s, six requests
  *   batches of 5         70.7s total, worst call 13.8s, twelve requests
  *
- * Ten, because five buys nothing. The worst call is the same at both sizes —
- * the time is DeepSeek's variance, not the word count, and a single-word
- * request has been seen at 27.7s — while five costs twice the calls and
- * fourteen more seconds of wall clock.
+ * There, five bought nothing. The worst call was about the same at both
+ * sizes (the time is DeepSeek's variance, not the word count, and a
+ * single-word request has been seen at 27.7s), while five cost twice the
+ * calls and fourteen more seconds of wall clock.
+ *
+ * Measured again on 2026-09-20 with the prompt of eight kinds, the one in
+ * use, by scripts/measure-suggestion-batch.ts: 132 calls over 283 words of
+ * book 1, at batch sizes 5, 10, 15 and 20. The model is 93.8% of the time,
+ * and it takes from 2.5s to 59.6s for the same ten words. A smaller batch
+ * does not shorten the worst call, and the difference in total time between
+ * sizes is smaller than two slow calls. The totals per size of that run were
+ * not kept (the script wrote its results only at the end, and only to a
+ * file it was asked for; see #75), so none is quoted here.
+ *
+ * So ten stays by decision, not because it was found to be best: no size
+ * buys a shorter pass. Recorded in PR #30 and in #74.
  *
  * Which is the point worth being clear about: batching does NOT make the
  * request short. It makes the unit of work small enough that losing one
@@ -103,10 +116,12 @@ Give one entry for every word you were sent, using the id exactly as it was give
  * limit, and a lesson of sixty words asks for more of it in one call than the
  * platform is going to give. Neither problem is about ergonomics.
  *
- * Batching does not change the answers, which was measured rather than
- * assumed: over those sixty words, nought of sixty changed kind at ten, and
- * nought at five. Every rule in the system prompt judges one word on its own,
- * and the measurement agrees with the prompt.
+ * Batching can change the answers. With six kinds, on 2026-09-19, none of
+ * the sixty words changed kind at ten or at five. With eight kinds, on
+ * 2026-09-20, seven words changed kind with the batch size. Every rule in the
+ * system prompt judges one word on its own, but the answers do not fully
+ * agree with the prompt, so a suggestion is not independent of the batch it
+ * came in.
  */
 export const SUGGESTION_BATCH = 10;
 
