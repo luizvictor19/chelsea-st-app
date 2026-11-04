@@ -146,7 +146,20 @@ const RECOGNITION: Record<ImageStyle, string> = {
  * to matching a sentence someone can quietly delete.
  */
 export function learnedRules(style: ImageStyle): readonly string[] {
-  return [ANGLE_RULE, RECOGNITION[style], STATE_RULE, ONE_SUBJECT_RULE];
+  return [...sceneRules(style), ONE_SUBJECT_RULE];
+}
+
+/**
+ * The three of the four that also hold for a scene (#187): the angle, what
+ * makes the picture recognisable in this style, and the state words. The
+ * fourth, one subject, does not: a scene relates two things by nature (the
+ * pen on the book), and the second thing is the meaning, not a yardstick.
+ *
+ * Exported so the scene prompt reuses the text instead of copying it, and so
+ * its test can hold it to these exact rules.
+ */
+export function sceneRules(style: ImageStyle): readonly string[] {
+  return [ANGLE_RULE, RECOGNITION[style], STATE_RULE];
 }
 
 export function buildSubjectPrompt(
