@@ -68,6 +68,17 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0033_a_scene_is_drawn_from_pictures.sql
 \i supabase/migrations/0034_a_scene_set_aside_keeps_its_cost.sql
 \i supabase/migrations/0035_a_lesson_marks_where_she_stopped.sql
+
+-- Production's default ACL, as Luiz read it on 2026-11-04: the postgres role
+-- grants Dxtm (truncate, references, trigger, maintain) in schema public on
+-- every new table to anon, authenticated and service_role, even with "expose
+-- new tables" off. A plain Postgres grants none of it, so without this line
+-- the 0036 privilege checks would pass with its revoke removed. It is set just
+-- before 0036 so the tables of earlier migrations stay as they were tested.
+alter default privileges for role postgres in schema public
+  grant truncate, references, trigger, maintain on tables
+  to anon, authenticated, service_role;
+
 \i supabase/migrations/0036_a_lead_waits_for_a_call.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
@@ -2461,8 +2472,10 @@ $$;
 --
 -- The checks refuse what the site's form must never write, each by its own
 -- name, and accept the limits themselves. The privileges are asserted as
--- privileges: anon and authenticated reach nothing, the service role selects
--- and inserts. Rows are written as the owner, since checks hold for everyone.
+-- privileges, against the default ACL set before 0036 above: anon and
+-- authenticated reach nothing, the service role inserts and nothing else, and
+-- no policy exists. Rows are written as the superuser running this script,
+-- since checks hold for everyone and the service role cannot select.
 --
 -- One well formed lead, with any column replaced by a named argument.
 create function verify.lead_insert(
@@ -2504,20 +2517,28 @@ declare
   v_failures text;
   v_role text;
   v_privilege text;
+  v_policies bigint;
 begin
   delete from verify.failures;
 
-  -- The name: 2 to 80 characters, the spaces at either end not counted.
+  -- The name: at most 80 characters as stored, and at least 2 once spaces,
+  -- tabs and line breaks at either end are left out.
   perform verify.expect_refused('a lead named with 1 character', 'leads_nome_length',
     verify.lead_insert(p_nome => 'A'));
   perform verify.expect_refused('a lead named with 81 characters', 'leads_nome_length',
     verify.lead_insert(p_nome => repeat('a', 81)));
+  perform verify.expect_refused('a lead named with 2 letters and 79 trailing spaces',
+    'leads_nome_length', verify.lead_insert(p_nome => 'Al' || repeat(' ', 79)));
   perform verify.expect_refused('a lead named with spaces only', 'leads_nome_length',
     verify.lead_insert(p_nome => '     '));
+  perform verify.expect_refused('a lead named with a tab and line breaks only',
+    'leads_nome_length', verify.lead_insert(p_nome => E'\t\n\r'));
   perform verify.expect_accepted('a lead named with 2 characters',
     verify.lead_insert(p_nome => 'Al'));
   perform verify.expect_accepted('a lead named with 80 characters',
     verify.lead_insert(p_nome => repeat('a', 80)));
+  perform verify.expect_accepted('a lead named with 2 letters inside a tab, spaces and a line break',
+    verify.lead_insert(p_nome => E'\t Al \n'));
 
   -- The number: 10 to 13 digits and nothing else.
   perform verify.expect_refused('a whatsapp of 9 digits', 'leads_whatsapp_digits',
@@ -2562,25 +2583,35 @@ begin
                        p_utm_campaign => repeat('c', 200), p_codigo_origem => repeat('o', 200),
                        p_user_agent => repeat('u', 512)));
 
-  -- The privileges.
-  foreach v_role in array array['anon', 'authenticated'] loop
-    foreach v_privilege in array array['select', 'insert', 'update', 'delete'] loop
-      if has_table_privilege(v_role, 'public.leads', v_privilege) then
+  -- The privileges. anon and authenticated hold none of the eight a table can
+  -- carry; service_role holds insert and none of the other seven. MAINTAIN
+  -- exists from Postgres 17, the version CI runs (ADR 0003).
+  foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+    foreach v_privilege in array array['select', 'insert', 'update', 'delete',
+                                        'truncate', 'references', 'trigger', 'maintain'] loop
+      if v_role = 'service_role' and v_privilege = 'insert' then
+        if not has_table_privilege(v_role, 'public.leads', v_privilege) then
+          insert into verify.failures values (format('%s lacks %s on leads', v_role, v_privilege));
+        end if;
+      elsif has_table_privilege(v_role, 'public.leads', v_privilege) then
         insert into verify.failures values (format('%s has %s on leads', v_role, v_privilege));
       end if;
     end loop;
   end loop;
-  foreach v_privilege in array array['select', 'insert'] loop
-    if not has_table_privilege('service_role', 'public.leads', v_privilege) then
-      insert into verify.failures values (format('service_role lacks %s on leads', v_privilege));
-    end if;
-  end loop;
+
+  -- No policy: the service role bypasses RLS, and a policy would open rows to
+  -- whoever it names.
+  select count(*) into v_policies
+    from pg_policies where schemaname = 'public' and tablename = 'leads';
+  if v_policies <> 0 then
+    insert into verify.failures values (format('leads has %s policies, expected 0', v_policies));
+  end if;
 
   select string_agg(what, '; ') into v_failures from verify.failures;
   if v_failures is not null then
     raise exception 'leads: %', v_failures;
   end if;
 
-  raise notice 'leads: every check refuses by name and accepts its limits; only service_role selects and inserts';
+  raise notice 'leads: every check refuses by name and accepts its limits; only service_role inserts, nobody selects, no policy';
 end;
 $$;

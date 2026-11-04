@@ -15,7 +15,8 @@ create table public.leads (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
   nome text not null
-    constraint leads_nome_length check (char_length(btrim(nome)) between 2 and 80),
+    constraint leads_nome_length
+      check (char_length(btrim(nome, E' \t\r\n')) >= 2 and char_length(nome) <= 80),
   whatsapp text not null
     constraint leads_whatsapp_digits check (whatsapp ~ '^[0-9]{10,13}$'),
   objetivo text
@@ -39,9 +40,9 @@ create table public.leads (
 );
 
 comment on table public.leads is
-  'One request from the chelsea-st.com form: waitlist or trial. Written and read only with the service role.';
+  'One request from the chelsea-st.com form: waitlist or trial. Inserted by the service role, which cannot read it back.';
 comment on column public.leads.nome is
-  'Name as the person typed it, 2 to 80 characters once the spaces at either end are left out.';
+  'Name exactly as the person typed it: at most 80 characters as stored, and at least 2 once the spaces, tabs and line breaks at either end are left out.';
 comment on column public.leads.whatsapp is
   'WhatsApp number, digits only, 10 to 13 of them (area code, optionally country code); no mask, no plus sign.';
 comment on column public.leads.objetivo is
@@ -63,16 +64,20 @@ comment on column public.leads.user_agent is
 
 -- Row level security on, and deliberately no policy. With RLS enabled and no
 -- policy, anon and authenticated see no row and can write none; the service
--- role bypasses RLS, so the site's function is the only reader and writer.
+-- role bypasses RLS, so the site's function is the only writer.
 -- A policy added later is a decision about who may read a stranger's phone
 -- number, and belongs in its own migration.
 alter table public.leads enable row level security;
 
--- Privileges. The project runs with "automatically expose new tables" turned
--- off (0001), so no role reaches a new table until a grant names it. The
--- revoke from anon and authenticated is extra protection: should that setting
--- ever be turned back on, the table stays closed to the API's public roles.
--- The grant is what api/lead.js on the site needs: it inserts the row, and
--- select lets it read the row back. Nothing else is granted, to anyone.
-revoke all on public.leads from anon, authenticated;
-grant select, insert on public.leads to service_role;
+-- Privileges. "Automatically expose new tables" is off (0001), which keeps
+-- select, insert, update and delete off a new table, but it does not leave the
+-- table bare: in production the default ACL of the postgres role in schema
+-- public still grants Dxtm (truncate, references, trigger, maintain) on every
+-- new table to anon, authenticated and service_role. RLS does not filter
+-- truncate, and none of the four is needed by anyone here. The revoke all
+-- clears them for all three roles; it is required, not extra.
+-- Then service_role gets insert and nothing more: api/lead.js on the site
+-- sends Prefer: return=minimal and never reads a row back, so it has no use
+-- for select, and a leaked key cannot list the phone numbers stored here.
+revoke all on public.leads from anon, authenticated, service_role;
+grant insert on public.leads to service_role;
