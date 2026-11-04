@@ -457,7 +457,20 @@ decidido" (`questions_one_image`).
   de novo uma cena excluída cria outra.
 - Apagar de verdade uma cena usada por uma pergunta é recusado (`on delete restrict`).
 - Telas: seção Cenas na tela de imagens (#64), escolha na tela de perguntas (#65), tela de aula
-  (#66). Publicar uma pergunta sem imagem, ou encenada, pede confirmação (#65).
+  (#66).
+  - Na tela de perguntas, o campo "Imagem da pergunta" tem quatro opções: **Sem decidir**,
+    **Palavra** (as palavras com imagem aprovada apresentadas até o ponto), **Cena** (as cenas
+    comuns em uso, em ordem alfabética, cada uma com a miniatura ou "sem imagem") e **Encenar**.
+    Trocar de opção guarda a última palavra e a última cena escolhidas. Cada gravação escreve as três
+    colunas, e salvar uma edição confere as três como a tela as leu: uma troca de imagem feita em
+    outra aba não é desfeita em silêncio.
+  - **Criar cena**, embaixo da lista, começa com a resposta esperada quando ela é em inglês (senão,
+    com a pergunta) e cria a cena sem gerar nada. Uma descrição que já existe escolhe a cena que a
+    tem. Criar não liga nada: a pergunta passa a mostrar a cena quando é salva.
+  - Salvar uma pergunta publicada sem imagem (sem decidir, encenada, ou palavra ou cena sem imagem
+    aprovada) pede confirmação: "Esta pergunta não tem imagem; o Robin vai precisar de uma.", com
+    Voltar e Publicar sem imagem. Uma pergunta que já estava publicada assim, com a mesma escolha,
+    não pede de novo numa edição do texto.
 
 ## Fora desta entrega
 
