@@ -1218,7 +1218,24 @@ export type Database = {
       };
     };
     Views: {
-      [_ in never]: never;
+      leads_latest: {
+        Row: {
+          codigo_origem: string | null;
+          created_at: string;
+          id: string;
+          interesse: string;
+          nivel: string | null;
+          nome: string;
+          objetivo: string | null;
+          user_agent: string | null;
+          utm_campaign: string | null;
+          utm_medium: string | null;
+          utm_source: string | null;
+          whatsapp: string;
+        };
+        ComputedFields: never;
+        Relationships: [];
+      };
     };
     Functions: {
       accept_my_school_invite: {
@@ -1296,6 +1313,21 @@ export type Database = {
       save_contrast_set: {
         Args: { p_expected?: string[]; p_items: string[]; p_set_id?: string };
         Returns: string;
+      };
+      submit_lead: {
+        Args: {
+          codigo_origem?: string;
+          interesse: string;
+          nivel?: string;
+          nome: string;
+          objetivo?: string;
+          user_agent?: string;
+          utm_campaign?: string;
+          utm_medium?: string;
+          utm_source?: string;
+          whatsapp: string;
+        };
+        Returns: undefined;
       };
       teaches_anywhere: { Args: Record<PropertyKey, never>; Returns: boolean };
     };
