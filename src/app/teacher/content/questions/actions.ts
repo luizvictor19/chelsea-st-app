@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 
 import { requireTeacher } from "@/lib/content/queries";
+import type { ImageChoice } from "@/lib/questions/question-image";
+import { approvedPicture } from "@/lib/questions/shown-word";
 
 import {
   EDITED_ELSEWHERE,
@@ -10,10 +12,13 @@ import {
   deleteError,
   failureMessage,
   parseFields,
+  publishRefusal,
   questionError,
   questionRow,
   refusal,
   stillLoaded,
+  type PictureOf,
+  type QuestionFields,
 } from "./draft";
 
 /** What every action on this screen answers with. */
@@ -28,6 +33,67 @@ function failure(cause: unknown): QuestionResult {
   return { ok: false, error: failureMessage(cause) };
 }
 
+type Client = Awaited<ReturnType<typeof requireTeacher>>["supabase"];
+
+/**
+ * The approved picture of the word or the scene `image` names, read from
+ * its row as the screen reads it: a word's through approvedPicture (a kind
+ * that is drawn, and image_path), a scene's image_path while it is in use.
+ * A lookup that knows only that one item; anything else has no picture.
+ * A failed read throws, and the action says it.
+ */
+async function storedPictureOf(
+  supabase: Client,
+  image: ImageChoice,
+): Promise<PictureOf> {
+  if ((image.kind !== "word" && image.kind !== "scene") || image.id === null) {
+    return () => null;
+  }
+  let picture: string | null;
+  if (image.kind === "word") {
+    const { data, error } = await supabase
+      .from("vocabulary_items")
+      .select("representation, image_path")
+      .eq("id", image.id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    picture =
+      data === null
+        ? null
+        : approvedPicture({
+            representation: data.representation,
+            imageUrl: data.image_path,
+          });
+  } else {
+    const { data, error } = await supabase
+      .from("scenes")
+      .select("image_path")
+      .eq("id", image.id)
+      .is("archived_at", null)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    picture = data?.image_path ?? null;
+  }
+  const { kind, id } = image;
+  return (asked, askedId) =>
+    asked === kind && askedId === id ? picture : null;
+}
+
+/**
+ * Why `fields` cannot be written published (publishRefusal), with the
+ * picture read from the database and not taken from the screen. Reads only
+ * when there is something to read: a draft, or one acted out, needs none.
+ */
+async function storedPublishRefusal(
+  supabase: Client,
+  fields: QuestionFields,
+): Promise<string | null> {
+  const pictureOf = fields.isPublished
+    ? await storedPictureOf(supabase, fields.image)
+    : () => null;
+  return publishRefusal(fields, pictureOf);
+}
+
 /**
  * Adds a question at the end of its point.
  *
@@ -35,6 +101,9 @@ function failure(cause: unknown): QuestionResult {
  * taken from the screen. Two tabs adding at once can still read the same
  * number; the second insert is then refused by the unique on (point_id,
  * position) and says so, with the form left as it was.
+ *
+ * Published, it is only written showing a picture or acted out
+ * (storedPublishRefusal), as is an edit saved published.
  */
 export async function addQuestion(
   pointId: string,
@@ -46,7 +115,8 @@ export async function addQuestion(
     if (typeof pointId !== "string" || parsed === null) {
       return { ok: false, error: UNREADABLE };
     }
-    const why = refusal(parsed);
+    const why =
+      refusal(parsed) ?? (await storedPublishRefusal(supabase, parsed));
     if (why !== null) return { ok: false, error: why };
     const row = questionRow(cleaned(parsed));
     // refusal has turned away every fields questionRow cannot write.
@@ -98,7 +168,8 @@ export async function saveQuestion(
     if (typeof questionId !== "string" || before === null || parsed === null) {
       return { ok: false, error: UNREADABLE };
     }
-    const why = refusal(parsed);
+    const why =
+      refusal(parsed) ?? (await storedPublishRefusal(supabase, parsed));
     if (why !== null) return { ok: false, error: why };
     const row = questionRow(cleaned(parsed));
     const matches = stillLoaded(before);
