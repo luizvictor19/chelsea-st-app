@@ -3,6 +3,7 @@ import type { Database } from "@/lib/supabase/types";
 
 import { everyRow } from "./every-row";
 import type { SetRow } from "./point-words";
+import { imageOfColumns, type ImageChoice } from "./question-image";
 import type { PicturedWord } from "./shown-word";
 import type { UsageQuestion } from "./word-usage";
 
@@ -37,8 +38,15 @@ export type Question = {
   readonly expectedAnswer: string;
   readonly answerLanguage: AnswerLanguage;
   readonly isPublished: boolean;
-  /** The word whose picture the lesson shows with it (0028), or null. */
-  readonly shownWordId: string | null;
+  /** What the lesson shows with it (0030): see question-image.ts. */
+  readonly image: ImageChoice;
+};
+
+/** A scene a question may show, with its approved picture or null. */
+export type ScreenScene = {
+  readonly id: string;
+  readonly description: string;
+  readonly imageUrl: string | null;
 };
 
 /** A vocabulary item with what the screen shows and counts it by. */
@@ -75,6 +83,12 @@ export type QuestionsScreen = {
   readonly bookQuestions: readonly UsageQuestion[];
   /** Every point of the lesson's book, in order: which lesson holds which. */
   readonly bookPoints: readonly BookPoint[];
+  /**
+   * The common scenes in use, by description: the ones a question here may
+   * show. A common question cannot show a school's scene (questions_school)
+   * nor an excluded one (questions_scene_in_use, 0034).
+   */
+  readonly scenes: readonly ScreenScene[];
 };
 
 /**
@@ -94,10 +108,19 @@ export async function loadQuestionsScreen(asked: {
   // The two the validator reads go through everyRow: a short answer there is
   // a word marked for no reason. Each is ordered by its key, so the pages of
   // one read never overlap.
-  const [lessonRows, wordRows, sets] = await Promise.all([
+  const [lessonRows, sceneRows, wordRows, sets] = await Promise.all([
     supabase
       .from("lessons_content")
       .select("id, number, books!inner(id, position, title)"),
+    // One request and not everyRow: a short answer only leaves a scene out
+    // of the choice, and a question that shows one left out still says so,
+    // off the list (image-choice.tsx).
+    supabase
+      .from("scenes")
+      .select("id, description, image_path")
+      .is("school_id", null)
+      .is("archived_at", null)
+      .order("description"),
     everyRow(async (from) => {
       const { data, count, error } = await supabase
         .from("vocabulary_items")
@@ -121,6 +144,15 @@ export async function loadQuestionsScreen(asked: {
     }),
   ]);
   if (lessonRows.error) throw new Error(lessonRows.error.message);
+  if (sceneRows.error) throw new Error(sceneRows.error.message);
+
+  // image_path is the approved picture and nothing else
+  // (scenes_approved_pair, 0030).
+  const scenes = sceneRows.data.map((row) => ({
+    id: row.id,
+    description: row.description,
+    imageUrl: publicImageUrl(supabase, row.image_path),
+  }));
 
   // Sorted here and not in the query, for the reason listVocabularyImages
   // gives: the key is one level down, in the book.
@@ -160,6 +192,7 @@ export async function loadQuestionsScreen(asked: {
       sets,
       bookQuestions: [],
       bookPoints: [],
+      scenes,
     };
   }
 
@@ -202,7 +235,7 @@ export async function loadQuestionsScreen(asked: {
   const questionRows = await supabase
     .from("questions")
     .select(
-      "id, point_id, position, prompt, expected_answer, answer_language, is_published, shown_vocabulary_item_id",
+      "id, point_id, position, prompt, expected_answer, answer_language, is_published, shown_vocabulary_item_id, scene_id, is_acted_out",
     )
     .in(
       "point_id",
@@ -223,7 +256,7 @@ export async function loadQuestionsScreen(asked: {
       expectedAnswer: row.expected_answer,
       answerLanguage: row.answer_language,
       isPublished: row.is_published,
-      shownWordId: row.shown_vocabulary_item_id,
+      image: imageOfColumns(row),
     })),
     words,
     sets,
@@ -237,5 +270,6 @@ export async function loadQuestionsScreen(asked: {
       number: row.number,
       lesson: row.lessons_content?.number ?? null,
     })),
+    scenes,
   };
 }

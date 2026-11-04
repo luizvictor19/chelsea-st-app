@@ -30,6 +30,7 @@ export default async function QuestionsPage({
     sets,
     bookQuestions,
     bookPoints,
+    scenes,
   } = await loadQuestionsScreen({
     book: numberOf(params.livro),
     lesson: numberOf(params.licao),
@@ -117,6 +118,7 @@ export default async function QuestionsPage({
             sets={sets}
             bookQuestions={bookQuestions}
             bookPoints={bookPoints}
+            scenes={scenes}
           />
         </div>
       )}

@@ -1,5 +1,15 @@
 import type { AnswerLanguage } from "@/lib/questions/queries";
 
+// Relative, with the extension: a value import, and draft.test.ts runs under
+// node, which resolves neither the @/ alias nor a missing extension.
+import {
+  NO_IMAGE,
+  imageColumns,
+  sameImage,
+  type ImageChoice,
+  type ImageColumns,
+} from "../../../../lib/questions/question-image.ts";
+
 /**
  * A question as the form holds it, and the rules the form follows. Pure, so
  * the rules are tested here and the component only draws them.
@@ -9,17 +19,17 @@ export type QuestionFields = {
   readonly expectedAnswer: string;
   readonly answerLanguage: AnswerLanguage;
   readonly isPublished: boolean;
-  /** The word whose picture the lesson shows with it (0028), or null. */
-  readonly shownWordId: string | null;
+  /** What the lesson shows with it: see question-image.ts. */
+  readonly image: ImageChoice;
 };
 
-/** What a new question starts as: English, unpublished, showing no word. */
+/** What a new question starts as: English, unpublished, no image decided. */
 export const EMPTY: QuestionFields = {
   prompt: "",
   expectedAnswer: "",
   answerLanguage: "en",
   isPublished: false,
-  shownWordId: null,
+  image: NO_IMAGE,
 };
 
 /** The two languages an answer can be in, as the screen names them. */
@@ -45,7 +55,73 @@ export function cleaned(fields: QuestionFields): QuestionFields {
 export function refusal(fields: QuestionFields): string | null {
   if (fields.prompt.trim() === "") return "Escreva a pergunta";
   if (fields.expectedAnswer.trim() === "") return "Escreva a resposta esperada";
+  if (fields.image.kind === "word" && fields.image.id === null) {
+    return "Escolha a palavra mostrada";
+  }
+  if (fields.image.kind === "scene" && fields.image.id === null) {
+    return "Escolha a cena";
+  }
   return null;
+}
+
+/** The columns of questions an add or a save writes, the image's three among them. */
+export type QuestionRow = {
+  readonly prompt: string;
+  readonly expected_answer: string;
+  readonly answer_language: AnswerLanguage;
+  readonly is_published: boolean;
+} & ImageColumns;
+
+/**
+ * The fields as the row a write sets, or null for a word or a scene chosen
+ * with no item. Every column, always: see imageColumns.
+ */
+export function questionRow(fields: QuestionFields): QuestionRow | null {
+  const image = imageColumns(fields.image);
+  if (image === null) return null;
+  return {
+    prompt: fields.prompt,
+    expected_answer: fields.expectedAnswer,
+    answer_language: fields.answerLanguage,
+    is_published: fields.isPublished,
+    ...image,
+  };
+}
+
+/** One condition of the update's filter. */
+export type Match =
+  | {
+      readonly column: keyof QuestionRow;
+      readonly op: "eq";
+      readonly value: string | boolean;
+    }
+  | {
+      readonly column: keyof QuestionRow;
+      readonly op: "is";
+      readonly value: null;
+    };
+
+/**
+ * What a save checks the row still holds before it writes: every column it
+ * writes, as the form opened on them. Built from questionRow, so a column
+ * the save starts writing is checked by the same change: one written and
+ * not checked would let a save from an old view undo, in silence, an edit
+ * made in another tab since.
+ *
+ * Null is matched with `is`: `eq` against null compares with = and matches
+ * no row, which would refuse every edit of a question with that column
+ * empty. Null for a `loaded` that names a kind with no item, which no row
+ * can hold.
+ */
+export function stillLoaded(loaded: QuestionFields): readonly Match[] | null {
+  const row = questionRow(loaded);
+  if (row === null) return null;
+  return (Object.keys(row) as (keyof QuestionRow)[]).map((column) => {
+    const value = row[column];
+    return value === null
+      ? { column, op: "is", value: null }
+      : { column, op: "eq", value };
+  });
 }
 
 /**
@@ -60,8 +136,50 @@ export function isDirty(draft: QuestionFields, saved: QuestionFields): boolean {
     a.expectedAnswer !== b.expectedAnswer ||
     a.answerLanguage !== b.answerLanguage ||
     a.isPublished !== b.isPublished ||
-    a.shownWordId !== b.shownWordId
+    !sameImage(a.image, b.image)
   );
+}
+
+/**
+ * The approved picture of a word or a scene as the screen read it, or null
+ * when it has none. A lookup and not a list, so the rules below need no
+ * more of the screen than this.
+ */
+export type PictureOf = (kind: "word" | "scene", id: string) => string | null;
+
+/**
+ * Whether the lesson card of these fields opens with no picture: nothing
+ * decided, acted out, or a word or a scene with no approved picture now. A
+ * word that lost its picture counts: in the lesson it already falls back to
+ * the neutral card.
+ */
+export function isWithoutImage(
+  fields: QuestionFields,
+  pictureOf: PictureOf,
+): boolean {
+  const { image } = fields;
+  if (image.kind === "none" || image.kind === "acted") return true;
+  return image.id === null || pictureOf(image.kind, image.id) === null;
+}
+
+/**
+ * Whether the save asks first: Robin needs a picture for every question
+ * a student practises, so publishing one without is said before it is
+ * written.
+ *
+ * Only when the save leaves the question published with no picture and
+ * that was not already the case with the same choice: a question confirmed
+ * published without one is not asked about again for a comma, since asking
+ * every time teaches to click without reading. A new question's form opens
+ * on EMPTY, which is not published, so a new one is always asked about.
+ */
+export function needsImageWarning(
+  draft: QuestionFields,
+  loaded: QuestionFields,
+  pictureOf: PictureOf,
+): boolean {
+  if (!draft.isPublished || !isWithoutImage(draft, pictureOf)) return false;
+  return !(loaded.isPublished && sameImage(draft.image, loaded.image));
 }
 
 const ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
@@ -78,7 +196,7 @@ function isId(value: unknown): value is string {
  */
 export function parseFields(value: unknown): QuestionFields | null {
   if (typeof value !== "object" || value === null) return null;
-  const { prompt, expectedAnswer, answerLanguage, isPublished, shownWordId } =
+  const { prompt, expectedAnswer, answerLanguage, isPublished, image } =
     value as Record<string, unknown>;
   if (typeof prompt !== "string" || typeof expectedAnswer !== "string") {
     return null;
@@ -86,10 +204,26 @@ export function parseFields(value: unknown): QuestionFields | null {
   if (!isAnswerLanguage(answerLanguage) || typeof isPublished !== "boolean") {
     return null;
   }
-  // An id or null, and nothing in between: undefined would be left out of
-  // the write and keep whatever the row held, in silence.
-  if (shownWordId !== null && !isId(shownWordId)) return null;
-  return { prompt, expectedAnswer, answerLanguage, isPublished, shownWordId };
+  const choice = parseImage(image);
+  if (choice === null) return null;
+  return { prompt, expectedAnswer, answerLanguage, isPublished, image: choice };
+}
+
+/**
+ * One of the four kinds, rebuilt from its parts so nothing else rides along.
+ * A missing image is refused, not read as "keep what the row had": the write
+ * always sets all three columns (imageColumns), and the check before it
+ * compares all three.
+ */
+function parseImage(value: unknown): ImageChoice | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { kind, id } = value as Record<string, unknown>;
+  if (kind === "none") return NO_IMAGE;
+  if (kind === "acted") return { kind: "acted" };
+  if (kind !== "word" && kind !== "scene") return null;
+  // An id or null, and nothing in between: undefined is not "no item".
+  if (id !== null && !isId(id)) return null;
+  return { kind, id };
 }
 
 /**
@@ -108,6 +242,18 @@ const FOREIGN_KEY_VIOLATION = "23503";
 /** The reference from a question to the word it shows (0028). */
 const SHOWN_WORD_KEY = "questions_shown_vocabulary_item_id_fkey";
 
+/** The reference from a question to the scene it shows (0030). */
+const SCENE_KEY = "questions_scene_id_fkey";
+
+/** Both checks below raise check_violation. */
+const CHECK_VIOLATION = "23514";
+
+/** questions_scene_in_use's message (0034): the scene was excluded. */
+const ARCHIVED_SCENE = /scene .* is archived and cannot be shown/;
+
+/** At most one of word, scene and acted out (0030). */
+const ONE_IMAGE = "questions_one_image";
+
 export const CHANGED_ELSEWHERE =
   "As perguntas deste ponto mudaram em outro lugar depois que a página carregou, e nada foi gravado. Recarregue a página";
 
@@ -124,7 +270,16 @@ export function questionError(message: string, code?: string): string {
     return CHANGED_ELSEWHERE;
   }
   if (code === FOREIGN_KEY_VIOLATION && message.includes(SHOWN_WORD_KEY)) {
-    return "A palavra escolhida em Palavra mostrada não existe mais, e nada foi gravado. Recarregue a página";
+    return "A palavra escolhida em Imagem da pergunta não existe mais, e nada foi gravado. Recarregue a página";
+  }
+  if (code === FOREIGN_KEY_VIOLATION && message.includes(SCENE_KEY)) {
+    return "A cena escolhida não existe mais, e nada foi gravado. Recarregue a página";
+  }
+  if (code === CHECK_VIOLATION && ARCHIVED_SCENE.test(message)) {
+    return "A cena escolhida foi excluída na tela de imagens, e nada foi gravado. Escolha outra cena";
+  }
+  if (code === CHECK_VIOLATION && message.includes(ONE_IMAGE)) {
+    return "Uma pergunta mostra só uma imagem: a palavra, a cena ou encenar. Nada foi gravado. Recarregue a página";
   }
   if (/question .* not found/.test(message)) {
     return "Esta pergunta não existe mais. Recarregue a página";

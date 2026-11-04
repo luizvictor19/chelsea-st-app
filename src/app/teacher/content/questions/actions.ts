@@ -11,7 +11,9 @@ import {
   failureMessage,
   parseFields,
   questionError,
+  questionRow,
   refusal,
+  stillLoaded,
 } from "./draft";
 
 /** What every action on this screen answers with. */
@@ -46,7 +48,9 @@ export async function addQuestion(
     }
     const why = refusal(parsed);
     if (why !== null) return { ok: false, error: why };
-    const question = cleaned(parsed);
+    const row = questionRow(cleaned(parsed));
+    // refusal has turned away every fields questionRow cannot write.
+    if (row === null) return { ok: false, error: UNREADABLE };
 
     const last = await supabase
       .from("questions")
@@ -59,11 +63,7 @@ export async function addQuestion(
     const { error } = await supabase.from("questions").insert({
       point_id: pointId,
       position: (last.data.at(0)?.position ?? -1) + 1,
-      prompt: question.prompt,
-      expected_answer: question.expectedAnswer,
-      answer_language: question.answerLanguage,
-      is_published: question.isPublished,
-      shown_vocabulary_item_id: question.shownWordId,
+      ...row,
     });
     if (error) {
       return { ok: false, error: questionError(error.message, error.code) };
@@ -78,10 +78,12 @@ export async function addQuestion(
 /**
  * Saves an edit, if the question is still what the form opened on.
  *
- * `loaded` is the fields as the screen read them, the word shown among them. The update only
- * matches a row that still holds them, so an edit made from an old view does
- * not silently undo one saved in another tab since: it matches nothing, and
- * the teacher is told to reload with the draft still on screen. A question
+ * `loaded` is the fields as the screen read them. The update only matches a
+ * row that still holds every column it writes, as they were loaded
+ * (stillLoaded): the text, the publish box and the three columns of the
+ * image. So an edit made from an old view does not silently undo one saved
+ * in another tab since, the image included: it matches nothing, and the
+ * teacher is told to reload with the draft still on screen. A question
  * deleted meanwhile is the same case and gets the same sentence.
  */
 export async function saveQuestion(
@@ -98,30 +100,21 @@ export async function saveQuestion(
     }
     const why = refusal(parsed);
     if (why !== null) return { ok: false, error: why };
-    const question = cleaned(parsed);
+    const row = questionRow(cleaned(parsed));
+    const matches = stillLoaded(before);
+    // refusal has turned away the first; a row never holds the second.
+    if (row === null || matches === null) {
+      return { ok: false, error: UNREADABLE };
+    }
 
-    const stillLoaded = supabase
-      .from("questions")
-      .update({
-        prompt: question.prompt,
-        expected_answer: question.expectedAnswer,
-        answer_language: question.answerLanguage,
-        is_published: question.isPublished,
-        shown_vocabulary_item_id: question.shownWordId,
-      })
-      .eq("id", questionId)
-      .eq("prompt", before.prompt)
-      .eq("expected_answer", before.expectedAnswer)
-      .eq("answer_language", before.answerLanguage)
-      .eq("is_published", before.isPublished);
-    // Null is matched with `is`: `eq` against null compares with = and
-    // matches no row, which would refuse every edit of a question that shows
-    // no word.
-    const { data, error } = await (
-      before.shownWordId === null
-        ? stillLoaded.is("shown_vocabulary_item_id", null)
-        : stillLoaded.eq("shown_vocabulary_item_id", before.shownWordId)
-    ).select("id");
+    let update = supabase.from("questions").update(row).eq("id", questionId);
+    for (const match of matches) {
+      update =
+        match.op === "is"
+          ? update.is(match.column, null)
+          : update.eq(match.column, match.value);
+    }
+    const { data, error } = await update.select("id");
     if (error) {
       return { ok: false, error: questionError(error.message, error.code) };
     }
