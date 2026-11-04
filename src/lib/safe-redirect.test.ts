@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { safeNextUrl } from "./safe-redirect.ts";
+import { safeNextPath, safeNextUrl } from "./safe-redirect.ts";
 
 const ORIGIN = "https://app.chelsea.example";
 
@@ -84,5 +84,80 @@ describe("safeNextUrl", () => {
     assert.equal(safeNextUrl(null, ORIGIN).href, `${ORIGIN}/`);
     assert.equal(safeNextUrl("", ORIGIN).href, `${ORIGIN}/`);
     assert.equal(safeNextUrl("http://[", ORIGIN).href, `${ORIGIN}/`);
+  });
+});
+
+/*
+ * #102. Outside Vercel, Next builds the request URL from the server's
+ * hostname, not from the Host header, so a link opened at 127.0.0.1 arrives
+ * with nextUrl.origin saying localhost. An absolute redirect built on that
+ * origin sent the browser to another host, where the session cookie just set
+ * did not exist.
+ *
+ * safeNextPath returns a path for a relative Location, which the browser
+ * resolves against the address the link was opened at. Each test resolves
+ * the result the way the browser does, against LINK, and checks the host.
+ */
+const NEXT_SAYS = "http://localhost:3000";
+const LINK = "http://127.0.0.1:3000/auth/callback?token_hash=x&type=email";
+const LINK_ORIGIN = new URL(LINK).origin;
+
+/** Where the browser lands, given the Location the route sent. */
+function landing(location: string): URL {
+  return new URL(location, LINK);
+}
+
+describe("safeNextPath", () => {
+  test("a link opened at 127.0.0.1 lands on 127.0.0.1, whatever Next calls the origin", () => {
+    const result = landing(safeNextPath("/teacher", NEXT_SAYS));
+    assert.equal(result.origin, LINK_ORIGIN);
+    assert.equal(result.pathname, "/teacher");
+  });
+
+  test("no entry of the hostile list leaves the host the link was opened at", () => {
+    for (const raw of HOSTILE) {
+      for (const origin of [ORIGIN, NEXT_SAYS]) {
+        const location = safeNextPath(raw, origin);
+        assert.equal(
+          landing(location).origin,
+          LINK_ORIGIN,
+          `${JSON.stringify(raw)} on ${origin} escaped through ${JSON.stringify(location)}`,
+        );
+      }
+    }
+  });
+
+  /*
+   * safeNextUrl keeps "/..//evil.com" as our host with the path "//evil.com".
+   * As a relative Location that path is a scheme-relative URL, another host,
+   * so the path is refused and the root is the answer.
+   */
+  test('"/..//evil.com" goes to the root', () => {
+    assert.equal(safeNextPath("/..//evil.com", ORIGIN), "/");
+  });
+
+  test("never returns a Location that starts with two slashes or a backslash", () => {
+    for (const raw of HOSTILE) {
+      const location = safeNextPath(raw, ORIGIN);
+      assert.match(location, /^\/(?![/\\])/, JSON.stringify(raw));
+    }
+  });
+
+  test("keeps the search and the hash", () => {
+    assert.equal(
+      safeNextPath("/dashboard?from=email#top", ORIGIN),
+      "/dashboard?from=email#top",
+    );
+    assert.equal(safeNextPath("/set-password", ORIGIN), "/set-password");
+  });
+
+  test("an absolute URL on the origin Next names becomes its path", () => {
+    assert.equal(safeNextPath(`${ORIGIN}/teacher`, ORIGIN), "/teacher");
+  });
+
+  test("missing, empty or unparseable input goes to the root", () => {
+    assert.equal(safeNextPath(null, ORIGIN), "/");
+    assert.equal(safeNextPath("", ORIGIN), "/");
+    assert.equal(safeNextPath("http://[", ORIGIN), "/");
   });
 });
