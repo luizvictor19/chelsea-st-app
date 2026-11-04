@@ -2456,3 +2456,131 @@ begin
   raise notice 'where she stopped: a common or own point only, and a marked point stays';
 end;
 $$;
+
+-- A lead waits for a call (0036) --------------------------------------------------------
+--
+-- The checks refuse what the site's form must never write, each by its own
+-- name, and accept the limits themselves. The privileges are asserted as
+-- privileges: anon and authenticated reach nothing, the service role selects
+-- and inserts. Rows are written as the owner, since checks hold for everyone.
+--
+-- One well formed lead, with any column replaced by a named argument.
+create function verify.lead_insert(
+  p_nome text default 'Ana Souza',
+  p_whatsapp text default '11987654321',
+  p_objetivo text default 'trabalho',
+  p_nivel text default 'basico',
+  p_interesse text default 'trial',
+  p_utm_source text default null,
+  p_utm_medium text default null,
+  p_utm_campaign text default null,
+  p_codigo_origem text default null,
+  p_user_agent text default null
+) returns text
+language sql as $$
+  select format(
+    'insert into public.leads (nome, whatsapp, objetivo, nivel, interesse, utm_source, utm_medium, utm_campaign, codigo_origem, user_agent) values (%L, %L, %L, %L, %L, %L, %L, %L, %L, %L)',
+    p_nome, p_whatsapp, p_objetivo, p_nivel, p_interesse,
+    p_utm_source, p_utm_medium, p_utm_campaign, p_codigo_origem, p_user_agent);
+$$;
+
+-- A statement that has to go in; a refusal is recorded with what refused it.
+create function verify.expect_accepted(p_what text, p_sql text)
+returns void
+language plpgsql as $$
+declare
+  v_by text := verify.refusal(p_sql);
+begin
+  if v_by is not null then
+    insert into verify.failures values (format('%s: refused with %s', p_what, v_by));
+  else
+    raise notice '%: accepted', p_what;
+  end if;
+end;
+$$;
+
+do $$
+declare
+  v_failures text;
+  v_role text;
+  v_privilege text;
+begin
+  delete from verify.failures;
+
+  -- The name: 2 to 80 characters, the spaces at either end not counted.
+  perform verify.expect_refused('a lead named with 1 character', 'leads_nome_length',
+    verify.lead_insert(p_nome => 'A'));
+  perform verify.expect_refused('a lead named with 81 characters', 'leads_nome_length',
+    verify.lead_insert(p_nome => repeat('a', 81)));
+  perform verify.expect_refused('a lead named with spaces only', 'leads_nome_length',
+    verify.lead_insert(p_nome => '     '));
+  perform verify.expect_accepted('a lead named with 2 characters',
+    verify.lead_insert(p_nome => 'Al'));
+  perform verify.expect_accepted('a lead named with 80 characters',
+    verify.lead_insert(p_nome => repeat('a', 80)));
+
+  -- The number: 10 to 13 digits and nothing else.
+  perform verify.expect_refused('a whatsapp of 9 digits', 'leads_whatsapp_digits',
+    verify.lead_insert(p_whatsapp => '119876543'));
+  perform verify.expect_refused('a whatsapp of 14 digits', 'leads_whatsapp_digits',
+    verify.lead_insert(p_whatsapp => '55119876543210'));
+  perform verify.expect_refused('a whatsapp with a plus sign', 'leads_whatsapp_digits',
+    verify.lead_insert(p_whatsapp => '+5511987654321'));
+  perform verify.expect_refused('a whatsapp with a mask', 'leads_whatsapp_digits',
+    verify.lead_insert(p_whatsapp => '(11) 98765-4321'));
+  perform verify.expect_accepted('a whatsapp of 10 digits',
+    verify.lead_insert(p_whatsapp => '1133334444'));
+  perform verify.expect_accepted('a whatsapp of 13 digits',
+    verify.lead_insert(p_whatsapp => '5511987654321'));
+
+  -- The answers: only the listed values; objetivo and nivel may be left out,
+  -- interesse may not.
+  perform verify.expect_refused('an objetivo off the list', 'leads_objetivo_known',
+    verify.lead_insert(p_objetivo => 'estudo'));
+  perform verify.expect_refused('a nivel off the list', 'leads_nivel_known',
+    verify.lead_insert(p_nivel => 'avancado'));
+  perform verify.expect_refused('an interesse off the list', 'leads_interesse_known',
+    verify.lead_insert(p_interesse => 'curso'));
+  perform verify.expect_refusal('a lead with no interesse', '23502 interesse',
+    verify.lead_insert(p_interesse => null));
+  perform verify.expect_accepted('a lead with no objetivo and no nivel',
+    verify.lead_insert(p_objetivo => null, p_nivel => null));
+
+  -- The tracking: 200 characters at most, 512 for the User-Agent.
+  perform verify.expect_refused('a utm_source of 201 characters', 'leads_utm_source_length',
+    verify.lead_insert(p_utm_source => repeat('s', 201)));
+  perform verify.expect_refused('a utm_medium of 201 characters', 'leads_utm_medium_length',
+    verify.lead_insert(p_utm_medium => repeat('m', 201)));
+  perform verify.expect_refused('a utm_campaign of 201 characters', 'leads_utm_campaign_length',
+    verify.lead_insert(p_utm_campaign => repeat('c', 201)));
+  perform verify.expect_refused('a codigo_origem of 201 characters', 'leads_codigo_origem_length',
+    verify.lead_insert(p_codigo_origem => repeat('o', 201)));
+  perform verify.expect_refused('a user_agent of 513 characters', 'leads_user_agent_length',
+    verify.lead_insert(p_user_agent => repeat('u', 513)));
+  perform verify.expect_accepted('a lead with every tracking column at its limit',
+    verify.lead_insert(p_utm_source => repeat('s', 200), p_utm_medium => repeat('m', 200),
+                       p_utm_campaign => repeat('c', 200), p_codigo_origem => repeat('o', 200),
+                       p_user_agent => repeat('u', 512)));
+
+  -- The privileges.
+  foreach v_role in array array['anon', 'authenticated'] loop
+    foreach v_privilege in array array['select', 'insert', 'update', 'delete'] loop
+      if has_table_privilege(v_role, 'public.leads', v_privilege) then
+        insert into verify.failures values (format('%s has %s on leads', v_role, v_privilege));
+      end if;
+    end loop;
+  end loop;
+  foreach v_privilege in array array['select', 'insert'] loop
+    if not has_table_privilege('service_role', 'public.leads', v_privilege) then
+      insert into verify.failures values (format('service_role lacks %s on leads', v_privilege));
+    end if;
+  end loop;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'leads: %', v_failures;
+  end if;
+
+  raise notice 'leads: every check refuses by name and accepts its limits; only service_role selects and inserts';
+end;
+$$;
