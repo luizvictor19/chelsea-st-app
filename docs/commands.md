@@ -55,8 +55,8 @@ Settings > Environment Variables, by name only (values live in Vercel and in `.e
     Preview      NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
                  NEXT_PUBLIC_TEACHER_CONTACT_EMAIL
 
-`OPENAI_API_KEY` and `DEEPGRAM_API_KEY` are read only by the measurement scripts, never by the
-app: they stay out of Vercel.
+`OPENAI_API_KEY`, `DEEPGRAM_API_KEY` and `ANTHROPIC_API_KEY` are read only by the measurement
+scripts, never by the app: they stay out of Vercel.
 
 Settings > Deployment Protection: Vercel Authentication on for previews (the default).
 
