@@ -351,9 +351,9 @@ export function ImageChoiceField({
             <div className="border-warning/60 flex flex-col gap-1 rounded-sm border border-dashed p-3 text-sm">
               <p>
                 <span className="font-semibold">Próximo passo.</span> Esta cena
-                ainda não tem imagem. Salve a pergunta, depois faça e aprove a
-                imagem em Imagens › Cenas. Na aula, a pergunta mostra a imagem
-                aprovada.
+                ainda não tem imagem. Faça e aprove a imagem em Imagens › Cenas:
+                até lá, a pergunta só pode ser salva com Publicada desmarcada.
+                Na aula, a pergunta mostra a imagem aprovada.
               </p>
               <p className="flex flex-wrap items-baseline gap-x-2">
                 <a
