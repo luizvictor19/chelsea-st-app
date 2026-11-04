@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requireTeacher } from "@/lib/content/queries";
 
 import type { AgendaLesson } from "./agenda";
+import { progressOf, type Mark, type Progress } from "./progress";
 
 type Supabase = Awaited<ReturnType<typeof requireTeacher>>["supabase"];
 
@@ -23,6 +24,7 @@ export type StudentRow = {
   readonly scheduleCount: number;
   readonly next: string | null;
   readonly last: string | null;
+  readonly progress: Progress | null;
 };
 
 export type Schedule = {
@@ -89,18 +91,45 @@ async function readUpcoming(
     }));
 }
 
+/** Every lesson with "Parei aqui" marked, of any status, by student. */
+async function readMarks(
+  supabase: Supabase,
+): Promise<(Mark & { studentId: string })[]> {
+  const { data, error } = await supabase
+    .from("lessons")
+    .select(
+      "student_id, scheduled_at, points!lessons_stopped_at_point_fkey(number, books!inner(position, last_point))",
+    )
+    .not("stopped_at_point_id", "is", null);
+  if (error) throw new Error(error.message);
+  return data.flatMap((row) =>
+    row.points === null
+      ? []
+      : [
+          {
+            studentId: row.student_id,
+            scheduledAt: row.scheduled_at,
+            book: row.points.books.position,
+            point: row.points.number,
+            lastPoint: row.points.books.last_point,
+          },
+        ],
+  );
+}
+
 /** Every active student the reader teaches, by name. RLS decides which. */
 export async function listStudents(
   supabase: Supabase,
   now: Date,
 ): Promise<StudentRow[]> {
-  const [students, schedules, upcoming] = await Promise.all([
+  const [students, schedules, upcoming, marks] = await Promise.all([
     supabase
       .from("students")
       .select("id, meet_url, profiles!inner(full_name)")
       .eq("is_active", true),
     supabase.from("lesson_schedules").select("student_id"),
     readUpcoming(supabase, now, null),
+    readMarks(supabase),
   ]);
   if (students.error) throw new Error(students.error.message);
   if (schedules.error) throw new Error(schedules.error.message);
@@ -117,6 +146,9 @@ export async function listStudents(
         ).length,
         next: own.at(0)?.scheduledAt ?? null,
         last: own.at(-1)?.scheduledAt ?? null,
+        progress: progressOf(
+          marks.filter((row) => row.studentId === student.id),
+        ),
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
