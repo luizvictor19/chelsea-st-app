@@ -12,6 +12,7 @@ import {
 import type { ScreenScene } from "@/lib/questions/queries";
 import type { PicturedWord, ShownWordOption } from "@/lib/questions/shown-word";
 
+import { sceneHref } from "../images/filters";
 import { settle } from "../images/panel-state";
 import { createScene } from "../images/scene-actions";
 
@@ -70,6 +71,10 @@ function ShownWordChoice({
  * A scene can be created here. Creating links nothing: the question shows it
  * once the form is saved. Until the screen's props bring the new scene, it
  * is shown from what was kept when it was made.
+ *
+ * A chosen scene without an approved picture gets a next step, with a link
+ * to its panel on the images screen. The link opens another tab, so the
+ * draft here never leaves the screen.
  */
 export function ImageChoiceField({
   id,
@@ -144,7 +149,9 @@ export function ImageChoiceField({
         { id: result.id, description: text, imageUrl: null },
       ]);
       chooseScene(result.id);
-      setTyped(null);
+      // Empty, not back to the suggestion: the suggestion is the scene just
+      // made, and leaving it there invites a second tap on Criar cena.
+      setTyped("");
       tell(sceneCreated(at.point));
       return;
     }
@@ -158,7 +165,7 @@ export function ImageChoiceField({
         ]);
       }
       chooseScene(existingId);
-      setTyped(null);
+      setTyped("");
       tell(sceneFound(at.point));
       return;
     }
@@ -178,6 +185,10 @@ export function ImageChoiceField({
     !shownWords.some((option) => option.id === image.id)
       ? image.id
       : null;
+  const chosenScene =
+    image.kind === "scene"
+      ? offered.find((scene) => scene.id === image.id)
+      : undefined;
   const sceneOffList =
     image.kind === "scene" &&
     image.id !== null &&
@@ -291,33 +302,70 @@ export function ImageChoiceField({
                 </ShownWordChoice>
               )}
               {offered.map((scene) => (
-                <ShownWordChoice
+                <div
                   key={scene.id}
-                  name={`${id}-cena`}
-                  checked={image.id === scene.id}
-                  onChoose={() => chooseScene(scene.id)}
+                  className="flex flex-col items-center gap-1"
                 >
-                  {scene.imageUrl === null ? (
-                    <span className="text-warning border-rule flex size-12 items-center justify-center rounded-sm border border-dashed text-center text-[10px] leading-tight">
-                      sem imagem
-                    </span>
-                  ) : (
-                    <Image
-                      src={scene.imageUrl}
-                      alt=""
-                      width={48}
-                      height={48}
-                      className="size-12 rounded-sm object-cover"
-                    />
-                  )}
-                  <span
-                    className="max-w-28 truncate text-xs"
-                    title={scene.description}
+                  <ShownWordChoice
+                    name={`${id}-cena`}
+                    checked={image.id === scene.id}
+                    onChoose={() => chooseScene(scene.id)}
                   >
-                    {scene.description}
-                  </span>
-                </ShownWordChoice>
+                    {scene.imageUrl === null ? (
+                      <span className="text-warning border-rule flex size-12 items-center justify-center rounded-sm border border-dashed text-center text-[10px] leading-tight">
+                        sem imagem
+                      </span>
+                    ) : (
+                      <Image
+                        src={scene.imageUrl}
+                        alt=""
+                        width={48}
+                        height={48}
+                        className="size-12 rounded-sm object-cover"
+                      />
+                    )}
+                    <span
+                      className="max-w-28 truncate text-xs"
+                      title={scene.description}
+                    >
+                      {scene.description}
+                    </span>
+                  </ShownWordChoice>
+                  {/* Outside the label, so a tap here does not choose the scene. */}
+                  {scene.imageUrl === null && (
+                    <a
+                      href={sceneHref(scene.id)}
+                      target="_blank"
+                      rel="noopener"
+                      aria-label={`Fazer a imagem da cena ${scene.description} em Imagens, abre em outra aba`}
+                      className="text-faint hover:text-foreground text-xs underline underline-offset-2"
+                    >
+                      fazer imagem ↗
+                    </a>
+                  )}
+                </div>
               ))}
+            </div>
+          )}
+          {chosenScene !== undefined && chosenScene.imageUrl === null && (
+            <div className="border-warning/60 flex flex-col gap-1 rounded-sm border border-dashed p-3 text-sm">
+              <p>
+                <span className="font-semibold">Próximo passo.</span> Esta cena
+                ainda não tem imagem. Salve a pergunta, depois faça e aprove a
+                imagem em Imagens › Cenas. Na aula, a pergunta mostra a imagem
+                aprovada.
+              </p>
+              <p className="flex flex-wrap items-baseline gap-x-2">
+                <a
+                  href={sceneHref(chosenScene.id)}
+                  target="_blank"
+                  rel="noopener"
+                  className="font-semibold underline underline-offset-2"
+                >
+                  Fazer a imagem em Imagens ↗
+                </a>
+                <span className="text-faint text-xs">abre em outra aba</span>
+              </p>
             </div>
           )}
           <div className="flex flex-col gap-1">
