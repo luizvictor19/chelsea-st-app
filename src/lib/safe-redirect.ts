@@ -51,5 +51,17 @@ export function safeNextUrl(raw: string | null, origin: string): URL {
 export function safeNextPath(raw: string | null, origin: string): string {
   const url = safeNextUrl(raw, origin);
   const path = url.pathname + url.search + url.hash;
-  return /^\/[/\\]/.test(path) ? "/" : path;
+  return isSameHostPath(path) ? path : "/";
+}
+
+/**
+ * Whether a relative Location stays on the host the browser is on: one
+ * slash, then anything but a second slash or a backslash.
+ *
+ * The backslash cannot come out of safeNextUrl, whose parser turns it into a
+ * slash for http and https. It is refused anyway, because this is also the
+ * check a route makes on whatever it is about to send as a Location.
+ */
+export function isSameHostPath(location: string): boolean {
+  return /^\/(?![/\\])/.test(location);
 }

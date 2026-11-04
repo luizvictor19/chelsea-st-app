@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { safeNextPath, safeNextUrl } from "./safe-redirect.ts";
+import { isSameHostPath, safeNextPath, safeNextUrl } from "./safe-redirect.ts";
 
 const ORIGIN = "https://app.chelsea.example";
 
@@ -136,6 +136,32 @@ describe("safeNextPath", () => {
     assert.equal(safeNextPath("/..//evil.com", ORIGIN), "/");
   });
 
+  /*
+   * Dot segments and encodings that reach the path check rather than the
+   * origin check, beyond the one the hostile list has.
+   */
+  test("dot segments and encoded slashes stay on the host too", () => {
+    const tricks = [
+      "/.//evil.com",
+      "/a/..//evil.com",
+      "/x/../..//evil.com",
+      "/./\\evil.com",
+      "/..\\/evil.com",
+      "/%2F%2Fevil.com",
+      "/%5Cevil.com",
+      "/..%2F/evil.com",
+      "/\t/evil.com",
+    ];
+    for (const raw of tricks) {
+      const location = safeNextPath(raw, NEXT_SAYS);
+      assert.equal(
+        landing(location).origin,
+        LINK_ORIGIN,
+        `${JSON.stringify(raw)} escaped through ${JSON.stringify(location)}`,
+      );
+    }
+  });
+
   test("never returns a Location that starts with two slashes or a backslash", () => {
     for (const raw of HOSTILE) {
       const location = safeNextPath(raw, ORIGIN);
@@ -159,5 +185,28 @@ describe("safeNextPath", () => {
     assert.equal(safeNextPath(null, ORIGIN), "/");
     assert.equal(safeNextPath("", ORIGIN), "/");
     assert.equal(safeNextPath("http://[", ORIGIN), "/");
+  });
+});
+
+describe("isSameHostPath", () => {
+  test("refuses what a browser would read as another host", () => {
+    for (const location of ["//evil.com", "/\\evil.com"]) {
+      // The danger, shown: the browser leaves the host for these.
+      assert.notEqual(landing(location).origin, LINK_ORIGIN);
+      assert.equal(isSameHostPath(location), false, JSON.stringify(location));
+    }
+  });
+
+  test("refuses anything that is not a path from the root", () => {
+    for (const location of ["evil.com", "https://evil.com", ""]) {
+      assert.equal(isSameHostPath(location), false, JSON.stringify(location));
+    }
+  });
+
+  test("accepts a path on this host", () => {
+    for (const location of ["/", "/teacher", "/login?error=link", "/a//b"]) {
+      assert.equal(isSameHostPath(location), true, location);
+      assert.equal(landing(location).origin, LINK_ORIGIN);
+    }
   });
 });

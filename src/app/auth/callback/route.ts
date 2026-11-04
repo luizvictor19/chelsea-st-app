@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 
-import { safeNextPath } from "@/lib/safe-redirect";
+import { isSameHostPath, safeNextPath } from "@/lib/safe-redirect";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -15,11 +15,12 @@ import { createClient } from "@/lib/supabase/server";
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams, origin } = request.nextUrl;
 
-  // Resolved once, here, and passed to redirect as-is. This is the one place a
-  // stranger's URL reaches a redirect that fires the instant someone is signed
-  // in, so it is checked before anything else happens. `origin` is only the
-  // base it is checked against: outside Vercel it names the server's host,
-  // not the one the link was opened at (#102).
+  // Resolved once, here, before anything else happens. This is the one place
+  // a stranger's URL reaches a redirect that fires the instant someone is
+  // signed in. Two checks make it safe, both in safeNextPath: the destination
+  // resolves onto `origin`, and the path it returns cannot be read as another
+  // host. `origin` is only the base of the first: outside Vercel it names the
+  // server's host, not the one the link was opened at (#102).
   const next = safeNextPath(searchParams.get("next"), origin);
 
   const code = searchParams.get("code");
@@ -58,9 +59,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  * The cookies the sign-in set through cookies() still go out: Next merges
  * them into whatever Response a route handler returns.
  *
- * Only ever given safeNextPath's result or a constant: a Location starting
- * with "//" would be another site, and safeNextPath is what refuses one.
+ * A Location starting with "//" would be another site. The callers pass
+ * safeNextPath's result or a constant, and the shape is checked here again
+ * anyway, so a later caller handing it a raw parameter gets the root and not
+ * an open redirect.
  */
 function redirectTo(location: string): NextResponse {
-  return new NextResponse(null, { status: 307, headers: { location } });
+  const safe = isSameHostPath(location) ? location : "/";
+  return new NextResponse(null, { status: 307, headers: { location: safe } });
 }
