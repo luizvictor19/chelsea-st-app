@@ -103,8 +103,20 @@ architecture question for Luiz.
 - API keys are server-only, never `NEXT_PUBLIC_`.
 - `SUPABASE_SERVICE_ROLE_KEY` is read only by `src/lib/supabase/admin.ts`, to send invite emails
   (#96). It passes every policy: never use it to read or write tables.
+- Supabase API keys are the new kind only (#149). The variable names stayed, the formats changed:
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY` holds a publishable key (`sb_publishable_`, the one named
+  `default`) and `SUPABASE_SERVICE_ROLE_KEY` holds a secret key (`sb_secret_`). The app's Vercel
+  Production uses the secret named `vercel_app`; `.env.local` and the Supabase CLI use the secret
+  named `default`, so each one rotates without touching the other.
+- Since 2026-11-04 the legacy JWT keys (`anon`, `service_role`) are disabled and the legacy HS256
+  JWT secret is revoked. A key starting with `eyJ` is refused with 401, as `apikey` and as
+  `Authorization: Bearer`. User sessions are signed with an asymmetric key (ES256).
+- In a hand-written call (curl, a script), the new key goes only in the `apikey` header, never in
+  `Authorization: Bearer`. The secret key is refused (401) when the User-Agent is a browser's: it
+  runs on a server only.
 - The site (`luizvictor19/chelsea-st-site`) holds only the publishable key
-  (`SUPABASE_PUBLISHABLE_KEY`), never the service role (#146).
+  (`SUPABASE_PUBLISHABLE_KEY`), never the service role (#146). Its Vercel project has only
+  `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` among the Supabase variables.
 - Student personal data (name, email, audio) is processed under the privacy terms published on the
   landing. Never log it, never paste it into an issue.
 

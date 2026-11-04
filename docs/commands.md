@@ -58,6 +58,21 @@ Settings > Environment Variables, by name only (values live in Vercel and in `.e
 `OPENAI_API_KEY` and `DEEPGRAM_API_KEY` are read only by the measurement scripts, never by the
 app: they stay out of Vercel.
 
+Supabase key formats (#149; the names stayed from the legacy keys, the values did not):
+
+    NEXT_PUBLIC_SUPABASE_ANON_KEY   publishable key, sb_publishable_ (named default).
+                                    Type Config, not Secret: it is public, and a Secret
+                                    variable cannot change type (recreate it instead).
+    SUPABASE_SERVICE_ROLE_KEY       secret key, sb_secret_, the one named vercel_app.
+                                    Type Secret, Production only.
+
+`.env.local` holds the same publishable key and the secret named `default`. A legacy key
+(`eyJ...`) is refused with 401: the legacy keys are disabled and the legacy JWT secret is revoked
+since 2026-11-04. A new variable value takes effect only on a new deploy: redeploy the environment.
+
+The site's Vercel project (`chelsea-st`) holds only `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`
+among the Supabase variables, in Production, Preview and Development.
+
 Settings > Deployment Protection: Vercel Authentication on for previews (the default).
 
 Settings > Domains: `app.chelsea-st.com`. On Cloudflare, the CNAME record Vercel shows, grey
@@ -248,3 +263,6 @@ for `http://127.0.0.1:3100`, signs in and stays on that host (#102). Signing out
 ## Supabase CLI
 
     npm i -g supabase              # global npm packages are per Node version
+
+The CLI fetches the project's API keys through the management API and keeps none. The database
+password is not kept in `.env.local`: when a command needs it, the CLI asks.
