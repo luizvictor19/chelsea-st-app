@@ -42,6 +42,7 @@ import {
 } from "@/lib/questions/word-usage";
 
 import { moveMember } from "../images/contrast-sets";
+import { pointAnchor, type QuestionPlace } from "../images/filters";
 import { settle } from "../images/panel-state";
 
 import {
@@ -64,6 +65,7 @@ import {
   type QuestionFields,
 } from "./draft";
 import { ImageChoiceField, sceneSuggestion } from "./image-choice";
+import { LeaveGuardProvider, useUnsavedWarning } from "./leave-guard";
 import { segments, standing, summary } from "./marks";
 import {
   pointFailed,
@@ -210,48 +212,51 @@ export function LessonQuestions({
   const mean = meanOf(points.map((point) => point.number));
 
   return (
-    <div className="flex flex-col gap-10">
-      <WordUsagePanel
-        lesson={lesson}
-        mean={mean}
-        points={points.map((point) => ({
-          point: point.number,
-          words: wordsAt(point.number),
-        }))}
-        earlier={earlierLessons(bookPoints, lesson).map((before) => ({
-          lesson: before.lesson,
-          mean: meanOf(before.points),
-          points: before.points.map((point) => ({
-            point,
-            words: wordsAt(point),
-          })),
-        }))}
-        view={view}
-      />
-      {points.map((point) => {
-        const at = { book, point: point.number };
-        return (
-          <PointSection
-            key={point.id}
-            at={at}
-            pointId={point.id}
-            groups={groups.get(placeKey(at)) ?? []}
-            shownWords={shownWordOptions(words, sets, at)}
-            wordOf={wordOf}
-            scenes={scenes}
-            sceneOf={sceneOf}
-            pictureOf={pictureOf}
-            questions={questions.filter(
-              (question) => question.pointId === point.id,
-            )}
-            checker={checker}
-            mean={mean}
-            view={view}
-            reportDraft={reportDraft}
-          />
-        );
-      })}
-    </div>
+    <LeaveGuardProvider>
+      <div className="flex flex-col gap-10">
+        <WordUsagePanel
+          lesson={lesson}
+          mean={mean}
+          points={points.map((point) => ({
+            point: point.number,
+            words: wordsAt(point.number),
+          }))}
+          earlier={earlierLessons(bookPoints, lesson).map((before) => ({
+            lesson: before.lesson,
+            mean: meanOf(before.points),
+            points: before.points.map((point) => ({
+              point,
+              words: wordsAt(point),
+            })),
+          }))}
+          view={view}
+        />
+        {points.map((point) => {
+          const at = { book, point: point.number };
+          return (
+            <PointSection
+              key={point.id}
+              at={at}
+              lesson={lesson}
+              pointId={point.id}
+              groups={groups.get(placeKey(at)) ?? []}
+              shownWords={shownWordOptions(words, sets, at)}
+              wordOf={wordOf}
+              scenes={scenes}
+              sceneOf={sceneOf}
+              pictureOf={pictureOf}
+              questions={questions.filter(
+                (question) => question.pointId === point.id,
+              )}
+              checker={checker}
+              mean={mean}
+              view={view}
+              reportDraft={reportDraft}
+            />
+          );
+        })}
+      </div>
+    </LeaveGuardProvider>
   );
 }
 
@@ -282,6 +287,7 @@ function marksOf(
 
 function PointSection({
   at,
+  lesson,
   pointId,
   groups,
   shownWords,
@@ -296,6 +302,7 @@ function PointSection({
   reportDraft,
 }: {
   readonly at: Place;
+  readonly lesson: number;
   readonly pointId: string;
   readonly groups: readonly WordGroup[];
   /** The words a question of this point may show: see shownWordOptions. */
@@ -358,8 +365,9 @@ function PointSection({
 
   return (
     <section
+      id={pointAnchor(at.point)}
       aria-labelledby={titleId}
-      className="border-rule flex flex-col gap-4 border-t pt-6"
+      className="border-rule flex scroll-mt-20 flex-col gap-4 border-t pt-6"
     >
       <header className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
@@ -422,6 +430,7 @@ function PointSection({
                 >
                   <QuestionForm
                     at={at}
+                    lesson={lesson}
                     checker={checker}
                     shownWords={shownWords}
                     wordOf={wordOf}
@@ -597,6 +606,7 @@ function PointSection({
         <div className="border-rule bg-surface rounded-sm border p-4">
           <QuestionForm
             at={at}
+            lesson={lesson}
             checker={checker}
             shownWords={shownWords}
             wordOf={wordOf}
@@ -713,20 +723,6 @@ function MarkedText({
 }
 
 /**
- * Asks before the tab is closed or reloaded while a form holds something
- * unsaved. A move inside the app cannot be stopped this way, which is why
- * the form also says so in words.
- */
-function useUnsavedWarning(dirty: boolean) {
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
-}
-
-/**
  * The form for a new question (`saved` null) or an edit.
  *
  * What is typed stays in the form until it is saved, and through a save that
@@ -736,6 +732,7 @@ function useUnsavedWarning(dirty: boolean) {
  */
 function QuestionForm({
   at,
+  lesson,
   checker,
   shownWords,
   wordOf,
@@ -751,6 +748,7 @@ function QuestionForm({
   onCancel,
 }: {
   readonly at: Place;
+  readonly lesson: number;
   readonly checker: Checker;
   readonly shownWords: readonly ShownWordOption[];
   readonly wordOf: ReadonlyMap<string, PicturedWord>;
@@ -788,7 +786,10 @@ function QuestionForm({
     saved === null
       ? draft.prompt.trim() !== "" || draft.expectedAnswer.trim() !== ""
       : isDirty(draft, loaded);
-  useUnsavedWarning(dirty);
+  // Marks the form for the screen's scene links too (leave-guard.tsx): a
+  // move to Imagens asks first while any form here holds something.
+  useUnsavedWarning(draftKey, dirty);
+  const back: QuestionPlace = { book: at.book, lesson, point: at.point };
 
   /*
    * The screen is told what the form holds, so the chips of the words the
@@ -894,6 +895,7 @@ function QuestionForm({
         <ImageChoiceField
           id={id}
           at={at}
+          back={back}
           image={draft.image}
           onChange={(image) => setDraft({ ...draft, image })}
           busy={busy}
