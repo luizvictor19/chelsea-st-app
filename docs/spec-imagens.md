@@ -118,9 +118,9 @@ O desenho agora (`src/lib/images/generation.ts` e `src/app/teacher/content/image
   longo só deixa o Gerar daquela palavra desligado mais tempo numa geração que travou de verdade
   (nunca aconteceu).
 - **`completed_at`** é gravado uma vez, na saída de `pending`. É a hora em que o **nosso servidor**
-  gravou a resposta, não a hora em que o fornecedor terminou: `completed_at - created_at` é um teto
-  da duração, igual a ela só quando as perguntas não pararam. Medido no banco em 04/11/2026, só
-  tentativas sem erro:
+  gravou a resposta, depois de baixar e subir a imagem, não a hora em que o fornecedor terminou:
+  `completed_at - created_at` é um teto da duração, perto dela só quando as perguntas não pararam.
+  Medido no banco em 04/11/2026, só tentativas sem erro:
 
   | Modelo            | Tentativas | Mediana | Pior   |
   | ----------------- | ---------- | ------- | ------ |
@@ -129,10 +129,12 @@ O desenho agora (`src/lib/images/generation.ts` e `src/app/teacher/content/image
   | Seedream 4.5 Edit | 1          | 37,0s   | 37,0s  |
   | Mystic            | 48         | 25,0s   | 341,7s |
 
-  As três linhas acima de 90s (341,7s, 147,0s e 95,0s) são Mystic, todas de antes de o painel
-  continuar perguntando quando se troca de palavra (26/09): são tetos, com um buraco nas perguntas,
-  não durações. O prazo de 360s cobre o pior número da tabela mesmo assim, um prazo só para todos
-  os modelos.
+  As três linhas acima de 90s são Mystic, todas de antes de o painel continuar perguntando quando se
+  troca de palavra (26/09). Cada uma foi gravada pela primeira pergunta depois dos 90s, então o
+  fornecedor já tinha terminado antes. A de 95,0s pode ser duração de verdade (uma pergunta perto dos
+  91s que achou COMPLETED, mais o tempo de gravar). As de 147,0s e 341,7s tiveram um buraco nas
+  perguntas: são tetos, não durações. O prazo de 360s cobre o pior número da tabela mesmo assim, um
+  prazo só para todos os modelos.
 
   ```sql
   select model, count(*),

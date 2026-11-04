@@ -37,12 +37,15 @@ import { MAX_FILE_BYTES } from "./body-limit.ts";
  *   seedream-v4-5-edit   1         37.0s   37.0s
  *   mystic              48         25.0s   341.7s
  *
- * `completed_at` is when our server wrote the answer, not when the provider
- * finished. The first poll that finds a row 'pending' past the window closes
- * it as failed, so a row that completed after 90s under the old window can
- * only have had a gap in its polling. The three above 90s (341.7s, 147.0s,
- * 95.0s) are all Mystic and all from before the panel kept polling across a
- * change of word: they are ceilings, not durations.
+ * `completed_at` is when our server wrote the answer, after the download and
+ * the upload, not when the provider finished. The first poll that found a row
+ * 'pending' past the old 90s window closed it as failed, so a row that
+ * completed after 90s was written by the first poll past the mark, and the
+ * provider had finished by then. The three above 90s are all Mystic and all
+ * from before the panel kept polling across a change of word. 95.0s can be a
+ * real duration: a poll at about 91s that found COMPLETED, plus the store.
+ * 147.0s and 341.7s cannot: nobody polled between 90s and then, so they are
+ * ceilings, not durations.
  *
  * The one real duration above 90s that is known is the one the old window
  * killed: Mystic on 2026-09-19, closed as failed at 91.0s with 80 credits
@@ -65,9 +68,11 @@ export const GENERATION_WINDOW_MS = 360_000;
 /**
  * How long the panel waits before asking the row again.
  *
- * Against generations of 8 to 21 seconds this is 4 to 10 questions. Each one
- * is a short call, so the cost is auth and a provider GET, not a held
- * connection; see the note on the proxy in the panel.
+ * Against the medians measured on 2026-11-04, 13 to 25 seconds, this is 7 to
+ * 13 questions; a generation that never answers is asked about 180 times
+ * before the window ends it. Each one is a short call, so the cost is auth
+ * and a provider GET, not a held connection; see the note on the proxy in the
+ * panel.
  */
 export const POLL_INTERVAL_MS = 2_000;
 
