@@ -32,6 +32,15 @@ jobs:
 
       - run: npm ci
 
+      # A high or critical advisory in a production dependency fails the PR.
+      # Needs the network, so it lives here and not in npm run check (#138).
+      - run: npm audit --omit=dev --audit-level=high
+
+      # The whole tree, dev tools included: shown in the log, never blocks.
+      - name: npm audit, whole tree (does not block)
+        run: npm audit
+        continue-on-error: true
+
       # The same gate AGENTS.md asks for locally, in the same order.
       - run: npx prettier --check .
       - run: npm run lint

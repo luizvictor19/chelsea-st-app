@@ -173,7 +173,8 @@ npm run check
 
 It runs `format:check`, `lint`, `typecheck`, `test` and `build`, in the CI's
 order, and stops at the first failure. CI also runs `scripts/verify-rls.sql`,
-which needs a real Postgres and is not part of `check`.
+which needs a real Postgres, and `npm audit --omit=dev --audit-level=high`,
+which needs the network; neither is part of `check`.
 
 Run `./scripts/gen-types.sh` before the gate whenever a migration was added or
 changed, and after Luiz brings `main` into a branch.
