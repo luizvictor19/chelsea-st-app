@@ -197,6 +197,56 @@ begin
 end;
 $$;
 
+\i supabase/migrations/0037_nobody_truncates_what_rls_guards.sql
+
+-- What 0037 took, and only that ---------------------------------------------------------
+--
+-- Against the snapshot above: every relation, column and role lost exactly
+-- truncate, references, trigger and maintain, and kept everything else. So
+-- authenticated still selects, inserts, updates and deletes where it did, the
+-- update on school_invites.expires_at stands, and service_role still inserts
+-- into leads. A revoke all in 0037 fails here; whether anything of the four is
+-- left anywhere is the last block of the script.
+do $$
+declare
+  v_drift text;
+begin
+  with expected as (
+    select relname, column_name, grantee,
+           array(select p from unnest(privileges) p
+                  where p not in ('TRUNCATE', 'REFERENCES', 'TRIGGER', 'MAINTAIN')
+                  order by p) as privileges
+      from privileges_after_0036
+  ),
+  expected_held as (
+    select relname, column_name, grantee, array_to_string(privileges, ',') as privileges
+      from expected
+     where cardinality(privileges) > 0
+  ),
+  actual as (
+    select relname, column_name, grantee, array_to_string(privileges, ',') as privileges
+      from pg_temp.public_privileges()
+  ),
+  drift as (
+    (select 'expected but not held' as what, * from expected_held
+     except select 'expected but not held', * from actual)
+    union all
+    (select 'held but not expected', * from actual
+     except select 'held but not expected', * from expected_held)
+  )
+  select string_agg(format('%s: %s%s %s {%s}', what, relname,
+                           coalesce('.' || column_name, ''), grantee, privileges),
+                    '; ' order by relname, column_name, grantee, what)
+    into v_drift from drift;
+
+  if v_drift is not null then
+    raise exception '0037 took more or less than truncate, references, trigger and maintain: %', v_drift;
+  end if;
+
+  raise notice '0037 took truncate, references, trigger and maintain from every relation of public, and nothing else';
+end;
+$$;
+
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
   ('22222222-2222-2222-2222-222222222222', 'student@example.com', null);
