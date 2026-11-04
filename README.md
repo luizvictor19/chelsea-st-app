@@ -58,10 +58,27 @@ geradas em tempo de execução.
 
 ## Teste de gravação
 
-`/spike/audio` grava e reproduz áudio no próprio navegador, sem enviar nada.
-Serve para confirmar que o microfone funciona antes de o desafio do dia
-depender disso. Vale a mesma checagem em cada aparelho que o aluno for usar:
-Android, desktop e iPhone.
+`/teacher/audio-test` ("Teste de áudio") grava e reproduz áudio no próprio
+navegador. Não envia nem salva nada: a gravação fica só na memória do
+navegador até a próxima. Serve para confirmar que o microfone funciona antes
+de o desafio do dia depender disso. Vale a mesma checagem em cada aparelho que
+o aluno for usar: Android, desktop e iPhone.
+
+Abre com uma conta de professor ou de admin (da escola ou da plataforma); a
+aluna é mandada para `/dashboard`. A página não está no menu: chega-se pelo
+endereço.
+
+No `npm run dev`, e só nele, a página mostra também os casos de STT, que salvam
+cada gravação em `fixtures/stt/` (fora do git) para o `scripts/measure-stt.ts`.
+
+Onde testar:
+
+- **iPhone:** o Safari só libera o microfone em HTTPS ou em `localhost`, então
+  o teste é em `https://app.chelsea-st.com/teacher/audio-test`, entrando com a
+  conta de professor.
+- **Android pelo cabo:** `http://127.0.0.1:3100/teacher/audio-test`, depois do
+  `adb reverse` de `docs/commands.md`.
+- **Desktop:** `http://localhost:3100/teacher/audio-test` com `npm run dev`.
 
 ## Verificação
 
