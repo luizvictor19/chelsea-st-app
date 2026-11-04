@@ -247,6 +247,10 @@ begin
 end;
 $$;
 
+-- What 0038 changes is asserted where leads is: the block "A lead comes
+-- through one door (0038)", after the one of 0036.
+\i supabase/migrations/0038_a_lead_comes_through_one_door.sql
+
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
   ('22222222-2222-2222-2222-222222222222', 'student@example.com', null);
@@ -2637,17 +2641,17 @@ $$;
 -- A lead waits for a call (0036) --------------------------------------------------------
 --
 -- The checks refuse what the site's form must never write, each by its own
--- name, and accept the limits themselves. The privileges are asserted as
--- privileges: anon and authenticated reach nothing, the service role inserts
--- and nothing else, and no policy exists. This block runs after 0037, which
--- takes the Dxtm off leads as well, so the revoke all of 0036 is held by the
--- snapshot right after 0036 above, not here. Rows are written as the superuser running this script,
--- since checks hold for everyone and the service role cannot select.
+-- name, and accept the limits themselves. This block runs after 0037 and
+-- 0038: the revoke all of 0036 is held by the snapshot right after 0036 above,
+-- and the number, the privileges and the policies of leads as they stand now
+-- by the block of 0038 below. Rows are written as the superuser running this
+-- script, since checks hold for everyone and nobody of the API selects.
 --
--- One well formed lead, with any column replaced by a named argument.
+-- One well formed lead, with any column replaced by a named argument. The
+-- number has the 55 that leads_whatsapp_br (0038) asks for.
 create function verify.lead_insert(
   p_nome text default 'Ana Souza',
-  p_whatsapp text default '11987654321',
+  p_whatsapp text default '5511987654321',
   p_objetivo text default 'trabalho',
   p_nivel text default 'basico',
   p_interesse text default 'trial',
@@ -2682,9 +2686,6 @@ $$;
 do $$
 declare
   v_failures text;
-  v_role text;
-  v_privilege text;
-  v_policies bigint;
 begin
   delete from verify.failures;
 
@@ -2706,20 +2707,6 @@ begin
     verify.lead_insert(p_nome => repeat('a', 80)));
   perform verify.expect_accepted('a lead named with 2 letters inside a tab, spaces and a line break',
     verify.lead_insert(p_nome => E'\t Al \n'));
-
-  -- The number: 10 to 13 digits and nothing else.
-  perform verify.expect_refused('a whatsapp of 9 digits', 'leads_whatsapp_digits',
-    verify.lead_insert(p_whatsapp => '119876543'));
-  perform verify.expect_refused('a whatsapp of 14 digits', 'leads_whatsapp_digits',
-    verify.lead_insert(p_whatsapp => '55119876543210'));
-  perform verify.expect_refused('a whatsapp with a plus sign', 'leads_whatsapp_digits',
-    verify.lead_insert(p_whatsapp => '+5511987654321'));
-  perform verify.expect_refused('a whatsapp with a mask', 'leads_whatsapp_digits',
-    verify.lead_insert(p_whatsapp => '(11) 98765-4321'));
-  perform verify.expect_accepted('a whatsapp of 10 digits',
-    verify.lead_insert(p_whatsapp => '1133334444'));
-  perform verify.expect_accepted('a whatsapp of 13 digits',
-    verify.lead_insert(p_whatsapp => '5511987654321'));
 
   -- The answers: only the listed values; objetivo and nivel may be left out,
   -- interesse may not.
@@ -2750,36 +2737,244 @@ begin
                        p_utm_campaign => repeat('c', 200), p_codigo_origem => repeat('o', 200),
                        p_user_agent => repeat('u', 512)));
 
-  -- The privileges. anon and authenticated hold none of the eight a table can
-  -- carry; service_role holds insert and none of the other seven. MAINTAIN
-  -- exists from Postgres 17, the version CI runs (ADR 0003).
-  foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
-    foreach v_privilege in array array['select', 'insert', 'update', 'delete',
-                                        'truncate', 'references', 'trigger', 'maintain'] loop
-      if v_role = 'service_role' and v_privilege = 'insert' then
-        if not has_table_privilege(v_role, 'public.leads', v_privilege) then
-          insert into verify.failures values (format('%s lacks %s on leads', v_role, v_privilege));
-        end if;
-      elsif has_table_privilege(v_role, 'public.leads', v_privilege) then
-        insert into verify.failures values (format('%s has %s on leads', v_role, v_privilege));
-      end if;
-    end loop;
-  end loop;
-
-  -- No policy: the service role bypasses RLS, and a policy would open rows to
-  -- whoever it names.
-  select count(*) into v_policies
-    from pg_policies where schemaname = 'public' and tablename = 'leads';
-  if v_policies <> 0 then
-    insert into verify.failures values (format('leads has %s policies, expected 0', v_policies));
-  end if;
-
   select string_agg(what, '; ') into v_failures from verify.failures;
   if v_failures is not null then
     raise exception 'leads: %', v_failures;
   end if;
 
-  raise notice 'leads: every check refuses by name and accepts its limits; only service_role inserts, nobody selects, no policy';
+  raise notice 'leads: every check refuses by name and accepts its limits';
+end;
+$$;
+
+-- A lead comes through one door (0038) -------------------------------------------------
+--
+-- The site writes a lead only by calling submit_lead, as anon, with the
+-- publishable key. Nobody of the API reads leads or leads_latest, and the
+-- service role, which inserted straight into the table until 0038, no longer
+-- can. The door does not open around the checks: a number without the 55 is
+-- refused through submit_lead by the same check as straight into the table.
+-- A number sent twice is kept twice, and leads_latest shows the latest send of
+-- each number.
+--
+-- The calls are made as the roles themselves, and the helpers of verify run
+-- under them, so anon and service_role get usage on that schema here, as
+-- authenticated did above. The schema is this script's own; production has no
+-- verify. Whatever is found is recorded after reset role, as the superuser.
+grant usage on schema verify to anon, service_role;
+
+-- One call of submit_lead the way PostgREST makes it for the site: every
+-- parameter named, the ones the form left empty as null.
+create function verify.submit_lead_call(p_whatsapp text, p_interesse text default 'trial')
+returns text
+language sql as $$
+  select format(
+    'select public.submit_lead(nome => %L, whatsapp => %L, objetivo => %L, nivel => %L, interesse => %L, utm_source => %L, utm_medium => %L, utm_campaign => %L, codigo_origem => %L, user_agent => %L)',
+    'Bruna Lima', p_whatsapp, 'viagem', null, p_interesse,
+    'instagram', null, null, '[verify]', 'verify-rls');
+$$;
+
+do $$
+declare
+  c_roles constant text[] := array['anon', 'authenticated', 'service_role'];
+  c_privileges constant text[] := array['select', 'insert', 'update', 'delete',
+                                        'truncate', 'references', 'trigger', 'maintain'];
+  -- Sent twice, first for the waitlist and then for a trial; and sent once.
+  c_twice constant text := '5521999990001';
+  c_once constant text := '5521999990002';
+  v_mark bigint := 0;
+  v_rows bigint;
+  v_refused boolean;
+  v_by text;
+  v_state text;
+  v_constraint text;
+  v_role text;
+  v_relation text;
+  v_privilege text;
+  v_reached text[] := '{}';
+  v_definer boolean;
+  v_config text[];
+  v_options text[];
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  -- anon calls submit_lead, and the row is there.
+  select count(*) into v_rows from public.leads;
+  set local role anon;
+  v_refused := verify.refused_for_privilege(verify.submit_lead_call('5511912345678'));
+  reset role;
+  if v_refused then
+    insert into verify.failures values ('anon is refused submit_lead');
+  elsif (select count(*) from public.leads) <> v_rows + 1 then
+    insert into verify.failures values (format('anon called submit_lead and leads went from %s to %s rows',
+                                               v_rows, (select count(*) from public.leads)));
+  else
+    raise notice 'anon calls submit_lead, and the lead is written';
+  end if;
+  v_mark := (select count(*) from verify.failures);
+
+  -- Nobody else calls it: not authenticated, which PUBLIC would let in, and
+  -- not the service role, which the site no longer holds.
+  foreach v_role in array array['authenticated', 'service_role'] loop
+    execute format('set local role %I', v_role);
+    v_refused := verify.refused_for_privilege(verify.submit_lead_call('5511912345679'));
+    reset role;
+    if not v_refused then
+      insert into verify.failures values (format('%s calls submit_lead', v_role));
+    end if;
+  end loop;
+  if (select count(*) from verify.failures) = v_mark then
+    raise notice 'authenticated and service_role are refused submit_lead';
+  end if;
+  v_mark := (select count(*) from verify.failures);
+
+  -- anon has the function and nothing else: no insert of its own, no read.
+  set local role anon;
+  if not verify.refused_for_privilege(verify.lead_insert()) then
+    v_reached := v_reached || 'inserts into leads'::text;
+  end if;
+  if not verify.refused_for_privilege('select 1 from public.leads') then
+    v_reached := v_reached || 'selects from leads'::text;
+  end if;
+  if not verify.refused_for_privilege('select 1 from public.leads_latest') then
+    v_reached := v_reached || 'selects from leads_latest'::text;
+  end if;
+  reset role;
+  insert into verify.failures select 'anon ' || r from unnest(v_reached) r;
+  if (select count(*) from verify.failures) = v_mark then
+    raise notice 'anon inserts into leads and selects from leads and leads_latest only to be refused';
+  end if;
+  v_mark := (select count(*) from verify.failures);
+
+  -- None of the eight a table can carry, for any of the three roles, on the
+  -- table or the view; and no policy on the table. has_table_privilege also
+  -- sees what reaches a role through PUBLIC.
+  foreach v_relation in array array['public.leads', 'public.leads_latest'] loop
+    foreach v_role in array c_roles loop
+      foreach v_privilege in array c_privileges loop
+        if has_table_privilege(v_role, v_relation, v_privilege) then
+          insert into verify.failures
+            values (format('%s has %s on %s', v_role, v_privilege, v_relation));
+        end if;
+      end loop;
+    end loop;
+  end loop;
+  if (select count(*) from pg_policies where schemaname = 'public' and tablename = 'leads') <> 0 then
+    insert into verify.failures values ('leads has a policy');
+  end if;
+  if (select count(*) from verify.failures) = v_mark then
+    raise notice 'anon, authenticated and service_role hold no privilege on leads or leads_latest, and leads has no policy';
+  end if;
+  v_mark := (select count(*) from verify.failures);
+
+  -- The function writes as its owner and resolves no name through the
+  -- caller's search_path; the view reads as whoever queries it, so it opens
+  -- nothing the table keeps closed.
+  select p.prosecdef, p.proconfig into v_definer, v_config
+    from pg_proc p
+   where p.oid = to_regprocedure(
+           'public.submit_lead(text, text, text, text, text, text, text, text, text, text)');
+  if v_definer is distinct from true then
+    insert into verify.failures values ('submit_lead is not security definer');
+  end if;
+  if v_config is distinct from array['search_path=""'] then
+    insert into verify.failures values (format('submit_lead runs with %s, expected {search_path=""}',
+                                               coalesce(v_config::text, 'no setting')));
+  end if;
+  select c.reloptions into v_options from pg_class c where c.oid = to_regclass('public.leads_latest');
+  if not coalesce('security_invoker=true' = any (v_options), false) then
+    insert into verify.failures values (format('leads_latest has options %s, expected security_invoker=true',
+                                               coalesce(v_options::text, 'none')));
+  end if;
+  if (select count(*) from verify.failures) = v_mark then
+    raise notice 'submit_lead is security definer with an empty search_path, and leads_latest is security invoker';
+  end if;
+  v_mark := (select count(*) from verify.failures);
+
+  -- The number: 55, then 10 or 11 digits, and nothing else.
+  perform verify.expect_refused('a whatsapp without 55, 11 digits', 'leads_whatsapp_br',
+    verify.lead_insert(p_whatsapp => '11987654321'));
+  perform verify.expect_refused('a whatsapp without 55, 10 digits', 'leads_whatsapp_br',
+    verify.lead_insert(p_whatsapp => '1133334444'));
+  perform verify.expect_refused('a whatsapp of another country', 'leads_whatsapp_br',
+    verify.lead_insert(p_whatsapp => '5611987654321'));
+  perform verify.expect_refused('a whatsapp of 14 digits', 'leads_whatsapp_br',
+    verify.lead_insert(p_whatsapp => '55119876543210'));
+  perform verify.expect_refused('a whatsapp with a plus sign', 'leads_whatsapp_br',
+    verify.lead_insert(p_whatsapp => '+5511987654321'));
+  perform verify.expect_refused('a whatsapp with a mask', 'leads_whatsapp_br',
+    verify.lead_insert(p_whatsapp => '+55 (11) 98765-4321'));
+  perform verify.expect_accepted('a whatsapp of 12 digits with 55',
+    verify.lead_insert(p_whatsapp => '551133334444'));
+  perform verify.expect_accepted('a whatsapp of 13 digits with 55',
+    verify.lead_insert(p_whatsapp => '5511987654321'));
+
+  -- And through the door, as anon: the same check, by name. Any refusal is
+  -- caught, so a door that refuses anon for privilege is reported here too
+  -- rather than stopping the script; leaving the block undoes the set role.
+  begin
+    set local role anon;
+    execute verify.submit_lead_call('11987654321');
+    reset role;
+    v_by := 'accepted';
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_constraint = constraint_name;
+    v_by := v_state || coalesce(' ' || nullif(v_constraint, ''), '');
+  end;
+  if v_by <> '23514 leads_whatsapp_br' then
+    insert into verify.failures values (format(
+      'a whatsapp without 55 through submit_lead: %s, expected 23514 leads_whatsapp_br', v_by));
+  else
+    raise notice 'a whatsapp without 55 through submit_lead: refused with %', v_by;
+  end if;
+  v_mark := (select count(*) from verify.failures);
+
+  -- The history. Three sends as anon, in one transaction, as close together as
+  -- this script can make them: the same number twice, then another number.
+  -- Each send is a row; the latest of each number is in leads_latest. The two
+  -- sends of the same number get two different instants, in the order they
+  -- were made: with now() they would share the instant of the transaction,
+  -- and the view would choose between them by a random id.
+  begin
+    set local role anon;
+    execute verify.submit_lead_call(c_twice, 'waitlist');
+    execute verify.submit_lead_call(c_twice, 'trial');
+    execute verify.submit_lead_call(c_once, 'waitlist');
+    reset role;
+  exception when insufficient_privilege then
+    insert into verify.failures values ('anon could not send the history: ' || sqlerrm);
+  end;
+  v_rows := (select count(*) from public.leads where whatsapp = c_twice);
+  if v_rows <> 2 then
+    insert into verify.failures values (format('a number sent twice has %s rows in leads, expected 2', v_rows));
+  end if;
+  if (select count(distinct created_at) from public.leads where whatsapp = c_twice) <> 2
+     or (select created_at from public.leads where whatsapp = c_twice and interesse = 'trial')
+        <= (select created_at from public.leads where whatsapp = c_twice and interesse = 'waitlist') then
+    insert into verify.failures values ('the second send of a number is not later than the first');
+  end if;
+  if (select array_agg(interesse) from public.leads_latest where whatsapp = c_twice)
+     is distinct from array['trial'] then
+    insert into verify.failures values (format('leads_latest shows %s for the number sent twice, expected {trial}',
+      coalesce((select array_agg(interesse) from public.leads_latest where whatsapp = c_twice)::text, 'no row')));
+  end if;
+  if (select array_agg(interesse) from public.leads_latest where whatsapp = c_once)
+     is distinct from array['waitlist'] then
+    insert into verify.failures values (format('leads_latest shows %s for the number sent once, expected {waitlist}',
+      coalesce((select array_agg(interesse) from public.leads_latest where whatsapp = c_once)::text, 'no row')));
+  end if;
+  if (select count(*) from public.leads_latest)
+     <> (select count(distinct whatsapp) from public.leads) then
+    insert into verify.failures values ('leads_latest does not have exactly one row per number');
+  end if;
+  if (select count(*) from verify.failures) = v_mark then
+    raise notice 'a number sent twice is two rows in leads and one in leads_latest, the later one; another number keeps its own';
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a lead comes through one door: %', v_failures;
+  end if;
 end;
 $$;
 
