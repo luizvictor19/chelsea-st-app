@@ -8,6 +8,19 @@
 create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin;
+
+-- Production's default ACL, measured through the MCP on 2026-11-04: the
+-- postgres role grants Dxtm (truncate, references, trigger, maintain) in
+-- schema public on every new table to anon, authenticated and service_role,
+-- even with "expose new tables" off, and has since the first migration. A plain
+-- Postgres grants none of it, so it is set here, before 0001, and every table
+-- below is born with what it was born with in production. Without it the
+-- privilege checks would be passing on tables production never had; the
+-- snapshot right after 0036 holds this replay to what was measured.
+alter default privileges for role postgres in schema public
+  grant truncate, references, trigger, maintain on tables
+  to anon, authenticated, service_role;
+
 create schema auth;
 create table auth.users (
   id uuid primary key,
@@ -68,18 +81,121 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0033_a_scene_is_drawn_from_pictures.sql
 \i supabase/migrations/0034_a_scene_set_aside_keeps_its_cost.sql
 \i supabase/migrations/0035_a_lesson_marks_where_she_stopped.sql
-
--- Production's default ACL, as Luiz read it on 2026-11-04: the postgres role
--- grants Dxtm (truncate, references, trigger, maintain) in schema public on
--- every new table to anon, authenticated and service_role, even with "expose
--- new tables" off. A plain Postgres grants none of it, so without this line
--- the 0036 privilege checks would pass with its revoke removed. It is set just
--- before 0036 so the tables of earlier migrations stay as they were tested.
-alter default privileges for role postgres in schema public
-  grant truncate, references, trigger, maintain on tables
-  to anon, authenticated, service_role;
-
 \i supabase/migrations/0036_a_lead_waits_for_a_call.sql
+
+-- The privileges of public as production held them after 0036 ---------------------------
+--
+-- Measured through the MCP on 2026-11-04, before 0037. Every privilege anon,
+-- authenticated and service_role hold on a relation of public, or on one of
+-- its columns, one row per relation, column and role, with the privileges
+-- sorted: aclexplode and not the text of relacl, because the order of the
+-- items in the array can differ between production and here without any
+-- privilege differing. A relation more or less than the 23 measured fails too.
+--
+-- The replay of production's default ACL from 0001 is what this holds: moved
+-- back to just before 0036, the 22 older tables lose their Dxtm and this fails.
+-- The snapshot is kept in a temporary table for the check right after 0037.
+create function pg_temp.public_privileges()
+returns table (relname text, column_name text, grantee text, privileges text[])
+language sql stable as $$
+  with granted as (
+    select c.relname::text, null::text as column_name, a.grantee, a.privilege_type
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      cross join lateral aclexplode(c.relacl) a
+     where n.nspname = 'public'
+    union all
+    select c.relname::text, att.attname::text, a.grantee, a.privilege_type
+      from pg_attribute att
+      join pg_class c on c.oid = att.attrelid
+      join pg_namespace n on n.oid = c.relnamespace
+      cross join lateral aclexplode(att.attacl) a
+     where n.nspname = 'public' and att.attnum > 0 and not att.attisdropped
+  )
+  select g.relname, g.column_name, r.rolname::text,
+         array_agg(distinct g.privilege_type order by g.privilege_type)
+    from granted g
+    join pg_roles r on r.oid = g.grantee
+   where r.rolname in ('anon', 'authenticated', 'service_role')
+   group by g.relname, g.column_name, r.rolname;
+$$;
+
+create temp table privileges_after_0036 as
+  select * from pg_temp.public_privileges();
+
+do $$
+declare
+  -- The 18 tables where authenticated holds all eight, and the 22 older
+  -- tables where service_role holds Dxtm.
+  c_full constant text[] := array[
+    'assignment_items', 'assignments', 'blocks', 'books', 'contrast_set_items',
+    'contrast_sets', 'image_attempts', 'lesson_schedules', 'lessons',
+    'lessons_content', 'points', 'questions', 'review_schedule', 'scenes',
+    'school_members', 'schools', 'students', 'vocabulary_items'];
+  c_older constant text[] := c_full
+    || array['attempts', 'platform_admins', 'profiles', 'school_invites'];
+  v_drift text;
+begin
+  with expected (relname, column_name, grantee, privileges) as (
+    select t, null::text, 'authenticated',
+           'DELETE,INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE'
+      from unnest(c_full) t
+    union all
+    select t, null::text, 'service_role', 'MAINTAIN,REFERENCES,TRIGGER,TRUNCATE'
+      from unnest(c_older) t
+    union all values
+      ('attempts', null::text, 'authenticated',
+       'INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE'),
+      ('platform_admins', null, 'authenticated', 'MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE'),
+      ('profiles', null, 'authenticated', 'MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE'),
+      ('school_invites', null, 'authenticated',
+       'DELETE,INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE'),
+      ('school_invites', 'expires_at', 'authenticated', 'UPDATE'),
+      ('leads', null, 'service_role', 'INSERT')
+  ),
+  actual as (
+    select relname, column_name, grantee, array_to_string(privileges, ',') as privileges
+      from privileges_after_0036
+  ),
+  drift as (
+    (select 'expected but not held' as what, * from expected
+     except select 'expected but not held', * from actual)
+    union all
+    (select 'held but not expected', * from actual
+     except select 'held but not expected', * from expected)
+  )
+  select string_agg(format('%s: %s%s %s {%s}', what, relname,
+                           coalesce('.' || column_name, ''), grantee, privileges),
+                    '; ' order by relname, column_name, grantee, what)
+    into v_drift from drift;
+
+  -- The relations themselves: a table with no grant at all to the three roles
+  -- would not show in the comparison above.
+  with expected (relname) as (
+    select unnest(c_older || array['leads'])
+  ),
+  actual as (
+    select c.relname::text
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm', 'f', 'S')
+  ),
+  drift as (
+    (select 'a relation missing: ' || relname as what from expected
+     except select 'a relation missing: ' || relname from actual)
+    union all
+    (select 'a relation not measured: ' || relname from actual
+     except select 'a relation not measured: ' || relname from expected)
+  )
+  select concat_ws('; ', v_drift, string_agg(what, '; ' order by what))
+    into v_drift from drift;
+
+  if v_drift <> '' then
+    raise exception 'privileges after 0036 differ from production on 2026-11-04: %', v_drift;
+  end if;
+
+  raise notice 'privileges after 0036: the 23 relations of public match production on 2026-11-04, role by role';
+end;
+$$;
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
@@ -2472,7 +2588,7 @@ $$;
 --
 -- The checks refuse what the site's form must never write, each by its own
 -- name, and accept the limits themselves. The privileges are asserted as
--- privileges, against the default ACL set before 0036 above: anon and
+-- privileges, against production's default ACL replayed from 0001: anon and
 -- authenticated reach nothing, the service role inserts and nothing else, and
 -- no policy exists. Rows are written as the superuser running this script,
 -- since checks hold for everyone and the service role cannot select.
@@ -2613,5 +2729,99 @@ begin
   end if;
 
   raise notice 'leads: every check refuses by name and accepts its limits; only service_role inserts, nobody selects, no policy';
+end;
+$$;
+
+-- Nobody truncates what RLS guards (0037) ----------------------------------------------
+--
+-- Holds for every relation public has now and any it gets later: the last
+-- block of the script, so it sees whatever the migrations above created.
+-- anon, authenticated and service_role hold none of truncate, references,
+-- trigger and maintain on any relation of public, references on no column;
+-- postgres's default ACL in public gives none of the four to the three; and a
+-- table created here, as postgres, is born with no privilege at all for them.
+-- has_table_privilege also sees what reaches a role through PUBLIC.
+--
+-- The probe table is dropped in the same block: scripts/gen-types.sh makes the
+-- types from this same database, and it must not show in them.
+do $$
+declare
+  c_roles constant text[] := array['anon', 'authenticated', 'service_role'];
+  c_unused constant text[] := array['truncate', 'references', 'trigger', 'maintain'];
+  v_relation record;
+  v_role text;
+  v_privilege text;
+  v_failures text;
+  v_before bigint := 0;
+begin
+  delete from verify.failures;
+
+  for v_relation in
+    select c.oid, c.relname
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm', 'f')
+     order by c.relname
+  loop
+    foreach v_role in array c_roles loop
+      foreach v_privilege in array c_unused loop
+        if has_table_privilege(v_role, v_relation.oid, v_privilege) then
+          insert into verify.failures
+            values (format('%s has %s on %s', v_role, v_privilege, v_relation.relname));
+        end if;
+      end loop;
+      if has_any_column_privilege(v_role, v_relation.oid, 'references')
+         and not has_table_privilege(v_role, v_relation.oid, 'references') then
+        insert into verify.failures
+          values (format('%s has references on a column of %s', v_role, v_relation.relname));
+      end if;
+    end loop;
+  end loop;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'no relation of public gives truncate, references, trigger or maintain to anon, authenticated or service_role';
+  end if;
+  v_before := (select count(*) from verify.failures);
+
+  insert into verify.failures
+  select format('the default ACL of postgres in public gives %s %s on new tables',
+                r.rolname, a.privilege_type)
+    from pg_default_acl d
+    cross join lateral aclexplode(d.defaclacl) a
+    join pg_roles r on r.oid = a.grantee
+   where d.defaclrole = 'postgres'::regrole
+     and d.defaclnamespace = 'public'::regnamespace
+     and d.defaclobjtype = 'r'
+     and r.rolname = any (c_roles)
+     and lower(a.privilege_type) = any (c_unused)
+   order by r.rolname, a.privilege_type;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'the default ACL of postgres in public gives none of the four to the three roles';
+  end if;
+  v_before := (select count(*) from verify.failures);
+
+  if current_user <> 'postgres' then
+    insert into verify.failures values (format(
+      'the probe table would be created by %s, not postgres, and prove nothing about its default ACL',
+      current_user));
+  end if;
+  create table public.verify_default_acl_probe (id integer);
+  foreach v_role in array c_roles loop
+    foreach v_privilege in array array['select', 'insert', 'update', 'delete',
+                                       'truncate', 'references', 'trigger', 'maintain'] loop
+      if has_table_privilege(v_role, 'public.verify_default_acl_probe', v_privilege) then
+        insert into verify.failures
+          values (format('a new table is born giving %s %s', v_role, v_privilege));
+      end if;
+    end loop;
+  end loop;
+  drop table public.verify_default_acl_probe;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a new table of public is born with no privilege for anon, authenticated or service_role';
+  end if;
+  v_before := (select count(*) from verify.failures);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'unused privileges: %', v_failures;
+  end if;
 end;
 $$;
