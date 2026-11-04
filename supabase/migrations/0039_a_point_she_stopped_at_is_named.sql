@@ -6,7 +6,9 @@
 -- outside a narrower range, so narrowing past a marked point reached the
 -- foreign key: 23503, in its own words, after the checks said yes. Now it
 -- counts those points with the others, before anything is written, and the
--- refusal names them as a third reason.
+-- refusal names them as a third reason. This closes the note 0035 left on
+-- lessons_stopped_at_point_fkey ("does not name this refusal in its own words
+-- yet").
 --
 -- Measured against the project on 2026-11-04, before this was written:
 -- migrations applied through 0038; materialize_points(uuid, integer, integer)
