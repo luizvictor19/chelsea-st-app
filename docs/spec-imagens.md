@@ -109,18 +109,32 @@ O desenho agora (`src/lib/images/generation.ts` e `src/app/teacher/content/image
 - **O painel pergunta a cada 2s** (`POLL_INTERVAL_MS`), em sequência e não por intervalo: a última
   pergunta de uma geração é a que baixa a imagem e a sobe para o bucket, e duas delas ao mesmo tempo
   fariam o trabalho duas vezes.
-- **O prazo é da linha.** `GENERATION_WINDOW_MS`, 90s, mede `now - created_at`, não um relógio
-  dentro de uma requisição. Ele limita quanto tempo se espera por uma resposta, e nada mais: um
-  fornecedor que diz COMPLETED depois do prazo ainda tem a imagem gravada, porque ela foi paga e
-  descartá-la por causa de um relógio é o único erro aqui que custa dinheiro.
-- **`completed_at`** é gravado uma vez, na saída de `pending`. `completed_at - created_at` é a
-  duração real, por modelo. Medido no banco em 24/10/2026, só tentativas sem erro:
+- **O prazo é da linha.** `GENERATION_WINDOW_MS`, 360s (90s até a #91), mede `now - created_at`,
+  não um relógio dentro de uma requisição. Ele limita quanto tempo se espera por uma resposta, e
+  nada mais. Uma pergunta que acha COMPLETED depois do prazo ainda grava a imagem, mas só se for a
+  primeira pergunta depois dele: a que acha `pending` depois do prazo fecha a linha como `failed`, e
+  uma linha `failed` não é mais perguntada. Por isso o prazo erra para cima: prazo curto perde
+  imagem paga (aconteceu uma vez, uma Mystic fechada aos 91,0s em 19/09, com 80 créditos), prazo
+  longo só deixa o Gerar daquela palavra desligado mais tempo numa geração que travou de verdade
+  (nunca aconteceu).
+- **`completed_at`** é gravado uma vez, na saída de `pending`. É a hora em que o **nosso servidor**
+  gravou a resposta, depois de baixar e subir a imagem, não a hora em que o fornecedor terminou:
+  `completed_at - created_at` é um teto da duração, perto dela só quando as perguntas não pararam.
+  Medido no banco em 04/11/2026, só tentativas sem erro:
 
-  | Modelo           | Tentativas | Mediana | Pior   |
-  | ---------------- | ---------- | ------- | ------ |
-  | Flux Kontext Pro | 27         | 13,2s   | 22,0s  |
-  | Seedream 4       | 63         | 14,3s   | 81,1s  |
-  | Mystic           | 43         | 24,9s   | 341,7s |
+  | Modelo            | Tentativas | Mediana | Pior   |
+  | ----------------- | ---------- | ------- | ------ |
+  | Flux Kontext Pro  | 28         | 13,2s   | 22,0s  |
+  | Seedream 4        | 63         | 14,3s   | 81,1s  |
+  | Seedream 4.5 Edit | 1          | 37,0s   | 37,0s  |
+  | Mystic            | 48         | 25,0s   | 341,7s |
+
+  As três linhas acima de 90s são Mystic, todas de antes de o painel continuar perguntando quando se
+  troca de palavra (26/09). Cada uma foi gravada pela primeira pergunta depois dos 90s, então o
+  fornecedor já tinha terminado antes. A de 95,0s pode ser duração de verdade (uma pergunta perto dos
+  91s que achou COMPLETED, mais o tempo de gravar). As de 147,0s e 341,7s tiveram um buraco nas
+  perguntas: são tetos, não durações. O prazo de 360s cobre o pior número da tabela mesmo assim, um
+  prazo só para todos os modelos.
 
   ```sql
   select model, count(*),

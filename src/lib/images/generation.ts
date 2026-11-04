@@ -19,16 +19,8 @@ import { MAX_FILE_BYTES } from "./body-limit.ts";
 /**
  * How long an attempt is given before it is called lost.
  *
- * What is actually known about how long these take, as of 2026-09-19: two
- * observations, 8s and 21s, read off the counter on the panel. Two points are
- * not a distribution, so this window is NOT derived from them. It is the 90s
- * the old polling loop already used, kept because it is over four times the
- * slowest generation seen and because nothing measured argues for less.
- *
- * `image_attempts.completed_at` exists to end that. Every attempt from here
- * on records when it left 'pending', so the real duration is a column
- * subtraction, per model, and this number gets replaced by one that came from
- * the rows:
+ * Measured on 2026-11-04 from the rows, every freepik attempt that left
+ * 'pending' without an error:
  *
  *   select model, count(*),
  *          percentile_cont(0.5) within group (
@@ -36,21 +28,51 @@ import { MAX_FILE_BYTES } from "./body-limit.ts";
  *          max(completed_at - created_at) as worst
  *   from image_attempts
  *   where provider = 'freepik' and completed_at is not null
+ *     and error is null
  *   group by model;
  *
+ *   model               attempts   p50     worst
+ *   flux-kontext-pro    28         13.2s   22.0s
+ *   seedream-v4         63         14.3s   81.1s
+ *   seedream-v4-5-edit   1         37.0s   37.0s
+ *   mystic              48         25.0s   341.7s
+ *
+ * `completed_at` is when our server wrote the answer, after the download and
+ * the upload, not when the provider finished. The first poll that found a row
+ * 'pending' past the old 90s window closed it as failed, so a row that
+ * completed after 90s was written by the first poll past the mark, and the
+ * provider had finished by then. The three above 90s are all Mystic and all
+ * from before the panel kept polling across a change of word. 95.0s can be a
+ * real duration: a poll at about 91s that found COMPLETED, plus the store.
+ * 147.0s and 341.7s cannot: nobody polled between 90s and then, so they are
+ * ceilings, not durations.
+ *
+ * The one real duration above 90s that is known is the one the old window
+ * killed: Mystic on 2026-09-19, closed as failed at 91.0s with 80 credits
+ * spent. Once a row is failed it is never asked about again, so that image
+ * was lost.
+ *
+ * Erring long costs a stuck generation six minutes of a disabled button on
+ * one word, and no accepted generation has ever stayed stuck. Erring short
+ * cost 80 credits once. So the window covers the worst number in the table,
+ * ceiling or not, with one window for every model: one row of Seedream 4.5
+ * Edit is no basis for a window of its own.
+ *
  * The window bounds how long we wait for the provider, and nothing else. A
- * provider that says COMPLETED after the window is still stored: the image
- * was paid for, and refusing it because a clock ran out would throw away the
- * only thing the money bought.
+ * poll that finds COMPLETED is stored even past the window, but only if it is
+ * the first poll after it: one that finds 'pending' past the window closes
+ * the row as failed, and a failed row is not polled again.
  */
-export const GENERATION_WINDOW_MS = 90_000;
+export const GENERATION_WINDOW_MS = 360_000;
 
 /**
  * How long the panel waits before asking the row again.
  *
- * Against generations of 8 to 21 seconds this is 4 to 10 questions. Each one
- * is a short call, so the cost is auth and a provider GET, not a held
- * connection; see the note on the proxy in the panel.
+ * Against the medians measured on 2026-11-04, 13 to 25 seconds, this is 7 to
+ * 13 questions; a generation that never answers is asked about 180 times
+ * before the window ends it. Each one is a short call, so the cost is auth
+ * and a provider GET, not a held connection; see the note on the proxy in the
+ * panel.
  */
 export const POLL_INTERVAL_MS = 2_000;
 
