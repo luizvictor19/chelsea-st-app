@@ -7,6 +7,8 @@ import { COMMON } from "@/lib/content/queries";
 import type { BlockKind } from "@/lib/extraction/classify";
 import { createClient } from "@/lib/supabase/server";
 
+import { rangeRefusal } from "./range-refusal";
+
 export type ActionResult =
   | { readonly status: "ok" }
   | { readonly status: "error"; readonly message: string };
@@ -87,7 +89,9 @@ export async function configureBook(
     p_last_point: lastPoint,
   });
   if (error) {
-    return { status: "error", message: error.message };
+    // A narrowing refused because points outside still carry something is
+    // told in the teacher's words; anything else shows as it came.
+    return { status: "error", message: rangeRefusal(error) ?? error.message };
   }
   refreshBookScreens(bookPosition);
   return { status: "ok" };
