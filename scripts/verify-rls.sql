@@ -69,6 +69,18 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0034_a_scene_set_aside_keeps_its_cost.sql
 \i supabase/migrations/0035_a_lesson_marks_where_she_stopped.sql
 
+-- Production's default ACL, as Luiz read it on 2026-11-04: the postgres role
+-- grants Dxtm (truncate, references, trigger, maintain) in schema public on
+-- every new table to anon, authenticated and service_role, even with "expose
+-- new tables" off. A plain Postgres grants none of it, so without this line
+-- the 0036 privilege checks would pass with its revoke removed. It is set just
+-- before 0036 so the tables of earlier migrations stay as they were tested.
+alter default privileges for role postgres in schema public
+  grant truncate, references, trigger, maintain on tables
+  to anon, authenticated, service_role;
+
+\i supabase/migrations/0036_a_lead_waits_for_a_call.sql
+
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
   ('22222222-2222-2222-2222-222222222222', 'student@example.com', null);
@@ -2453,5 +2465,153 @@ begin
   end if;
 
   raise notice 'where she stopped: a common or own point only, and a marked point stays';
+end;
+$$;
+
+-- A lead waits for a call (0036) --------------------------------------------------------
+--
+-- The checks refuse what the site's form must never write, each by its own
+-- name, and accept the limits themselves. The privileges are asserted as
+-- privileges, against the default ACL set before 0036 above: anon and
+-- authenticated reach nothing, the service role inserts and nothing else, and
+-- no policy exists. Rows are written as the superuser running this script,
+-- since checks hold for everyone and the service role cannot select.
+--
+-- One well formed lead, with any column replaced by a named argument.
+create function verify.lead_insert(
+  p_nome text default 'Ana Souza',
+  p_whatsapp text default '11987654321',
+  p_objetivo text default 'trabalho',
+  p_nivel text default 'basico',
+  p_interesse text default 'trial',
+  p_utm_source text default null,
+  p_utm_medium text default null,
+  p_utm_campaign text default null,
+  p_codigo_origem text default null,
+  p_user_agent text default null
+) returns text
+language sql as $$
+  select format(
+    'insert into public.leads (nome, whatsapp, objetivo, nivel, interesse, utm_source, utm_medium, utm_campaign, codigo_origem, user_agent) values (%L, %L, %L, %L, %L, %L, %L, %L, %L, %L)',
+    p_nome, p_whatsapp, p_objetivo, p_nivel, p_interesse,
+    p_utm_source, p_utm_medium, p_utm_campaign, p_codigo_origem, p_user_agent);
+$$;
+
+-- A statement that has to go in; a refusal is recorded with what refused it.
+create function verify.expect_accepted(p_what text, p_sql text)
+returns void
+language plpgsql as $$
+declare
+  v_by text := verify.refusal(p_sql);
+begin
+  if v_by is not null then
+    insert into verify.failures values (format('%s: refused with %s', p_what, v_by));
+  else
+    raise notice '%: accepted', p_what;
+  end if;
+end;
+$$;
+
+do $$
+declare
+  v_failures text;
+  v_role text;
+  v_privilege text;
+  v_policies bigint;
+begin
+  delete from verify.failures;
+
+  -- The name: at most 80 characters as stored, and at least 2 once spaces,
+  -- tabs and line breaks at either end are left out.
+  perform verify.expect_refused('a lead named with 1 character', 'leads_nome_length',
+    verify.lead_insert(p_nome => 'A'));
+  perform verify.expect_refused('a lead named with 81 characters', 'leads_nome_length',
+    verify.lead_insert(p_nome => repeat('a', 81)));
+  perform verify.expect_refused('a lead named with 2 letters and 79 trailing spaces',
+    'leads_nome_length', verify.lead_insert(p_nome => 'Al' || repeat(' ', 79)));
+  perform verify.expect_refused('a lead named with spaces only', 'leads_nome_length',
+    verify.lead_insert(p_nome => '     '));
+  perform verify.expect_refused('a lead named with a tab and line breaks only',
+    'leads_nome_length', verify.lead_insert(p_nome => E'\t\n\r'));
+  perform verify.expect_accepted('a lead named with 2 characters',
+    verify.lead_insert(p_nome => 'Al'));
+  perform verify.expect_accepted('a lead named with 80 characters',
+    verify.lead_insert(p_nome => repeat('a', 80)));
+  perform verify.expect_accepted('a lead named with 2 letters inside a tab, spaces and a line break',
+    verify.lead_insert(p_nome => E'\t Al \n'));
+
+  -- The number: 10 to 13 digits and nothing else.
+  perform verify.expect_refused('a whatsapp of 9 digits', 'leads_whatsapp_digits',
+    verify.lead_insert(p_whatsapp => '119876543'));
+  perform verify.expect_refused('a whatsapp of 14 digits', 'leads_whatsapp_digits',
+    verify.lead_insert(p_whatsapp => '55119876543210'));
+  perform verify.expect_refused('a whatsapp with a plus sign', 'leads_whatsapp_digits',
+    verify.lead_insert(p_whatsapp => '+5511987654321'));
+  perform verify.expect_refused('a whatsapp with a mask', 'leads_whatsapp_digits',
+    verify.lead_insert(p_whatsapp => '(11) 98765-4321'));
+  perform verify.expect_accepted('a whatsapp of 10 digits',
+    verify.lead_insert(p_whatsapp => '1133334444'));
+  perform verify.expect_accepted('a whatsapp of 13 digits',
+    verify.lead_insert(p_whatsapp => '5511987654321'));
+
+  -- The answers: only the listed values; objetivo and nivel may be left out,
+  -- interesse may not.
+  perform verify.expect_refused('an objetivo off the list', 'leads_objetivo_known',
+    verify.lead_insert(p_objetivo => 'estudo'));
+  perform verify.expect_refused('a nivel off the list', 'leads_nivel_known',
+    verify.lead_insert(p_nivel => 'avancado'));
+  perform verify.expect_refused('an interesse off the list', 'leads_interesse_known',
+    verify.lead_insert(p_interesse => 'curso'));
+  perform verify.expect_refusal('a lead with no interesse', '23502 interesse',
+    verify.lead_insert(p_interesse => null));
+  perform verify.expect_accepted('a lead with no objetivo and no nivel',
+    verify.lead_insert(p_objetivo => null, p_nivel => null));
+
+  -- The tracking: 200 characters at most, 512 for the User-Agent.
+  perform verify.expect_refused('a utm_source of 201 characters', 'leads_utm_source_length',
+    verify.lead_insert(p_utm_source => repeat('s', 201)));
+  perform verify.expect_refused('a utm_medium of 201 characters', 'leads_utm_medium_length',
+    verify.lead_insert(p_utm_medium => repeat('m', 201)));
+  perform verify.expect_refused('a utm_campaign of 201 characters', 'leads_utm_campaign_length',
+    verify.lead_insert(p_utm_campaign => repeat('c', 201)));
+  perform verify.expect_refused('a codigo_origem of 201 characters', 'leads_codigo_origem_length',
+    verify.lead_insert(p_codigo_origem => repeat('o', 201)));
+  perform verify.expect_refused('a user_agent of 513 characters', 'leads_user_agent_length',
+    verify.lead_insert(p_user_agent => repeat('u', 513)));
+  perform verify.expect_accepted('a lead with every tracking column at its limit',
+    verify.lead_insert(p_utm_source => repeat('s', 200), p_utm_medium => repeat('m', 200),
+                       p_utm_campaign => repeat('c', 200), p_codigo_origem => repeat('o', 200),
+                       p_user_agent => repeat('u', 512)));
+
+  -- The privileges. anon and authenticated hold none of the eight a table can
+  -- carry; service_role holds insert and none of the other seven. MAINTAIN
+  -- exists from Postgres 17, the version CI runs (ADR 0003).
+  foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+    foreach v_privilege in array array['select', 'insert', 'update', 'delete',
+                                        'truncate', 'references', 'trigger', 'maintain'] loop
+      if v_role = 'service_role' and v_privilege = 'insert' then
+        if not has_table_privilege(v_role, 'public.leads', v_privilege) then
+          insert into verify.failures values (format('%s lacks %s on leads', v_role, v_privilege));
+        end if;
+      elsif has_table_privilege(v_role, 'public.leads', v_privilege) then
+        insert into verify.failures values (format('%s has %s on leads', v_role, v_privilege));
+      end if;
+    end loop;
+  end loop;
+
+  -- No policy: the service role bypasses RLS, and a policy would open rows to
+  -- whoever it names.
+  select count(*) into v_policies
+    from pg_policies where schemaname = 'public' and tablename = 'leads';
+  if v_policies <> 0 then
+    insert into verify.failures values (format('leads has %s policies, expected 0', v_policies));
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'leads: %', v_failures;
+  end if;
+
+  raise notice 'leads: every check refuses by name and accepts its limits; only service_role inserts, nobody selects, no policy';
 end;
 $$;
