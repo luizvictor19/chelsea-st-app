@@ -56,6 +56,10 @@ architecture question for Luiz.
 - Every migration appears in `scripts/verify-rls.sql`, or in `LEFT_OUT` of
   `scripts/migrations.test.ts` with the reason, and each new clause is proven by reversion.
 - `types.ts` is generated from the migrations with `scripts/gen-types.sh`, never from the live project.
+- No relation of `public` gives `truncate`, `references`, `trigger` or `maintain` to `anon`,
+  `authenticated` or `service_role`, and the `postgres` default ACL in `public` gives none of them
+  to a new table (0037; RLS filters none of the four). `scripts/verify-rls.sql` replays
+  production's default ACL from before 0001 and checks this in its last block, for every table.
 - Schools follow ADR 0004, applied by 0029: every table carries `school_id`; people and operation
   rows belong to one school, content rows are common (`school_id` null) or one school's. Roles live
   in `school_members` (`admin`, `teacher`, `student`, one row each) and `platform_admins`; there is
