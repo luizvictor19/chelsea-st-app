@@ -141,46 +141,11 @@ export function isDirty(draft: QuestionFields, saved: QuestionFields): boolean {
 }
 
 /**
- * The approved picture of a word or a scene as the screen read it, or null
- * when it has none. A lookup and not a list, so the rules below need no
- * more of the screen than this.
+ * The approved picture of a word or a scene, or null when it has none: as
+ * the screen read it, or as an action reads it from the row. A lookup and
+ * not a list, so the rule below needs no more of either than this.
  */
 export type PictureOf = (kind: "word" | "scene", id: string) => string | null;
-
-/**
- * Whether the lesson card of these fields opens with no picture: nothing
- * decided, acted out, or a word or a scene with no approved picture now. A
- * word that lost its picture counts: in the lesson it already falls back to
- * the neutral card.
- */
-export function isWithoutImage(
-  fields: QuestionFields,
-  pictureOf: PictureOf,
-): boolean {
-  const { image } = fields;
-  if (image.kind === "none" || image.kind === "acted") return true;
-  return image.id === null || pictureOf(image.kind, image.id) === null;
-}
-
-/**
- * Whether the save asks first: Robin needs a picture for every question
- * a student practises, so publishing one without is said before it is
- * written.
- *
- * Only when the save leaves the question published with no picture and
- * that was not already the case with the same choice: a question confirmed
- * published without one is not asked about again for a comma, since asking
- * every time teaches to click without reading. A new question's form opens
- * on EMPTY, which is not published, so a new one is always asked about.
- */
-export function needsImageWarning(
-  draft: QuestionFields,
-  loaded: QuestionFields,
-  pictureOf: PictureOf,
-): boolean {
-  if (!draft.isPublished || !isWithoutImage(draft, pictureOf)) return false;
-  return !(loaded.isPublished && sameImage(draft.image, loaded.image));
-}
 
 /**
  * Why these fields cannot be saved published, or null when they can.
