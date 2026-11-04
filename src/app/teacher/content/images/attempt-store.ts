@@ -11,6 +11,7 @@ import {
   MAX_REFERENCE_BYTES,
   REFERENCE_TOO_BIG,
 } from "@/lib/images/generation";
+import { uploadGenerated } from "@/lib/images/generated-upload";
 import { attemptPath, referencePath } from "@/lib/images/paths";
 import {
   modelCredits,
@@ -343,9 +344,17 @@ export async function storeGenerated(
   const bytes = await response.arrayBuffer();
   const path = attemptPath(owner, attemptId, extensionFor(contentType, "png"));
 
-  const { error: uploadError } = await supabase.storage
-    .from(BUCKET)
-    .upload(path, bytes, { contentType: contentType ?? undefined });
+  /*
+   * Over a file already there, if there is one: the same path is the same
+   * attempt and the same image, stored by an earlier poll whose row write
+   * failed, or by a poll from another tab. See uploadGenerated.
+   */
+  const { error: uploadError } = await uploadGenerated(
+    supabase.storage.from(BUCKET),
+    path,
+    bytes,
+    contentType,
+  );
   if (uploadError) {
     return recordFailure(supabase, attemptId, owner, uploadError.message);
   }
