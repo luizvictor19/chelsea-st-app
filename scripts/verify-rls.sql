@@ -2898,6 +2898,8 @@ begin
     verify.lead_insert(p_whatsapp => '1133334444'));
   perform verify.expect_refused('a whatsapp of another country', 'leads_whatsapp_br',
     verify.lead_insert(p_whatsapp => '5611987654321'));
+  perform verify.expect_refused('a whatsapp of 11 digits with 55', 'leads_whatsapp_br',
+    verify.lead_insert(p_whatsapp => '55119876543'));
   perform verify.expect_refused('a whatsapp of 14 digits', 'leads_whatsapp_br',
     verify.lead_insert(p_whatsapp => '55119876543210'));
   perform verify.expect_refused('a whatsapp with a plus sign', 'leads_whatsapp_br',

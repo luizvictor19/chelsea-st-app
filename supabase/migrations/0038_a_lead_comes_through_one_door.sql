@@ -53,8 +53,10 @@ comment on table public.leads is
 --
 -- created_at is clock_timestamp(), not the default now(): two sends in one
 -- transaction get two instants, in order, so leads_latest never has to choose
--- between equal times. Each call through the API is a transaction of its own,
--- where the two are the same.
+-- between equal times among the rows written here. Each call through the API
+-- is a transaction of its own, where the two are the same. The column default
+-- stays now(): only a row written some other way (by postgres, in the
+-- dashboard) takes it, and two of those in one transaction would tie.
 --
 -- An empty search_path: every name below is qualified, and nothing the caller
 -- sets can stand in for public.leads.
@@ -104,7 +106,8 @@ revoke insert on public.leads from service_role;
 -- The latest send of each number --------------------------------------------------------
 --
 -- Derived from created_at, so it never disagrees with the table; the id only
--- breaks a tie, which clock_timestamp() leaves no room for. Security invoker:
+-- breaks a tie, which clock_timestamp() leaves no room for among the rows
+-- submit_lead writes. Security invoker:
 -- it reads leads as whoever queries it, so it opens nothing the table keeps
 -- closed. Nobody of the API holds any privilege on it; postgres reads it in
 -- the dashboard. The revoke all stands even with the default ACL of 0037,
