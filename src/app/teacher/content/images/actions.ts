@@ -362,10 +362,11 @@ export async function startGeneration(
      * A model that needs a reference, on a word with none (#186): refused off
      * the row, before the instruction is stored or a row is opened, so the
      * refusal leaves nothing behind. The screen disables Generate with the
-     * same sentence; this holds when another tab took the reference off.
+     * same sentence; this holds when another tab took the reference off,
+     * and says so to this one, which still shows it.
      */
     const refusal = referenceRefusal(model, word.reference_path !== null);
-    if (refusal !== null) return { ok: false, error: refusal };
+    if (refusal !== null) return { ok: false, error: refusal, reference: null };
 
     /*
      * The style comes from the row for the same reason the kind does: it is a

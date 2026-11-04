@@ -247,14 +247,13 @@ export function ScenePanel({
       return;
     }
     const next = modelWithoutReference(model, DEFAULT_SCENE_MODEL);
-    if (next === model) {
+    const reason = referenceRefusal(model, false);
+    if (next === model || reason === null) {
       setModelNote(null);
       return;
     }
     setModel(next);
-    setModelNote(
-      `${referenceRefusal(model, false) ?? ""} Mudei para ${modelLabel(next)}.`,
-    );
+    setModelNote(`${reason} Mudei para ${modelLabel(next)}.`);
   }
 
   function attachReference(file: File) {
@@ -530,13 +529,15 @@ export function ScenePanel({
                 <option
                   key={option.id}
                   value={option.id}
-                  disabled={reference === null && option.needsReference}
+                  disabled={
+                    referenceRefusal(option.id, reference !== null) !== null
+                  }
                 >
                   {option.label}
                   {option.credits === null
                     ? " · custo não medido"
                     : ` · ${option.credits} créditos`}
-                  {reference === null && option.needsReference
+                  {referenceRefusal(option.id, reference !== null) !== null
                     ? " · só com referência"
                     : ""}
                 </option>

@@ -386,14 +386,16 @@ export function WordPanel({
       model,
       defaultModelFor(word.representation) ?? IMAGE_MODELS[0].id,
     );
-    if (next === model) {
+    const reason = referenceRefusal(model, false);
+    if (next === model || reason === null) {
       setModelNote(null);
       return;
     }
     setModel(next);
-    setModelNote(
-      `${referenceRefusal(model, false) ?? ""} Mudei para ${modelLabel(next)}.`,
-    );
+    // The kind's default, which the program chose: a later kind change may
+    // move it again.
+    setModelPicked(false);
+    setModelNote(`${reason} Mudei para ${modelLabel(next)}.`);
   }
 
   function attachReference(file: File) {
@@ -853,13 +855,15 @@ export function WordPanel({
                     <option
                       key={option.id}
                       value={option.id}
-                      disabled={reference === null && option.needsReference}
+                      disabled={
+                        referenceRefusal(option.id, reference !== null) !== null
+                      }
                     >
                       {option.label}
                       {option.credits === null
                         ? " · custo não medido"
                         : ` · ${option.credits} créditos`}
-                      {reference === null && option.needsReference
+                      {referenceRefusal(option.id, reference !== null) !== null
                         ? " · só com referência"
                         : ""}
                     </option>
