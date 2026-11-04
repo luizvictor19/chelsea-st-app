@@ -20,6 +20,8 @@ import {
   isImageModelId,
   modelCredits,
   modelLabel,
+  modelWithoutReference,
+  referenceRefusal,
 } from "@/lib/images/provider";
 import { isDrawableKind } from "@/lib/images/style";
 import {
@@ -159,6 +161,15 @@ export function WordPanel({
    * once. The screen says so instead of showing a number nobody checked.
    */
   const credits = isImageModelId(model) ? modelCredits(model) : null;
+  /*
+   * Why Gerar cannot go as things stand, from the same function the action
+   * asks (#186), so the button and the server never disagree. Taking the
+   * reference off moves the model away from one that needs it, so this
+   * should not be reached; it is here for when it is.
+   */
+  const refusal = isImageModelId(model)
+    ? referenceRefusal(model, reference !== null)
+    : null;
   /*
    * The generation still open for this word, as the page's tracker has it.
    * The tracker is fed from the rows, every running one the page finds on
@@ -331,6 +342,12 @@ export function WordPanel({
    * was — the model is where the last explicit choice left it, and moving it
    * on its own would be the program guessing again. The price stays on the
    * option and in the line under it either way.
+   *
+   * One exception (#186): a model that cannot draw without a reference. Left
+   * there, the panel would sit in a state that cannot generate, so taking
+   * the reference off moves it to this kind's default and says so. Without
+   * a reference such a model stays in the list, disabled, so the teacher
+   * sees it exists and what it asks for.
    */
   const modelOptions =
     reference !== null && ACCEPT_REFERENCE.length > 0
@@ -356,6 +373,26 @@ export function WordPanel({
       ACCEPT_REFERENCE.length === 1
         ? `Mudei para ${modelLabel(target)}, o único modelo que aceita referência.`
         : `Mudei para ${modelLabel(target)}, que aceita referência e tem custo medido. Os outros que aceitam estão no seletor.`,
+    );
+  }
+
+  /** After the reference comes off: move off a model that needs one. */
+  function leaveReferenceModel() {
+    if (!isImageModelId(model)) {
+      setModelNote(null);
+      return;
+    }
+    const next = modelWithoutReference(
+      model,
+      defaultModelFor(word.representation) ?? IMAGE_MODELS[0].id,
+    );
+    if (next === model) {
+      setModelNote(null);
+      return;
+    }
+    setModel(next);
+    setModelNote(
+      `${referenceRefusal(model, false) ?? ""} Mudei para ${modelLabel(next)}.`,
     );
   }
 
@@ -768,8 +805,9 @@ export function WordPanel({
                           async () => {
                             const result = await clearReference(word.id);
                             // The model stays where the last explicit choice
-                            // left it; only the note about it goes.
-                            if (result.ok) setModelNote(null);
+                            // left it, unless that model needs a reference;
+                            // see modelOptions.
+                            if (result.ok) leaveReferenceModel();
                             return result;
                           },
                           () => referenceRemoved(word.term),
@@ -812,11 +850,18 @@ export function WordPanel({
                   className="border-rule bg-background rounded-sm border px-3 py-2 text-sm"
                 >
                   {modelOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
+                    <option
+                      key={option.id}
+                      value={option.id}
+                      disabled={reference === null && option.needsReference}
+                    >
                       {option.label}
                       {option.credits === null
                         ? " · custo não medido"
                         : ` · ${option.credits} créditos`}
+                      {reference === null && option.needsReference
+                        ? " · só com referência"
+                        : ""}
                     </option>
                   ))}
                 </select>
@@ -829,7 +874,12 @@ export function WordPanel({
               */}
               <button
                 type="button"
-                disabled={working || running !== null || subject.trim() === ""}
+                disabled={
+                  working ||
+                  running !== null ||
+                  subject.trim() === "" ||
+                  refusal !== null
+                }
                 onClick={() =>
                   void run("gerar", async () => {
                     const result = await startGeneration(
@@ -867,9 +917,10 @@ export function WordPanel({
               both: they never apply at once, and two lines here would be two
               lines of screen saying the same thing twice.
             */}
-            {(modelNote !== null || reference !== null) && (
+            {(refusal !== null || modelNote !== null || reference !== null) && (
               <p className="text-faint text-xs">
-                {modelNote ??
+                {refusal ??
+                  modelNote ??
                   "Com uma referência anexada, só os modelos que aceitam uma. Tire a referência para escolher os outros."}
               </p>
             )}
