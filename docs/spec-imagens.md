@@ -72,6 +72,8 @@ era `for all using (is_teacher())`, e a 0008 o seguiu.
   preço de cada imagem estão em `IMAGE_MODELS`: Seedream 4 a 50 créditos, Mystic a 80 e Flux Kontext
   Pro a 150, lidos no painel do Freepik e anotados ao lado da tabela. O modelo padrão vem do tipo
   (`defaultModelFor`): Mystic para `photo`, Seedream 4 para `figure`, `pose` e `action`. PR #22.
+  O Flux Kontext Pro só gera com referência (`needsReference`, #186): sem ela, o painel o mostra
+  desabilitado e o servidor recusa antes de gravar a tentativa.
 - **O custo é gravado pela aplicação.** O fornecedor não informa cobrança, então `credits_spent` é
   escrito quando o fornecedor aceita a tarefa, a partir do preço em `IMAGE_MODELS`. A 0015 preencheu
   do mesmo jeito as 50 tentativas que já existiam. Modelo e fornecedor ficam gravados por tentativa,
