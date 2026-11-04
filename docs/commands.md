@@ -175,6 +175,38 @@ of each, as set in the dashboard on 2026-10-25:
 
 `gh pr edit` fails in this repository; use the calls above.
 
+## Dependabot PRs
+
+`.github/dependabot.yml` (#137) opens them every Monday at 06:00 (São Paulo), for npm and GitHub
+Actions, with the `chore` label and commits `chore(deps): ...` or `chore(deps-dev): ...`. A
+Dependabot PR needs no issue of its own: the PR is its record.
+
+    gh pr list --author app/dependabot     # the queue
+
+- The gate is the same: CI green. The merge is Luiz's, with the same `gh pr merge NN --merge`,
+  and it is a production deploy like any other merge. No auto-merge.
+- The grouped PR (`minor-and-patch`, and `actions`) can go straight in when CI passes.
+- A major comes alone in its own PR and is read before the merge: the package's changelog, and
+  for `next` (grouped with `eslint-config-next`) the upgrade guide in `node_modules/next/dist/docs/`.
+- A security PR (group `security`) goes ahead of the queue.
+- A Dependabot PR behind `main`: comment `@dependabot rebase` on the PR. Dependabot rewrites its
+  own branch; no session rebases it.
+- A branch left behind after the merge: `git push origin --delete <branch>`.
+
+Repository settings (Luiz only, once, after #137 is merged), Settings > Advanced Security:
+
+1. Dependency graph: on (the alerts depend on it).
+2. Dependabot alerts: Enable.
+3. Dependabot security updates: Enable.
+
+Security updates go on only after `dependabot.yml` is on `main`, so the first security PR already
+carries the `chore` label, the `chore(deps-dev)` prefix and the grouping. Version updates have no
+switch: they start when the file reaches `main`. Each run shows in Insights > Dependency graph >
+Dependabot. Steps 2 and 3 from the command line, with Luiz's token:
+
+    gh api -X PUT repos/luizvictor19/chelsea-st-app/vulnerability-alerts
+    gh api -X PUT repos/luizvictor19/chelsea-st-app/automated-security-fixes
+
 ## Labels
 
 Type:

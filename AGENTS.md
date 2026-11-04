@@ -97,6 +97,7 @@ so it describes the Next that actually runs here.
   also when the body goes through `--body-file`: GitHub applies the templates only in the browser.
 - One issue per PR. Large work becomes a parent issue with sub-issues, and each sub-issue goes
   through the whole flow on its own.
+- A Dependabot PR is the exception: the PR is its own record, handled as `docs/commands.md` says.
 
 ### The four stages
 
