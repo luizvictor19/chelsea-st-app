@@ -481,10 +481,14 @@ decidido" (`questions_one_image`).
   - **Criar cena**, embaixo da lista, começa com a resposta esperada quando ela é em inglês (senão,
     com a pergunta) e cria a cena sem gerar nada. Uma descrição que já existe escolhe a cena que a
     tem. Criar não liga nada: a pergunta passa a mostrar a cena quando é salva.
-  - Salvar uma pergunta publicada sem imagem (sem decidir, encenada, ou palavra ou cena sem imagem
-    aprovada) pede confirmação: "Esta pergunta não tem imagem; o Robin vai precisar de uma.", com
-    Voltar e Publicar sem imagem. Uma pergunta que já estava publicada assim, com a mesma escolha,
-    não pede de novo numa edição do texto.
+  - Uma pergunta só é gravada com **Publicada** marcada (Salvar e Acrescentar) se mostra uma palavra
+    com imagem aprovada, uma cena com imagem aprovada, ou é **Encenar** (#180). Sem decidir, ou
+    palavra ou cena sem imagem aprovada, deixa o botão desligado, com o motivo ao lado desde que o
+    formulário abre; sem Publicada, a pergunta é salva como rascunho. As ações conferem a mesma
+    regra lendo a palavra ou a cena no banco. O banco não guarda a regra: uma imagem pode sair da
+    palavra ou da cena depois, e a lista diz "Publicada sem imagem" com as três saídas (escolher a
+    imagem, marcar Encenar, desmarcar Publicada). Na aula ela continua aparecendo, com o cartão sem
+    imagem.
 
 ## Fora desta entrega
 
