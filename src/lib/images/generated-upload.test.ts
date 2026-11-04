@@ -22,12 +22,12 @@ function storageBucket(failWith?: string): UploadBucket & {
     async upload(path, body, options) {
       if (failWith !== undefined) return { error: { message: failWith } };
       if (objects.has(path) && options.upsert !== true) {
-        return {
-          error: {
-            message: "The resource already exists",
-            statusCode: "409",
-          } as { message: string },
+        // Storage's own shape; uploadGenerated reads only the message.
+        const exists = {
+          message: "The resource already exists",
+          statusCode: "409",
         };
+        return { error: exists };
       }
       objects.set(path, body);
       return { error: null };

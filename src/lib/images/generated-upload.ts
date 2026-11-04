@@ -29,9 +29,11 @@ export type UploadBucket = {
  * Writing over is safe here and nowhere else: the path is the attempt's id,
  * so the same name always means the same attempt and the same image from the
  * provider. An upload of a finished file or a reference takes a fresh id each
- * time and does not come through here. The storage policy on 2026-11-04
- * already allows it: `vocabulary_images_write` is `for all` and
- * `vocabulary_images_read` is `select`, the update and select an upsert needs.
+ * time and does not come through here. The live storage policy, queried in
+ * pg_policies on 2026-11-04, already allows it: `vocabulary_images_write` is
+ * `for all` with the same expression in `using` and `with check`, and
+ * `vocabulary_images_read` is `select`, so whoever may insert a path may also
+ * update and read it, which is what an upsert needs.
  *
  * Upsert is asked for rather than the "already exists" error recognised: the
  * text of that error is Storage's and can change, and every other error must
