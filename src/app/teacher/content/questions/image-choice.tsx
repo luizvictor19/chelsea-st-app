@@ -12,10 +12,11 @@ import {
 import type { ScreenScene } from "@/lib/questions/queries";
 import type { PicturedWord, ShownWordOption } from "@/lib/questions/shown-word";
 
-import { sceneHref } from "../images/filters";
+import { sceneHref, type QuestionPlace } from "../images/filters";
 import { settle } from "../images/panel-state";
 import { createScene } from "../images/scene-actions";
 
+import { LeaveLink } from "./leave-guard";
 import { pointFailed, sceneCreated, sceneFound, tell } from "./notice-texts";
 
 const KINDS: readonly { readonly kind: ImageKind; readonly label: string }[] = [
@@ -73,12 +74,14 @@ function ShownWordChoice({
  * is shown from what was kept when it was made.
  *
  * A chosen scene without an approved picture gets a next step, with a link
- * to its panel on the images screen. The link opens another tab, so the
- * draft here never leaves the screen.
+ * to its panel on the images screen. The link opens in the same tab, with
+ * `back` for the panel's way back here (#184), and asks first while any form
+ * on the screen holds something unsaved (LeaveLink).
  */
 export function ImageChoiceField({
   id,
   at,
+  back,
   image,
   onChange,
   busy,
@@ -90,6 +93,8 @@ export function ImageChoiceField({
   /** The form's own id, which every name here starts with. */
   readonly id: string;
   readonly at: Place;
+  /** The point this form belongs to, for the scene panel's way back. */
+  readonly back: QuestionPlace;
   readonly image: ImageChoice;
   readonly onChange: (image: ImageChoice) => void;
   readonly busy: boolean;
@@ -333,15 +338,13 @@ export function ImageChoiceField({
                   </ShownWordChoice>
                   {/* Outside the label, so a tap here does not choose the scene. */}
                   {scene.imageUrl === null && (
-                    <a
-                      href={sceneHref(scene.id)}
-                      target="_blank"
-                      rel="noopener"
-                      aria-label={`Fazer a imagem da cena ${scene.description} em Imagens, abre em outra aba`}
+                    <LeaveLink
+                      href={sceneHref(scene.id, back)}
+                      aria-label={`Fazer a imagem da cena ${scene.description} em Imagens`}
                       className="text-faint hover:text-foreground text-xs underline underline-offset-2"
                     >
-                      fazer imagem ↗
-                    </a>
+                      fazer imagem
+                    </LeaveLink>
                   )}
                 </div>
               ))}
@@ -355,16 +358,13 @@ export function ImageChoiceField({
                 até lá, a pergunta só pode ser salva com Publicada desmarcada.
                 Na aula, a pergunta mostra a imagem aprovada.
               </p>
-              <p className="flex flex-wrap items-baseline gap-x-2">
-                <a
-                  href={sceneHref(chosenScene.id)}
-                  target="_blank"
-                  rel="noopener"
+              <p>
+                <LeaveLink
+                  href={sceneHref(chosenScene.id, back)}
                   className="font-semibold underline underline-offset-2"
                 >
-                  Fazer a imagem em Imagens ↗
-                </a>
-                <span className="text-faint text-xs">abre em outra aba</span>
+                  Fazer a imagem em Imagens
+                </LeaveLink>
               </p>
             </div>
           )}

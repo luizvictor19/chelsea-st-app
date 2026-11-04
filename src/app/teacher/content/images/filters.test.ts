@@ -11,8 +11,11 @@ import {
   matchesSceneSelection,
   matchesSearch,
   matchesSelection,
+  parseBack,
   parseOpened,
   parseSelection,
+  pointAnchor,
+  questionsHref,
   sceneHref,
   situationOf,
   toggled,
@@ -248,6 +251,23 @@ describe("sceneHref", () => {
       );
     }
   });
+
+  test("carries the question it was followed from as voltar", () => {
+    assert.equal(
+      sceneHref("s1", { book: 1, lesson: 3, point: 14 }),
+      "/teacher/content/images?cena=s1&voltar=1.3.14#painel",
+    );
+  });
+
+  test("the voltar comes back whole through parseBack", () => {
+    const from = { book: 2, lesson: 11, point: 140 };
+    const url = new URL(sceneHref("s1", from), "https://app.example");
+    assert.deepEqual(
+      parseBack(url.searchParams.get("voltar") ?? undefined),
+      from,
+    );
+    assert.equal(url.searchParams.get("cena"), "s1");
+  });
 });
 
 describe("matchesSceneSelection", () => {
@@ -314,5 +334,45 @@ describe("activeCount", () => {
       activeCount({ tipo: ["photo"], classe: ["noun"], situacao: [] }, "book"),
       3,
     );
+  });
+});
+
+describe("parseBack", () => {
+  test("reads book, lesson and point", () => {
+    assert.deepEqual(parseBack("1.3.14"), { book: 1, lesson: 3, point: 14 });
+  });
+
+  test("anything else has no way back", () => {
+    for (const raw of [
+      undefined,
+      "",
+      ["1.3.14"],
+      ["1.3.14", "1.3.15"],
+      "1.3",
+      "1.3.x",
+      "-1.3.14",
+      "1.3.14.2",
+      " 1.3.14",
+      "1.3.14#painel",
+    ]) {
+      assert.equal(parseBack(raw), null, JSON.stringify(raw));
+    }
+  });
+});
+
+describe("questionsHref", () => {
+  test("opens the lesson on the questions screen, at the point", () => {
+    assert.equal(
+      questionsHref({ book: 1, lesson: 3, point: 14 }),
+      "/teacher/content/questions?livro=1&licao=3#ponto-14",
+    );
+  });
+
+  test("aims at the id the point's section carries", () => {
+    const url = new URL(
+      questionsHref({ book: 1, lesson: 3, point: 14 }),
+      "https://app.example",
+    );
+    assert.equal(url.hash, `#${pointAnchor(14)}`);
   });
 });

@@ -222,14 +222,64 @@ export function filterHref(
 export const SCENE_PANEL_ID = "painel";
 
 /**
+ * The point of the questions screen a scene link was followed from, so the
+ * scene's panel can lead back to it (#184).
+ */
+export type QuestionPlace = {
+  readonly book: number;
+  readonly lesson: number;
+  readonly point: number;
+};
+
+/**
  * A scene's panel as a link from outside this screen: absolute, since the
  * questions screen builds it too, and aimed at the panel. On a phone the
  * panel sits below the whole list, so a link that only opened it would land
  * at the top of the page with the scene out of sight.
+ *
+ * `from` is the question the link was followed from, carried as
+ * `voltar=livro.licao.ponto` for the panel's way back. Only the link carries
+ * it: filterHref does not, so the way back is gone once the teacher moves on
+ * to another scene or filter.
  */
-export function sceneHref(sceneId: string): string {
+export function sceneHref(sceneId: string, from?: QuestionPlace): string {
   const search = new URLSearchParams({ cena: sceneId });
+  if (from !== undefined) {
+    search.set("voltar", `${from.book}.${from.lesson}.${from.point}`);
+  }
   return `/teacher/content/images?${search.toString()}#${SCENE_PANEL_ID}`;
+}
+
+/**
+ * The `voltar` of a scene link, or null for anything but three whole numbers
+ * joined by dots: an old or hand-edited link then loses its way back and
+ * nothing else.
+ */
+export function parseBack(
+  raw: string | string[] | undefined,
+): QuestionPlace | null {
+  if (typeof raw !== "string") return null;
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(raw);
+  if (match === null) return null;
+  return {
+    book: Number(match[1]),
+    lesson: Number(match[2]),
+    point: Number(match[3]),
+  };
+}
+
+/** The id of a point's section on the questions screen. */
+export function pointAnchor(point: number): string {
+  return `ponto-${point}`;
+}
+
+/** A point of the questions screen as a link, scrolled to its section. */
+export function questionsHref(place: QuestionPlace): string {
+  const search = new URLSearchParams({
+    livro: String(place.book),
+    licao: String(place.lesson),
+  });
+  return `/teacher/content/questions?${search.toString()}#${pointAnchor(place.point)}`;
 }
 
 export type Chip = {
