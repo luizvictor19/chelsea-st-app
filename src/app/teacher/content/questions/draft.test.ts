@@ -15,6 +15,7 @@ import {
   needsImageWarning,
   opened,
   parseFields,
+  publishRefusal,
   questionError,
   questionRow,
   refusal,
@@ -22,6 +23,7 @@ import {
   type PictureOf,
   type QuestionFields,
 } from "./draft.ts";
+import { approvedPicture } from "../../../../lib/questions/shown-word.ts";
 
 const SAVED: QuestionFields = {
   prompt: "Is this a lamp?",
@@ -545,6 +547,92 @@ describe("needsImageWarning", () => {
         pictureOf,
       ),
       true,
+    );
+  });
+});
+
+describe("publishRefusal", () => {
+  const NOTHING =
+    "Para publicar, escolha a imagem (Palavra ou Cena) ou marque Encenar. Sem Publicada, a pergunta é salva como rascunho";
+  const WORD =
+    "A palavra escolhida não tem imagem aprovada. Para publicar, escolha outra com imagem ou marque Encenar. Sem Publicada, a pergunta é salva como rascunho";
+  const SCENE =
+    "A cena escolhida ainda não tem imagem aprovada. Para publicar, faça e aprove a imagem pelo link Fazer a imagem em Imagens, logo acima, ou marque Encenar. Sem Publicada, a pergunta é salva como rascunho";
+
+  test("an unpublished question is saved whatever it shows", () => {
+    for (const image of [
+      { kind: "none" },
+      { kind: "acted" },
+      { kind: "word", id: SHELF },
+      { kind: "scene", id: PEN },
+    ] as const) {
+      assert.equal(publishRefusal({ ...SAVED, image }, pictureOf), null);
+    }
+  });
+
+  test("a published question acted out is saved", () => {
+    assert.equal(
+      publishRefusal({ ...PUBLISHED, image: { kind: "acted" } }, pictureOf),
+      null,
+    );
+  });
+
+  test("a published question with an approved picture is saved", () => {
+    assert.equal(
+      publishRefusal(
+        { ...PUBLISHED, image: { kind: "word", id: LAMP } },
+        pictureOf,
+      ),
+      null,
+    );
+    assert.equal(
+      publishRefusal(
+        { ...PUBLISHED, image: { kind: "scene", id: BOX } },
+        pictureOf,
+      ),
+      null,
+    );
+  });
+
+  test("a published question with no image decided is refused", () => {
+    assert.equal(publishRefusal(PUBLISHED, pictureOf), NOTHING);
+  });
+
+  test("a published question showing a word with no picture is refused", () => {
+    assert.equal(
+      publishRefusal(
+        { ...PUBLISHED, image: { kind: "word", id: SHELF } },
+        pictureOf,
+      ),
+      WORD,
+    );
+  });
+
+  test("a published question showing a scene with no picture is refused", () => {
+    assert.equal(
+      publishRefusal(
+        { ...PUBLISHED, image: { kind: "scene", id: PEN } },
+        pictureOf,
+      ),
+      SCENE,
+    );
+  });
+
+  test("a word whose kind is not drawn has no picture, path or not", () => {
+    // Built as the actions build it: the stored row through approvedPicture.
+    const stored: PictureOf = (kind) =>
+      kind === "word"
+        ? approvedPicture({
+            representation: "symbol",
+            imageUrl: "words/shelf.png",
+          })
+        : null;
+    assert.equal(
+      publishRefusal(
+        { ...PUBLISHED, image: { kind: "word", id: SHELF } },
+        stored,
+      ),
+      WORD,
     );
   });
 });

@@ -182,6 +182,36 @@ export function needsImageWarning(
   return !(loaded.isPublished && sameImage(draft.image, loaded.image));
 }
 
+/**
+ * Why these fields cannot be saved published, or null when they can.
+ *
+ * Robin needs a picture for every question a student practises, so a
+ * question is only published showing a word or a scene with an approved
+ * picture, or acted out, where the teacher is the scene. Unpublished, it is
+ * a draft and is saved whatever it shows. The screen and the actions both
+ * ask this, with the same `pictureOf` reading (approvedPicture for a word,
+ * the image_path of a scene in use), so they refuse the same saves with the
+ * same sentence. Not held by the database: a picture can still leave a word
+ * or a scene after the question is published, and the list says so.
+ */
+export function publishRefusal(
+  fields: QuestionFields,
+  pictureOf: PictureOf,
+): string | null {
+  if (!fields.isPublished) return null;
+  const { image } = fields;
+  if (image.kind === "acted") return null;
+  if (image.kind === "none") {
+    return "Para publicar, escolha a imagem (Palavra ou Cena) ou marque Encenar. Sem Publicada, a pergunta é salva como rascunho";
+  }
+  if (image.id !== null && pictureOf(image.kind, image.id) !== null) {
+    return null;
+  }
+  return image.kind === "word"
+    ? "A palavra escolhida não tem imagem aprovada. Para publicar, escolha outra com imagem ou marque Encenar. Sem Publicada, a pergunta é salva como rascunho"
+    : "A cena escolhida ainda não tem imagem aprovada. Para publicar, faça e aprove a imagem pelo link Fazer a imagem em Imagens, logo acima, ou marque Encenar. Sem Publicada, a pergunta é salva como rascunho";
+}
+
 const ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 /** Shaped like the uuid the column holds. Whether it exists, the database says. */
