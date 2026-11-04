@@ -38,6 +38,9 @@ import { descriptionKey, isDescriptionTaken, isSceneInUse } from "./scenes";
  * its own.
  */
 
+/** The questions screen, whose form offers the scenes. */
+const QUESTIONS_SCREEN = "/teacher/content/questions";
+
 /** The twin of actions.ts's SCENE_ATTEMPT, for a word's attempt sent here. */
 const WORD_ATTEMPT = "Essa tentativa é de uma palavra, não de uma cena.";
 
@@ -76,6 +79,9 @@ export async function createScene(
       .single();
     if (error === null) {
       revalidatePath(SCREEN);
+      // A question's form creates one too (#65), and its list of scenes
+      // only follows if that screen is revalidated as well.
+      revalidatePath(QUESTIONS_SCREEN);
       return { ok: true, id: data.id };
     }
 

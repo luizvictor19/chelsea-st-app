@@ -8,6 +8,8 @@ import {
   questionDeleted,
   questionFailed,
   questionSaved,
+  sceneCreated,
+  sceneFound,
 } from "./notice-texts.ts";
 
 describe("a notice about a question starts with its point", () => {
@@ -23,6 +25,17 @@ describe("a notice about a question starts with its point", () => {
     assert.deepEqual(questionDeleted(12, 1), {
       kind: "success",
       text: "Ponto 12: pergunta 1 apagada.",
+    });
+  });
+
+  test("a scene created from a form, or found there", () => {
+    assert.deepEqual(sceneCreated(3), {
+      kind: "success",
+      text: "Ponto 3: cena criada.",
+    });
+    assert.deepEqual(sceneFound(3), {
+      kind: "success",
+      text: "Ponto 3: essa cena já existia e foi escolhida.",
     });
   });
 
