@@ -2980,6 +2980,8 @@ begin
 end;
 $$;
 
+\i supabase/migrations/0039_a_point_she_stopped_at_is_named.sql
+
 -- A narrowing names a point she stopped at (0039) ---------------------------------------
 --
 -- materialize_points counts, before it deletes anything, the points outside the
