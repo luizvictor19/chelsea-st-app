@@ -41,8 +41,9 @@ architecture question for Luiz.
     asked for from `localhost`. To test one locally, swap the start of the link for
     `http://localhost:3100`: the `token_hash` works on any host.
 - Luiz also runs it locally on port 3100 (`npm run dev`).
-- The landing page (chelsea-st.com) is a separate folder, not in git, deployed by Luiz with the
-  Vercel CLI. Out of scope for this repository.
+- The landing page (chelsea-st.com) is the repository `luizvictor19/chelsea-st-site` (local clone
+  `~/Projects/chelsea-st`), deployed by Luiz. Its form writes leads into this project's database
+  (see Database rules); everything else on it is out of scope for this repository.
 - DNS on Cloudflare (grey cloud). Email: Cloudflare Email Routing, Resend, Supabase SMTP from
   contato@chelsea-st.com.
 
@@ -62,6 +63,11 @@ architecture question for Luiz.
   production's default ACL from before 0001 and checks this in its last block, for every table.
   The `supabase_admin` default in `public` is Supabase's and still gives every privilege; on
   2026-11-04 no relation of `public` was owned by it.
+- `leads` receives rows only through `submit_lead` (0038), executed by `anon` alone: the site's
+  function calls it with the publishable key. Nobody reads `leads` through the API, and the
+  service role holds nothing on it. A number sent twice is two rows (history, nothing is
+  overwritten); the latest send of each number is the view `leads_latest`, with no privilege for
+  any API role. The number is stored with the 55 (`leads_whatsapp_br`).
 - Schools follow ADR 0004, applied by 0029: every table carries `school_id`; people and operation
   rows belong to one school, content rows are common (`school_id` null) or one school's. Roles live
   in `school_members` (`admin`, `teacher`, `student`, one row each) and `platform_admins`; there is
@@ -97,6 +103,8 @@ architecture question for Luiz.
 - API keys are server-only, never `NEXT_PUBLIC_`.
 - `SUPABASE_SERVICE_ROLE_KEY` is read only by `src/lib/supabase/admin.ts`, to send invite emails
   (#96). It passes every policy: never use it to read or write tables.
+- The site (`luizvictor19/chelsea-st-site`) holds only the publishable key
+  (`SUPABASE_PUBLISHABLE_KEY`), never the service role (#146).
 - Student personal data (name, email, audio) is processed under the privacy terms published on the
   landing. Never log it, never paste it into an issue.
 
