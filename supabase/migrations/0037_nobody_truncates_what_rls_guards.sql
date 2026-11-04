@@ -30,8 +30,16 @@
 -- and the service role only sends invites through Auth. The row locks the
 -- functions take (for update, for share) ask for update, which stays.
 --
--- Two revokes, because each closes half: the default ACL, so the next table is
--- born closed, and every table of public as it stands, so the 23 of today are.
+-- Two revokes, because each closes half: the default ACL, so the next table a
+-- migration creates (as postgres) is born closed, and every table of public as
+-- it stands, so the 23 of today are.
+--
+-- Left as it is: supabase_admin has a default ACL of its own in public, giving
+-- arwdDxtm to the three roles on a table it creates there. It belongs to
+-- Supabase, postgres cannot alter it, and on 2026-11-04 no relation of public
+-- had any owner but postgres. The last block of scripts/verify-rls.sql checks
+-- every relation of public whoever made it, but the CI never sees a table
+-- supabase_admin would create in production.
 -- Only the four. select, insert, update and delete were granted on purpose by
 -- the migrations and stay as they are; a revoke all would take the API down.
 -- anon is named too, with nothing to lose today, because the default named it.

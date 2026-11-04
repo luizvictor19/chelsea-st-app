@@ -186,10 +186,10 @@ begin
     (select 'a relation not measured: ' || relname from actual
      except select 'a relation not measured: ' || relname from expected)
   )
-  select concat_ws('; ', v_drift, string_agg(what, '; ' order by what))
+  select nullif(concat_ws('; ', v_drift, string_agg(what, '; ' order by what)), '')
     into v_drift from drift;
 
-  if v_drift <> '' then
+  if v_drift is not null then
     raise exception 'privileges after 0036 differ from production on 2026-11-04: %', v_drift;
   end if;
 
@@ -2638,9 +2638,10 @@ $$;
 --
 -- The checks refuse what the site's form must never write, each by its own
 -- name, and accept the limits themselves. The privileges are asserted as
--- privileges, against production's default ACL replayed from 0001: anon and
--- authenticated reach nothing, the service role inserts and nothing else, and
--- no policy exists. Rows are written as the superuser running this script,
+-- privileges: anon and authenticated reach nothing, the service role inserts
+-- and nothing else, and no policy exists. This block runs after 0037, which
+-- takes the Dxtm off leads as well, so the revoke all of 0036 is held by the
+-- snapshot right after 0036 above, not here. Rows are written as the superuser running this script,
 -- since checks hold for everyone and the service role cannot select.
 --
 -- One well formed lead, with any column replaced by a named argument.
@@ -2784,8 +2785,8 @@ $$;
 
 -- Nobody truncates what RLS guards (0037) ----------------------------------------------
 --
--- Holds for every relation public has now and any it gets later: the last
--- block of the script, so it sees whatever the migrations above created.
+-- Holds for every relation public has now and any a migration adds later: the
+-- last block of the script, so it sees whatever the migrations above created.
 -- anon, authenticated and service_role hold none of truncate, references,
 -- trigger and maintain on any relation of public, references on no column;
 -- postgres's default ACL in public gives none of the four to the three; and a
@@ -2867,7 +2868,6 @@ begin
   if (select count(*) from verify.failures) = v_before then
     raise notice 'a new table of public is born with no privilege for anon, authenticated or service_role';
   end if;
-  v_before := (select count(*) from verify.failures);
 
   select string_agg(what, '; ') into v_failures from verify.failures;
   if v_failures is not null then

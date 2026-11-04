@@ -60,6 +60,8 @@ architecture question for Luiz.
   `authenticated` or `service_role`, and the `postgres` default ACL in `public` gives none of them
   to a new table (0037; RLS filters none of the four). `scripts/verify-rls.sql` replays
   production's default ACL from before 0001 and checks this in its last block, for every table.
+  The `supabase_admin` default in `public` is Supabase's and still gives every privilege; on
+  2026-11-04 no relation of `public` was owned by it.
 - Schools follow ADR 0004, applied by 0029: every table carries `school_id`; people and operation
   rows belong to one school, content rows are common (`school_id` null) or one school's. Roles live
   in `school_members` (`admin`, `teacher`, `student`, one row each) and `platform_admins`; there is
