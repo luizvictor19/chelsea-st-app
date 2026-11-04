@@ -23,7 +23,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 
-import type { TextProvider } from "./provider.ts";
+import type { TextProvider, TextUsage } from "./provider.ts";
 
 // This module reads a secret, so it must never be bundled for the browser.
 if (typeof window !== "undefined") {
@@ -47,6 +47,25 @@ function apiKey(): string {
     throw new Error("Missing environment variable: ANTHROPIC_API_KEY");
   }
   return key;
+}
+
+/**
+ * A response that ended other than with end_turn: a refusal, or an answer cut
+ * at max_tokens. Billed all the same, so it carries the usage, and the
+ * measurement keeps the cost of a call that produced nothing usable.
+ */
+export class ClaudeStopError extends Error {
+  readonly stopReason: string;
+  readonly usage: TextUsage;
+
+  constructor(stopReason: string, category: string | null, usage: TextUsage) {
+    super(
+      `Claude stopped with ${stopReason}${category === null ? "" : ` (${category})`}`,
+    );
+    this.name = "ClaudeStopError";
+    this.stopReason = stopReason;
+    this.usage = usage;
+  }
 }
 
 /**
@@ -77,12 +96,17 @@ export function createClaudeProvider(
         },
       });
 
+      const usage: TextUsage = {
+        inputTokens: response.usage.input_tokens,
+        cachedInputTokens: response.usage.cache_read_input_tokens ?? 0,
+        outputTokens: response.usage.output_tokens,
+      };
       if (response.stop_reason !== "end_turn") {
         const details = response.stop_details;
-        const category =
-          details === null ? "" : ` (${details.category ?? "no category"})`;
-        throw new Error(
-          `Claude stopped with ${response.stop_reason}${category}`,
+        throw new ClaudeStopError(
+          response.stop_reason ?? "no stop reason",
+          details === null ? null : (details.category ?? "no category"),
+          usage,
         );
       }
 
@@ -95,11 +119,7 @@ export function createClaudeProvider(
       return {
         text,
         model: response.model,
-        usage: {
-          inputTokens: response.usage.input_tokens,
-          cachedInputTokens: response.usage.cache_read_input_tokens ?? 0,
-          outputTokens: response.usage.output_tokens,
-        },
+        usage,
       };
     },
   };
