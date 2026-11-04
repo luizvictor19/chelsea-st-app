@@ -78,7 +78,9 @@ architecture question for Luiz.
 - What a question shows follows 0030: the picture of one word (`shown_vocabulary_item_id`), one
   scene (`scene_id`), or acted out (`is_acted_out`), at most one of the three, checked by
   `questions_one_image`; none of them means not decided yet. An image attempt belongs to exactly
-  one word or one scene (`image_attempts_one_owner`).
+  one word or one scene (`image_attempts_one_owner`). Publishing needs a word or a scene with an
+  approved picture, or acted out: checked on the screen and in `addQuestion`/`saveQuestion`
+  (`publishRefusal`, #180), not in the database.
 - Where a student stopped follows 0035: one point per lesson, `lessons.stopped_at_point_id`,
   written by "Parei aqui" on the live lesson screen. The points of a lesson are the ones between
   the previous lesson's mark and its own; they are not stored. A marked point cannot be deleted

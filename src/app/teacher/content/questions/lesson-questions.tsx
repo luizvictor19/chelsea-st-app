@@ -57,8 +57,8 @@ import {
   closed,
   isAnswerLanguage,
   isDirty,
-  needsImageWarning,
   opened,
+  publishRefusal,
   refusal,
   type PictureOf,
   type QuestionFields,
@@ -519,6 +519,17 @@ function PointSection({
                       aparece sem imagem.
                     </p>
                   )}
+                  {/*
+                    Published before its picture left: a save of it is refused
+                    until it shows one (publishRefusal), so the ways out are
+                    said before the form is opened.
+                  */}
+                  {publishRefusal(saved, pictureOf) !== null && (
+                    <p className="text-warning text-xs">
+                      Publicada sem imagem. Para salvar uma edição, escolha a
+                      imagem, marque Encenar ou desmarque Publicada.
+                    </p>
+                  )}
                   <p className="text-faint flex flex-wrap gap-x-3 text-xs">
                     <span>
                       {question.isPublished ? "Publicada" : "Não publicada"}
@@ -769,7 +780,6 @@ function QuestionForm({
   const [loaded] = useState<QuestionFields>(saved ?? EMPTY);
   const [draft, setDraft] = useState<QuestionFields>(loaded);
   const promptInput = useRef<HTMLInputElement>(null);
-  const warning = useRef<HTMLDialogElement>(null);
   const id = useId();
 
   // A new question is unsaved once either sentence has something in it; the
@@ -792,7 +802,13 @@ function QuestionForm({
   }, [reportDraft, draftKey, draft, saved]);
   useEffect(() => () => reportDraft(draftKey, null), [reportDraft, draftKey]);
 
-  const why = refusal(draft);
+  // Two reasons, said differently. A missing sentence is said once the form
+  // holds something, as before. Publishing with no picture is said from the
+  // moment the form opens, so a question published without one shows at
+  // once why its save is off (publishRefusal).
+  const textWhy = refusal(draft);
+  const publishWhy = publishRefusal(draft, pictureOf);
+  const why = textWhy ?? publishWhy;
   const marks = marksOf(checker, draft, at);
   const promptMarks = summary(marks.prompt, at);
   const answerMarks = summary(marks.answer, at);
@@ -816,12 +832,6 @@ function QuestionForm({
         onSubmit={(event) => {
           event.preventDefault();
           if (busy || why !== null) return;
-          // Publishing with no picture is asked about first; see
-          // needsImageWarning. Voltar writes nothing and leaves the draft.
-          if (needsImageWarning(draft, loaded, pictureOf)) {
-            warning.current?.showModal();
-            return;
-          }
           send();
         }}
       >
@@ -938,6 +948,14 @@ function QuestionForm({
           <button
             type="submit"
             disabled={busy || why !== null || (saved !== null && !dirty)}
+            aria-describedby={
+              [
+                dirty && textWhy !== null ? `${id}-falta` : null,
+                publishWhy !== null ? `${id}-publicar` : null,
+              ]
+                .filter((part) => part !== null)
+                .join(" ") || undefined
+            }
             className="border-foreground bg-foreground text-background rounded-sm border px-3 py-1.5 text-sm font-semibold disabled:opacity-50"
           >
             {submitLabel}
@@ -950,63 +968,18 @@ function QuestionForm({
           >
             {dirty ? "Descartar o que está escrito" : "Fechar"}
           </button>
-          {dirty && why !== null && (
-            <span className="text-muted text-xs">{why}.</span>
+          {dirty && textWhy !== null && (
+            <span id={`${id}-falta`} className="text-muted text-xs">
+              {textWhy}.
+            </span>
+          )}
+          {publishWhy !== null && (
+            <span id={`${id}-publicar`} className="text-warning text-xs">
+              {publishWhy}.
+            </span>
           )}
         </div>
       </form>
-      {/*
-      Outside the form, so its buttons cannot submit it. The native dialog,
-      as for Apagar: Esc closes it, which is Voltar.
-    */}
-      <dialog
-        ref={warning}
-        aria-labelledby={`${id}-aviso`}
-        className="border-rule bg-surface text-foreground m-auto max-w-sm rounded-sm border p-6 backdrop:bg-black/40"
-      >
-        <div className="flex flex-col gap-4">
-          <h2
-            id={`${id}-aviso`}
-            className="text-base font-extrabold tracking-tight"
-          >
-            Esta pergunta não tem imagem; o Robin vai precisar de uma.
-          </h2>
-          <p className="text-muted text-sm">{withoutImageReason(draft)}</p>
-          <div className="flex flex-wrap justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => warning.current?.close()}
-              className="border-rule hover:bg-background rounded-sm border px-3 py-1.5 text-sm transition-colors"
-            >
-              Voltar
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                warning.current?.close();
-                send();
-              }}
-              className="border-foreground bg-foreground text-background rounded-sm border px-3 py-1.5 text-sm font-semibold"
-            >
-              Publicar sem imagem
-            </button>
-          </div>
-        </div>
-      </dialog>
     </>
   );
-}
-
-/** Why the card would open with no picture, for the dialog that asks. */
-function withoutImageReason(fields: QuestionFields): string {
-  switch (fields.image.kind) {
-    case "none":
-      return "Nenhuma imagem foi escolhida: na aula o cartão fica neutro.";
-    case "acted":
-      return "Ela é encenada: na aula o cartão fica neutro, e a cena é você.";
-    case "word":
-      return "A palavra escolhida não tem imagem aprovada: na aula o cartão aparece sem imagem.";
-    case "scene":
-      return "A cena escolhida ainda não tem imagem aprovada: na aula o cartão aparece sem imagem. A imagem da cena é feita na tela de imagens, na seção Cenas.";
-  }
 }

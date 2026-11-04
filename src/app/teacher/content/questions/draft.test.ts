@@ -11,10 +11,9 @@ import {
   failureMessage,
   isAnswerLanguage,
   isDirty,
-  isWithoutImage,
-  needsImageWarning,
   opened,
   parseFields,
+  publishRefusal,
   questionError,
   questionRow,
   refusal,
@@ -22,6 +21,7 @@ import {
   type PictureOf,
   type QuestionFields,
 } from "./draft.ts";
+import { approvedPicture } from "../../../../lib/questions/shown-word.ts";
 
 const SAVED: QuestionFields = {
   prompt: "Is this a lamp?",
@@ -409,142 +409,88 @@ const pictureOf: PictureOf = (kind, id) =>
 
 const PUBLISHED: QuestionFields = { ...SAVED, isPublished: true };
 
-describe("isWithoutImage", () => {
-  test("none and acted out have no image", () => {
-    assert.equal(isWithoutImage(SAVED, pictureOf), true);
+describe("publishRefusal", () => {
+  const NOTHING =
+    "Para publicar, escolha a imagem (Palavra ou Cena) ou marque Encenar. Sem Publicada, a pergunta é salva como rascunho";
+  const WORD =
+    "A palavra escolhida não tem imagem aprovada. Para publicar, escolha outra com imagem ou marque Encenar. Sem Publicada, a pergunta é salva como rascunho";
+  const SCENE =
+    "A cena escolhida ainda não tem imagem aprovada. Para publicar, faça e aprove a imagem pelo link Fazer a imagem em Imagens, logo acima, ou marque Encenar. Sem Publicada, a pergunta é salva como rascunho";
+
+  test("an unpublished question is saved whatever it shows", () => {
+    for (const image of [
+      { kind: "none" },
+      { kind: "acted" },
+      { kind: "word", id: SHELF },
+      { kind: "scene", id: PEN },
+    ] as const) {
+      assert.equal(publishRefusal({ ...SAVED, image }, pictureOf), null);
+    }
+  });
+
+  test("a published question acted out is saved", () => {
     assert.equal(
-      isWithoutImage({ ...SAVED, image: { kind: "acted" } }, pictureOf),
-      true,
+      publishRefusal({ ...PUBLISHED, image: { kind: "acted" } }, pictureOf),
+      null,
     );
   });
 
-  test("a word or a scene has one only while it is approved", () => {
+  test("a published question with an approved picture is saved", () => {
     assert.equal(
-      isWithoutImage(
-        { ...SAVED, image: { kind: "word", id: LAMP } },
+      publishRefusal(
+        { ...PUBLISHED, image: { kind: "word", id: LAMP } },
         pictureOf,
       ),
-      false,
+      null,
     );
     assert.equal(
-      isWithoutImage(
-        { ...SAVED, image: { kind: "scene", id: BOX } },
-        pictureOf,
-      ),
-      false,
-    );
-    assert.equal(
-      isWithoutImage(
-        { ...SAVED, image: { kind: "word", id: SHELF } },
-        pictureOf,
-      ),
-      true,
-    );
-    assert.equal(
-      isWithoutImage(
-        { ...SAVED, image: { kind: "scene", id: PEN } },
-        pictureOf,
-      ),
-      true,
-    );
-  });
-});
-
-describe("needsImageWarning", () => {
-  test("warns when a save publishes a question with no image decided", () => {
-    assert.equal(needsImageWarning(PUBLISHED, SAVED, pictureOf), true);
-  });
-
-  test("warns when a save publishes one acted out", () => {
-    const acted: QuestionFields = { ...PUBLISHED, image: { kind: "acted" } };
-    assert.equal(needsImageWarning(acted, SAVED, pictureOf), true);
-  });
-
-  test("warns for a scene with no approved image", () => {
-    const scene: QuestionFields = {
-      ...PUBLISHED,
-      image: { kind: "scene", id: PEN },
-    };
-    assert.equal(needsImageWarning(scene, SAVED, pictureOf), true);
-  });
-
-  test("warns for a word that lost its image", () => {
-    const word: QuestionFields = {
-      ...PUBLISHED,
-      image: { kind: "word", id: SHELF },
-    };
-    assert.equal(needsImageWarning(word, SAVED, pictureOf), true);
-  });
-
-  test("warns for a new question published without an image", () => {
-    // A new question's form opens on EMPTY, which is not published.
-    assert.equal(
-      needsImageWarning({ ...EMPTY, isPublished: true }, EMPTY, pictureOf),
-      true,
-    );
-  });
-
-  test("does not warn for a question left unpublished", () => {
-    assert.equal(needsImageWarning(SAVED, PUBLISHED, pictureOf), false);
-    assert.equal(
-      needsImageWarning(
-        { ...SAVED, image: { kind: "acted" } },
-        SAVED,
-        pictureOf,
-      ),
-      false,
-    );
-  });
-
-  test("does not warn for a scene or a word with an image", () => {
-    assert.equal(
-      needsImageWarning(
+      publishRefusal(
         { ...PUBLISHED, image: { kind: "scene", id: BOX } },
-        SAVED,
         pictureOf,
       ),
-      false,
-    );
-    assert.equal(
-      needsImageWarning(
-        { ...PUBLISHED, image: { kind: "word", id: LAMP } },
-        SAVED,
-        pictureOf,
-      ),
-      false,
+      null,
     );
   });
 
-  test("does not warn again for a text edit of what was already published so", () => {
-    const acted: QuestionFields = { ...PUBLISHED, image: { kind: "acted" } };
+  test("a published question with no image decided is refused", () => {
+    assert.equal(publishRefusal(PUBLISHED, pictureOf), NOTHING);
+  });
+
+  test("a published question showing a word with no picture is refused", () => {
     assert.equal(
-      needsImageWarning(
-        { ...acted, prompt: "Is the box big?" },
-        acted,
+      publishRefusal(
+        { ...PUBLISHED, image: { kind: "word", id: SHELF } },
         pictureOf,
       ),
-      false,
-    );
-    assert.equal(
-      needsImageWarning(
-        { ...PUBLISHED, prompt: "Is it?" },
-        PUBLISHED,
-        pictureOf,
-      ),
-      false,
+      WORD,
     );
   });
 
-  test("warns when the choice changes, though it was published before", () => {
-    const acted: QuestionFields = { ...PUBLISHED, image: { kind: "acted" } };
-    assert.equal(needsImageWarning(acted, PUBLISHED, pictureOf), true);
+  test("a published question showing a scene with no picture is refused", () => {
     assert.equal(
-      needsImageWarning(
+      publishRefusal(
         { ...PUBLISHED, image: { kind: "scene", id: PEN } },
-        { ...PUBLISHED, image: { kind: "word", id: LAMP } },
         pictureOf,
       ),
-      true,
+      SCENE,
+    );
+  });
+
+  test("a word whose kind is not drawn has no picture, path or not", () => {
+    // Built as the actions build it: the stored row through approvedPicture.
+    const stored: PictureOf = (kind) =>
+      kind === "word"
+        ? approvedPicture({
+            representation: "symbol",
+            imageUrl: "words/shelf.png",
+          })
+        : null;
+    assert.equal(
+      publishRefusal(
+        { ...PUBLISHED, image: { kind: "word", id: SHELF } },
+        stored,
+      ),
+      WORD,
     );
   });
 });

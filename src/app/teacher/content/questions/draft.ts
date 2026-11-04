@@ -141,45 +141,40 @@ export function isDirty(draft: QuestionFields, saved: QuestionFields): boolean {
 }
 
 /**
- * The approved picture of a word or a scene as the screen read it, or null
- * when it has none. A lookup and not a list, so the rules below need no
- * more of the screen than this.
+ * The approved picture of a word or a scene, or null when it has none: as
+ * the screen read it, or as an action reads it from the row. A lookup and
+ * not a list, so the rule below needs no more of either than this.
  */
 export type PictureOf = (kind: "word" | "scene", id: string) => string | null;
 
 /**
- * Whether the lesson card of these fields opens with no picture: nothing
- * decided, acted out, or a word or a scene with no approved picture now. A
- * word that lost its picture counts: in the lesson it already falls back to
- * the neutral card.
+ * Why these fields cannot be saved published, or null when they can.
+ *
+ * Robin needs a picture for every question a student practises, so a
+ * question is only published showing a word or a scene with an approved
+ * picture, or acted out, where the teacher is the scene. Unpublished, it is
+ * a draft and is saved whatever it shows. The screen and the actions both
+ * ask this, with the same `pictureOf` reading (approvedPicture for a word,
+ * the image_path of a scene in use), so they refuse the same saves with the
+ * same sentence. Not held by the database: a picture can still leave a word
+ * or a scene after the question is published, and the list says so.
  */
-export function isWithoutImage(
+export function publishRefusal(
   fields: QuestionFields,
   pictureOf: PictureOf,
-): boolean {
+): string | null {
+  if (!fields.isPublished) return null;
   const { image } = fields;
-  if (image.kind === "none" || image.kind === "acted") return true;
-  return image.id === null || pictureOf(image.kind, image.id) === null;
-}
-
-/**
- * Whether the save asks first: Robin needs a picture for every question
- * a student practises, so publishing one without is said before it is
- * written.
- *
- * Only when the save leaves the question published with no picture and
- * that was not already the case with the same choice: a question confirmed
- * published without one is not asked about again for a comma, since asking
- * every time teaches to click without reading. A new question's form opens
- * on EMPTY, which is not published, so a new one is always asked about.
- */
-export function needsImageWarning(
-  draft: QuestionFields,
-  loaded: QuestionFields,
-  pictureOf: PictureOf,
-): boolean {
-  if (!draft.isPublished || !isWithoutImage(draft, pictureOf)) return false;
-  return !(loaded.isPublished && sameImage(draft.image, loaded.image));
+  if (image.kind === "acted") return null;
+  if (image.kind === "none") {
+    return "Para publicar, escolha a imagem (Palavra ou Cena) ou marque Encenar. Sem Publicada, a pergunta é salva como rascunho";
+  }
+  if (image.id !== null && pictureOf(image.kind, image.id) !== null) {
+    return null;
+  }
+  return image.kind === "word"
+    ? "A palavra escolhida não tem imagem aprovada. Para publicar, escolha outra com imagem ou marque Encenar. Sem Publicada, a pergunta é salva como rascunho"
+    : "A cena escolhida ainda não tem imagem aprovada. Para publicar, faça e aprove a imagem pelo link Fazer a imagem em Imagens, logo acima, ou marque Encenar. Sem Publicada, a pergunta é salva como rascunho";
 }
 
 const ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
