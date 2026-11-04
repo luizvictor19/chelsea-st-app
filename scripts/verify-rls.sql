@@ -2980,6 +2980,58 @@ begin
 end;
 $$;
 
+\i supabase/migrations/0039_a_point_she_stopped_at_is_named.sql
+
+-- A narrowing names a point she stopped at (0039) ---------------------------------------
+--
+-- materialize_points counts, before it deletes anything, the points outside the
+-- new range that a lesson stopped at, and refuses by naming them. Until 0039 it
+-- did not, and the delete ran into lessons_stopped_at_point_fkey (23503), a
+-- refusal the teacher could not read. Point 128 of Book 2 carries no content
+-- and no lesson of content reaches it, so the mark is the only reason left.
+-- Written as the owner, with test.uid on the platform admin, who alone may
+-- configure a common book.
+--
+-- The English sentence is the one src/app/teacher/content/range-refusal.test.ts
+-- translates: a change to it is made in both places.
+do $$
+declare
+  c_book constant uuid := (select id from books where title = 'Book 2');
+  c_lesson constant uuid := (select id from lessons
+                              where student_id = '22222222-2222-2222-2222-222222222222'
+                              order by scheduled_at limit 1);
+  c_point constant uuid := (select id from points where book_id = c_book and number = 128);
+  v_failures text;
+begin
+  delete from verify.failures;
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+
+  update lessons set stopped_at_point_id = c_point where id = c_lesson;
+
+  perform verify.expect_refusal('narrowing a book past the point a lesson stopped at',
+    format('P0001 cannot narrow book %s to 1..127: 0 point(s) outside carry content, '
+           '0 lesson(s) reach outside, 1 point(s) outside are where a lesson stopped', c_book),
+    format('select materialize_points(%L, 1, 127)', c_book));
+
+  -- The refusal wrote nothing: the book keeps its range and the lesson its mark.
+  if (select last_point from books where id = c_book) <> 128 then
+    insert into verify.failures values ('the refused narrowing changed the range of the book');
+  end if;
+  if not exists (select 1 from lessons where id = c_lesson and stopped_at_point_id = c_point) then
+    insert into verify.failures values ('the refused narrowing took the point the lesson stopped at');
+  end if;
+
+  update lessons set stopped_at_point_id = null where id = c_lesson;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a narrowing names a point she stopped at: %', v_failures;
+  end if;
+
+  raise notice 'a narrowing names a point she stopped at, and the refusal writes nothing';
+end;
+$$;
+
 -- Nobody truncates what RLS guards (0037) ----------------------------------------------
 --
 -- Holds for every relation public has now and any a migration adds later: the
