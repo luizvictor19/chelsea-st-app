@@ -455,6 +455,52 @@ export type Database = {
           },
         ];
       };
+      leads: {
+        Row: {
+          codigo_origem: string | null;
+          created_at: string;
+          id: string;
+          interesse: string;
+          nivel: string | null;
+          nome: string;
+          objetivo: string | null;
+          user_agent: string | null;
+          utm_campaign: string | null;
+          utm_medium: string | null;
+          utm_source: string | null;
+          whatsapp: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          codigo_origem?: string | null;
+          created_at?: string;
+          id?: string;
+          interesse: string;
+          nivel?: string | null;
+          nome: string;
+          objetivo?: string | null;
+          user_agent?: string | null;
+          utm_campaign?: string | null;
+          utm_medium?: string | null;
+          utm_source?: string | null;
+          whatsapp: string;
+        };
+        Update: {
+          codigo_origem?: string | null;
+          created_at?: string;
+          id?: string;
+          interesse?: string;
+          nivel?: string | null;
+          nome?: string;
+          objetivo?: string | null;
+          user_agent?: string | null;
+          utm_campaign?: string | null;
+          utm_medium?: string | null;
+          utm_source?: string | null;
+          whatsapp?: string;
+        };
+        Relationships: [];
+      };
       lesson_schedules: {
         Row: {
           created_at: string;

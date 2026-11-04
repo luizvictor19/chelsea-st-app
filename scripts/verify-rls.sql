@@ -68,6 +68,7 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0033_a_scene_is_drawn_from_pictures.sql
 \i supabase/migrations/0034_a_scene_set_aside_keeps_its_cost.sql
 \i supabase/migrations/0035_a_lesson_marks_where_she_stopped.sql
+\i supabase/migrations/0036_a_lead_waits_for_a_call.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
