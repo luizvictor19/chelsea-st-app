@@ -23,6 +23,7 @@ The lesson server always runs in Luiz's own terminal, never in a Claude Code ses
 ## Gate (the CI steps, minus verify-rls.sql, which only CI runs)
 
     npm run check                  # format:check, lint, typecheck, test, build; stops at the first failure
+    npm run test:coverage          # what CI runs instead of npm test: coverage per file and in total, fails below the floor; counts only the files a test loads
 
 ## Merge PR NN and clean up (session in the main folder, not in the worktree)
 
