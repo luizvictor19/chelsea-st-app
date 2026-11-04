@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import type { ImageAttempt, SceneImage } from "@/lib/content/queries";
@@ -46,6 +47,7 @@ import {
   type NoticeText,
 } from "./notice-texts";
 import { JoinApproved, type ApprovedPicture } from "./join-approved";
+import { questionsHref, type QuestionPlace } from "./filters";
 import { attemptsToShow, settle, type LastAnswer } from "./panel-state";
 import {
   approveSceneAttempt,
@@ -83,6 +85,7 @@ export function ScenePanel({
   scene,
   attempts,
   point,
+  back,
   approved,
   closeHref,
 }: {
@@ -90,6 +93,11 @@ export function ScenePanel({
   readonly attempts: readonly ImageAttempt[];
   /** The group the scene is filed under, for the header. */
   readonly point: number | null;
+  /**
+   * The question the teacher came from (sceneHref's voltar), or null when
+   * the scene was opened here: then the panel has no way back.
+   */
+  readonly back: QuestionPlace | null;
   /** Every approved picture but this scene's, for Juntar (#120). */
   readonly approved: readonly ApprovedPicture[];
   /** The screen as it is, with no scene open: where Excluir leaves. */
@@ -273,6 +281,15 @@ export function ScenePanel({
     >
       <header className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-1">
+          {back !== null && (
+            <Link
+              href={questionsHref(back)}
+              className="text-muted hover:text-foreground mb-2 self-start text-sm underline underline-offset-2"
+            >
+              ← Perguntas · livro {back.book}, lição {back.lesson}, ponto{" "}
+              {back.point}
+            </Link>
+          )}
           <span className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
             Cena
           </span>

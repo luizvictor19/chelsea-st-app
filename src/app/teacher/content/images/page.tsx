@@ -37,6 +37,7 @@ import {
   matchesSceneSelection,
   matchesSearch,
   matchesSelection,
+  parseBack,
   parseOpened,
   parseSelection,
   SCENE_PANEL_ID,
@@ -121,6 +122,8 @@ export default async function VocabularyImagesPage({
   };
   const term = typeof params.busca === "string" ? params.busca : "";
   const opened = parseOpened(params.palavra, params.cena);
+  // The question a scene link came from (#184), for the panel's way back.
+  const back = parseBack(params.voltar);
   const selectedId = opened?.kind === "word" ? opened.id : null;
   const sceneId = opened?.kind === "scene" ? opened.id : null;
 
@@ -500,6 +503,7 @@ export default async function VocabularyImagesPage({
                   scene={selectedScene}
                   attempts={sceneAttempts}
                   point={firstPoint(selectedScene)}
+                  back={back}
                   approved={approved}
                   closeHref={filterHref(selection, null, term)}
                 />
