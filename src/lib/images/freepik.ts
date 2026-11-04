@@ -17,6 +17,7 @@ import {
   type PollResult,
   composesPictures,
   isImageModelId,
+  needsReference,
   takesReference,
 } from "./provider.ts";
 
@@ -271,6 +272,15 @@ export function createFreepikProvider(): ImageProvider {
       }
       if (reference !== null && !takesReference(model)) {
         throw new Error(`${model} takes no structure reference`);
+      }
+      /*
+       * Both ways round (#186). Kontext sent no input_image is a 400 from the
+       * API; the actions refuse it before any row is written, and this is the
+       * net for any other caller of openGeneration: the row closes failed and
+       * the request never leaves.
+       */
+      if (reference === null && needsReference(model)) {
+        throw new Error(`${model} needs a reference`);
       }
       // Both ways round, for the reason a reference is refused above.
       if (composesPictures(model)) {
