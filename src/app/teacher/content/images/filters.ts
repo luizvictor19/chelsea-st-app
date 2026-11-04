@@ -218,6 +218,20 @@ export function filterHref(
   return query === "" ? "/teacher/content/images" : `?${query}`;
 }
 
+/** The id of the panel column, the anchor a link from another screen aims at. */
+export const SCENE_PANEL_ID = "painel";
+
+/**
+ * A scene's panel as a link from outside this screen: absolute, since the
+ * questions screen builds it too, and aimed at the panel. On a phone the
+ * panel sits below the whole list, so a link that only opened it would land
+ * at the top of the page with the scene out of sight.
+ */
+export function sceneHref(sceneId: string): string {
+  const search = new URLSearchParams({ cena: sceneId });
+  return `/teacher/content/images?${search.toString()}#${SCENE_PANEL_ID}`;
+}
+
 export type Chip = {
   readonly key: FilterKey;
   readonly value: string;

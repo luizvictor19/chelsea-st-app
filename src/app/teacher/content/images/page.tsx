@@ -39,6 +39,7 @@ import {
   matchesSelection,
   parseOpened,
   parseSelection,
+  SCENE_PANEL_ID,
   situationOf,
   type Selection,
 } from "./filters";
@@ -484,8 +485,15 @@ export default async function VocabularyImagesPage({
               attempts it is taller than the screen, and sticky alone just
               clipped the bottom of it. top-20 clears the sticky teacher nav,
               and the height is what is left of the viewport below it.
+
+              The id is where sceneHref lands. On a phone the panel comes
+              after the whole list, and scroll-mt-20 keeps it clear of the
+              sticky nav when the browser scrolls to it.
             */}
-            <div className="lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+            <div
+              id={SCENE_PANEL_ID}
+              className="scroll-mt-20 lg:min-h-0 lg:overflow-y-auto lg:pr-1"
+            >
               {selectedScene !== null ? (
                 <ScenePanel
                   key={selectedScene.id}

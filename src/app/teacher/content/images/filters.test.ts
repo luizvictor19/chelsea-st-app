@@ -13,6 +13,7 @@ import {
   matchesSelection,
   parseOpened,
   parseSelection,
+  sceneHref,
   situationOf,
   toggled,
 } from "./filters.ts";
@@ -221,6 +222,31 @@ describe("parseOpened", () => {
 
   test("a hand-written link with both opens the word", () => {
     assert.deepEqual(parseOpened("w1", "s1"), { kind: "word", id: "w1" });
+  });
+});
+
+describe("sceneHref", () => {
+  test("opens the scene on the images screen, at the panel", () => {
+    assert.equal(sceneHref("s1"), "/teacher/content/images?cena=s1#painel");
+  });
+
+  test("a reserved character in the id is encoded", () => {
+    assert.equal(
+      sceneHref("a&b#c"),
+      "/teacher/content/images?cena=a%26b%23c#painel",
+    );
+  });
+
+  test("the id comes back whole through parseOpened", () => {
+    for (const id of ["8553494f-0000-4000-8000-000000000000", "a&b#c d"]) {
+      const url = new URL(sceneHref(id), "https://app.example");
+      assert.equal(url.pathname, "/teacher/content/images");
+      assert.equal(url.hash, "#painel");
+      assert.deepEqual(
+        parseOpened(undefined, url.searchParams.get("cena") ?? undefined),
+        { kind: "scene", id },
+      );
+    }
   });
 });
 
