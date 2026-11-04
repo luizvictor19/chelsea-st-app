@@ -207,7 +207,7 @@ The other labels are GitHub's defaults and are not used.
 
     adb reverse tcp:3100 tcp:3100  # after every cable connection
 
-Open http://127.0.0.1:3100, not localhost, and type the URL again after signing in.
+Open http://127.0.0.1:3100, not localhost.
 
 ## Supabase CLI
 
