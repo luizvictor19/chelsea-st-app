@@ -19,11 +19,11 @@
     "smoke:reconcile": "node scripts/smoke-reconciliation.ts"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.12.5",
+    "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.112.4",
     "next": "16.4.2",
-    "react": "19.2.9",
-    "react-dom": "19.2.9",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
@@ -35,7 +35,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.2",
     "pngjs": "^7.0.0",
-    "prettier": "^3.9.6",
+    "prettier": "^3.9.10",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "tailwindcss": "^4",
     "typescript": "^5"
