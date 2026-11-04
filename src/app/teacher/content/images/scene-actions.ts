@@ -7,6 +7,7 @@ import { parsePictureKeys } from "@/lib/images/pictures";
 import {
   composesPictures,
   isImageModelId,
+  referenceRefusal,
   takesReference,
 } from "@/lib/images/provider";
 import { buildScenePrompt, type ImageStyle } from "@/lib/images/style";
@@ -428,6 +429,10 @@ export async function startSceneGeneration(
           "Essa cena tem imagens escolhidas, e esse modelo não desenha a partir delas. Recarregue a página ou tire as imagens.",
       };
     }
+    // A model that needs a reference, on a scene with none (#186): before a
+    // row is opened, as in startGeneration.
+    const refusal = referenceRefusal(model, scene.reference_path !== null);
+    if (refusal !== null) return { ok: false, error: refusal };
 
     // Before anything is inserted or paid for: an empty subject throws here.
     const prompt = buildScenePrompt(subject, scene.image_style);
