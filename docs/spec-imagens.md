@@ -481,6 +481,11 @@ decidido" (`questions_one_image`).
   - **Criar cena**, embaixo da lista, começa com a resposta esperada quando ela é em inglês (senão,
     com a pergunta) e cria a cena sem gerar nada. Uma descrição que já existe escolhe a cena que a
     tem. Criar não liga nada: a pergunta passa a mostrar a cena quando é salva.
+  - Uma cena sem imagem tem o link **fazer imagem** e, escolhida, o **Próximo passo** com **Fazer a
+    imagem em Imagens**. Os dois abrem o painel da cena na mesma aba (#184); se algum formulário da
+    tela tem algo não salvo, a tela pergunta antes ("Sair sem salvar?", com **Ficar** e **Sair e
+    descartar**), porque sair descarta todos. O painel aberto assim tem "← Perguntas · livro, lição,
+    ponto", que volta ao ponto de onde a professora veio.
   - Uma pergunta só é gravada com **Publicada** marcada (Salvar e Acrescentar) se mostra uma palavra
     com imagem aprovada, uma cena com imagem aprovada, ou é **Encenar** (#180). Sem decidir, ou
     palavra ou cena sem imagem aprovada, deixa o botão desligado, com o motivo ao lado desde que o
