@@ -18,7 +18,7 @@ import {
   composesPictures,
   isImageModelId,
   takesReference,
-} from "./provider";
+} from "./provider.ts";
 
 // This module reads a secret, so it must never be bundled for the browser.
 // There is no server-only package here, so the guard is explicit.
