@@ -50,11 +50,12 @@ export function questionDeleted(point: number, number: number): NoticeText {
 }
 
 /**
- * A scene made from a question's form. Nothing is linked yet: the question
- * shows it once the form is saved.
+ * A scene made from a question's form. It is chosen in the form, and the
+ * question shows it once the form is saved; a new scene has no picture yet,
+ * so the notice says what is still owed.
  */
 export function sceneCreated(point: number): NoticeText {
-  return success(point, "cena criada");
+  return success(point, "cena criada e escolhida. Falta a imagem");
 }
 
 /** The description was a scene's already: that one is chosen instead. */

@@ -31,7 +31,7 @@ describe("a notice about a question starts with its point", () => {
   test("a scene created from a form, or found there", () => {
     assert.deepEqual(sceneCreated(3), {
       kind: "success",
-      text: "Ponto 3: cena criada.",
+      text: "Ponto 3: cena criada e escolhida. Falta a imagem.",
     });
     assert.deepEqual(sceneFound(3), {
       kind: "success",
