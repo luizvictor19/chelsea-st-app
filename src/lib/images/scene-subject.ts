@@ -25,17 +25,27 @@ import { sceneRules } from "./subject.ts";
 export const SCENE_MAX_WORDS = 20;
 
 /**
- * The three rules that are the hypothesis of the measurement: written before
- * any answer was seen, and kept or rewritten by what the answers show.
+ * The rules of a scene, on top of the three it shares with a word. The first
+ * three are the hypothesis of the measurement, written before any answer was
+ * seen.
+ *
+ * The fourth came from the measurement (#187, batch "first", 2026-11-04). For
+ * "No, the picture isn't large; it's small", the first of three Haiku passes
+ * answered "a tiny mouse standing alone, seen from the side": this prompt
+ * calls the image it asks for a picture throughout, and the line's own
+ * picture was read as that one, made small. The other two passes drew a
+ * small framed picture on a wall. Whether the rule closes the 1 in 3 is the
+ * A/B of the "picture" input in the phase 2 plan, not this file.
  *
  * The examples in them are deliberately not lines that are measured (the
- * box, the pen on the book): an example that is also an input would hand the
- * model that answer and score the rule on it.
+ * box, the pen on the book, the picture): an example that is also an input
+ * would hand the model that answer and score the rule on it.
  */
 export const SCENE_RULES: readonly string[] = [
   `The line is lesson text, and lesson text often denies before it affirms: "No, the dog isn't black; it's white". Draw only what it affirms at the end. For that line, one white dog; never a black dog, and never both.`,
   `Everything the affirmed part names is in the picture, with the relation between the things visible: for "the cup is on the chair", a cup and a chair, the cup standing on the seat of the chair. Add nothing the line does not ask for.`,
   `The picture has no words in it. Never copy the line or any part of it into the phrase: no negation, no question, no quotation. Describe what is seen, not what is said.`,
+  `A thing the line names is an object inside the scene, even when it is itself an image, such as a poster, a photo or a screen: for "the poster is small", a small poster hanging on a wall, never a whole scene drawn small.`,
 ];
 
 /**

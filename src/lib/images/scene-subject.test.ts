@@ -8,6 +8,16 @@ import {
 } from "./scene-subject.ts";
 import { sceneRules } from "./subject.ts";
 
+/*
+ * The input of the measurement whose first Haiku pass drew another small
+ * thing instead of a small picture (#187, batch "first", 2026-11-04).
+ */
+const PICTURE = {
+  sentence: "No, the picture isn’t large; it’s small",
+  question: "Is the picture large?",
+  style: "flat",
+} as const;
+
 const BOX = {
   sentence: "No, the box isn’t small; it’s large",
   question: "Is the box small?",
@@ -45,12 +55,23 @@ describe("buildSceneSubjectPrompt", () => {
     assert.ok(!flat.includes(sceneRules("realistic")[1]));
   });
 
-  test("carries the three rules of a scene, numbered after the shared ones", () => {
+  test("carries the four rules of a scene, numbered after the shared ones", () => {
     const { system } = buildSceneSubjectPrompt(BOX);
-    assert.equal(SCENE_RULES.length, 3);
+    assert.equal(SCENE_RULES.length, 4);
     SCENE_RULES.forEach((rule, index) => {
       assert.ok(system.includes(`${index + 4}. ${rule}`), rule);
     });
+  });
+
+  test("keeps a picture the line names an object in the scene", () => {
+    const { system, user } = buildSceneSubjectPrompt(PICTURE);
+    assert.match(user, /Is the picture large\?/u);
+    assert.match(user, /No, the picture isn’t large; it’s small/u);
+    assert.ok(system.includes(`7. ${SCENE_RULES[3]}`));
+    // The example is not one of the measured inputs: it would hand the
+    // model the answer it is scored on.
+    assert.doesNotMatch(SCENE_RULES[3], /the picture/u);
+    assert.match(system, /7 rules, learned/u);
   });
 
   test("does not carry the one-subject rule of a word: a scene relates two things", () => {
