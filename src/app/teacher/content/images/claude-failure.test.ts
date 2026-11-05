@@ -86,6 +86,6 @@ describe("claudeFailure", () => {
       SCENE_SUGGESTION_FAILED,
     ];
     assert.equal(new Set(all).size, all.length);
-    for (const text of all) assert.doesNotMatch(text, /—/u);
+    for (const text of all) assert.doesNotMatch(text, /\u2014/u);
   });
 });
