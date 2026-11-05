@@ -65,9 +65,9 @@ import {
   uploadSceneImage,
 } from "./scene-actions";
 import {
-  afterTyping,
+  NO_PROPOSAL,
   landSceneProposal,
-  proposalNote,
+  undoProposal,
   type SceneProposal,
 } from "./scene-proposal";
 import { groupLabel } from "./scenes";
@@ -131,12 +131,17 @@ export function ScenePanel({
   /*
    * `field` mirrors `subject` for the answer of a suggestion, which comes
    * back in a closure from before any typing done while it was on its way.
-   * `proposal` is what the last suggestion left: the text to undo to, or the
-   * proposal an edit kept out of the field. See scene-proposal.ts.
+   * `proposal` is what the suggestions left: the texts Desfazer goes back
+   * to, and the note. Mirrored in a ref for the same reason as `field`. See
+   * scene-proposal.ts.
    */
   const field = useRef(subject);
-  const [proposal, setProposal] = useState<SceneProposal | null>(null);
-  const note = proposalNote(proposal);
+  const [proposal, setProposalState] = useState<SceneProposal>(NO_PROPOSAL);
+  const proposalNow = useRef(proposal);
+  function setProposal(next: SceneProposal) {
+    proposalNow.current = next;
+    setProposalState(next);
+  }
   const [model, setModel] = useState<string>(() =>
     scene.pictureUrls !== null
       ? (defaultComposeModel() ?? DEFAULT_SCENE_MODEL)
@@ -315,10 +320,10 @@ export function ScenePanel({
     );
   }
 
+  // Typing leaves the way back alone: see scene-proposal.ts.
   function editSubject(text: string) {
     field.current = text;
     setSubject(text);
-    setProposal(afterTyping);
   }
 
   function suggest() {
@@ -334,8 +339,9 @@ export function ScenePanel({
           atRequest,
           field.current,
           result.subject,
+          proposalNow.current,
         );
-        filled = landed.state?.kind !== "kept";
+        filled = landed.filled;
         field.current = landed.field;
         setSubject(landed.field);
         setProposal(landed.state);
@@ -345,11 +351,12 @@ export function ScenePanel({
     );
   }
 
-  function undoProposal() {
-    if (proposal?.kind !== "filled") return;
-    field.current = proposal.previous;
-    setSubject(proposal.previous);
-    setProposal(null);
+  function undo() {
+    const back = undoProposal(proposalNow.current);
+    if (back === null) return;
+    field.current = back.field;
+    setSubject(back.field);
+    setProposal(back.state);
   }
 
   const working = busy !== null;
@@ -462,13 +469,13 @@ export function ScenePanel({
             )}
           </button>
         </div>
-        {note !== null && (
+        {(proposal.note !== null || proposal.undo.length > 0) && (
           <p className="text-muted flex flex-wrap items-baseline gap-x-2 text-xs wrap-anywhere">
-            <span>{note}</span>
-            {proposal?.kind === "filled" && (
+            {proposal.note !== null && <span>{proposal.note}</span>}
+            {proposal.undo.length > 0 && (
               <button
                 type="button"
-                onClick={undoProposal}
+                onClick={undo}
                 className="hover:text-foreground underline underline-offset-2"
               >
                 Desfazer
