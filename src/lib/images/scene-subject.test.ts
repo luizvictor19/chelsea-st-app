@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { TEXT_PRICES, usdFor } from "../text/cost.ts";
 import {
   SCENE_MAX_WORDS,
   SCENE_RULES,
+  SCENE_SUBJECT_MODEL,
   buildSceneSubjectPrompt,
 } from "./scene-subject.ts";
 import { sceneRules } from "./subject.ts";
@@ -93,5 +95,13 @@ describe("buildSceneSubjectPrompt", () => {
         /needs the line/u,
       );
     }
+  });
+});
+
+describe("SCENE_SUBJECT_MODEL", () => {
+  test("has a price, so what a proposal costs can be worked out", () => {
+    assert.ok(Object.hasOwn(TEXT_PRICES, SCENE_SUBJECT_MODEL));
+    const usage = { inputTokens: 1, cachedInputTokens: 0, outputTokens: 1 };
+    assert.ok(usdFor(SCENE_SUBJECT_MODEL, usage) > 0);
   });
 });

@@ -9,13 +9,25 @@
  * the model to hold two sizes of one box in mind, and an image model tends to
  * letter into the picture whatever text it is handed.
  *
- * Phase 1 only measures this prompt across providers. Nothing here is stored
- * and nothing is wired to a screen; the answer is read with parseSubject,
- * the same as the subject of a word, because the shape is the same.
+ * Phase 1 measured this prompt across providers; phase 2 puts it behind the
+ * scene panel's "Sugerir instrução", with the model below. Nothing here is
+ * stored: the proposal fills the field, and the field is kept only on the
+ * attempt. The answer is read with parseSubject, the same as the subject of a
+ * word, because the shape is the same.
  */
 
 import type { ImageStyle } from "./style.ts";
 import { sceneRules } from "./subject.ts";
+
+/**
+ * The model behind the scene panel's suggestion, chosen by Luiz on
+ * 2026-11-04 from the measurement (fixtures/scene-instruction.jsonl, batch
+ * "first", 19 inputs, 3 passes): US$ 0.0129 per 100 proposals (the dearest
+ * call US$ 0.00027), median latency 1366 ms, worst 3450 ms. Called as it was
+ * measured: effort low, SCENE_SUBJECT_SCHEMA, no temperature, no cache, no
+ * fallbacks (Haiku 5.5 has none on the server).
+ */
+export const SCENE_SUBJECT_MODEL = "claude-haiku-5-5";
 
 /**
  * Longer than the twelve of a word, because a scene names two things and the

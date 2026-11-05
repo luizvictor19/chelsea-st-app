@@ -54,11 +54,22 @@ export type ClaudeCallOptions = {
  */
 const MAX_TOKENS = 16_000;
 
+/**
+ * No key in this environment. Its own class so a screen can tell "not set up
+ * here" (a preview, by decision) from a call that failed.
+ */
+export class ClaudeKeyMissingError extends Error {
+  constructor() {
+    super("Missing environment variable: ANTHROPIC_API_KEY");
+    this.name = "ClaudeKeyMissingError";
+  }
+}
+
 /** Read per call, as in deepseek.ts, so importing this never needs the key. */
 function apiKey(): string {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) {
-    throw new Error("Missing environment variable: ANTHROPIC_API_KEY");
+    throw new ClaudeKeyMissingError();
   }
   return key;
 }
