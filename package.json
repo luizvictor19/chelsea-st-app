@@ -28,6 +28,7 @@
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^1.5.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^24",
     "@types/pngjs": "^6.0.5",
