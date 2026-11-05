@@ -23,9 +23,11 @@ import { sceneRules } from "./subject.ts";
  * The model behind the scene panel's suggestion, chosen by Luiz on
  * 2026-11-04 from the measurement (fixtures/scene-instruction.jsonl, batch
  * "first", 19 inputs, 3 passes): US$ 0.0129 per 100 proposals (the dearest
- * call US$ 0.00027), median latency 1366 ms, worst 3450 ms. Called as it was
- * measured: effort low, SCENE_SUBJECT_SCHEMA, no temperature, no cache, no
- * fallbacks (Haiku 5.5 has none on the server).
+ * call US$ 0.00027), median latency 1366 ms, worst 3450 ms. Called with the
+ * measured settings: effort low, SCENE_SUBJECT_SCHEMA, no temperature, no
+ * cache, no fallbacks (Haiku 5.5 has none on the server). The prompt is the
+ * measured one plus the fourth rule of SCENE_RULES, one sentence that batch
+ * "first" did not have; its own measurement is the "picture" A/B.
  */
 export const SCENE_SUBJECT_MODEL = "claude-haiku-5-5";
 

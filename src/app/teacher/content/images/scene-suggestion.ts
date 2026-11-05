@@ -33,8 +33,11 @@ export type SceneSuggestionDeps = {
   readonly scene: () => Promise<SceneRow | null>;
   /** can_write_content, the database's rule for writing content. */
   readonly canWrite: (school: string | null) => Promise<boolean>;
-  /** The prompt of the oldest question that shows the scene, if any. */
-  readonly question: () => Promise<string | null>;
+  /**
+   * The prompt of the oldest question that shows the scene, if any, among
+   * the questions of the scene's school (null: the common ones).
+   */
+  readonly question: (school: string | null) => Promise<string | null>;
   /** Built only once the checks pass, so a refusal never needs the key. */
   readonly provider: () => TextProvider;
 };
@@ -72,7 +75,7 @@ export async function proposeSceneSubject(
     };
   }
 
-  const question = await deps.question();
+  const question = await deps.question(scene.schoolId);
   const prompt = buildSceneSubjectPrompt({
     sentence: scene.description,
     question,

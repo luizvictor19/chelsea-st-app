@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { unstable_rethrow } from "next/navigation";
 
 import { requireTeacher } from "@/lib/content/queries";
 import { parsePictureKeys } from "@/lib/images/pictures";
@@ -466,11 +467,17 @@ export async function startSceneGeneration(
  * How the suggestion is sent, as opposed to what it asks (#187). Two retries
  * are the SDK's default: a passing 429 or 529, not billed, never reaches the
  * teacher. 15 s per attempt is four times the slowest call measured (3450
- * ms); a timed out attempt retried can be billed twice, about US$ 0.0003.
- * Worst case, three attempts and the backoff, near 47 s: inside the screen's
- * maxDuration of 120 s.
+ * ms, batch "first"); a timed out attempt retried can be billed twice, about
+ * US$ 0.0003. Three attempts and the SDK's own backoff come near 47 s, but
+ * the SDK waits as long as a retry-after header asks, with no ceiling: the
+ * 60 s deadline is what keeps the call inside the screen's maxDuration of
+ * 120 s, with room for the reads around it.
  */
-const SUGGESTION_CALL = { maxRetries: 2, timeoutMs: 15_000 } as const;
+const SUGGESTION_CALL = {
+  maxRetries: 2,
+  timeoutMs: 15_000,
+  deadlineMs: 60_000,
+} as const;
 
 /**
  * Propose the scene's Instrução with Claude Haiku (#187). Nothing is written
@@ -512,13 +519,20 @@ export async function suggestSceneSubject(
         if (error) throw new Error(error.message);
         return data === true;
       },
-      question: async () => {
+      question: async (school) => {
         // The oldest question that shows the scene. On 2026-11-04 no scene
-        // was shown by more than one.
-        const { data, error } = await supabase
+        // was shown by more than one. Only questions of the scene's own
+        // scope: a platform admin reads every school's, and one school's
+        // wording must not shape common content (ADR 0004).
+        const shown = supabase
           .from("questions")
           .select("prompt")
-          .eq("scene_id", sceneId)
+          .eq("scene_id", sceneId);
+        const { data, error } = await (
+          school === null
+            ? shown.is("school_id", null)
+            : shown.eq("school_id", school)
+        )
           .order("created_at", { ascending: true })
           .limit(1)
           .maybeSingle();
@@ -533,6 +547,8 @@ export async function suggestSceneSubject(
         ),
     });
   } catch (cause) {
+    // requireTeacher redirects an expired session to /login by throwing.
+    unstable_rethrow(cause);
     return {
       ok: false,
       error: SCENE_SUGGESTION_FAILED,

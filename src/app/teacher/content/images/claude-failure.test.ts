@@ -11,6 +11,7 @@ import {
 import {
   CLAUDE_NOT_CONFIGURED,
   CLAUDE_NO_ANSWER,
+  CLAUDE_REFUSED_REQUEST,
   CLAUDE_STOPPED,
   SCENE_SUGGESTION_FAILED,
   claudeFailure,
@@ -53,8 +54,19 @@ describe("claudeFailure", () => {
       status(Anthropic.RequestTimeoutError, 408),
       new Anthropic.APIConnectionError({ message: "socket hang up" }),
       new Anthropic.APIConnectionTimeoutError(),
+      // The deadline of the whole call.
+      new Anthropic.APIUserAbortError(),
     ]) {
       assert.equal(claudeFailure(cause), CLAUDE_NO_ANSWER, String(cause));
+    }
+  });
+
+  test("a request refused as such, as with no credit or an unknown model: check the Console", () => {
+    for (const cause of [
+      status(Anthropic.BadRequestError, 400),
+      status(Anthropic.NotFoundError, 404),
+    ]) {
+      assert.equal(claudeFailure(cause), CLAUDE_REFUSED_REQUEST, String(cause));
     }
   });
 
@@ -70,7 +82,7 @@ describe("claudeFailure", () => {
   test("anything else: the generic sentence", () => {
     for (const cause of [
       new Error("Claude answered with no text"),
-      status(Anthropic.BadRequestError, 400),
+      status(Anthropic.UnprocessableEntityError, 422),
       "a string",
       null,
     ]) {
@@ -82,6 +94,7 @@ describe("claudeFailure", () => {
     const all = [
       CLAUDE_NOT_CONFIGURED,
       CLAUDE_NO_ANSWER,
+      CLAUDE_REFUSED_REQUEST,
       CLAUDE_STOPPED,
       SCENE_SUGGESTION_FAILED,
     ];

@@ -117,6 +117,22 @@ describe("proposeSceneSubject", () => {
     assert.match(d.client.asked[0].user, /it’s large/u);
   });
 
+  test("the question is looked for in the scene's own scope", async () => {
+    for (const schoolId of [null, "school-1"]) {
+      const scopes: (string | null)[] = [];
+      await proposeSceneSubject(
+        deps({
+          scene: async () => ({ ...COMMON, schoolId }),
+          question: async (school) => {
+            scopes.push(school);
+            return null;
+          },
+        }),
+      );
+      assert.deepEqual(scopes, [schoolId]);
+    }
+  });
+
   test("a scene no question shows is asked without one", async () => {
     const d = deps({ question: async () => null });
     await proposeSceneSubject(d);

@@ -45,6 +45,13 @@ export type ClaudeCallOptions = {
   readonly maxRetries?: number;
   /** Per attempt, in milliseconds; a timed out attempt is retried too. */
   readonly timeoutMs?: number;
+  /**
+   * For the whole call, retries and their waits included, in milliseconds.
+   * The SDK waits as long as a retry-after header says, with no ceiling, so
+   * only this bounds a call on a screen. Past it the SDK throws
+   * APIUserAbortError.
+   */
+  readonly deadlineMs?: number;
 };
 
 /**
@@ -112,16 +119,21 @@ export function createClaudeProvider(
         maxRetries: options.maxRetries ?? 0,
         timeout: options.timeoutMs ?? TIMEOUT_MS,
       });
-      const response = await client.messages.create({
-        model,
-        max_tokens: MAX_TOKENS,
-        system,
-        messages: [{ role: "user", content: user }],
-        output_config: {
-          effort: "low",
-          format: { type: "json_schema", schema },
+      const response = await client.messages.create(
+        {
+          model,
+          max_tokens: MAX_TOKENS,
+          system,
+          messages: [{ role: "user", content: user }],
+          output_config: {
+            effort: "low",
+            format: { type: "json_schema", schema },
+          },
         },
-      });
+        options.deadlineMs === undefined
+          ? undefined
+          : { signal: AbortSignal.timeout(options.deadlineMs) },
+      );
 
       const usage: TextUsage = {
         inputTokens: response.usage.input_tokens,

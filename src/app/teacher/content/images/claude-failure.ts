@@ -25,6 +25,13 @@ export const CLAUDE_NOT_CONFIGURED =
 export const CLAUDE_NO_ANSWER =
   "O Claude não respondeu agora. Tente de novo em instantes.";
 
+/**
+ * A request the API refused as such: most likely the Console account (no
+ * credit left) or the model id, which a retry does not fix.
+ */
+export const CLAUDE_REFUSED_REQUEST =
+  "O Claude recusou o pedido. Confira o crédito e o modelo no Claude Console.";
+
 /** A refusal, or an answer cut at max_tokens. */
 export const CLAUDE_STOPPED =
   "O modelo não devolveu uma instrução. Tente de novo ou escreva à mão.";
@@ -44,9 +51,17 @@ export function claudeFailure(cause: unknown): string {
     cause instanceof Anthropic.InternalServerError ||
     cause instanceof Anthropic.RequestTimeoutError ||
     // APIConnectionTimeoutError is one of these.
-    cause instanceof Anthropic.APIConnectionError
+    cause instanceof Anthropic.APIConnectionError ||
+    // The call's deadline (deadlineMs), which is the only abort there is.
+    cause instanceof Anthropic.APIUserAbortError
   ) {
     return CLAUDE_NO_ANSWER;
+  }
+  if (
+    cause instanceof Anthropic.BadRequestError ||
+    cause instanceof Anthropic.NotFoundError
+  ) {
+    return CLAUDE_REFUSED_REQUEST;
   }
   if (cause instanceof ClaudeStopError) return CLAUDE_STOPPED;
   return SCENE_SUGGESTION_FAILED;
