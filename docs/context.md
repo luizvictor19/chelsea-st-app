@@ -116,6 +116,9 @@ architecture question for Luiz.
 - In a hand-written call (curl, a script), the new key goes only in the `apikey` header, never in
   `Authorization: Bearer`. The secret key is refused (401) when the User-Agent is a browser's: it
   runs on a server only.
+- `ANTHROPIC_API_KEY` is read by the app since #187 (the scene's "Sugerir instrução") and by the
+  measurement scripts. Two Console keys: `chelsea-vercel` in Vercel Production only, as a Secret,
+  and `chelsea-local` in `.env.local`, so each one rotates without touching the other.
 - The site (`luizvictor19/chelsea-st-site`) holds only the publishable key
   (`SUPABASE_PUBLISHABLE_KEY`), never the service role (#146). Its Vercel project has only
   `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` among the Supabase variables.
