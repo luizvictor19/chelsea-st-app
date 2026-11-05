@@ -20,6 +20,8 @@ import {
   isImageModelId,
   modelCredits,
   modelLabel,
+  modelWithoutReference,
+  referenceRefusal,
 } from "@/lib/images/provider";
 import {
   UPLOAD_ACCEPT,
@@ -134,6 +136,10 @@ export function ScenePanel({
   );
   const [modelNote, setModelNote] = useState<string | null>(null);
   const credits = isImageModelId(model) ? modelCredits(model) : null;
+  // The action's own rule, so Gerar and the server never disagree (#186).
+  const refusal = isImageModelId(model)
+    ? referenceRefusal(model, reference !== null)
+    : null;
   const tracked = useRunningGeneration(scene.id);
   const rowRunning = runningAttempt(shown);
   const running = tracked ?? rowRunning;
@@ -228,6 +234,26 @@ export function ScenePanel({
         ? `Mudei para ${modelLabel(target)}, o único modelo que aceita referência.`
         : `Mudei para ${modelLabel(target)}, que aceita referência e tem custo medido. Os outros que aceitam estão no seletor.`,
     );
+  }
+
+  /*
+   * After the reference comes off: a model that needs one goes back to the
+   * scene's default and says so (#186), as taking the pictures off does for
+   * a model that composes. Any other stays where it was.
+   */
+  function leaveReferenceModel() {
+    if (!isImageModelId(model)) {
+      setModelNote(null);
+      return;
+    }
+    const next = modelWithoutReference(model, DEFAULT_SCENE_MODEL);
+    const reason = referenceRefusal(model, false);
+    if (next === model || reason === null) {
+      setModelNote(null);
+      return;
+    }
+    setModel(next);
+    setModelNote(`${reason} Mudei para ${modelLabel(next)}.`);
   }
 
   function attachReference(file: File) {
@@ -407,7 +433,7 @@ export function ScenePanel({
                       "tirar-referencia",
                       async () => {
                         const result = await clearSceneReference(scene.id);
-                        if (result.ok) setModelNote(null);
+                        if (result.ok) leaveReferenceModel();
                         return result;
                       },
                       () => referenceRemoved(label),
@@ -500,11 +526,20 @@ export function ScenePanel({
               className="border-rule bg-background rounded-sm border px-3 py-2 text-sm"
             >
               {modelOptions.map((option) => (
-                <option key={option.id} value={option.id}>
+                <option
+                  key={option.id}
+                  value={option.id}
+                  disabled={
+                    referenceRefusal(option.id, reference !== null) !== null
+                  }
+                >
                   {option.label}
                   {option.credits === null
                     ? " · custo não medido"
                     : ` · ${option.credits} créditos`}
+                  {referenceRefusal(option.id, reference !== null) !== null
+                    ? " · só com referência"
+                    : ""}
                 </option>
               ))}
             </select>
@@ -515,7 +550,12 @@ export function ScenePanel({
           */}
           <button
             type="button"
-            disabled={working || running !== null || subject.trim() === ""}
+            disabled={
+              working ||
+              running !== null ||
+              subject.trim() === "" ||
+              refusal !== null
+            }
             onClick={() =>
               void run("gerar", async () => {
                 const result = await startSceneGeneration(
@@ -543,9 +583,13 @@ export function ScenePanel({
             {busy?.key === "gerar" ? "enviando" : "Gerar"}
           </button>
         </div>
-        {(modelNote !== null || reference !== null || pictures !== null) && (
+        {(refusal !== null ||
+          modelNote !== null ||
+          reference !== null ||
+          pictures !== null) && (
           <p className="text-faint text-xs">
-            {modelNote ??
+            {refusal ??
+              modelNote ??
               (pictures !== null
                 ? "Com imagens escolhidas, só os modelos que desenham a partir delas. Tire as imagens para escolher os outros."
                 : "Com uma referência anexada, só os modelos que aceitam uma. Tire a referência para escolher os outros.")}

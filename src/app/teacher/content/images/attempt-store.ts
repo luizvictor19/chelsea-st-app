@@ -75,6 +75,11 @@ export type ActionResult =
       error: string;
       attempts?: readonly ImageAttempt[];
       /**
+       * Only when the refusal is about the reference (#186): null says the
+       * row has none, so a tab a step behind stops showing one.
+       */
+      reference?: null;
+      /**
        * The technical reason, in whatever language it came in. The panel
        * sends it to the console; `error` is the Portuguese sentence the
        * teacher reads.
