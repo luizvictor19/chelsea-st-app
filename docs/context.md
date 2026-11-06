@@ -5,8 +5,13 @@ architecture question for Luiz.
 
 ## The product
 
-- Chelsea St: an English school by Luiz. Two parts: live 45-min lessons with Luiz (one trial class
-  given on 02/10/2026; no students yet) and Robin, a voice tutor for daily practice (not built yet).
+- Two brands on one app and one database (ADR 0005, 05/11/2026):
+  - Chelsea St: Luiz's personal brand, an English school. Two parts: live 45-min lessons with Luiz
+    (one trial class given on 02/10/2026; no students yet) and Robin, a voice tutor for daily
+    practice (not built yet).
+  - GrifoAI: AI automation for companies. Its employees practise English with Robin only, with no
+    teacher and no teacher tools, under the GrifoAI brand (griffin mascot).
+- English schools are not customers. Each tenant is an organization: Chelsea St, or one company.
 - Today only Luiz uses the platform, as teacher. Students will sign in later.
 - Offer and prices live outside this repository and do not drive code decisions without an issue.
 
