@@ -11,7 +11,6 @@ import {
   COMMON_ONLY,
   SCENE_ARCHIVED,
   SCENE_GONE,
-  ORGANIZATION_ONLY,
   UNREADABLE,
   proposeSceneSubject,
   type SceneRow,
@@ -21,7 +20,6 @@ import {
 const COMMON: SceneRow = {
   description: "No, the box isn’t small; it’s large",
   imageStyle: "flat",
-  organizationId: null,
   archived: false,
 };
 
@@ -66,28 +64,27 @@ function deps(
 
 describe("proposeSceneSubject", () => {
   test("a non-writer never reaches the client: neither built nor called", async () => {
-    for (const scene of [
-      COMMON,
-      { ...COMMON, organizationId: "organization-1" },
-    ]) {
-      const organizations: (string | null)[] = [];
-      const d = deps({
-        scene: async () => scene,
-        canWrite: async (organization) => {
-          organizations.push(organization);
-          return false;
-        },
-      });
-      const result = await proposeSceneSubject(d);
-      assert.deepEqual(result, {
-        ok: false,
-        error: scene.organizationId === null ? COMMON_ONLY : ORGANIZATION_ONLY,
-      });
-      assert.equal(d.client.built, 0);
-      assert.equal(d.client.asked.length, 0);
-      // Asked with the scene's own organization: null is "common content".
-      assert.deepEqual(organizations, [scene.organizationId]);
-    }
+    let checked = 0;
+    let looked = 0;
+    const d = deps({
+      canWrite: async () => {
+        checked += 1;
+        return false;
+      },
+      question: async () => {
+        looked += 1;
+        return "Is the box small?";
+      },
+    });
+    // Every scene is common since 0043: the one sentence for a refusal.
+    assert.deepEqual(await proposeSceneSubject(d), {
+      ok: false,
+      error: COMMON_ONLY,
+    });
+    assert.equal(checked, 1);
+    assert.equal(looked, 0);
+    assert.equal(d.client.built, 0);
+    assert.equal(d.client.asked.length, 0);
   });
 
   test("a scene gone or excluded is refused before the check and the call", async () => {
@@ -118,22 +115,6 @@ describe("proposeSceneSubject", () => {
     assert.equal(d.client.asked.length, 1);
     assert.match(d.client.asked[0].user, /Is the box small\?/u);
     assert.match(d.client.asked[0].user, /it’s large/u);
-  });
-
-  test("the question is looked for in the scene's own scope", async () => {
-    for (const organizationId of [null, "organization-1"]) {
-      const scopes: (string | null)[] = [];
-      await proposeSceneSubject(
-        deps({
-          scene: async () => ({ ...COMMON, organizationId }),
-          question: async (organization) => {
-            scopes.push(organization);
-            return null;
-          },
-        }),
-      );
-      assert.deepEqual(scopes, [organizationId]);
-    }
   });
 
   test("a scene no question shows is asked without one", async () => {

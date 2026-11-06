@@ -1,4 +1,4 @@
-import { studies } from "@/lib/access";
+import { studies, writesContent } from "@/lib/access";
 import { requireTeacher } from "@/lib/content/queries";
 import { currentSite } from "@/lib/current-site";
 
@@ -26,6 +26,7 @@ export default async function TeacherLayout({
         brandName={site?.brand.name ?? null}
         initial={initial}
         alsoStudent={studies(access)}
+        writesContent={writesContent(access)}
       />
       <main className="mx-auto flex w-full max-w-[1760px] flex-1 flex-col gap-7 px-5 py-10 sm:px-8">
         <PendingInvites />

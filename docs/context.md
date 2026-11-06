@@ -115,7 +115,10 @@ architecture question for Luiz.
   (`slug = 'grifoai'`); a company's organization is created later, one per client.
 - Organizations follow ADR 0004, applied by 0029: every table carries `organization_id`; people
   and operation rows belong to one organization, content rows are common (`organization_id` null)
-  or one organization's. Roles live in `organization_members` (`admin`, `teacher`, `student`, one
+  or one organization's. Since 0043 (#211) every content row is common: each of the 10 content
+  tables refuses `organization_id` by its own check (`<table>_is_common`), the column stays, always
+  null, and only the platform admin writes content (`can_write_content` is `is_platform_admin()`,
+  so are the 10 content `_write` policies and the image bucket's). Roles live in `organization_members` (`admin`, `teacher`, `student`, one
   row each) and `platform_admins`; there is no `profiles.role` and no `is_teacher()`. Policies call
   `is_platform_admin()` and `is_organization_member()`. A new table names its organization, and the
   `organization_follows_parents` trigger fills it, on insert, from the first parent present in its
@@ -127,8 +130,8 @@ architecture question for Luiz.
   no default, written by the platform admin only. Chelsea St has one; GrifoAI's organization and
   every company on GrifoAI have none. "Admin can do everything a teacher can" (ADR 0004) holds only
   where there is a teacher: `teaches_in(organization)` (a teacher, or an admin where `has_teacher`)
-  is what the 34 policies of a teacher's power, `teaches_anywhere`, `can_write_content`,
-  `materialize_lessons` and the image upload policy ask. Where there is no teacher, the admin
+  is what the 34 policies of a teacher's power, `teaches_anywhere` and `materialize_lessons`
+  ask (0043 then gave the 10 content writes among the 34 to the platform admin alone). Where there is no teacher, the admin
   invites (employees and admins), reads the invites, the members and their names, and nothing
   else; nobody is a teacher there (triggers on members and invites), and an organization with a
   teacher member or an open teacher invite cannot turn into one without. On screen the company
@@ -204,7 +207,8 @@ architecture question for Luiz.
 - Book 1 lesson images (measured 08/10/2026): lessons 1 to 3 complete (37, 11 and 21 words);
   lesson 4 has 5 words that need an image and none approved; lessons 5 to 9 have 124 words whose
   type (representation) is not decided yet, so it is not known how many will need images.
-- Questions are written by hand on /teacher/content/questions; suggestion is planned, not built.
+- Questions are written by hand by the platform admin on /teacher/content/questions (the only
+  one who sees the content screens since #211); suggestion is planned, not built.
 
 ## Known traps
 

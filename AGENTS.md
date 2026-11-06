@@ -18,9 +18,9 @@ Read this before writing code in this repository.
 ## Content and licensing
 
 The teaching material in this product is written by Luiz and is common to
-every organization on the platform (ADR 0004); an organization may add
-content of its own, seen only by that organization. This platform does not serve published
-course books or their page images.
+every organization on the platform, written only by the platform admin
+(ADR 0004, ADR 0005); no organization holds content of its own. This
+platform does not serve published course books or their page images.
 Extraction targets and the teacher's own working notes, derived from
 books he owns and used for his own lessons, are his material and may be
 stored here. Book page images are never committed to this repository.

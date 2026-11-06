@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { requireTeacher } from "@/lib/content/queries";
+import { requireContentWriter, requireTeacher } from "@/lib/content/queries";
 import type { ImageChoice } from "@/lib/questions/question-image";
 import { approvedPicture } from "@/lib/questions/shown-word";
 
@@ -110,7 +110,7 @@ export async function addQuestion(
   fields: unknown,
 ): Promise<QuestionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const parsed = parseFields(fields);
     if (typeof pointId !== "string" || parsed === null) {
       return { ok: false, error: UNREADABLE };
@@ -162,7 +162,7 @@ export async function saveQuestion(
   fields: unknown,
 ): Promise<QuestionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const before = parseFields(loaded);
     const parsed = parseFields(fields);
     if (typeof questionId !== "string" || before === null || parsed === null) {
@@ -203,7 +203,7 @@ export async function deleteQuestion(
   questionId: string,
 ): Promise<QuestionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     if (typeof questionId !== "string") {
       return { ok: false, error: UNREADABLE };
     }
@@ -230,7 +230,7 @@ export async function reorderQuestions(
   ids: readonly string[],
 ): Promise<QuestionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     if (
       typeof pointId !== "string" ||
       !Array.isArray(ids) ||

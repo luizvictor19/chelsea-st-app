@@ -4,16 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { SignOutButton } from "../auth/sign-out-button";
-
-/** The areas that already have a screen behind them. */
-const links = [
-  { label: "Conteúdo", href: "/teacher/content" },
-  { label: "Imagens", href: "/teacher/content/images" },
-  { label: "Perguntas", href: "/teacher/content/questions" },
-  { label: "Aula ao vivo", href: "/teacher/lesson" },
-  { label: "Alunos", href: "/teacher/students" },
-  { label: "Convites", href: "/teacher/invites" },
-] as const;
+import { teacherLinks, type NavLink } from "./nav-links";
 
 /*
  * Aulas has no screen yet, and is rendered as a plain disabled label
@@ -29,7 +20,10 @@ const comingSoon = ["Aulas"] as const;
  * Conteúdo, so the longest matching href wins and only one item is ever
  * highlighted.
  */
-function activeHref(pathname: string): string | null {
+function activeHref(
+  links: readonly NavLink[],
+  pathname: string,
+): string | null {
   let active: string | null = null;
   for (const { href } of links) {
     const matches = pathname === href || pathname.startsWith(`${href}/`);
@@ -44,14 +38,18 @@ export function TeacherNav({
   brandName,
   initial,
   alsoStudent,
+  writesContent,
 }: {
   /** The Host's brand (#194); null on an unknown host, which names none. */
   readonly brandName: string | null;
   readonly initial: string;
   /** Also a student: the admin who checks the student's screens. */
   readonly alsoStudent: boolean;
+  /** The platform admin: the content screens (0043, #211). */
+  readonly writesContent: boolean;
 }) {
-  const active = activeHref(usePathname());
+  const links = teacherLinks(writesContent);
+  const active = activeHref(links, usePathname());
 
   return (
     <header className="border-rule bg-background sticky top-0 z-10 border-b">

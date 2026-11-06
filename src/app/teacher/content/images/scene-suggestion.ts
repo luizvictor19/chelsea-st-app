@@ -20,8 +20,6 @@ import { claudeFailure } from "./claude-failure.ts";
 export type SceneRow = {
   readonly description: string;
   readonly imageStyle: ImageStyle;
-  /** Null for common content. */
-  readonly organizationId: string | null;
   readonly archived: boolean;
 };
 
@@ -31,13 +29,13 @@ export type SceneSubjectResult =
 export type SceneSuggestionDeps = {
   /** The scene's row, or null when there is none this account can read. */
   readonly scene: () => Promise<SceneRow | null>;
-  /** can_write_content, the database's rule for writing content. */
-  readonly canWrite: (organization: string | null) => Promise<boolean>;
   /**
-   * The prompt of the oldest question that shows the scene, if any, among
-   * the questions of the scene's organization (null: the common ones).
+   * can_write_content for common content, the database's rule for writing
+   * it. Every scene is common since 0043 (#211).
    */
-  readonly question: (organization: string | null) => Promise<string | null>;
+  readonly canWrite: () => Promise<boolean>;
+  /** The prompt of the oldest common question that shows the scene, if any. */
+  readonly question: () => Promise<string | null>;
   /** Built only once the checks pass, so a refusal never needs the key. */
   readonly provider: () => TextProvider;
 };
@@ -47,8 +45,6 @@ export const SCENE_GONE = "Essa cena não existe mais. Recarregue a página.";
 export const SCENE_ARCHIVED = "Essa cena foi excluída. Recarregue a página.";
 export const COMMON_ONLY =
   "Só quem edita o conteúdo comum pode pedir uma instrução.";
-export const ORGANIZATION_ONLY =
-  "Só quem edita o conteúdo desta escola pode pedir uma instrução.";
 /** suggestSubject's sentence, for the word. */
 export const UNREADABLE = "O modelo não devolveu uma instrução legível.";
 
@@ -68,14 +64,11 @@ export async function proposeSceneSubject(
    * refuse afterwards: whoever may ask is decided here, by the rule that
    * decides who may write the scene, which lives in the database.
    */
-  if (!(await deps.canWrite(scene.organizationId))) {
-    return {
-      ok: false,
-      error: scene.organizationId === null ? COMMON_ONLY : ORGANIZATION_ONLY,
-    };
+  if (!(await deps.canWrite())) {
+    return { ok: false, error: COMMON_ONLY };
   }
 
-  const question = await deps.question(scene.organizationId);
+  const question = await deps.question();
   const prompt = buildSceneSubjectPrompt({
     sentence: scene.description,
     question,

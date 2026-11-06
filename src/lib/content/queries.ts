@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { destinationFor, teaches } from "@/lib/access";
+import { destinationFor, teaches, writesContent } from "@/lib/access";
 import { readAccess } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
@@ -62,9 +62,25 @@ export async function requireTeacher() {
 }
 
 /**
- * The content screens show common content (organization_id null), the only kind
- * there is until an organization writes its own (ADR 0004). A book's position and a
- * word's term are unique per scope since 0029, so a lookup by either names
+ * The content screens and their actions are for whoever writes content: the
+ * platform admin alone (0043, #211). A teacher only teaches: she reads content
+ * where a lesson needs it (requireTeacher), and here goes back to /teacher,
+ * her own home. Every page and every action under /teacher/content calls
+ * this (actions-guard.test.ts); RLS refuses her writes all the same.
+ */
+export async function requireContentWriter() {
+  const teacher = await requireTeacher();
+  if (!writesContent(teacher.access)) {
+    redirect("/teacher");
+  }
+  return teacher;
+}
+
+/**
+ * The content screens show common content (organization_id null), the only
+ * kind there is since 0043 (#211): no organization holds content of its own,
+ * and each content table refuses a row that names one. A book's position and
+ * a word's term are unique per scope since 0029, so a lookup by either names
  * the scope or it can meet two rows.
  */
 export const COMMON = null;

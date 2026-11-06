@@ -73,9 +73,9 @@ function termSize(slide: Slide, withPicture: boolean): string {
 }
 
 /*
- * A question, one level at a time: the picture of the word it shows, or a
- * neutral card that says which question this is; then the question; then the expected answer under
- * it. With a picture the two lines keep their place while hidden, as the term
+ * A question, one level at a time: the picture of the word or the scene it
+ * shows (questionPicture), or a neutral card that says which question this
+ * is; then the question; then the expected answer under it. With a picture the two lines keep their place while hidden, as the term
  * of a word does, so the picture does not move.
  */
 function QuestionCard({
