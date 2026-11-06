@@ -20,6 +20,7 @@ import {
   type Phase,
   Session,
 } from "@/lib/tutor/session";
+import type { Mascot } from "@/lib/brand";
 import type { TurnEngine } from "@/lib/tutor/turn-engine";
 
 import { Robin, type RobinState } from "./robin";
@@ -92,9 +93,12 @@ function silence(): void {
  */
 export function SessionScreen({
   engine,
+  mascot,
   preview = false,
 }: {
   readonly engine: TurnEngine;
+  /** The art of the tutor, from the brand of the Host. */
+  readonly mascot: Mascot;
   /** Marks the screen as the teacher's prototype. */
   readonly preview?: boolean;
 }) {
@@ -342,7 +346,7 @@ export function SessionScreen({
       ) : (
         <main className="mx-auto flex min-h-0 w-full max-w-xl flex-1 flex-col items-center gap-4 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:gap-6 sm:px-6">
           <div className="pt-1">
-            <Robin state={ROBIN[phase]} />
+            <Robin state={ROBIN[phase]} mascot={mascot} />
           </div>
 
           <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-3">
