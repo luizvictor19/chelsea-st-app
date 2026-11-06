@@ -138,7 +138,8 @@ architecture question for Luiz.
   a `security definer` function that refuses (42501) anyone but an admin of that organization or
   the platform admin, and `anon` holds no `execute` on it. Per person who has a row in `students`
   it returns the last day practised, the days practised in each of the last 1 to 12 weeks (Monday
-  to Sunday, in `profiles.timezone`) and the minutes practised in the month; never what was said.
+  to Sunday, in `profiles.timezone`, São Paulo when that is not a zone: #219) and the minutes
+  practised in the month; never what was said.
   The days come from `attempts` and the minutes are 0 until Robin v1 (#71) records sessions with a
   start and an end; #71 rewrites the body and keeps the signature. The policies of `attempts` and
   `review_schedule` did not change. The daily cap (15 min, both brands) lives in

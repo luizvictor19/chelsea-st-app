@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  DEFAULT_TIME_ZONE,
   formatMinutes,
+  knownZone,
   lastPracticeLabel,
   summaryLine,
   teamOf,
@@ -201,6 +203,28 @@ describe("teamOf", () => {
     assert.equal(anaAtTurn?.lastPractice, "Ontem");
     assert.equal(anaAtTurn?.joinedOn, "30/09");
     assert.equal(caioAtTurn?.minutesAvailable, DAILY_PRACTICE_MINUTES);
+  });
+});
+
+describe("knownZone", () => {
+  test("a zone Intl knows stays, anything else is the default", () => {
+    assert.equal(knownZone("Europe/London"), "Europe/London");
+    assert.equal(knownZone("Not/A_Zone"), DEFAULT_TIME_ZONE);
+    assert.equal(knownZone(undefined), DEFAULT_TIME_ZONE);
+  });
+
+  test("one profile with a zone nobody knows does not take the team down", () => {
+    // 01/11 at 02:00 UTC is still 31/10 in São Paulo, the default.
+    const rows = teamOf({
+      organizationId: F,
+      members: [member("ana"), member("bia")],
+      profiles: [profile("ana", "Ana", "Not/A_Zone"), profile("bia", "Bia")],
+      practice: [practice("ana", "2026-10-31", [0, 0, 0, 1])],
+      now: new Date("2026-11-01T02:00:00Z"),
+    });
+    const ana = rows.find((row) => row.id === "ana");
+    assert.equal(ana?.lastPractice, "Hoje");
+    assert.equal(ana?.minutesAvailable, 31 * DAILY_PRACTICE_MINUTES);
   });
 });
 

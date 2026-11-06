@@ -57,14 +57,37 @@ export type TeamSummary = {
   readonly minutesAvailable: number;
 };
 
-/** The calendar date as seen in `timeZone`, as YYYY-MM-DD. */
-function localDay(date: Date, timeZone: string): string {
+/**
+ * The calendar date as seen in `timeZone`, as YYYY-MM-DD. The twin of the
+ * private one in datetime.ts, kept here so the coverage count does not take in
+ * that file, which no test loads.
+ */
+function localDateKey(date: Date, timeZone: string): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   }).format(date);
+}
+
+/** The default of profiles.timezone, and where a zone nobody knows falls. */
+export const DEFAULT_TIME_ZONE = "America/Sao_Paulo";
+
+/**
+ * The zone itself when it is one, the default otherwise. profiles.timezone
+ * takes any text its owner writes (profiles_update_self), and Intl throws on
+ * a zone it does not know: one employee's typo must not take down the
+ * admin's screen. team_practice (0044) falls back the same way.
+ */
+export function knownZone(timeZone: string | undefined): string {
+  if (timeZone === undefined) return DEFAULT_TIME_ZONE;
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone });
+    return timeZone;
+  } catch {
+    return DEFAULT_TIME_ZONE;
+  }
 }
 
 /** A YYYY-MM-DD as a UTC midnight, for whole-day arithmetic. */
@@ -99,7 +122,7 @@ export function weekLabels(
   timeZone: string,
   weeks: number,
 ): string[] {
-  const today = dayAsUtc(localDay(now, timeZone));
+  const today = dayAsUtc(localDateKey(now, timeZone));
   const sinceMonday = (today.getUTCDay() + 6) % 7;
   const monday = today.getTime() - sinceMonday * 86_400_000;
   return Array.from({ length: weeks }, (_, index) => {
@@ -142,9 +165,8 @@ export function teamOf({
     seen.add(m.userId);
 
     const profile = profileById.get(m.userId);
-    // The column's default, which every profile without a zone set holds.
-    const timeZone = profile?.timeZone ?? "America/Sao_Paulo";
-    const today = localDay(now, timeZone);
+    const timeZone = knownZone(profile?.timeZone);
+    const today = localDateKey(now, timeZone);
     const own = practiceById.get(m.userId);
     const daysByWeek = own?.daysByWeek ?? Array<number>(TEAM_WEEKS).fill(0);
     const lastPractisedOn = own?.lastPractisedOn ?? null;
@@ -152,7 +174,7 @@ export function teamOf({
     rows.push({
       id: m.userId,
       name: profile?.fullName ?? "Sem nome",
-      joinedOn: dayMonth(localDay(new Date(m.joinedAt), timeZone)),
+      joinedOn: dayMonth(localDateKey(new Date(m.joinedAt), timeZone)),
       lastPractisedOn,
       lastPractice: lastPracticeLabel(lastPractisedOn, today),
       daysByWeek,

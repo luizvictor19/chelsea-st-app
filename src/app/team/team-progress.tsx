@@ -90,7 +90,12 @@ function TeamOf({
                   {formatMinutes(row.minutesThisMonth)} de{" "}
                   {formatMinutes(row.minutesAvailable)}
                 </p>
-                <dl className="grid grid-cols-4 gap-2 text-center">
+                <dl
+                  className="grid gap-2 text-center"
+                  style={{
+                    gridTemplateColumns: `repeat(${row.daysByWeek.length}, minmax(0, 1fr))`,
+                  }}
+                >
                   {row.daysByWeek.map((days, index) => (
                     <div
                       key={weeks[index] ?? index}

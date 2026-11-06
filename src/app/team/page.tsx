@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import { studies } from "@/lib/access";
 import { requireManager } from "@/lib/auth";
-import { TEAM_WEEKS, teamOf, weekLabels } from "@/lib/team";
+import { knownZone, TEAM_WEEKS, teamOf, weekLabels } from "@/lib/team";
 
 import { PendingInvites } from "../auth/pending-invites";
 import { SignOutButton } from "../auth/sign-out-button";
@@ -54,9 +54,9 @@ export default async function TeamPage() {
   }));
   // The weeks are labelled in the admin's own zone; each row counts in its
   // person's, which differs only for a few hours around Monday's midnight.
-  const viewerZone =
-    team.profiles.find((profile) => profile.id === user.id)?.timeZone ??
-    "America/Sao_Paulo";
+  const viewerZone = knownZone(
+    team.profiles.find((profile) => profile.id === user.id)?.timeZone,
+  );
 
   return (
     <>
