@@ -119,6 +119,39 @@ Answer in json, and only in json, with this shape:
 List the members of each set in the order they should be shown. Use only ids from the list.`;
 }
 
+/**
+ * The model behind Sugerir conjuntos since #225 (2026-11-06), when DeepSeek
+ * left the app; the 90% and 98% above are DeepSeek's. Not measured on Claude
+ * yet: phase 2 of #225 measures Haiku 5.5 against Sonnet 5.5 on the 25 sets
+ * of lessons 1 to 4, and the result is written here.
+ */
+export const CONTRAST_MODEL = "claude-haiku-5-5";
+
+/**
+ * The answer's shape, enforced by the Claude provider: the one the prompt
+ * asks for. No minimum on the members, which structured outputs do not
+ * enforce; parseContrastSuggestions drops a set left with fewer than two.
+ */
+export const CONTRAST_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    sets: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          members: { type: "array", items: { type: "string" } },
+          reason: { type: "string" },
+        },
+        required: ["members", "reason"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["sets"],
+  additionalProperties: false,
+};
+
 export function buildContrastPrompt(
   unit: ContrastUnit,
   mode: ContrastMode,

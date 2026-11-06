@@ -40,6 +40,26 @@ const SUBJECT_SHAPE: Record<DrawableKind, string> = {
 const MAX_WORDS = 12;
 
 /**
+ * The model behind a word's Sugerir instrução since #225 (2026-11-06), when
+ * DeepSeek left the app: the scene's, measured on the same shape of prompt
+ * (#187, SCENE_SUBJECT_MODEL). Phase 2 of #225 measures it on 20 words of
+ * lessons 1 to 3 against Sonnet 5.5, and the result is written here.
+ */
+export const SUBJECT_MODEL = "claude-haiku-5-5";
+
+/**
+ * The answer's shape, for a provider that enforces one (the Claude provider
+ * does): the shape the prompt asks for in words, which is what parseSubject
+ * reads. The scene's is this same object (SCENE_SUBJECT_SCHEMA).
+ */
+export const SUBJECT_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: { subject: { type: "string" } },
+  required: ["subject"],
+  additionalProperties: false,
+};
+
+/**
  * Four rules, the first three bought with real generations on 2026-09-19 and
  * the fourth with the proposals measured on 2026-09-22.
  *
