@@ -8,7 +8,12 @@ import {
   magicLinkOptions,
   recoveryOptions,
 } from "./auth-links.ts";
-import { resolveSite, sitesFromEnv, type SiteConfig } from "./brand.ts";
+import {
+  resolveSite,
+  siteOfBrand,
+  sitesFromEnv,
+  type SiteConfig,
+} from "./brand.ts";
 
 /** Production after #193: the GrifoAI domain set, on Vercel. */
 const PRODUCTION = sitesFromEnv({
@@ -78,6 +83,31 @@ describe("auth links follow the site of the request", () => {
     for (const host of ["localhost:3100", "127.0.0.1:3100"]) {
       assert.deepEqual(inviteOptions(resolveSite(host, LOCAL)), {});
     }
+  });
+
+  test("an invite follows the brand of the organization, not the inviter's host", () => {
+    // What the invite actions pass since #195: the site of the brand the
+    // invited organization wears, the same from any host.
+    assert.deepEqual(inviteOptions(siteOfBrand("grifoai", PRODUCTION)), {
+      redirectTo: "https://app.grifo.example",
+    });
+    assert.deepEqual(inviteOptions(siteOfBrand("chelsea-st", PRODUCTION)), {
+      redirectTo: "https://app.chelsea-st.com",
+    });
+    // From a dev server too: Chelsea's site is production's, on https.
+    assert.deepEqual(inviteOptions(siteOfBrand("chelsea-st", LOCAL)), {
+      redirectTo: "https://app.chelsea-st.com",
+    });
+  });
+
+  test("an invite of a brand with no https site sends no redirect", () => {
+    // No GrifoAI domain yet (#193), or only its dev host: the Site URL.
+    assert.deepEqual(
+      inviteOptions(siteOfBrand("grifoai", sitesFromEnv({ VERCEL: "1" }))),
+      {},
+    );
+    const local = sitesFromEnv({ GRIFOAI_HOST: "grifoai.localhost:3100" });
+    assert.deepEqual(inviteOptions(siteOfBrand("grifoai", local)), {});
   });
 
   test("the magic link never creates an account, whatever the host", () => {

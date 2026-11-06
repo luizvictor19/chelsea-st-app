@@ -38,8 +38,8 @@ export function recoveryOptions(site: Site | null): { redirectTo?: string } {
 }
 
 /**
- * Options of inviteUserByEmail. The inviter's site until #195, which reads the
- * domain of the organization invited and changes only this call's argument.
+ * Options of inviteUserByEmail, given the site of the brand the invited
+ * organization wears (#195, read by the invite actions).
  *
  * Only an https origin. The invitee is not the person who asked: she opens
  * the email on her own machine, where the http origin of a dev server (which

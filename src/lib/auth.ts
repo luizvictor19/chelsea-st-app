@@ -1,7 +1,11 @@
 import { destinationFor, type Access } from "@/lib/access";
+import { isBrandKey, type BrandKey } from "@/lib/brand";
+import { homeSite } from "@/lib/brand-home";
+import { currentSite, siteConfig } from "@/lib/current-site";
 import { createClient } from "@/lib/supabase/server";
 
-export type Destination = "/login" | "/dashboard" | "/teacher";
+/** A screen of this host, or the front door of the brand she belongs to. */
+export type Destination = "/login" | "/dashboard" | "/teacher" | URL;
 
 type Client = Awaited<ReturnType<typeof createClient>>;
 
@@ -33,11 +37,33 @@ export async function readAccess(
 }
 
 /**
+ * The brands of the organizations someone belongs to (0041). A read that
+ * fails, or a brand this code does not know, counts as none: she stays on the
+ * host she came to, which is what happened before #195.
+ */
+async function readMemberBrands(
+  supabase: Client,
+  userId: string,
+): Promise<BrandKey[]> {
+  const { data } = await supabase
+    .from("organization_members")
+    .select("organizations!inner(brand)")
+    .eq("user_id", userId);
+  return (data ?? [])
+    .map((member) => member.organizations.brand)
+    .filter(isBrandKey);
+}
+
+/**
  * Where the current visitor belongs.
  *
  * Someone with no role still lands on /dashboard, which is the screen that
  * explains the account is not released yet. Sending them somewhere else would
  * need a route the spec does not have.
+ *
+ * Someone whose organizations all wear the other brand goes to that brand's
+ * front door instead (homeSite, #195): the session is per domain, so she signs
+ * in there once more.
  */
 export async function resolveDestination(): Promise<Destination> {
   const supabase = await createClient();
@@ -49,5 +75,16 @@ export async function resolveDestination(): Promise<Destination> {
     return "/login";
   }
 
-  return destinationFor(await readAccess(supabase, user.id));
+  const [access, memberBrands, here] = await Promise.all([
+    readAccess(supabase, user.id),
+    readMemberBrands(supabase, user.id),
+    currentSite(),
+  ]);
+  const there = homeSite({
+    here,
+    platformAdmin: access.platformAdmin,
+    memberBrands,
+    config: siteConfig(),
+  });
+  return there ? new URL("/", there.origin) : destinationFor(access);
 }

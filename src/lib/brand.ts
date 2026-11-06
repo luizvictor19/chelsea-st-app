@@ -6,9 +6,32 @@ import type { Metadata } from "next";
  * Pure on purpose: node:test runs this file as plain TypeScript, so it imports
  * nothing but types. Reading the header is src/lib/current-site.ts.
  *
- * The list of sites lives in code until #195, which replaces it with rows of
- * `organizations` of the same shape: whoever consumes a Site does not change.
+ * What a brand looks like lives here, in code, reviewed in a PR: its name,
+ * icons, mascot and host. The database says only which brand each
+ * organization wears, organizations.brand (0041, #195), as one of BRAND_KEYS.
  */
+
+/**
+ * The brands an organization can wear. The same list as the check
+ * organizations_brand_known (0041); src/lib/brand-keys.test.ts holds the two
+ * equal, so a brand added on one side alone breaks the gate.
+ */
+export const BRAND_KEYS = ["chelsea-st", "grifoai"] as const;
+
+export type BrandKey = (typeof BRAND_KEYS)[number];
+
+/** A value read from organizations.brand, narrowed to a key this code knows. */
+export function isBrandKey(value: unknown): value is BrandKey {
+  return (BRAND_KEYS as readonly unknown[]).includes(value);
+}
+
+/**
+ * Which mascot's art a brand shows: the folder under public/ and the prefix of
+ * each file, one name for both, so a folder cannot point at another mascot's
+ * files. The files are named in src/app/teacher/session-preview/mascot-art.ts,
+ * and mascot-files.test.ts holds that every one exists for every brand.
+ */
+export type Mascot = "robin" | "grifo";
 
 /** One icon file under public/, with the size it really has. */
 export type BrandIcon = {
@@ -16,8 +39,10 @@ export type BrandIcon = {
   readonly sizes: string;
 };
 
-/** What a brand shows. Data only, so #195 can read it from a row. */
+/** What a brand shows. */
 export type Brand = {
+  /** The value of organizations.brand for an organization wearing it. */
+  readonly key: BrandKey;
   readonly name: string;
   readonly description: string;
   readonly icons: {
@@ -26,6 +51,8 @@ export type Brand = {
   } | null;
   /** The "Dúvidas" address on the screen of an account with no access. */
   readonly contactEmail: string | null;
+  /** The art of the tutor. The tutor is called Robin under both brands. */
+  readonly mascot: Mascot;
 };
 
 /**
@@ -40,6 +67,7 @@ export type Site = {
 };
 
 export const CHELSEA: Brand = {
+  key: "chelsea-st",
   name: "Chelsea St",
   description: "Plataforma de apoio às aulas de inglês da Chelsea St.",
   // Moved out of src/app (#194): the file convention there overrides
@@ -50,15 +78,31 @@ export const CHELSEA: Brand = {
     apple: { url: "/brand/chelsea/apple-icon.png", sizes: "180x180" },
   },
   contactEmail: null,
+  mascot: "robin",
 };
 
-/** No icon until the griffin artwork (#195), no contact until its row does. */
+/**
+ * No icon until the griffin artwork arrives, and no contact until GrifoAI has
+ * an address of its own.
+ *
+ * The mascot is Robin's art as a stand-in: the griffin's files are not in the
+ * repository yet. When they arrive in public/grifo/, this becomes "grifo"
+ * and mascot-files.test.ts checks every file is there.
+ */
 export const GRIFOAI: Brand = {
+  key: "grifoai",
   name: "GrifoAI",
   description:
     "Treino de inglês com IA para as equipes das empresas, da GrifoAI.",
   icons: null,
   contactEmail: null,
+  mascot: "robin",
+};
+
+/** Every brand by its key: a brand added to BRAND_KEYS must be written here. */
+export const BRANDS: Readonly<Record<BrandKey, Brand>> = {
+  "chelsea-st": CHELSEA,
+  grifoai: GRIFOAI,
 };
 
 const CHELSEA_HOST = "app.chelsea-st.com";
@@ -139,6 +183,15 @@ export function resolveSite(
     };
   }
   return null;
+}
+
+/**
+ * The listed site of a brand, or null when it has none (GrifoAI before
+ * GRIFOAI_HOST is set). Loopback is never returned: it is a dev server's
+ * address, not where a brand lives.
+ */
+export function siteOfBrand(key: BrandKey, config: SiteConfig): Site | null {
+  return config.sites.find((site) => site.brand.key === key) ?? null;
 }
 
 /** The root layout's metadata: brand name in every title, or no brand at all. */
