@@ -17,18 +17,21 @@ import ts from "typescript";
  * the invite actions, which /team shares, may call requireInviter instead:
  * it lets the company's admin in. Under content/ only requireContentWriter
  * counts, for the actions and for every page: a teacher only teaches, and
- * content is written by the platform admin alone (0043, #211). Calls are read
- * from the syntax tree, so a name in a comment or a string counts for
- * nothing.
+ * content is written by the platform admin alone (0043, #211). The creation
+ * of an organization (#205) passes with requirePlatformAdmin alone:
+ * requireTeacher there would let a teacher through. Calls are read from the
+ * syntax tree, so a name in a comment or a string counts for nothing.
  */
 
 const ROOT = join(import.meta.dirname);
 const INVITE_ACTIONS = join("invites", "actions.ts");
+const ORGANIZATION_ACTIONS = join("organizations", "actions.ts");
 const CONTENT = "content";
 
 /** The guards that count for a file, by where it sits under /teacher. */
 function guardsFor(where: string): readonly string[] {
   if (where === INVITE_ACTIONS) return ["requireTeacher", "requireInviter"];
+  if (where === ORGANIZATION_ACTIONS) return ["requirePlatformAdmin"];
   if (where.split(sep)[0] === CONTENT) return ["requireContentWriter"];
   return ["requireTeacher"];
 }
@@ -157,6 +160,15 @@ describe("server actions under /teacher", () => {
     assert.deepEqual(
       unguardedActions(source, ["requireTeacher", "requireInviter"]),
       ["open", "loops", "commented", "late"],
+    );
+  });
+
+  test("the creation of an organization is among the files checked", () => {
+    assert.ok(
+      serverActionFiles(ROOT).some(
+        (path) => relative(ROOT, path) === ORGANIZATION_ACTIONS,
+      ),
+      "organizations/actions.ts is not a server action file",
     );
   });
 

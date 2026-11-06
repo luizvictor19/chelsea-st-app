@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { requireTeacher } from "@/lib/content/queries";
 
@@ -44,6 +45,14 @@ export default async function InvitesPage() {
           senha” com o mesmo e-mail. Quem já tem conta não recebe e-mail: vê o
           convite ao entrar na plataforma e aceita ali. Avise a pessoa.
         </p>
+        {access.platformAdmin && (
+          <Link
+            href="/teacher/organizations"
+            className="text-accent self-start font-semibold underline"
+          >
+            Nova empresa
+          </Link>
+        )}
       </div>
 
       {organizations.length === 0 ? (

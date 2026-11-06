@@ -4238,6 +4238,134 @@ begin
 end;
 $$;
 
+-- Creating a company organization (#205) ------------------------------------------------
+--
+-- The platform admin creates a company's organization and invites its first
+-- admin on /teacher/organizations, with her own client: two writes under the
+-- policies already applied, no migration. Each assertion stands on one of
+-- them:
+--
+-- 1. Only the platform admin creates: an insert into organizations of a
+--    company (grifoai, no teacher) is refused for B's teacher, the Chelsea
+--    student, the company's own admin made in 3, and anon
+--    (organizations_write, and no insert granted to anon).
+-- 2. The platform admin creates, as authenticated, and reads it back
+--    (returning, as the screen asks): one row, grifoai, no teacher.
+-- 3. The invite accepted makes the admin: the platform admin writes the admin
+--    invite of the new organization; the account is created and its email
+--    confirmed, as the owner, the way Supabase Auth writes it (0031). Then she
+--    is its admin, the invite is accepted, she has no students row, and
+--    teaches_in is false for her there (0042).
+-- 4. The first admin works: she reads her organization, and only it, and
+--    invites an employee to it.
+--
+-- Appended after the block of 0037, which it does not touch: nothing here
+-- creates a relation. Failures are collected and raised together.
+do $$
+declare
+  c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  c_teacher_b constant uuid := '33333333-3333-3333-3333-333333333333';
+  c_first_admin constant uuid := 'e2050000-0000-0000-0000-000000000205';
+  c_company constant text :=
+    $q$insert into organizations (slug, name, brand, has_teacher) values ('%s', 'Empresa', 'grifoai', false)$q$;
+  v_org uuid;
+  v_n integer;
+  v_brand text;
+  v_has_teacher boolean;
+  v_teaches boolean;
+  v_anon_refused boolean;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  set local role authenticated;
+
+  -- 2. The platform admin creates the company and reads it back.
+  perform set_config('test.uid', c_admin::text, false);
+  insert into organizations (slug, name, brand, has_teacher)
+    values ('empresa-teste', 'Empresa Teste', 'grifoai', false)
+    returning id into v_org;
+  select count(*), min(brand), bool_or(has_teacher)
+    into v_n, v_brand, v_has_teacher
+    from organizations where id = v_org;
+  if v_n <> 1 or v_brand is distinct from 'grifoai' or v_has_teacher is distinct from false then
+    insert into verify.failures values (format(
+      'the platform admin created %s rows, wearing %s, has_teacher %s',
+      v_n, coalesce(v_brand, 'nothing'), coalesce(v_has_teacher::text, 'nothing')));
+  end if;
+
+  -- 3. Her invite of the first admin, then the account, as the owner.
+  insert into organization_invites (organization_id, email, role)
+    values (v_org, 'first-admin@example.com', 'admin');
+  reset role;
+  insert into auth.users (id, email) values (c_first_admin, 'first-admin@example.com');
+  update auth.users set email_confirmed_at = now() where id = c_first_admin;
+  if not exists (select 1 from organization_members
+                  where user_id = c_first_admin and organization_id = v_org and role = 'admin') then
+    insert into verify.failures values ('the accepted invite did not make the company''s admin');
+  end if;
+  if (select accepted_at from organization_invites
+       where organization_id = v_org and email = 'first-admin@example.com' and role = 'admin') is null then
+    insert into verify.failures values ('the first admin''s invite was left open');
+  end if;
+  if exists (select 1 from students where id = c_first_admin) then
+    insert into verify.failures values ('the company''s first admin got a students row');
+  end if;
+
+  set local role authenticated;
+  perform set_config('test.uid', c_first_admin::text, false);
+  v_teaches := teaches_in(v_org);
+  if v_teaches is distinct from false then
+    insert into verify.failures values ('the company''s first admin teaches in it');
+  end if;
+
+  -- 4. She reads her organization, only it, and invites an employee.
+  select count(*) into v_n from organizations;
+  if v_n <> 1 or not exists (select 1 from organizations where id = v_org) then
+    insert into verify.failures values (format(
+      'the company''s first admin reads %s organizations', v_n));
+  end if;
+  if verify.refused_for_privilege(
+       format('insert into organization_invites (organization_id, email, role) values (%L, %L, %L)',
+              v_org, 'employee@example.com', 'student')) then
+    insert into verify.failures values ('the company''s first admin could not invite an employee');
+  end if;
+
+  -- 1. Nobody else creates an organization.
+  if not verify.refused_for_privilege(format(c_company, 'empresa-da-admin')) then
+    insert into verify.failures values ('the company''s admin created an organization');
+  end if;
+  perform set_config('test.uid', c_teacher_b::text, false);
+  if not verify.refused_for_privilege(format(c_company, 'empresa-do-professor')) then
+    insert into verify.failures values ('B''s teacher created an organization');
+  end if;
+  perform set_config('test.uid', c_student::text, false);
+  if not verify.refused_for_privilege(format(c_company, 'empresa-da-aluna')) then
+    insert into verify.failures values ('the Chelsea student created an organization');
+  end if;
+  reset role;
+  -- anon writes nothing in verify.failures: the answer is kept and recorded
+  -- after reset role.
+  set local role anon;
+  perform set_config('test.uid', '', false);
+  v_anon_refused := verify.refused_for_privilege(format(c_company, 'empresa-anonima'));
+  reset role;
+  if not v_anon_refused then
+    insert into verify.failures values ('anon created an organization');
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'creating a company organization: %', v_failures;
+  end if;
+
+  raise notice 'only the platform admin creates an organization; a company is grifoai with no teacher';
+  raise notice 'its admin invite, once confirmed, makes an admin who teaches nothing, reads her organization and invites an employee';
+end;
+$$;
+
+
 -- Nobody truncates what RLS guards (0037) ----------------------------------------------
 --
 -- Holds for every relation public has now and any a migration adds later: the

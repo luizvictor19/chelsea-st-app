@@ -47,8 +47,8 @@ export async function readAccess(
 
 /**
  * The signed-in person and her access, or the login screen: the prologue of
- * requireManager and requireInviter. requireTeacher keeps its own, which
- * reads the profile beside the access in one round trip.
+ * requireManager, requireInviter and requirePlatformAdmin. requireTeacher
+ * keeps its own, which reads the profile beside the access in one round trip.
  */
 async function signedIn() {
   const supabase = await createClient();
@@ -81,6 +81,18 @@ export async function requireManager() {
 export async function requireInviter() {
   const signed = await signedIn();
   if (!teaches(signed.access) && !manages(signed.access)) {
+    redirect(destinationFor(signed.access));
+  }
+  return signed;
+}
+
+/**
+ * Only the platform admin creates an organization (#205): anyone else goes
+ * where she belongs. organizations_write refuses the rest anyway.
+ */
+export async function requirePlatformAdmin() {
+  const signed = await signedIn();
+  if (!signed.access.platformAdmin) {
     redirect(destinationFor(signed.access));
   }
   return signed;

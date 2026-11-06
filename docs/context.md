@@ -112,7 +112,10 @@ architecture question for Luiz.
   platform admin changes it (`organizations_write`); a member reads her own organization's. The
   list equals `BRAND_KEYS` in `src/lib/brand.ts` (`brand-keys.test.ts`): a new brand is a
   migration and a code change together. 0041 also created GrifoAI's own organization
-  (`slug = 'grifoai'`); a company's organization is created later, one per client.
+  (`slug = 'grifoai'`). The platform admin creates a company's organization (`grifoai`, no
+  teacher) and invites its first admin at `/teacher/organizations` (#205), with her own client
+  under `organizations_write`: two writes, no function, so a refused invite leaves the
+  organization without an admin, shown there as "Sem admin" and fixed on `/teacher/invites`.
 - Organizations follow ADR 0004, applied by 0029: every table carries `organization_id`; people
   and operation rows belong to one organization, content rows are common (`organization_id` null)
   or one organization's. Since 0043 (#211) every content row is common: each of the 10 content
