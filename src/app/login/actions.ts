@@ -2,8 +2,9 @@
 
 import { redirect } from "next/navigation";
 
+import { magicLinkOptions, recoveryOptions } from "@/lib/auth-links";
 import { looksLikeEmail, normalizeEmail } from "@/lib/credentials";
-import { env } from "@/lib/env";
+import { currentSite } from "@/lib/current-site";
 import { magicLinkStep } from "@/lib/magic-link";
 import { createClient } from "@/lib/supabase/server";
 
@@ -93,22 +94,18 @@ export async function sendMagicLink(
     return { status: "error", message: "Digite um e-mail válido." };
   }
 
+  const site = await currentSite();
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithOtp({
     email,
-    options: {
-      emailRedirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
-      shouldCreateUser: false,
-    },
+    options: magicLinkOptions(site),
   });
 
   let step = magicLinkStep(error);
   if (step === "recover") {
     const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(
       email,
-      {
-        redirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/set-password`,
-      },
+      recoveryOptions(site),
     );
     step = recoveryError ? "error" : "sent";
   }

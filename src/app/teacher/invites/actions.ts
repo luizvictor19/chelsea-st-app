@@ -3,9 +3,10 @@
 import { revalidatePath } from "next/cache";
 
 import type { SchoolRole } from "@/lib/access";
+import { inviteOptions } from "@/lib/auth-links";
 import { requireTeacher } from "@/lib/content/queries";
 import { looksLikeEmail, normalizeEmail } from "@/lib/credentials";
-import { env } from "@/lib/env";
+import { currentSite } from "@/lib/current-site";
 import { inviteRefusal, mailProblem, renewedExpiry } from "@/lib/invites";
 import { createInviteMailer } from "@/lib/supabase/admin";
 
@@ -29,11 +30,14 @@ const ROLES: readonly SchoolRole[] = ["student", "teacher", "admin"];
  * to /set-password through the invite template of docs/commands.md. For an
  * account that already exists it mails nothing, and that reads as sent: she
  * accepts when she signs in (0032). See mailProblem.
+ *
+ * The link leads to the inviter's site, read here so both callers get it.
  */
 async function mailInvite(email: string): Promise<string | null> {
-  const { error } = await createInviteMailer().inviteUserByEmail(email, {
-    redirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/set-password`,
-  });
+  const { error } = await createInviteMailer().inviteUserByEmail(
+    email,
+    inviteOptions(await currentSite()),
+  );
   return mailProblem(error);
 }
 
