@@ -17,6 +17,11 @@ export function RobinPractice() {
         Em breve você pratica inglês aqui com o Robin, alguns minutos por dia,
         na hora que quiser.
       </p>
+      {/* What team_practice (0044) lets the company's admin see, and no more. */}
+      <p className="text-faint text-sm">
+        A empresa vê em que dias e por quanto tempo você praticou, nunca o que
+        você disse.
+      </p>
     </section>
   );
 }

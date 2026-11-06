@@ -302,6 +302,10 @@ create temp table policies_after_0043 as
     from pg_policies
    where schemaname in ('public', 'storage');
 
+-- 0044 creates a function and nothing else; its block, "The admin sees how
+-- often, not what (0044)", runs after the fixtures.
+\i supabase/migrations/0044_the_admin_sees_how_often_not_what.sql
+
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
   ('22222222-2222-2222-2222-222222222222', 'student@example.com', null);
@@ -3958,6 +3962,279 @@ begin
   raise notice '0043 changed the 10 content _write policies and vocabulary_images_write to the platform admin alone; nothing else';
   raise notice 'no row of the 10 content tables holds an organization, each refused by its own check';
   raise notice 'only the platform admin writes content and the bucket; who teaches still reads it';
+end;
+$$;
+
+-- The admin sees how often, not what (0044) ----------------------------------------------
+--
+-- team_practice is the only view of practice the admin of an organization
+-- without a teacher has. Two such companies, F and G, each with an admin and
+-- employees; attempts on days chosen around now(). Each assertion stands on
+-- one clause of 0044:
+--
+-- 1. The check of the caller: the admin of F reads F; the admin of F asking
+--    for G, the admin of G asking for F, an employee of F, and B's teacher are
+--    refused with 42501. The platform admin reads both.
+-- 2. Only the admin role: an employee of F, a member of F, is refused.
+-- 3. Only F's people: exactly F's five employees, never G's, though G's
+--    employee practised today.
+-- 4. Days, not attempts: two attempts on one day count 1 (distinct).
+-- 5. The window: an attempt five weeks back counts in no week, but the last
+--    day still comes from every attempt.
+-- 6. The person's own day: one instant, a Monday at 01:30 UTC, is Monday in
+--    London and Sunday in São Paulo, so it is a different last day and a
+--    different week for each. A zone Postgres does not know counts as São
+--    Paulo, the column's default, and does not refuse the team.
+-- 7. Weeks between 1 and 12: 0, 13 and null are refused with 22023.
+-- 8. What comes out: exactly person_id, last_practised_on, days_by_week and
+--    minutes_this_month, the minutes 0 until #71.
+-- 9. Execute: authenticated has it, anon does not.
+-- 10. Security definer: it reads attempts the admin of F reads no row of.
+--
+-- The lower bound on created_at in practised only spares reading older
+-- attempts: no result depends on it, so no assertion here can see it go.
+--
+-- Seeded as the owner; called as authenticated. Failures are collected and
+-- raised together. A refusal is named by its SQLSTATE and the start of the
+-- function's own message (verify.refusal), so a plain "permission denied for
+-- function" does not pass for the check of the caller.
+
+-- One person's row of team_practice for an organization, as text, so a
+-- missing row reads as null.
+create function verify.practice_of(p_organization uuid, p_person uuid, p_weeks integer default 4)
+returns table (last_practised_on date, days_by_week integer[], minutes_this_month integer)
+language sql as $$
+  select t.last_practised_on, t.days_by_week, t.minutes_this_month
+    from team_practice(p_organization, p_weeks) t
+   where t.person_id = p_person;
+$$;
+
+-- The four weeks of team_practice for one attempt on p_day, in a person's
+-- zone: 1 in the week the day falls in, counted back from her own Monday.
+-- Written apart from the function, by subtraction of weeks.
+create function verify.one_day_in(p_day date, p_zone text) returns integer[]
+language sql stable as $$
+  select array(
+    select case when (date_trunc('week', now() at time zone p_zone)::date
+                      - date_trunc('week', p_day::timestamp)::date) / 7 = w then 1 else 0 end
+      from generate_series(3, 0, -1) as w);
+$$;
+
+do $$
+declare
+  c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_teacher_b constant uuid := '33333333-3333-3333-3333-333333333333';
+  c_admin_f constant uuid := 'f0f0f0f0-f0f0-f0f0-f0f0-f0f0f0f0f0f0';
+  c_f1 constant uuid := 'f1f1f1f1-f1f1-f1f1-f1f1-f1f1f1f1f1f1';
+  c_f2 constant uuid := 'f2f2f2f2-f2f2-f2f2-f2f2-f2f2f2f2f2f2';
+  c_f3 constant uuid := 'f3f3f3f3-f3f3-f3f3-f3f3-f3f3f3f3f3f3';
+  c_f4 constant uuid := 'f4f4f4f4-f4f4-f4f4-f4f4-f4f4f4f4f4f4';
+  c_f5 constant uuid := 'f5f5f5f5-f5f5-f5f5-f5f5-f5f5f5f5f5f5';
+  c_refused constant text := '42501 only an admin of organization %';
+  c_admin_g constant uuid := 'd0d0d0d0-d0d0-d0d0-d0d0-d0d0d0d0d0d0';
+  c_g1 constant uuid := 'd1d1d1d1-d1d1-d1d1-d1d1-d1d1d1d1d1d1';
+  c_sp constant text := 'America/Sao_Paulo';
+  c_london constant text := 'Europe/London';
+  -- Her Monday, and today, in São Paulo.
+  c_sp_week constant date := date_trunc('week', now() at time zone 'America/Sao_Paulo')::date;
+  c_sp_today constant date := (now() at time zone 'America/Sao_Paulo')::date;
+  -- A Monday two weeks back, in UTC, and its 01:30: Sunday 22:30 in São
+  -- Paulo, Monday in London in any season. Two weeks back, so it is past and
+  -- inside the four weeks for both, whatever hour this runs.
+  c_monday constant date := date_trunc('week', now() at time zone 'UTC')::date - 14;
+  c_instant constant timestamptz := (c_monday + time '01:30') at time zone 'UTC';
+  v_f uuid;
+  v_g uuid;
+  v_question uuid;
+  v_row record;
+  v_ids uuid[];
+  v_state text;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  insert into organizations (slug, name, brand, has_teacher)
+    values ('empresa-f', 'Empresa F', 'grifoai', false) returning id into v_f;
+  insert into organizations (slug, name, brand, has_teacher)
+    values ('empresa-g', 'Empresa G', 'grifoai', false) returning id into v_g;
+  insert into auth.users (id, email, raw_user_meta_data) values
+    (c_admin_f, 'admin-f@example.com', '{"full_name":"Admin F"}'),
+    (c_f1, 'f1@example.com', '{"full_name":"F1"}'),
+    (c_f2, 'f2@example.com', '{"full_name":"F2"}'),
+    (c_f3, 'f3@example.com', '{"full_name":"F3"}'),
+    (c_f4, 'f4@example.com', '{"full_name":"F4"}'),
+    (c_f5, 'f5@example.com', '{"full_name":"F5"}'),
+    (c_admin_g, 'admin-g@example.com', '{"full_name":"Admin G"}'),
+    (c_g1, 'g1@example.com', '{"full_name":"G1"}');
+  update profiles set timezone = c_london where id = c_f2;
+  -- Any text goes in through profiles_update_self.
+  update profiles set timezone = 'Not/A_Zone' where id = c_f5;
+  insert into organization_members (organization_id, user_id, role) values
+    (v_f, c_admin_f, 'admin'),
+    (v_f, c_f1, 'student'), (v_f, c_f2, 'student'),
+    (v_f, c_f3, 'student'), (v_f, c_f4, 'student'), (v_f, c_f5, 'student'),
+    (v_g, c_admin_g, 'admin'),
+    (v_g, c_g1, 'student');
+  insert into students (id, organization_id) values
+    (c_f1, v_f), (c_f2, v_f), (c_f3, v_f), (c_f4, v_f), (c_f5, v_f), (c_g1, v_g);
+
+  -- A common question: every organization's attempt may name one.
+  select id into v_question from questions where organization_id is null order by id limit 1;
+  if v_question is null then
+    raise exception 'the fixtures hold no common question to practise';
+  end if;
+
+  -- F1, in São Paulo: today; twice on Wednesday of last week; Monday two
+  -- weeks back; and five weeks back, outside the four.
+  insert into attempts (student_id, question_id, audio_path, created_at) values
+    (c_f1, v_question, 'f1/today.webm', now()),
+    (c_f1, v_question, 'f1/wed-a.webm', (c_sp_week - 5 + time '10:00') at time zone c_sp),
+    (c_f1, v_question, 'f1/wed-b.webm', (c_sp_week - 5 + time '15:00') at time zone c_sp),
+    (c_f1, v_question, 'f1/two-back.webm', (c_sp_week - 14 + time '12:00') at time zone c_sp),
+    (c_f1, v_question, 'f1/five-back.webm', (c_sp_week - 35 + time '12:00') at time zone c_sp);
+  -- F2 in London, F3 in São Paulo and F5 in a zone nobody knows, the same
+  -- instant. F4 never practised.
+  insert into attempts (student_id, question_id, audio_path, created_at) values
+    (c_f2, v_question, 'f2/instant.webm', c_instant),
+    (c_f3, v_question, 'f3/instant.webm', c_instant),
+    (c_f5, v_question, 'f5/instant.webm', c_instant);
+  -- G1 practised today, and has a review row; F1 too.
+  insert into attempts (student_id, question_id, audio_path, created_at)
+    values (c_g1, v_question, 'g1/today.webm', now());
+  insert into review_schedule (student_id, question_id) values (c_f1, v_question);
+
+  set local role authenticated;
+
+  -- 1, 3. The admin of F reads exactly F's five.
+  perform set_config('test.uid', c_admin_f::text, false);
+  select array_agg(person_id order by person_id) into v_ids from team_practice(v_f, 4);
+  if v_ids is distinct from array[c_f1, c_f2, c_f3, c_f4, c_f5] then
+    insert into verify.failures values (format('the admin of F read the people %s, expected F''s five', v_ids));
+  end if;
+
+  -- 4, 5. F1: one day in each of the last three weeks; the two attempts of
+  -- Wednesday are one day; five weeks back is in no week.
+  select * into v_row from verify.practice_of(v_f, c_f1);
+  if v_row.days_by_week is distinct from array[0, 1, 1, 1] then
+    insert into verify.failures values (format('F1 practised %s days by week, expected {0,1,1,1}', v_row.days_by_week));
+  end if;
+  if v_row.last_practised_on is distinct from c_sp_today then
+    insert into verify.failures values (format('F1 last practised on %s, expected %s', v_row.last_practised_on, c_sp_today));
+  end if;
+
+  -- 6. One instant, two days.
+  select * into v_row from verify.practice_of(v_f, c_f2);
+  if v_row.last_practised_on is distinct from c_monday
+     or v_row.days_by_week is distinct from verify.one_day_in(c_monday, c_london) then
+    insert into verify.failures values (format('F2, in London, practised on %s, %s, expected %s, %s',
+      v_row.last_practised_on, v_row.days_by_week, c_monday, verify.one_day_in(c_monday, c_london)));
+  end if;
+  select * into v_row from verify.practice_of(v_f, c_f3);
+  if v_row.last_practised_on is distinct from c_monday - 1
+     or v_row.days_by_week is distinct from verify.one_day_in(c_monday - 1, c_sp) then
+    insert into verify.failures values (format('F3, in São Paulo, practised on %s, %s, expected %s, %s',
+      v_row.last_practised_on, v_row.days_by_week, c_monday - 1, verify.one_day_in(c_monday - 1, c_sp)));
+  end if;
+  -- While São Paulo is still on Sunday and London already on Monday, each
+  -- counts from her own Monday and the two shifts cancel: the weeks agree
+  -- then, rightly. Any other hour they must differ.
+  if date_trunc('week', now() at time zone c_sp) = date_trunc('week', now() at time zone c_london)
+     and verify.one_day_in(c_monday, c_london) = verify.one_day_in(c_monday - 1, c_sp) then
+    insert into verify.failures values ('the instant falls in the same week in London and São Paulo: the fixture proves nothing');
+  end if;
+  select * into v_row from verify.practice_of(v_f, c_f5);
+  if v_row.last_practised_on is distinct from c_monday - 1 then
+    insert into verify.failures values (format('F5, in an unknown zone, practised on %s, expected %s as in São Paulo',
+      v_row.last_practised_on, c_monday - 1));
+  end if;
+
+  -- F4 never practised.
+  select * into v_row from verify.practice_of(v_f, c_f4);
+  if v_row.last_practised_on is not null or v_row.days_by_week is distinct from array[0, 0, 0, 0] then
+    insert into verify.failures values (format('F4 never practised, but reads %s, %s',
+      v_row.last_practised_on, v_row.days_by_week));
+  end if;
+
+  -- 8. The minutes are 0 for everyone, and a week count is the length asked.
+  if exists (select 1 from team_practice(v_f, 4) where minutes_this_month <> 0) then
+    insert into verify.failures values ('minutes other than 0 before #71 records sessions');
+  end if;
+  if exists (select 1 from team_practice(v_f, 12) where cardinality(days_by_week) <> 12) then
+    insert into verify.failures values ('twelve weeks asked, another number given');
+  end if;
+
+  -- 10. The rows behind it stay closed to her.
+  if (select count(*) from attempts) <> 0 or (select count(*) from review_schedule) <> 0 then
+    insert into verify.failures values ('the admin of F reads rows of attempts or review_schedule');
+  end if;
+
+  -- 1, 2. Refused: another organization, an employee, a teacher elsewhere.
+  v_state := verify.refusal(format('select * from team_practice(%L, 4)', v_g));
+  if v_state is null or v_state not like c_refused then
+    insert into verify.failures values (format('the admin of F asking for G: %s', coalesce(v_state, 'answered')));
+  end if;
+  perform set_config('test.uid', c_admin_g::text, false);
+  v_state := verify.refusal(format('select * from team_practice(%L, 4)', v_f));
+  if v_state is null or v_state not like c_refused then
+    insert into verify.failures values (format('the admin of G asking for F: %s', coalesce(v_state, 'answered')));
+  end if;
+  select array_agg(person_id) into v_ids from team_practice(v_g, 4);
+  if v_ids is distinct from array[c_g1] then
+    insert into verify.failures values (format('the admin of G read the people %s, expected G1', v_ids));
+  end if;
+  perform set_config('test.uid', c_f1::text, false);
+  v_state := verify.refusal(format('select * from team_practice(%L, 4)', v_f));
+  if v_state is null or v_state not like c_refused then
+    insert into verify.failures values (format('an employee of F asking for F: %s', coalesce(v_state, 'answered')));
+  end if;
+  perform set_config('test.uid', c_teacher_b::text, false);
+  v_state := verify.refusal(format('select * from team_practice(%L, 4)', v_f));
+  if v_state is null or v_state not like c_refused then
+    insert into verify.failures values (format('B''s teacher asking for F: %s', coalesce(v_state, 'answered')));
+  end if;
+
+  -- 7. The weeks.
+  perform set_config('test.uid', c_admin_f::text, false);
+  foreach v_state in array array['0', '13', 'null'] loop
+    if coalesce(verify.refusal(format('select * from team_practice(%L, %s)', v_f, v_state)), 'answered')
+       not like '22023 weeks must be between 1 and 12%' then
+      insert into verify.failures values (format('%s weeks were not refused with 22023', v_state));
+    end if;
+  end loop;
+
+  -- 1. The platform admin reads both.
+  perform set_config('test.uid', c_admin::text, false);
+  if (select count(*) from team_practice(v_f, 4)) <> 5 or (select count(*) from team_practice(v_g, 4)) <> 1 then
+    insert into verify.failures values ('the platform admin does not read F and G');
+  end if;
+
+  reset role;
+  perform set_config('test.uid', '', false);
+
+  -- 8. What comes out, and nothing of what was said.
+  if pg_get_function_result('team_practice(uuid, integer)'::regprocedure)
+     <> 'TABLE(person_id uuid, last_practised_on date, days_by_week integer[], minutes_this_month integer)' then
+    insert into verify.failures values ('team_practice returns ' ||
+      pg_get_function_result('team_practice(uuid, integer)'::regprocedure));
+  end if;
+
+  -- 9. Execute.
+  if has_function_privilege('anon', 'team_practice(uuid, integer)', 'execute') then
+    insert into verify.failures values ('anon executes team_practice');
+  end if;
+  if not has_function_privilege('authenticated', 'team_practice(uuid, integer)', 'execute') then
+    insert into verify.failures values ('authenticated does not execute team_practice');
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'the admin sees how often, not what: %', v_failures;
+  end if;
+
+  raise notice 'the admin of F reads the practice of F''s people only: days by week, the last day, 0 minutes';
+  raise notice 'another organization''s admin, an employee, a teacher elsewhere and anon are refused';
+  raise notice 'a day is the person''s own, two attempts on it are one day, the window is the weeks asked';
+  raise notice 'a zone nobody knows counts as São Paulo, and does not refuse the team';
 end;
 $$;
 
