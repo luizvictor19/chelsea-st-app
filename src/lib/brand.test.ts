@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import { describe, test } from "node:test";
 
 import {
@@ -262,5 +262,32 @@ describe("the brand icons", () => {
         assert.equal(pngSize(join(PUBLIC, icon.url)), icon.sizes, icon.url);
       }
     }
+  });
+});
+
+/*
+ * The brand is written in one place. A screen that writes "Chelsea St" again
+ * would show it on every host, the GrifoAI one and an unknown one included.
+ */
+describe("the brand name in src/", () => {
+  const SRC = join(import.meta.dirname, "..");
+  const TEXT = /\.(ts|tsx|js|jsx|mjs|css|json|md)$/;
+
+  function files(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(dir, entry.name);
+      return entry.isDirectory() ? files(path) : [path];
+    });
+  }
+
+  test("appears only in src/lib/brand.ts and in tests", () => {
+    const offenders = files(SRC)
+      .filter((path) => TEXT.test(path) && !/\.test\.tsx?$/.test(path))
+      .map((path) => relative(SRC, path))
+      .filter((path) => path !== join("lib", "brand.ts"))
+      .filter((path) =>
+        /chelsea st/i.test(readFileSync(join(SRC, path), "utf8")),
+      );
+    assert.deepEqual(offenders, []);
   });
 });
