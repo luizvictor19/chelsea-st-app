@@ -47,9 +47,10 @@ architecture question for Luiz.
     allowlist below. The templates take `{{ .RedirectTo }}` only when it is one of their listed
     origins, whole, and the Site URL otherwise (`docs/commands.md`): a host outside the list, an
     origin missing from the Redirect URLs or a redirect with a path gets a working link on the
-    Chelsea domain. An invite follows the inviter's host until #195, and an invite sent from a dev
-    server (`http`) gets the Site URL. The `token_hash` works on any host, so a link's start can
-    still be swapped by hand.
+    Chelsea domain. Since #195 an invite follows the brand of the organization invited, not the
+    inviter's host: the site of that brand in the allowlist, `https` only, so a GrifoAI invite
+    gets the Site URL until the GrifoAI domain exists (#193). The `token_hash` works on any host,
+    so a link's start can still be swapped by hand.
 - The brand of a request comes from its Host, by an allowlist in `src/lib/brand.ts` (#194), read
   through `currentSite()` (`src/lib/current-site.ts`):
   - `app.chelsea-st.com` is Chelsea St, on `https://app.chelsea-st.com`.
@@ -64,7 +65,20 @@ architecture question for Luiz.
     origin comes from the list, never from the Host text.
   - "Chelsea St" is written only in `src/lib/brand.ts` (a test in `brand.test.ts` holds it there).
     Icons live in `public/brand/<brand>/`, not in `src/app/`: the icon file convention would
-    override the brand. #195 moves the list into `organizations`, with the same `Site` shape.
+    override the brand.
+  - What a brand looks like (name, description, icons, contact, mascot, host) stays in
+    `src/lib/brand.ts`, reviewed in a PR; its colours are `:root[data-brand]` in `globals.css`,
+    set on `<html>` from the Host. Only the accent changes between brands: the ground stays, the
+    mascot art is painted on it. The database says only which brand an organization wears
+    (`organizations.brand`, 0041, #195).
+  - The Host decides what a screen looks like, before and after sign-in. The organization decides
+    where a person goes: at the front door (`/`), someone signed in whose organizations all wear
+    the other brand is sent to that brand's site (`homeSite`, `src/lib/brand-home.ts`), and signs
+    in there again (the session is per domain). A platform admin, someone with no organization,
+    a host outside the list, and a brand with no site of the same scheme (no GrifoAI domain yet,
+    or a dev server) stay.
+  - The GrifoAI mascot is Robin's art until the griffin files arrive in `public/grifo/`;
+    `mascot-files.test.ts` holds every file the tutor shows to exist, for every brand.
 - Luiz also runs it locally on port 3100 (`npm run dev`).
 - The landing page (chelsea-st.com) is the repository `luizvictor19/chelsea-st-site` (local clone
   `~/Projects/chelsea-st`), deployed by Luiz. Its form writes leads into this project's database
@@ -93,6 +107,12 @@ architecture question for Luiz.
   service role holds nothing on it. A number sent twice is two rows (history, nothing is
   overwritten); the latest send of each number is the view `leads_latest`, with no privilege for
   any API role. The number is stored with the 55 (`leads_whatsapp_br`).
+- Every organization wears a brand since 0041: `organizations.brand`, `chelsea-st` or `grifoai`
+  (`organizations_brand_known`), with no default, so a new organization names it. Only the
+  platform admin changes it (`organizations_write`); a member reads her own organization's. The
+  list equals `BRAND_KEYS` in `src/lib/brand.ts` (`brand-keys.test.ts`): a new brand is a
+  migration and a code change together. 0041 also created GrifoAI's own organization
+  (`slug = 'grifoai'`); a company's organization is created later, one per client.
 - Organizations follow ADR 0004, applied by 0029: every table carries `organization_id`; people
   and operation rows belong to one organization, content rows are common (`organization_id` null)
   or one organization's. Roles live in `organization_members` (`admin`, `teacher`, `student`, one
