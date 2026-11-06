@@ -33,6 +33,11 @@ function allThree(origin: string) {
   return { magicLink: origin, recovery: origin, invite: origin };
 }
 
+/** A dev origin: the person who asked reads the link on the same machine. */
+function selfOnly(origin: string) {
+  return { magicLink: origin, recovery: origin, invite: undefined };
+}
+
 describe("auth links follow the site of the request", () => {
   test("Chelsea: the three flows lead to https://app.chelsea-st.com", () => {
     assert.deepEqual(
@@ -48,23 +53,31 @@ describe("auth links follow the site of the request", () => {
     );
   });
 
-  test("GrifoAI on a dev server: http and the port", () => {
+  test("GrifoAI on a dev server: http and the port, invite aside", () => {
     const local = sitesFromEnv({ GRIFOAI_HOST: "grifoai.localhost:3100" });
     assert.deepEqual(
       origins("grifoai.localhost:3100", local),
-      allThree("http://grifoai.localhost:3100"),
+      selfOnly("http://grifoai.localhost:3100"),
     );
   });
 
-  test("loopback off Vercel: the request's own host and port", () => {
+  test("loopback off Vercel: the request's own host and port, invite aside", () => {
     assert.deepEqual(
       origins("127.0.0.1:3100", LOCAL),
-      allThree("http://127.0.0.1:3100"),
+      selfOnly("http://127.0.0.1:3100"),
     );
     assert.deepEqual(
       origins("localhost:3100", LOCAL),
-      allThree("http://localhost:3100"),
+      selfOnly("http://localhost:3100"),
     );
+  });
+
+  test("an invite from a dev server sends no redirect", () => {
+    // The dev server talks to the production project, and the invitee opens
+    // the email on her own machine, where a loopback link leads nowhere.
+    for (const host of ["localhost:3100", "127.0.0.1:3100"]) {
+      assert.deepEqual(inviteOptions(resolveSite(host, LOCAL)), {});
+    }
   });
 
   test("the magic link never creates an account, whatever the host", () => {
@@ -116,8 +129,12 @@ describe("the redirect is an origin and nothing more", () => {
 
   for (const [host, config] of known) {
     test(host, () => {
-      for (const origin of Object.values(origins(host, config))) {
-        assert.ok(origin, `no redirect for ${host}`);
+      const { magicLink, recovery, invite } = origins(host, config);
+      assert.ok(magicLink && recovery, `no redirect for ${host}`);
+      for (const origin of [magicLink, recovery, invite]) {
+        if (origin === undefined) {
+          continue;
+        }
         assert.equal(new URL(origin).origin, origin);
         assert.ok(!origin.endsWith("/"), `${origin} ends with a slash`);
       }
