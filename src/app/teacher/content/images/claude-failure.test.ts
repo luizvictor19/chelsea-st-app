@@ -13,6 +13,8 @@ import {
   CLAUDE_NO_ANSWER,
   CLAUDE_REFUSED_REQUEST,
   CLAUDE_STOPPED,
+  INSTRUCTION_WORDING,
+  LESSON_WORDING,
   SCENE_SUGGESTION_FAILED,
   claudeFailure,
 } from "./claude-failure.ts";
@@ -90,6 +92,37 @@ describe("claudeFailure", () => {
     }
   });
 
+  test("a stop and anything else are said in the caller's words", () => {
+    const stop = new ClaudeStopError("refusal", null, USAGE);
+    const odd = new Error("Claude answered with no text");
+    assert.equal(claudeFailure(stop, LESSON_WORDING), LESSON_WORDING.stopped);
+    assert.equal(claudeFailure(odd, LESSON_WORDING), LESSON_WORDING.failed);
+    assert.equal(claudeFailure(stop, INSTRUCTION_WORDING), CLAUDE_STOPPED);
+    assert.equal(
+      claudeFailure(odd, INSTRUCTION_WORDING),
+      SCENE_SUGGESTION_FAILED,
+    );
+    // What the API itself says does not depend on what was asked.
+    assert.equal(
+      claudeFailure(new ClaudeKeyMissingError(), LESSON_WORDING),
+      CLAUDE_NOT_CONFIGURED,
+    );
+  });
+
+  test("the instruction's words are the default, as the scene calls it", () => {
+    assert.deepEqual(INSTRUCTION_WORDING, {
+      stopped: CLAUDE_STOPPED,
+      failed: SCENE_SUGGESTION_FAILED,
+    });
+  });
+
+  test("not set up here names no one suggestion, since it serves four", () => {
+    assert.equal(
+      CLAUDE_NOT_CONFIGURED,
+      "A sugestão não está configurada aqui.",
+    );
+  });
+
   test("every sentence is the teacher's language and says something different", () => {
     const all = [
       CLAUDE_NOT_CONFIGURED,
@@ -97,6 +130,8 @@ describe("claudeFailure", () => {
       CLAUDE_REFUSED_REQUEST,
       CLAUDE_STOPPED,
       SCENE_SUGGESTION_FAILED,
+      LESSON_WORDING.stopped,
+      LESSON_WORDING.failed,
     ];
     assert.equal(new Set(all).size, all.length);
     for (const text of all) assert.doesNotMatch(text, /\u2014/u);
