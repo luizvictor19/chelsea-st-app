@@ -30,3 +30,38 @@ export function safeNextUrl(raw: string | null, origin: string): URL {
   // with our origin and belongs to somebody else.
   return candidate.origin === origin ? candidate : fallback;
 }
+
+/**
+ * The same destination as safeNextUrl, as a path for a relative Location.
+ *
+ * Outside Vercel, Next builds the request URL from the server's hostname and
+ * not from the Host header, so a link opened at 127.0.0.1 is told its origin
+ * is localhost (#102). An absolute redirect built on that origin takes the
+ * browser to another host, where the session cookie just set does not exist.
+ * A relative Location is resolved by the browser against the address it is
+ * on, so the session and the destination stay on one host. The origin is
+ * still the base the destination is validated against, and nothing more.
+ *
+ * A path is not always safe as a Location: one that starts with "//" is a
+ * scheme-relative URL, another host, and one that starts with "/\" is read
+ * the same way by browsers. safeNextUrl keeps "/..//evil.com" on our origin
+ * with the path "//evil.com", which is fine as a URL and an open redirect as
+ * a Location. Those go to the root, like every other hostile input.
+ */
+export function safeNextPath(raw: string | null, origin: string): string {
+  const url = safeNextUrl(raw, origin);
+  const path = url.pathname + url.search + url.hash;
+  return isSameHostPath(path) ? path : "/";
+}
+
+/**
+ * Whether a relative Location stays on the host the browser is on: one
+ * slash, then anything but a second slash or a backslash.
+ *
+ * The backslash cannot come out of safeNextUrl, whose parser turns it into a
+ * slash for http and https. It is refused anyway, because this is also the
+ * check a route makes on whatever it is about to send as a Location.
+ */
+export function isSameHostPath(location: string): boolean {
+  return /^\/(?![/\\])/.test(location);
+}

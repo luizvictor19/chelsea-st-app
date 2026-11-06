@@ -58,6 +58,28 @@
   --usage-high: #be185d;
 }
 
+/*
+ * GrifoAI wears its own accent (#195), set by data-brand on <html> from the
+ * brand of the Host. Only the accent and the text on it change: the ground
+ * and the surface stay, because the mascot art is painted on the exact
+ * ground. Provisional navy until the GrifoAI colours arrive with its art;
+ * src/app/brand-palette.test.ts holds whatever comes to text contrast.
+ *
+ * The selector outranks the bare :root of the dark theme below, so the dark
+ * GrifoAI accent is set again inside it.
+ */
+:root[data-brand="grifoai"] {
+  --accent: #1e3a8a;
+  --accent-foreground: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-brand="grifoai"] {
+    --accent: #93c5fd;
+    --accent-foreground: #0b1220;
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
@@ -139,6 +161,36 @@ body {
     cursor: pointer;
   }
 
+  /*
+   * Checkboxes and radios take the text colour instead of the browser's blue.
+   * The accent is the alarm, used for errors and for a model's proposal, so a
+   * red tick would read as something wrong; amber is the model, and the set
+   * and usage colours each mean something of their own. The text colour was
+   * already what four of these boxes wore, as a class each, and what the
+   * chosen word card is outlined in. It holds in both themes: on the light
+   * text of the dark theme the browser draws a dark tick by itself.
+   */
+  input:is([type="checkbox"], [type="radio"]) {
+    accent-color: var(--foreground);
+  }
+
+  /*
+   * The same as the buttons above, for the other controls the preflight
+   * leaves with the arrow. A label points only when it wraps a checkbox, a
+   * radio or a file input, because only there does touching its text change
+   * the control; a label around a select or a text field only moves the
+   * focus, so it keeps the arrow and the select points instead. Disabled
+   * controls are left out by :enabled.
+   */
+  input:is([type="checkbox"], [type="radio"], [type="file"]):enabled,
+  select:enabled,
+  summary,
+  label:has(
+    input:is([type="checkbox"], [type="radio"], [type="file"]):enabled
+  ) {
+    cursor: pointer;
+  }
+
   /* Hover alone leaves out anyone moving by keyboard. */
   :focus-visible {
     outline: 2px solid var(--accent);
@@ -157,6 +209,17 @@ body {
   select:focus-visible {
     outline-color: var(--faint);
   }
+}
+
+/*
+ * Outside any layer on purpose, and the only rule here besides html and body
+ * that is. The word cards carry cursor-pointer as a utility, and a utility
+ * beats the base layer, so a card inside a disabled fieldset would still
+ * point. A rule with no layer beats both, and it touches only the label of a
+ * disabled control. Keep it this short: it is not a pattern to repeat.
+ */
+label:has(input:disabled) {
+  cursor: default;
 }
 
 /*

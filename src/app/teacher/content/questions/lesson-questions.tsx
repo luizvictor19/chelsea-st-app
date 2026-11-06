@@ -26,6 +26,7 @@ import type {
   BookPoint,
   LessonPoint,
   Question,
+  ScreenScene,
   ScreenWord,
 } from "@/lib/questions/queries";
 import {
@@ -41,6 +42,7 @@ import {
 } from "@/lib/questions/word-usage";
 
 import { moveMember } from "../images/contrast-sets";
+import { pointAnchor, type QuestionPlace } from "../images/filters";
 import { settle } from "../images/panel-state";
 
 import {
@@ -57,9 +59,13 @@ import {
   isAnswerLanguage,
   isDirty,
   opened,
+  publishRefusal,
   refusal,
+  type PictureOf,
   type QuestionFields,
 } from "./draft";
+import { ImageChoiceField, sceneSuggestion } from "./image-choice";
+import { LeaveGuardProvider, useUnsavedWarning } from "./leave-guard";
 import { segments, standing, summary } from "./marks";
 import {
   pointFailed,
@@ -120,6 +126,7 @@ export function LessonQuestions({
   sets,
   bookQuestions,
   bookPoints,
+  scenes,
 }: {
   readonly book: number;
   readonly lesson: number;
@@ -129,6 +136,7 @@ export function LessonQuestions({
   readonly sets: readonly SetRow[];
   readonly bookQuestions: readonly UsageQuestion[];
   readonly bookPoints: readonly BookPoint[];
+  readonly scenes: readonly ScreenScene[];
 }) {
   const checker = useMemo(() => {
     const setOf = new Map(
@@ -146,6 +154,20 @@ export function LessonQuestions({
   const wordOf = useMemo(
     () => new Map(words.map((word) => [word.id, word])),
     [words],
+  );
+  const sceneOf = useMemo(
+    () => new Map(scenes.map((scene) => [scene.id, scene])),
+    [scenes],
+  );
+  // The picture a card would open on, as the lesson decides it: a word's
+  // approved picture by its kind (approvedPicture), a scene's approved one.
+  const pictureOf = useCallback<PictureOf>(
+    (kind, id) => {
+      if (kind === "scene") return sceneOf.get(id)?.imageUrl ?? null;
+      const word = wordOf.get(id);
+      return word === undefined ? null : approvedPicture(word);
+    },
+    [wordOf, sceneOf],
   );
 
   const reader = useMemo(() => createUsageReader(words), [words]);
@@ -190,45 +212,51 @@ export function LessonQuestions({
   const mean = meanOf(points.map((point) => point.number));
 
   return (
-    <div className="flex flex-col gap-10">
-      <WordUsagePanel
-        lesson={lesson}
-        mean={mean}
-        points={points.map((point) => ({
-          point: point.number,
-          words: wordsAt(point.number),
-        }))}
-        earlier={earlierLessons(bookPoints, lesson).map((before) => ({
-          lesson: before.lesson,
-          mean: meanOf(before.points),
-          points: before.points.map((point) => ({
-            point,
-            words: wordsAt(point),
-          })),
-        }))}
-        view={view}
-      />
-      {points.map((point) => {
-        const at = { book, point: point.number };
-        return (
-          <PointSection
-            key={point.id}
-            at={at}
-            pointId={point.id}
-            groups={groups.get(placeKey(at)) ?? []}
-            shownWords={shownWordOptions(words, sets, at)}
-            wordOf={wordOf}
-            questions={questions.filter(
-              (question) => question.pointId === point.id,
-            )}
-            checker={checker}
-            mean={mean}
-            view={view}
-            reportDraft={reportDraft}
-          />
-        );
-      })}
-    </div>
+    <LeaveGuardProvider>
+      <div className="flex flex-col gap-10">
+        <WordUsagePanel
+          lesson={lesson}
+          mean={mean}
+          points={points.map((point) => ({
+            point: point.number,
+            words: wordsAt(point.number),
+          }))}
+          earlier={earlierLessons(bookPoints, lesson).map((before) => ({
+            lesson: before.lesson,
+            mean: meanOf(before.points),
+            points: before.points.map((point) => ({
+              point,
+              words: wordsAt(point),
+            })),
+          }))}
+          view={view}
+        />
+        {points.map((point) => {
+          const at = { book, point: point.number };
+          return (
+            <PointSection
+              key={point.id}
+              at={at}
+              lesson={lesson}
+              pointId={point.id}
+              groups={groups.get(placeKey(at)) ?? []}
+              shownWords={shownWordOptions(words, sets, at)}
+              wordOf={wordOf}
+              scenes={scenes}
+              sceneOf={sceneOf}
+              pictureOf={pictureOf}
+              questions={questions.filter(
+                (question) => question.pointId === point.id,
+              )}
+              checker={checker}
+              mean={mean}
+              view={view}
+              reportDraft={reportDraft}
+            />
+          );
+        })}
+      </div>
+    </LeaveGuardProvider>
   );
 }
 
@@ -238,7 +266,7 @@ function fieldsOf(question: Question): QuestionFields {
     expectedAnswer: question.expectedAnswer,
     answerLanguage: question.answerLanguage,
     isPublished: question.isPublished,
-    shownWordId: question.shownWordId,
+    image: question.image,
   };
 }
 
@@ -259,10 +287,14 @@ function marksOf(
 
 function PointSection({
   at,
+  lesson,
   pointId,
   groups,
   shownWords,
   wordOf,
+  scenes,
+  sceneOf,
+  pictureOf,
   questions,
   checker,
   mean,
@@ -270,11 +302,15 @@ function PointSection({
   reportDraft,
 }: {
   readonly at: Place;
+  readonly lesson: number;
   readonly pointId: string;
   readonly groups: readonly WordGroup[];
   /** The words a question of this point may show: see shownWordOptions. */
   readonly shownWords: readonly ShownWordOption[];
   readonly wordOf: ReadonlyMap<string, PicturedWord>;
+  readonly scenes: readonly ScreenScene[];
+  readonly sceneOf: ReadonlyMap<string, ScreenScene>;
+  readonly pictureOf: PictureOf;
   readonly questions: readonly Question[];
   readonly checker: Checker;
   /** The mean of the lesson, which the chips of the point are read against. */
@@ -329,8 +365,9 @@ function PointSection({
 
   return (
     <section
+      id={pointAnchor(at.point)}
       aria-labelledby={titleId}
-      className="border-rule flex flex-col gap-4 border-t pt-6"
+      className="border-rule flex scroll-mt-20 flex-col gap-4 border-t pt-6"
     >
       <header className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
@@ -393,9 +430,12 @@ function PointSection({
                 >
                   <QuestionForm
                     at={at}
+                    lesson={lesson}
                     checker={checker}
                     shownWords={shownWords}
                     wordOf={wordOf}
+                    scenes={scenes}
+                    pictureOf={pictureOf}
                     saved={saved}
                     draftKey={question.id}
                     reportDraft={reportDraft}
@@ -418,11 +458,27 @@ function PointSection({
             }
             const marks = marksOf(checker, saved, at);
             const unpresented = summary([...marks.prompt, ...marks.answer], at);
+            const { image } = question;
             const shown =
-              question.shownWordId === null
-                ? null
-                : (wordOf.get(question.shownWordId) ?? null);
-            const picture = shown === null ? null : approvedPicture(shown);
+              image.kind === "word" && image.id !== null
+                ? (wordOf.get(image.id) ?? null)
+                : null;
+            const scene =
+              image.kind === "scene" && image.id !== null
+                ? (sceneOf.get(image.id) ?? null)
+                : null;
+            const picture =
+              image.kind === "word" || image.kind === "scene"
+                ? image.id === null
+                  ? null
+                  : pictureOf(image.kind, image.id)
+                : null;
+            const pictureLabel =
+              image.kind === "word"
+                ? `Palavra mostrada: ${shown?.term ?? "não encontrada"}`
+                : image.kind === "scene"
+                  ? `Cena: ${scene?.description ?? "não encontrada"}`
+                  : null;
             return (
               <li
                 key={question.id}
@@ -431,11 +487,11 @@ function PointSection({
                 <span className="text-faint w-5 pt-0.5 font-mono text-xs">
                   {number}
                 </span>
-                {shown !== null && picture !== null && (
+                {pictureLabel !== null && picture !== null && (
                   <Image
                     src={picture}
-                    alt={`Palavra mostrada: ${shown.term}`}
-                    title={`Palavra mostrada: ${shown.term}`}
+                    alt={pictureLabel}
+                    title={pictureLabel}
                     width={40}
                     height={40}
                     className="border-rule size-10 shrink-0 rounded-sm border object-cover"
@@ -462,20 +518,32 @@ function PointSection({
                     </p>
                   )}
                   {/*
-                    A word chosen for its picture that has none now. Said
-                    here because nothing else would: in the lesson the card
-                    quietly falls back to the neutral one.
+                    A word or a scene chosen for its picture that has none
+                    now. Said here because nothing else would: in the lesson
+                    the card quietly falls back to the neutral one.
                   */}
-                  {question.shownWordId !== null && picture === null && (
+                  {pictureLabel !== null && picture === null && (
                     <p className="text-warning text-xs">
-                      Palavra mostrada: {shown?.term ?? "não encontrada"} · sem
-                      imagem aprovada. Na aula o cartão aparece sem imagem.
+                      {pictureLabel} · sem imagem aprovada. Na aula o cartão
+                      aparece sem imagem.
+                    </p>
+                  )}
+                  {/*
+                    Published before its picture left: a save of it is refused
+                    until it shows one (publishRefusal), so the ways out are
+                    said before the form is opened.
+                  */}
+                  {publishRefusal(saved, pictureOf) !== null && (
+                    <p className="text-warning text-xs">
+                      Publicada sem imagem. Para salvar uma edição, escolha a
+                      imagem, marque Encenar ou desmarque Publicada.
                     </p>
                   )}
                   <p className="text-faint flex flex-wrap gap-x-3 text-xs">
                     <span>
                       {question.isPublished ? "Publicada" : "Não publicada"}
                     </span>
+                    {image.kind === "acted" && <span>Encenar na aula</span>}
                     {question.answerLanguage === "pt" && (
                       <span>Resposta em português</span>
                     )}
@@ -538,9 +606,12 @@ function PointSection({
         <div className="border-rule bg-surface rounded-sm border p-4">
           <QuestionForm
             at={at}
+            lesson={lesson}
             checker={checker}
             shownWords={shownWords}
             wordOf={wordOf}
+            scenes={scenes}
+            pictureOf={pictureOf}
             saved={null}
             draftKey={`novo:${pointId}`}
             reportDraft={reportDraft}
@@ -652,56 +723,6 @@ function MarkedText({
 }
 
 /**
- * One choice of the word a question shows: a radio, so the arrows walk the
- * group and exactly one is always chosen. The input is kept for the keyboard
- * and the reader and hidden from the eye, and the label draws the choice.
- */
-function ShownWordChoice({
-  name,
-  checked,
-  onChoose,
-  children,
-}: {
-  readonly name: string;
-  readonly checked: boolean;
-  readonly onChoose: () => void;
-  readonly children: React.ReactNode;
-}) {
-  return (
-    <label
-      className={
-        checked
-          ? "border-foreground bg-background has-focus-visible:outline-foreground flex cursor-pointer flex-col items-center gap-1 rounded-sm border-2 p-1 has-focus-visible:outline-2"
-          : "border-rule hover:bg-background has-focus-visible:outline-foreground flex cursor-pointer flex-col items-center gap-1 rounded-sm border-2 p-1 has-focus-visible:outline-2"
-      }
-    >
-      <input
-        type="radio"
-        name={name}
-        checked={checked}
-        onChange={onChoose}
-        className="sr-only"
-      />
-      {children}
-    </label>
-  );
-}
-
-/**
- * Asks before the tab is closed or reloaded while a form holds something
- * unsaved. A move inside the app cannot be stopped this way, which is why
- * the form also says so in words.
- */
-function useUnsavedWarning(dirty: boolean) {
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
-}
-
-/**
  * The form for a new question (`saved` null) or an edit.
  *
  * What is typed stays in the form until it is saved, and through a save that
@@ -711,9 +732,12 @@ function useUnsavedWarning(dirty: boolean) {
  */
 function QuestionForm({
   at,
+  lesson,
   checker,
   shownWords,
   wordOf,
+  scenes,
+  pictureOf,
   saved,
   draftKey,
   reportDraft,
@@ -724,9 +748,12 @@ function QuestionForm({
   onCancel,
 }: {
   readonly at: Place;
+  readonly lesson: number;
   readonly checker: Checker;
   readonly shownWords: readonly ShownWordOption[];
   readonly wordOf: ReadonlyMap<string, PicturedWord>;
+  readonly scenes: readonly ScreenScene[];
+  readonly pictureOf: PictureOf;
   readonly saved: QuestionFields | null;
   /** What the screen files this form's draft under: see reportDraft. */
   readonly draftKey: string;
@@ -759,7 +786,10 @@ function QuestionForm({
     saved === null
       ? draft.prompt.trim() !== "" || draft.expectedAnswer.trim() !== ""
       : isDirty(draft, loaded);
-  useUnsavedWarning(dirty);
+  // Marks the form for the screen's scene links too (leave-guard.tsx): a
+  // move to Imagens asks first while any form here holds something.
+  useUnsavedWarning(draftKey, dirty);
+  const back: QuestionPlace = { book: at.book, lesson, point: at.point };
 
   /*
    * The screen is told what the form holds, so the chips of the words the
@@ -773,206 +803,185 @@ function QuestionForm({
   }, [reportDraft, draftKey, draft, saved]);
   useEffect(() => () => reportDraft(draftKey, null), [reportDraft, draftKey]);
 
-  const why = refusal(draft);
+  // Two reasons, said differently. A missing sentence is said once the form
+  // holds something, as before. Publishing with no picture is said from the
+  // moment the form opens, so a question published without one shows at
+  // once why its save is off (publishRefusal).
+  const textWhy = refusal(draft);
+  const publishWhy = publishRefusal(draft, pictureOf);
+  const why = textWhy ?? publishWhy;
   const marks = marksOf(checker, draft, at);
   const promptMarks = summary(marks.prompt, at);
   const answerMarks = summary(marks.answer, at);
-  /*
-   * The word the draft shows when the list does not offer it: its picture
-   * was taken off since, or it is presented after this point. It keeps a
-   * choice of its own, so the form says what is stored and a save of some
-   * other field does not carry it along unseen.
-   */
-  const offList =
-    draft.shownWordId !== null &&
-    !shownWords.some((option) => option.id === draft.shownWordId)
-      ? draft.shownWordId
-      : null;
+
+  function send() {
+    void onSubmit(draft, loaded).then((ok) => {
+      if (!ok || saved !== null) return;
+      // Added: the form stays open for the next one, in the same language,
+      // with the same publish choice and the same image, since a picture is
+      // often asked about more than once. The fields are read-only while the
+      // save runs, so nothing typed since is lost.
+      setDraft({ ...draft, prompt: "", expectedAnswer: "" });
+      promptInput.current?.focus();
+    });
+  }
 
   return (
-    <form
-      className="flex flex-col gap-3"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (busy || why !== null) return;
-        void onSubmit(draft, loaded).then((ok) => {
-          if (!ok || saved !== null) return;
-          // Added: the form stays open for the next one, in the same
-          // language, with the same publish choice and showing the same
-          // word, since a picture is often asked about more than once. The fields are
-          // read-only while the save runs, so nothing typed since is lost.
-          setDraft({ ...draft, prompt: "", expectedAnswer: "" });
-          promptInput.current?.focus();
-        });
-      }}
-    >
-      <p className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
-        {legend}
-      </p>
-
-      <div className="flex flex-col gap-1">
-        <label htmlFor={`${id}-pergunta`} className="text-sm font-semibold">
-          Pergunta
-        </label>
-        <input
-          ref={promptInput}
-          id={`${id}-pergunta`}
-          type="text"
-          lang="en"
-          autoComplete="off"
-          readOnly={busy}
-          value={draft.prompt}
-          onChange={(event) =>
-            setDraft({ ...draft, prompt: event.target.value })
-          }
-          className="border-rule bg-background rounded-sm border px-3 py-1.5 text-sm"
-        />
-        {promptMarks !== "" && (
-          <p className="text-warning text-xs">
-            Ainda não apresentadas no ponto {at.point}: {promptMarks}
-          </p>
-        )}
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <label htmlFor={`${id}-resposta`} className="text-sm font-semibold">
-          Resposta esperada
-        </label>
-        <input
-          id={`${id}-resposta`}
-          type="text"
-          lang={draft.answerLanguage === "pt" ? "pt-BR" : "en"}
-          autoComplete="off"
-          readOnly={busy}
-          value={draft.expectedAnswer}
-          onChange={(event) =>
-            setDraft({ ...draft, expectedAnswer: event.target.value })
-          }
-          className="border-rule bg-background rounded-sm border px-3 py-1.5 text-sm"
-        />
-        {answerMarks !== "" && (
-          <p className="text-warning text-xs">
-            Ainda não apresentadas no ponto {at.point}: {answerMarks}
-          </p>
-        )}
-        {draft.answerLanguage === "pt" && (
-          <p className="text-faint text-xs">
-            Resposta em português: as palavras dela não são conferidas.
-          </p>
-        )}
-      </div>
-
-      <fieldset disabled={busy} className="flex flex-col gap-1">
-        <legend className="text-sm font-semibold">Palavra mostrada</legend>
-        <p className="text-faint text-xs">
-          A imagem dela abre o cartão da pergunta na aula. Só aparecem as
-          palavras apresentadas até o ponto {at.point} que têm imagem aprovada.
+    <>
+      <form
+        className="flex flex-col gap-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (busy || why !== null) return;
+          send();
+        }}
+      >
+        <p className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
+          {legend}
         </p>
-        <div className="flex max-h-56 flex-wrap gap-2 overflow-y-auto pt-1">
-          <ShownWordChoice
-            name={`${id}-palavra`}
-            checked={draft.shownWordId === null}
-            onChoose={() => setDraft({ ...draft, shownWordId: null })}
-          >
-            <span className="flex size-12 items-center justify-center text-xs">
-              Nenhuma
-            </span>
-          </ShownWordChoice>
-          {offList !== null && (
-            <ShownWordChoice
-              name={`${id}-palavra`}
-              checked
-              onChoose={() => setDraft({ ...draft, shownWordId: offList })}
-            >
-              <span className="text-warning flex h-12 max-w-40 items-center text-xs">
-                {wordOf.get(offList)?.term ?? "Palavra não encontrada"} · fora
-                da lista
-              </span>
-            </ShownWordChoice>
-          )}
-          {shownWords.map((option) => (
-            <ShownWordChoice
-              key={option.id}
-              name={`${id}-palavra`}
-              checked={draft.shownWordId === option.id}
-              onChoose={() => setDraft({ ...draft, shownWordId: option.id })}
-            >
-              <Image
-                src={option.imageUrl}
-                alt=""
-                width={48}
-                height={48}
-                className="size-12 rounded-sm object-cover"
-              />
-              <span className="max-w-20 truncate text-xs" title={option.term}>
-                {option.term}
-              </span>
-            </ShownWordChoice>
-          ))}
-        </div>
-      </fieldset>
 
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-        <label className="flex items-center gap-2 text-sm">
-          Língua da resposta
-          <select
-            disabled={busy}
-            value={draft.answerLanguage}
-            onChange={(event) => {
-              const value = event.target.value;
-              if (isAnswerLanguage(value)) {
-                setDraft({ ...draft, answerLanguage: value });
-              }
-            }}
-            className="border-rule bg-background rounded-sm border px-2 py-1 text-sm"
-          >
-            {ANSWER_LANGUAGES.map((language) => (
-              <option key={language.value} value={language.value}>
-                {language.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex items-center gap-2 text-sm">
+        <div className="flex flex-col gap-1">
+          <label htmlFor={`${id}-pergunta`} className="text-sm font-semibold">
+            Pergunta
+          </label>
           <input
-            type="checkbox"
-            disabled={busy}
-            checked={draft.isPublished}
+            ref={promptInput}
+            id={`${id}-pergunta`}
+            type="text"
+            lang="en"
+            autoComplete="off"
+            readOnly={busy}
+            value={draft.prompt}
             onChange={(event) =>
-              setDraft({ ...draft, isPublished: event.target.checked })
+              setDraft({ ...draft, prompt: event.target.value })
             }
+            className="border-rule bg-background rounded-sm border px-3 py-1.5 text-sm"
           />
-          Publicada
-        </label>
-      </div>
+          {promptMarks !== "" && (
+            <p className="text-warning text-xs">
+              Ainda não apresentadas no ponto {at.point}: {promptMarks}
+            </p>
+          )}
+        </div>
 
-      {dirty && (
-        <p className="text-warning text-sm font-semibold">
-          Não salvo. Trocar de lição ou sair desta tela descarta o que está
-          escrito.
-        </p>
-      )}
+        <div className="flex flex-col gap-1">
+          <label htmlFor={`${id}-resposta`} className="text-sm font-semibold">
+            Resposta esperada
+          </label>
+          <input
+            id={`${id}-resposta`}
+            type="text"
+            lang={draft.answerLanguage === "pt" ? "pt-BR" : "en"}
+            autoComplete="off"
+            readOnly={busy}
+            value={draft.expectedAnswer}
+            onChange={(event) =>
+              setDraft({ ...draft, expectedAnswer: event.target.value })
+            }
+            className="border-rule bg-background rounded-sm border px-3 py-1.5 text-sm"
+          />
+          {answerMarks !== "" && (
+            <p className="text-warning text-xs">
+              Ainda não apresentadas no ponto {at.point}: {answerMarks}
+            </p>
+          )}
+          {draft.answerLanguage === "pt" && (
+            <p className="text-faint text-xs">
+              Resposta em português: as palavras dela não são conferidas.
+            </p>
+          )}
+        </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="submit"
-          disabled={busy || why !== null || (saved !== null && !dirty)}
-          className="border-foreground bg-foreground text-background rounded-sm border px-3 py-1.5 text-sm font-semibold disabled:opacity-50"
-        >
-          {submitLabel}
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onCancel}
-          className="border-rule hover:bg-background rounded-sm border px-3 py-1.5 text-sm transition-colors disabled:opacity-50"
-        >
-          {dirty ? "Descartar o que está escrito" : "Fechar"}
-        </button>
-        {dirty && why !== null && (
-          <span className="text-muted text-xs">{why}.</span>
+        <ImageChoiceField
+          id={id}
+          at={at}
+          back={back}
+          image={draft.image}
+          onChange={(image) => setDraft({ ...draft, image })}
+          busy={busy}
+          shownWords={shownWords}
+          wordOf={wordOf}
+          scenes={scenes}
+          suggestion={sceneSuggestion(draft)}
+        />
+
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <label className="flex items-center gap-2 text-sm">
+            Língua da resposta
+            <select
+              disabled={busy}
+              value={draft.answerLanguage}
+              onChange={(event) => {
+                const value = event.target.value;
+                if (isAnswerLanguage(value)) {
+                  setDraft({ ...draft, answerLanguage: value });
+                }
+              }}
+              className="border-rule bg-background rounded-sm border px-2 py-1 text-sm"
+            >
+              {ANSWER_LANGUAGES.map((language) => (
+                <option key={language.value} value={language.value}>
+                  {language.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              disabled={busy}
+              checked={draft.isPublished}
+              onChange={(event) =>
+                setDraft({ ...draft, isPublished: event.target.checked })
+              }
+            />
+            Publicada
+          </label>
+        </div>
+
+        {dirty && (
+          <p className="text-warning text-sm font-semibold">
+            Não salvo. Trocar de lição ou sair desta tela descarta o que está
+            escrito.
+          </p>
         )}
-      </div>
-    </form>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="submit"
+            disabled={busy || why !== null || (saved !== null && !dirty)}
+            aria-describedby={
+              [
+                dirty && textWhy !== null ? `${id}-falta` : null,
+                publishWhy !== null ? `${id}-publicar` : null,
+              ]
+                .filter((part) => part !== null)
+                .join(" ") || undefined
+            }
+            className="border-foreground bg-foreground text-background rounded-sm border px-3 py-1.5 text-sm font-semibold disabled:opacity-50"
+          >
+            {submitLabel}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onCancel}
+            className="border-rule hover:bg-background rounded-sm border px-3 py-1.5 text-sm transition-colors disabled:opacity-50"
+          >
+            {dirty ? "Descartar o que está escrito" : "Fechar"}
+          </button>
+          {dirty && textWhy !== null && (
+            <span id={`${id}-falta`} className="text-muted text-xs">
+              {textWhy}.
+            </span>
+          )}
+          {publishWhy !== null && (
+            <span id={`${id}-publicar`} className="text-warning text-xs">
+              {publishWhy}.
+            </span>
+          )}
+        </div>
+      </form>
+    </>
   );
 }

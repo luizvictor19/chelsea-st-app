@@ -1,25 +1,27 @@
-import { env } from "@/lib/env";
+import type { Site } from "@/lib/brand";
 
 import { PendingInvites } from "../auth/pending-invites";
 import { SignOutButton } from "../auth/sign-out-button";
+import { BrandMark } from "../brand-mark";
 
 /**
- * Someone signed in with no membership in any school.
+ * Someone signed in with no membership in any organization.
  *
  * Rare since 0031, but still reachable: an account whose invite was cancelled
  * or expired after the account existed. Anyone here has a confirmed email, so
  * a new invite mails nothing and waits here for her yes (0032): the copy says
  * to reload, not to wait for a link.
+ *
+ * The brand and the contact are the Host's (#194); an unknown host names no
+ * brand and shows no contact.
  */
-export function AccountPending() {
-  const contact = env.NEXT_PUBLIC_TEACHER_CONTACT_EMAIL;
+export function AccountPending({ site }: { readonly site: Site | null }) {
+  const contact = site?.brand.contactEmail ?? null;
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-4 p-6">
       <div className="flex items-center justify-between gap-4">
-        <p className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
-          Chelsea St
-        </p>
+        <BrandMark />
         {/* Signed in with the wrong email, perhaps: the way back out. */}
         <SignOutButton />
       </div>
@@ -27,9 +29,12 @@ export function AccountPending() {
         Sua conta ainda não tem acesso.
       </h1>
       <p className="text-muted">
-        A entrada na Chelsea St é por convite. Peça um convite a quem cuida da
-        sua turma, para este mesmo e-mail. Como você já tem conta, ele aparece
-        aqui para você aceitar: depois de enviado, é só recarregar esta página.
+        {site
+          ? `A entrada na ${site.brand.name} é por convite.`
+          : "A entrada é por convite."}{" "}
+        Peça um convite a quem cuida da sua turma, para este mesmo e-mail. Como
+        você já tem conta, ele aparece aqui para você aceitar: depois de
+        enviado, é só recarregar esta página.
       </p>
       <PendingInvites />
       {contact ? (

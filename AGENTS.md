@@ -18,8 +18,8 @@ Read this before writing code in this repository.
 ## Content and licensing
 
 The teaching material in this product is written by Luiz and is common to
-every school on the platform (ADR 0004); a school may add content of its
-own, seen only by that school. This platform does not serve published
+every organization on the platform (ADR 0004); an organization may add
+content of its own, seen only by that organization. This platform does not serve published
 course books or their page images.
 Extraction targets and the teacher's own working notes, derived from
 books he owns and used for his own lessons, are his material and may be
@@ -97,6 +97,7 @@ so it describes the Next that actually runs here.
   also when the body goes through `--body-file`: GitHub applies the templates only in the browser.
 - One issue per PR. Large work becomes a parent issue with sub-issues, and each sub-issue goes
   through the whole flow on its own.
+- A Dependabot PR is the exception: the PR is its own record, handled as `docs/commands.md` says.
 
 ### The four stages
 
@@ -148,6 +149,11 @@ so it describes the Next that actually runs here.
 - Before the first commit, check the current branch. Never commit on `main`.
   If on `main`, create a branch first. A hook in `.claude/settings.json`
   enforces this; the rule stands without it.
+- A pre-commit hook (`.husky/pre-commit`, lint-staged) formats the staged
+  files with Prettier and lints them with ESLint; `npm install` and `npm ci`
+  install it through `prepare`. It does not check the branch: that stays with
+  the Claude Code hook. `--no-verify` is not a normal path: when the hook
+  fails, fix the file and commit again.
 - No amend. A second commit instead.
 - Write the PR body to a file and use `gh pr create --body-file`; never pass a
   long body inline.
@@ -172,7 +178,8 @@ npm run check
 
 It runs `format:check`, `lint`, `typecheck`, `test` and `build`, in the CI's
 order, and stops at the first failure. CI also runs `scripts/verify-rls.sql`,
-which needs a real Postgres and is not part of `check`.
+which needs a real Postgres, and `npm audit --omit=dev --audit-level=high`,
+which needs the network; neither is part of `check`.
 
 Run `./scripts/gen-types.sh` before the gate whenever a migration was added or
 changed, and after Luiz brings `main` into a branch.

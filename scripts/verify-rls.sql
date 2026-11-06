@@ -8,6 +8,19 @@
 create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin;
+
+-- Production's default ACL, measured through the MCP on 2026-11-04: the
+-- postgres role grants Dxtm (truncate, references, trigger, maintain) in
+-- schema public on every new table to anon, authenticated and service_role,
+-- even with "expose new tables" off, and has since the first migration. A plain
+-- Postgres grants none of it, so it is set here, before 0001, and every table
+-- below is born with what it was born with in production. Without it the
+-- privilege checks would be passing on tables production never had; the
+-- snapshot right after 0036 holds this replay to what was measured.
+alter default privileges for role postgres in schema public
+  grant truncate, references, trigger, maintain on tables
+  to anon, authenticated, service_role;
+
 create schema auth;
 create table auth.users (
   id uuid primary key,
@@ -68,30 +81,217 @@ alter table storage.objects enable row level security;
 \i supabase/migrations/0033_a_scene_is_drawn_from_pictures.sql
 \i supabase/migrations/0034_a_scene_set_aside_keeps_its_cost.sql
 \i supabase/migrations/0035_a_lesson_marks_where_she_stopped.sql
-
--- Production's default ACL, as Luiz read it on 2026-11-04: the postgres role
--- grants Dxtm (truncate, references, trigger, maintain) in schema public on
--- every new table to anon, authenticated and service_role, even with "expose
--- new tables" off. A plain Postgres grants none of it, so without this line
--- the 0036 privilege checks would pass with its revoke removed. It is set just
--- before 0036 so the tables of earlier migrations stay as they were tested.
-alter default privileges for role postgres in schema public
-  grant truncate, references, trigger, maintain on tables
-  to anon, authenticated, service_role;
-
 \i supabase/migrations/0036_a_lead_waits_for_a_call.sql
+
+-- The privileges of public as production held them after 0036 ---------------------------
+--
+-- Measured through the MCP on 2026-11-04, before 0037. Every privilege anon,
+-- authenticated and service_role hold on a relation of public, or on one of
+-- its columns, one row per relation, column and role, with the privileges
+-- sorted: aclexplode and not the text of relacl, because the order of the
+-- items in the array can differ between production and here without any
+-- privilege differing. A relation more or less than the 23 measured fails too.
+--
+-- The replay of production's default ACL from 0001 is what this holds: moved
+-- back to just before 0036, the 22 older tables lose their Dxtm and this fails.
+-- The snapshot is kept in a temporary table for the check right after 0037.
+create function pg_temp.public_privileges()
+returns table (relname text, column_name text, grantee text, privileges text[])
+language sql stable as $$
+  with granted as (
+    select c.relname::text, null::text as column_name, a.grantee, a.privilege_type
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      cross join lateral aclexplode(c.relacl) a
+     where n.nspname = 'public'
+    union all
+    select c.relname::text, att.attname::text, a.grantee, a.privilege_type
+      from pg_attribute att
+      join pg_class c on c.oid = att.attrelid
+      join pg_namespace n on n.oid = c.relnamespace
+      cross join lateral aclexplode(att.attacl) a
+     where n.nspname = 'public' and att.attnum > 0 and not att.attisdropped
+  )
+  select g.relname, g.column_name, r.rolname::text,
+         array_agg(distinct g.privilege_type order by g.privilege_type)
+    from granted g
+    join pg_roles r on r.oid = g.grantee
+   where r.rolname in ('anon', 'authenticated', 'service_role')
+   group by g.relname, g.column_name, r.rolname;
+$$;
+
+create temp table privileges_after_0036 as
+  select * from pg_temp.public_privileges();
+
+do $$
+declare
+  -- The 18 tables where authenticated holds all eight, and the 22 older
+  -- tables where service_role holds Dxtm.
+  c_full constant text[] := array[
+    'assignment_items', 'assignments', 'blocks', 'books', 'contrast_set_items',
+    'contrast_sets', 'image_attempts', 'lesson_schedules', 'lessons',
+    'lessons_content', 'points', 'questions', 'review_schedule', 'scenes',
+    'school_members', 'schools', 'students', 'vocabulary_items'];
+  c_older constant text[] := c_full
+    || array['attempts', 'platform_admins', 'profiles', 'school_invites'];
+  v_drift text;
+begin
+  with expected (relname, column_name, grantee, privileges) as (
+    select t, null::text, 'authenticated',
+           'DELETE,INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE'
+      from unnest(c_full) t
+    union all
+    select t, null::text, 'service_role', 'MAINTAIN,REFERENCES,TRIGGER,TRUNCATE'
+      from unnest(c_older) t
+    union all values
+      ('attempts', null::text, 'authenticated',
+       'INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE'),
+      ('platform_admins', null, 'authenticated', 'MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE'),
+      ('profiles', null, 'authenticated', 'MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE'),
+      ('school_invites', null, 'authenticated',
+       'DELETE,INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE'),
+      ('school_invites', 'expires_at', 'authenticated', 'UPDATE'),
+      ('leads', null, 'service_role', 'INSERT')
+  ),
+  actual as (
+    select relname, column_name, grantee, array_to_string(privileges, ',') as privileges
+      from privileges_after_0036
+  ),
+  drift as (
+    (select 'expected but not held' as what, * from expected
+     except select 'expected but not held', * from actual)
+    union all
+    (select 'held but not expected', * from actual
+     except select 'held but not expected', * from expected)
+  )
+  select string_agg(format('%s: %s%s %s {%s}', what, relname,
+                           coalesce('.' || column_name, ''), grantee, privileges),
+                    '; ' order by relname, column_name, grantee, what)
+    into v_drift from drift;
+
+  -- The relations themselves: a table with no grant at all to the three roles
+  -- would not show in the comparison above.
+  with expected (relname) as (
+    select unnest(c_older || array['leads'])
+  ),
+  actual as (
+    select c.relname::text
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm', 'f', 'S')
+  ),
+  drift as (
+    (select 'a relation missing: ' || relname as what from expected
+     except select 'a relation missing: ' || relname from actual)
+    union all
+    (select 'a relation not measured: ' || relname from actual
+     except select 'a relation not measured: ' || relname from expected)
+  )
+  select nullif(concat_ws('; ', v_drift, string_agg(what, '; ' order by what)), '')
+    into v_drift from drift;
+
+  if v_drift is not null then
+    raise exception 'privileges after 0036 differ from production on 2026-11-04: %', v_drift;
+  end if;
+
+  raise notice 'privileges after 0036: the 23 relations of public match production on 2026-11-04, role by role';
+end;
+$$;
+
+\i supabase/migrations/0037_nobody_truncates_what_rls_guards.sql
+
+-- What 0037 took, and only that ---------------------------------------------------------
+--
+-- Against the snapshot above: every relation, column and role lost exactly
+-- truncate, references, trigger and maintain, and kept everything else. So
+-- authenticated still selects, inserts, updates and deletes where it did, the
+-- update on school_invites.expires_at stands, and service_role still inserts
+-- into leads. A revoke all in 0037 fails here; whether anything of the four is
+-- left anywhere is the last block of the script.
+do $$
+declare
+  v_drift text;
+begin
+  with expected as (
+    select relname, column_name, grantee,
+           array(select p from unnest(privileges) p
+                  where p not in ('TRUNCATE', 'REFERENCES', 'TRIGGER', 'MAINTAIN')
+                  order by p) as privileges
+      from privileges_after_0036
+  ),
+  expected_held as (
+    select relname, column_name, grantee, array_to_string(privileges, ',') as privileges
+      from expected
+     where cardinality(privileges) > 0
+  ),
+  actual as (
+    select relname, column_name, grantee, array_to_string(privileges, ',') as privileges
+      from pg_temp.public_privileges()
+  ),
+  drift as (
+    (select 'expected but not held' as what, * from expected_held
+     except select 'expected but not held', * from actual)
+    union all
+    (select 'held but not expected', * from actual
+     except select 'held but not expected', * from expected_held)
+  )
+  select string_agg(format('%s: %s%s %s {%s}', what, relname,
+                           coalesce('.' || column_name, ''), grantee, privileges),
+                    '; ' order by relname, column_name, grantee, what)
+    into v_drift from drift;
+
+  if v_drift is not null then
+    raise exception '0037 took more or less than truncate, references, trigger and maintain: %', v_drift;
+  end if;
+
+  raise notice '0037 took truncate, references, trigger and maintain from every relation of public, and nothing else';
+end;
+$$;
+
+-- What 0038 changes is asserted where leads is: the block "A lead comes
+-- through one door (0038)", after the one of 0036.
+\i supabase/migrations/0038_a_lead_comes_through_one_door.sql
+\i supabase/migrations/0039_a_point_she_stopped_at_is_named.sql
+
+-- 0039 is applied here and its refusal asserted after the leads, in the block
+-- "A narrowing names a point she stopped at (0039)". 0040 renames school to
+-- organization; it is applied before the fixtures, so every assertion below
+-- runs against the renamed database, and the block "Every row knows its
+-- organization (0040)" holds that nothing of public still says school. The
+-- blocks above keep the names of their time, like the migrations they follow.
+\i supabase/migrations/0040_every_row_knows_its_organization.sql
+
+-- 0041 gives every organization a brand and adds GrifoAI's organization. It
+-- is applied before the fixtures, so the second organization below names its
+-- brand like any new one must, and the block "An organization wears a brand
+-- (0041)" holds the column after the 0040 one.
+\i supabase/migrations/0041_an_organization_wears_a_brand.sql
+
+-- Every policy of public and storage as it stands before 0042, which rewrites
+-- 34 of them and one of storage in place. Kept in a temporary table for the
+-- block "Without a teacher, the admin does not teach (0042)", which holds that
+-- nothing changed beyond the one substitution 0042 makes. 0042 is applied
+-- before the fixtures, as 0040 and 0041, so every assertion below runs against
+-- the organizations that say whether they have a teacher; the fixtures name it
+-- like any new organization must.
+create temp table policies_before_0042 as
+  select schemaname::text, tablename::text, policyname::text, permissive::text,
+         roles::text, cmd::text, qual, with_check
+    from pg_policies
+   where schemaname in ('public', 'storage');
+
+\i supabase/migrations/0042_without_a_teacher_the_admin_does_not_teach.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
   ('22222222-2222-2222-2222-222222222222', 'student@example.com', null);
 -- Since 0029 the teacher is a platform admin and admin of Chelsea St, and the
--- student is a Chelsea St student: the roles live in school_members.
+-- student is a Chelsea St student: the roles live in organization_members.
 insert into platform_admins (user_id) values ('11111111-1111-1111-1111-111111111111');
-insert into school_members (school_id, user_id, role) values
-  ((select id from schools where slug = 'chelsea-st'), '11111111-1111-1111-1111-111111111111', 'admin'),
-  ((select id from schools where slug = 'chelsea-st'), '22222222-2222-2222-2222-222222222222', 'student');
-insert into students (id, school_id)
-  values ('22222222-2222-2222-2222-222222222222', (select id from schools where slug = 'chelsea-st'));
+insert into organization_members (organization_id, user_id, role) values
+  ((select id from organizations where slug = 'chelsea-st'), '11111111-1111-1111-1111-111111111111', 'admin'),
+  ((select id from organizations where slug = 'chelsea-st'), '22222222-2222-2222-2222-222222222222', 'student');
+insert into students (id, organization_id)
+  values ('22222222-2222-2222-2222-222222222222', (select id from organizations where slug = 'chelsea-st'));
 
 insert into books (position, title) values (2, 'Book 2');
 select set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
@@ -1505,37 +1705,41 @@ begin
 end;
 $$;
 
--- Two schools (0029). Chelsea St holds the teacher and student above; a second
--- school, B, gets a teacher and a student of its own. Nothing of one school
+-- Two organizations (0029). Chelsea St holds the teacher and student above; a second
+-- organization, B, gets a teacher and a student of its own. Nothing of one organization
 -- may reach the people of the other, common content reaches both, and only a
 -- platform admin writes what is common.
 --
 -- Seeded as the owner, so the rows go in past RLS; the reads and writes under
 -- test happen as authenticated. Failures are collected and raised together,
 -- so taking one clause out of 0029 shows every assertion that rests on it.
-insert into schools (slug, name) values ('escola-b', 'Escola B');
+-- B wears GrifoAI, as every company does since 0041, and has a teacher
+-- (0042): a company with live lessons is a possible product, and the
+-- isolation below is between two organizations where both roles teach.
+insert into organizations (slug, name, brand, has_teacher)
+  values ('escola-b', 'Escola B', 'grifoai', true);
 insert into auth.users (id, email, raw_user_meta_data) values
   ('33333333-3333-3333-3333-333333333333', 'teacher-b@example.com', null),
   ('44444444-4444-4444-4444-444444444444', 'student-b@example.com', null);
-insert into school_members (school_id, user_id, role) values
-  ((select id from schools where slug = 'escola-b'), '33333333-3333-3333-3333-333333333333', 'teacher'),
-  ((select id from schools where slug = 'escola-b'), '44444444-4444-4444-4444-444444444444', 'student');
-insert into students (id, school_id)
-  values ('44444444-4444-4444-4444-444444444444', (select id from schools where slug = 'escola-b'));
+insert into organization_members (organization_id, user_id, role) values
+  ((select id from organizations where slug = 'escola-b'), '33333333-3333-3333-3333-333333333333', 'teacher'),
+  ((select id from organizations where slug = 'escola-b'), '44444444-4444-4444-4444-444444444444', 'student');
+insert into students (id, organization_id)
+  values ('44444444-4444-4444-4444-444444444444', (select id from organizations where slug = 'escola-b'));
 
--- One book for each school, at the position of the common Book 2: the
+-- One book for each organization, at the position of the common Book 2: the
 -- position is unique per scope now, not across the table. Their points and
--- questions name no school and take their book's.
-insert into books (position, title, school_id) values
-  (2, 'Chelsea only', (select id from schools where slug = 'chelsea-st')),
-  (2, 'B only', (select id from schools where slug = 'escola-b'));
+-- questions name no organization and take their book's.
+insert into books (position, title, organization_id) values
+  (2, 'Chelsea only', (select id from organizations where slug = 'chelsea-st')),
+  (2, 'B only', (select id from organizations where slug = 'escola-b'));
 insert into points (book_id, number)
   select id, 1 from books where title in ('Chelsea only', 'B only');
 insert into questions (point_id, position, prompt, expected_answer, is_published)
   select p.id, 0, 'of ' || b.title, 'a', true
     from points p join books b on b.id = p.book_id
    where b.title in ('Chelsea only', 'B only');
--- A lesson for each school's student, so the reads below have something to
+-- A lesson for each organization's student, so the reads below have something to
 -- miss.
 insert into lessons (student_id, scheduled_at) values
   ('44444444-4444-4444-4444-444444444444', now() + interval '1 day'),
@@ -1559,8 +1763,8 @@ $$;
 
 do $$
 declare
-  c_chelsea constant uuid := (select id from schools where slug = 'chelsea-st');
-  c_b constant uuid := (select id from schools where slug = 'escola-b');
+  c_chelsea constant uuid := (select id from organizations where slug = 'chelsea-st');
+  c_b constant uuid := (select id from organizations where slug = 'escola-b');
   c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
   c_student constant uuid := '22222222-2222-2222-2222-222222222222';
   c_teacher_b constant uuid := '33333333-3333-3333-3333-333333333333';
@@ -1577,62 +1781,62 @@ begin
   select p.id into v_b_point
     from points p join books b on b.id = p.book_id where b.title = 'B only';
 
-  -- Rows that name no school take their parent's.
-  if (select school_id from points where id = v_b_point) is distinct from c_b then
-    insert into verify.failures values ('a point of a school book did not take the school');
+  -- Rows that name no organization take their parent's.
+  if (select organization_id from points where id = v_b_point) is distinct from c_b then
+    insert into verify.failures values ('a point of an organization book did not take the organization');
   end if;
-  if (select school_id from questions where point_id = v_b_point) is distinct from c_b then
-    insert into verify.failures values ('a question of a school point did not take the school');
+  if (select organization_id from questions where point_id = v_b_point) is distinct from c_b then
+    insert into verify.failures values ('a question of an organization point did not take the organization');
   end if;
-  if (select school_id from lessons where student_id = c_student_b) is distinct from c_b then
-    insert into verify.failures values ('a lesson did not take its student''s school');
+  if (select organization_id from lessons where student_id = c_student_b) is distinct from c_b then
+    insert into verify.failures values ('a lesson did not take its student''s organization');
   end if;
   if exists (select 1 from points p join books b on b.id = p.book_id
-              where b.school_id is null and p.school_id is not null) then
-    insert into verify.failures values ('a point of a common book took a school');
+              where b.organization_id is null and p.organization_id is not null) then
+    insert into verify.failures values ('a point of a common book took an organization');
   end if;
 
-  -- A row never points at another school's, and its school never changes.
+  -- A row never points at another organization's, and its organization never changes.
   insert into vocabulary_items (term, first_point_id) values ('a word of B', v_b_point)
     returning id into v_b_word;
-  perform verify.expect_refused('a question of B on a Chelsea point', 'questions_school',
-    format('insert into questions (point_id, position, prompt, expected_answer, school_id)
+  perform verify.expect_refused('a question of B on a Chelsea point', 'questions_organization',
+    format('insert into questions (point_id, position, prompt, expected_answer, organization_id)
             values (%L, 1, %L, %L, %L)', v_chelsea_point, 'p', 'a', c_b));
-  perform verify.expect_refused('a common question showing a word of B', 'questions_school',
+  perform verify.expect_refused('a common question showing a word of B', 'questions_organization',
     format('insert into questions (point_id, position, prompt, expected_answer, shown_vocabulary_item_id)
-            values ((select id from points where number = 53 and school_id is null), 9, %L, %L, %L)',
+            values ((select id from points where number = 53 and organization_id is null), 9, %L, %L, %L)',
            'p', 'a', v_b_word));
   -- Points and questions and not books: two books at position 2 already live
   -- in other scopes, so moving a book would trip the unique key first.
-  perform verify.expect_refused('a point moved to another school', 'points_school',
-    format('update points set school_id = %L where id = %L', c_b, v_chelsea_point));
-  perform verify.expect_refused('a common question given a school', 'questions_school',
-    format('update questions set school_id = %L
-             where id = (select id from questions where school_id is null limit 1)', c_b));
-  -- A common row moved under a school's parent is refused, not adopted: on an
-  -- update the school is already written.
-  perform verify.expect_refused('a common word moved under a point of B', 'vocabulary_items_school',
+  perform verify.expect_refused('a point moved to another organization', 'points_organization',
+    format('update points set organization_id = %L where id = %L', c_b, v_chelsea_point));
+  perform verify.expect_refused('a common question given an organization', 'questions_organization',
+    format('update questions set organization_id = %L
+             where id = (select id from questions where organization_id is null limit 1)', c_b));
+  -- A common row moved under an organization's parent is refused, not adopted: on an
+  -- update the organization is already written.
+  perform verify.expect_refused('a common word moved under a point of B', 'vocabulary_items_organization',
     format('update vocabulary_items set first_point_id = %L
              where id = (select id from vocabulary_items where term = %L)', v_b_point, 'a word'));
 
   -- A students row needs the student membership behind it.
   begin
-    insert into students (id, school_id) values (c_teacher_b, c_b);
+    insert into students (id, organization_id) values (c_teacher_b, c_b);
     insert into verify.failures values ('a student row without a student membership');
   exception when foreign_key_violation then
     raise notice 'a student row without a student membership: refused by the foreign key';
   end;
   begin
-    delete from school_members where user_id = c_student_b and role = 'student';
+    delete from organization_members where user_id = c_student_b and role = 'student';
     insert into verify.failures values ('a student membership removed under a students row');
   exception when foreign_key_violation then
     raise notice 'a student membership removed under a students row: refused by the foreign key';
   end;
 
   -- Two guards stand here, the trigger and the foreign key through the
-  -- school, and the trigger speaks first; either refusal is the right answer.
+  -- organization, and the trigger speaks first; either refusal is the right answer.
   begin
-    insert into lessons (student_id, scheduled_at, school_id)
+    insert into lessons (student_id, scheduled_at, organization_id)
       values (c_student, now() + interval '2 days', c_b);
     insert into verify.failures values ('a lesson of B named a Chelsea student');
   exception
@@ -1642,33 +1846,33 @@ begin
       raise notice 'a lesson of B naming a Chelsea student: refused by the foreign key';
   end;
 
-  -- People and operation always carry a school.
+  -- People and operation always carry an organization.
   select count(*) into v_n from information_schema.columns
-   where table_schema = 'public' and column_name = 'school_id' and is_nullable = 'NO'
+   where table_schema = 'public' and column_name = 'organization_id' and is_nullable = 'NO'
      and table_name in ('students', 'lessons', 'lesson_schedules', 'assignments',
                         'assignment_items', 'attempts', 'review_schedule');
   if v_n <> 7 then
     insert into verify.failures
-      values (format('%s of 7 people and operation tables have school_id not null', v_n));
+      values (format('%s of 7 people and operation tables have organization_id not null', v_n));
   end if;
 
   -- The teacher of B.
   perform set_config('test.uid', c_teacher_b::text, false);
   set local role authenticated;
 
-  if exists (select 1 from books where school_id = c_chelsea) then
+  if exists (select 1 from books where organization_id = c_chelsea) then
     insert into verify.failures values ('the teacher of B reads a Chelsea book');
   end if;
-  if exists (select 1 from questions where school_id = c_chelsea) then
+  if exists (select 1 from questions where organization_id = c_chelsea) then
     insert into verify.failures values ('the teacher of B reads a Chelsea question');
   end if;
-  if not exists (select 1 from books where school_id is null) then
+  if not exists (select 1 from books where organization_id is null) then
     insert into verify.failures values ('the teacher of B does not read common books');
   end if;
-  if not exists (select 1 from books where school_id = c_b) then
-    insert into verify.failures values ('the teacher of B does not read her own school''s book');
+  if not exists (select 1 from books where organization_id = c_b) then
+    insert into verify.failures values ('the teacher of B does not read her own organization''s book');
   end if;
-  if exists (select 1 from students where school_id = c_chelsea) then
+  if exists (select 1 from students where organization_id = c_chelsea) then
     insert into verify.failures values ('the teacher of B reads a Chelsea student');
   end if;
   if exists (select 1 from profiles where id in (c_student, c_admin)) then
@@ -1677,10 +1881,10 @@ begin
   if not exists (select 1 from profiles where id = c_student_b) then
     insert into verify.failures values ('the teacher of B does not read her student''s profile');
   end if;
-  if exists (select 1 from lessons where school_id = c_chelsea) then
+  if exists (select 1 from lessons where organization_id = c_chelsea) then
     insert into verify.failures values ('the teacher of B reads a Chelsea lesson');
   end if;
-  if exists (select 1 from school_members where school_id = c_chelsea) then
+  if exists (select 1 from organization_members where organization_id = c_chelsea) then
     insert into verify.failures values ('the teacher of B reads who belongs to Chelsea');
   end if;
   if exists (select 1 from platform_admins) then
@@ -1690,17 +1894,17 @@ begin
   -- An update the policy filters matches nothing and does not raise; what the
   -- rows hold is read back as the owner at the end.
   update books set title = 'taken' where id = v_chelsea_book;
-  update questions set prompt = 'taken' where school_id is null;
+  update questions set prompt = 'taken' where organization_id is null;
   if not verify.refused_for_privilege(
        'insert into books (position, title) values (7, ''common, by B'')') then
     insert into verify.failures values ('the teacher of B wrote a common book');
   end if;
   if verify.refused_for_privilege(
-       format('insert into books (position, title, school_id) values (7, %L, %L)', 'of B', c_b)) then
-    insert into verify.failures values ('the teacher of B could not write her own school''s book');
+       format('insert into books (position, title, organization_id) values (7, %L, %L)', 'of B', c_b)) then
+    insert into verify.failures values ('the teacher of B could not write her own organization''s book');
   end if;
   if not verify.refused_for_privilege(
-       format('insert into school_members (school_id, user_id, role) values (%L, %L, %L)',
+       format('insert into organization_members (organization_id, user_id, role) values (%L, %L, %L)',
               c_chelsea, c_teacher_b, 'admin')) then
     insert into verify.failures values ('the teacher of B made herself admin of Chelsea');
   end if;
@@ -1716,24 +1920,24 @@ begin
   if not verify.refused_for_privilege(
        format('insert into storage.objects (bucket_id, name) values (%L, %L)',
               'vocabulary-images', 'references/x.png')) then
-    insert into verify.failures values ('the teacher of B wrote a file outside her school''s folder');
+    insert into verify.failures values ('the teacher of B wrote a file outside her organization''s folder');
   end if;
   if verify.refused_for_privilege(
        format('insert into storage.objects (bucket_id, name) values (%L, %L)',
               'vocabulary-images', c_b || '/x.png')) then
-    insert into verify.failures values ('the teacher of B could not write under her school''s folder');
+    insert into verify.failures values ('the teacher of B could not write under her organization''s folder');
   end if;
 
-  -- The student of B reads common published questions and her school's, and
+  -- The student of B reads common published questions and her organization's, and
   -- not Chelsea's.
   perform set_config('test.uid', c_student_b::text, false);
-  if not exists (select 1 from questions where school_id is null and is_published) then
+  if not exists (select 1 from questions where organization_id is null and is_published) then
     insert into verify.failures values ('the student of B does not read a common published question');
   end if;
-  if not exists (select 1 from questions where school_id = c_b) then
-    insert into verify.failures values ('the student of B does not read her school''s published question');
+  if not exists (select 1 from questions where organization_id = c_b) then
+    insert into verify.failures values ('the student of B does not read her organization''s published question');
   end if;
-  if exists (select 1 from questions where school_id = c_chelsea) then
+  if exists (select 1 from questions where organization_id = c_chelsea) then
     insert into verify.failures values ('the student of B reads a Chelsea question');
   end if;
   if exists (select 1 from books) then
@@ -1742,7 +1946,7 @@ begin
 
   -- And the Chelsea student does not read B's.
   perform set_config('test.uid', c_student::text, false);
-  if exists (select 1 from questions where school_id = c_b) then
+  if exists (select 1 from questions where organization_id = c_b) then
     insert into verify.failures values ('the Chelsea student reads a question of B');
   end if;
 
@@ -1751,7 +1955,7 @@ begin
   if (select count(*) from students) <> 2 then
     insert into verify.failures values ('the platform admin does not read every student');
   end if;
-  if not exists (select 1 from books where school_id = c_b) then
+  if not exists (select 1 from books where organization_id = c_b) then
     insert into verify.failures values ('the platform admin does not read a book of B');
   end if;
 
@@ -1765,23 +1969,23 @@ begin
 
   select string_agg(what, '; ') into v_failures from verify.failures;
   if v_failures is not null then
-    raise exception 'two schools: %', v_failures;
+    raise exception 'two organizations: %', v_failures;
   end if;
 
-  raise notice 'two schools: nothing of one reaches the other, common content reaches both';
+  raise notice 'two organizations: nothing of one reaches the other, common content reaches both';
   raise notice 'and only a platform admin writes what is common';
 end;
 $$;
 
--- Joining a school by invite (0031) ------------------------------------------------
+-- Joining an organization by invite (0031) ------------------------------------------------
 --
 -- Who may invite whom, and when an invite becomes a membership. The accounts
 -- are written as the owner, the way Supabase Auth writes them; the invites as
 -- authenticated, through the policies under test.
 do $$
 declare
-  c_chelsea constant uuid := (select id from schools where slug = 'chelsea-st');
-  c_b constant uuid := (select id from schools where slug = 'escola-b');
+  c_chelsea constant uuid := (select id from organizations where slug = 'chelsea-st');
+  c_b constant uuid := (select id from organizations where slug = 'escola-b');
   c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
   c_teacher_b constant uuid := '33333333-3333-3333-3333-333333333333';
   c_student_b constant uuid := '44444444-4444-4444-4444-444444444444';
@@ -1793,103 +1997,103 @@ declare
 begin
   delete from verify.failures;
 
-  -- An open invite of each school, written as the owner.
-  insert into school_invites (school_id, email, role, invited_by)
+  -- An open invite of each organization, written as the owner.
+  insert into organization_invites (organization_id, email, role, invited_by)
     values (c_chelsea, 'someone@example.com', 'teacher', c_admin);
-  insert into school_invites (school_id, email, role, invited_by)
+  insert into organization_invites (organization_id, email, role, invited_by)
     values (c_b, 'someone-b@example.com', 'student', c_teacher_b);
 
   set local role authenticated;
 
-  -- The teacher of B reads her school's invites and not Chelsea's.
+  -- The teacher of B reads her organization's invites and not Chelsea's.
   perform set_config('test.uid', c_teacher_b::text, false);
-  if exists (select 1 from school_invites where school_id = c_chelsea) then
+  if exists (select 1 from organization_invites where organization_id = c_chelsea) then
     insert into verify.failures values ('the teacher of B reads a Chelsea invite');
   end if;
-  if not exists (select 1 from school_invites where school_id = c_b) then
-    insert into verify.failures values ('the teacher of B does not read her school''s invite');
+  if not exists (select 1 from organization_invites where organization_id = c_b) then
+    insert into verify.failures values ('the teacher of B does not read her organization''s invite');
   end if;
 
-  -- She invites students to her school, and nothing else.
+  -- She invites students to her organization, and nothing else.
   if verify.refused_for_privilege(
-       format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+       format('insert into organization_invites (organization_id, email, role) values (%L, %L, %L)',
               c_b, 'new-student@example.com', 'student')) then
     insert into verify.failures values ('the teacher of B could not invite a student to B');
   end if;
   if not verify.refused_for_privilege(
-       format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+       format('insert into organization_invites (organization_id, email, role) values (%L, %L, %L)',
               c_b, 'new-teacher@example.com', 'teacher')) then
     insert into verify.failures values ('the teacher of B invited a teacher');
   end if;
   if not verify.refused_for_privilege(
-       format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+       format('insert into organization_invites (organization_id, email, role) values (%L, %L, %L)',
               c_b, 'new-admin@example.com', 'admin')) then
     insert into verify.failures values ('the teacher of B invited an admin');
   end if;
   if not verify.refused_for_privilege(
-       format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+       format('insert into organization_invites (organization_id, email, role) values (%L, %L, %L)',
               c_chelsea, 'other-student@example.com', 'student')) then
     insert into verify.failures values ('the teacher of B invited a student to Chelsea');
   end if;
   if not verify.refused_for_privilege(
-       format('insert into school_invites (school_id, email, role, invited_by) values (%L, %L, %L, %L)',
+       format('insert into organization_invites (organization_id, email, role, invited_by) values (%L, %L, %L, %L)',
               c_b, 'signed-by-another@example.com', 'student', c_admin)) then
     insert into verify.failures values ('the teacher of B wrote an invite in someone else''s name');
   end if;
   -- Renewing touches expires_at only: accepted_at is not hers to write.
   if not verify.refused_for_privilege(
-       format('update school_invites set accepted_at = now() where school_id = %L', c_b)) then
+       format('update organization_invites set accepted_at = now() where organization_id = %L', c_b)) then
     insert into verify.failures values ('the teacher of B marked an invite accepted');
   end if;
   -- She renews, for fifteen days at most, whatever she asks for.
-  update school_invites set expires_at = '2100-01-01'
-   where school_id = c_b and email = 'someone-b@example.com';
-  if (select expires_at from school_invites
-       where school_id = c_b and email = 'someone-b@example.com') > now() + interval '15 days' then
+  update organization_invites set expires_at = '2100-01-01'
+   where organization_id = c_b and email = 'someone-b@example.com';
+  if (select expires_at from organization_invites
+       where organization_id = c_b and email = 'someone-b@example.com') > now() + interval '15 days' then
     insert into verify.failures values ('a renewal kept an invite open past fifteen days');
   end if;
 
-  -- A student invites no one, not even to her own school.
+  -- A student invites no one, not even to her own organization.
   perform set_config('test.uid', c_student_b::text, false);
   if not verify.refused_for_privilege(
-       format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+       format('insert into organization_invites (organization_id, email, role) values (%L, %L, %L)',
               c_b, 'friend@example.com', 'student')) then
     insert into verify.failures values ('the student of B invited someone');
   end if;
 
-  -- The platform admin invites any role to any school.
+  -- The platform admin invites any role to any organization.
   perform set_config('test.uid', c_admin::text, false);
   if verify.refused_for_privilege(
-       format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+       format('insert into organization_invites (organization_id, email, role) values (%L, %L, %L)',
               c_b, 'admin-of-b@example.com', 'admin')) then
     insert into verify.failures values ('the platform admin could not invite an admin to B');
   end if;
   -- A new invite can ask for less than fifteen days, never for more.
-  insert into school_invites (school_id, email, role, expires_at)
+  insert into organization_invites (organization_id, email, role, expires_at)
     values (c_b, 'far-future@example.com', 'teacher', '2100-01-01');
-  if (select expires_at from school_invites where email = 'far-future@example.com')
+  if (select expires_at from organization_invites where email = 'far-future@example.com')
        > now() + interval '15 days' then
     insert into verify.failures values ('an invite was written open past fifteen days');
   end if;
 
   -- The email is stored the way auth.users stores it.
   perform verify.expect_refused(
-    'an invite with an upper case email', 'school_invites_email_check',
-    format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+    'an invite with an upper case email', 'organization_invites_email_check',
+    format('insert into organization_invites (organization_id, email, role) values (%L, %L, %L)',
            c_b, 'Someone.Else@example.com', 'student'));
 
   -- Since 0032 a student invite is written whatever the person studies
-  -- elsewhere: refusing it here told the inviting school. One school per
+  -- elsewhere: refusing it here told the inviting organization. One organization per
   -- student is checked on acceptance (the 0032 block below).
   perform set_config('test.uid', c_admin::text, false);
   if verify.refused_by(
-       format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+       format('insert into organization_invites (organization_id, email, role) values (%L, %L, %L)',
               c_b, 'student@example.com', 'student')) is not null then
     insert into verify.failures values ('a student invite for a Chelsea student was refused when written');
   end if;
-  -- Teaching at a second school is fine: only studying is one school.
+  -- Teaching at a second organization is fine: only studying is one organization.
   if verify.refused_for_privilege(
-       format('insert into school_invites (school_id, email, role) values (%L, %L, %L)',
+       format('insert into organization_invites (organization_id, email, role) values (%L, %L, %L)',
               c_chelsea, 'someone-b@example.com', 'teacher')) then
     insert into verify.failures values ('a student of B could not be invited to teach at Chelsea');
   end if;
@@ -1898,44 +2102,44 @@ begin
 
   -- A new account does not join on creation, only on confirmation.
   insert into auth.users (id, email) values (c_new, 'someone-b@example.com');
-  if exists (select 1 from school_members where user_id = c_new) then
-    insert into verify.failures values ('an unconfirmed account joined a school');
+  if exists (select 1 from organization_members where user_id = c_new) then
+    insert into verify.failures values ('an unconfirmed account joined an organization');
   end if;
   update auth.users set email_confirmed_at = now() where id = c_new;
-  if not exists (select 1 from school_members where user_id = c_new and school_id = c_b and role = 'student') then
+  if not exists (select 1 from organization_members where user_id = c_new and organization_id = c_b and role = 'student') then
     insert into verify.failures values ('the first confirmation did not make the student membership');
   end if;
-  if not exists (select 1 from students where id = c_new and school_id = c_b) then
+  if not exists (select 1 from students where id = c_new and organization_id = c_b) then
     insert into verify.failures values ('the first confirmation did not make the students row');
   end if;
-  if not exists (select 1 from school_members where user_id = c_new and school_id = c_chelsea and role = 'teacher') then
+  if not exists (select 1 from organization_members where user_id = c_new and organization_id = c_chelsea and role = 'teacher') then
     insert into verify.failures values ('the first confirmation did not accept every invite of the email');
   end if;
-  if exists (select 1 from school_invites where email = 'someone-b@example.com' and accepted_at is null) then
+  if exists (select 1 from organization_invites where email = 'someone-b@example.com' and accepted_at is null) then
     insert into verify.failures values ('an invite was used and left open');
   end if;
 
   -- An expired invite never becomes a membership.
-  insert into school_invites (school_id, email, role, invited_by, expires_at)
+  insert into organization_invites (organization_id, email, role, invited_by, expires_at)
     values (c_b, 'late@example.com', 'student', c_teacher_b, now() - interval '1 day')
     returning id into v_expired;
   insert into auth.users (id, email) values (c_late, 'late@example.com');
   update auth.users set email_confirmed_at = now() where id = c_late;
-  if exists (select 1 from school_members where user_id = c_late) then
+  if exists (select 1 from organization_members where user_id = c_late) then
     insert into verify.failures values ('an expired invite became a membership');
   end if;
   -- Renewed, it still waits for her yes (0032), though the email is confirmed.
-  update school_invites set expires_at = now() + interval '15 days' where id = v_expired;
-  if exists (select 1 from school_members where user_id = c_late) then
+  update organization_invites set expires_at = now() + interval '15 days' where id = v_expired;
+  if exists (select 1 from organization_members where user_id = c_late) then
     insert into verify.failures values ('a renewed invite for a confirmed account became a membership without a yes');
   end if;
 
   -- An account created already confirmed joins on creation.
-  insert into school_invites (school_id, email, role, invited_by)
+  insert into organization_invites (organization_id, email, role, invited_by)
     values (c_b, 'confirmed-at-birth@example.com', 'student', c_teacher_b);
   insert into auth.users (id, email, email_confirmed_at)
     values (c_created_confirmed, 'confirmed-at-birth@example.com', now());
-  if not exists (select 1 from students where id = c_created_confirmed and school_id = c_b) then
+  if not exists (select 1 from students where id = c_created_confirmed and organization_id = c_b) then
     insert into verify.failures values ('an account created confirmed did not join');
   end if;
 
@@ -1943,18 +2147,18 @@ begin
   update auth.users set email_confirmed_at = now() where id = c_teacher_b;
   set local role authenticated;
   perform set_config('test.uid', c_admin::text, false);
-  insert into school_invites (school_id, email, role) values (c_chelsea, 'teacher-b@example.com', 'teacher');
+  insert into organization_invites (organization_id, email, role) values (c_chelsea, 'teacher-b@example.com', 'teacher');
   reset role;
-  if exists (select 1 from school_members where user_id = c_teacher_b and school_id = c_chelsea) then
+  if exists (select 1 from organization_members where user_id = c_teacher_b and organization_id = c_chelsea) then
     insert into verify.failures values ('an invite for a confirmed account became a membership without a yes');
   end if;
 
   -- An accepted invite is not cancelled: it is how someone joined.
   set local role authenticated;
   perform set_config('test.uid', c_teacher_b::text, false);
-  delete from school_invites where email = 'someone-b@example.com';
+  delete from organization_invites where email = 'someone-b@example.com';
   reset role;
-  if not exists (select 1 from school_invites where email = 'someone-b@example.com') then
+  if not exists (select 1 from organization_invites where email = 'someone-b@example.com') then
     insert into verify.failures values ('an accepted invite was cancelled');
   end if;
 
@@ -1963,7 +2167,7 @@ begin
     raise exception 'invites: %', v_failures;
   end if;
 
-  raise notice 'invites: a school''s admin invites any role, its teacher students only, a student no one';
+  raise notice 'invites: an organization''s admin invites any role, its teacher students only, a student no one';
   raise notice 'and an invite becomes a membership on the first confirmation, never once expired';
 end;
 $$;
@@ -1973,32 +2177,32 @@ $$;
 -- Continues from the block above: Chelsea has an open teacher invite for the
 -- teacher of B (confirmed), B an open student invite for late@ (confirmed) and
 -- one for the Chelsea student. Each person accepts only her own, open invite,
--- signed in; a student of one school is refused another at acceptance.
+-- signed in; a student of one organization is refused another at acceptance.
 do $$
 declare
-  c_chelsea constant uuid := (select id from schools where slug = 'chelsea-st');
-  c_b constant uuid := (select id from schools where slug = 'escola-b');
+  c_chelsea constant uuid := (select id from organizations where slug = 'chelsea-st');
+  c_b constant uuid := (select id from organizations where slug = 'escola-b');
   c_student constant uuid := '22222222-2222-2222-2222-222222222222';
   c_teacher_b constant uuid := '33333333-3333-3333-3333-333333333333';
   c_late constant uuid := '66666666-6666-6666-6666-666666666666';
   v_failures text;
-  v_teacher_invite uuid := (select id from school_invites
-                             where school_id = c_chelsea and email = 'teacher-b@example.com');
-  v_late_invite uuid := (select id from school_invites
-                          where school_id = c_b and email = 'late@example.com');
-  v_student_invite uuid := (select id from school_invites
-                             where school_id = c_b and email = 'student@example.com');
+  v_teacher_invite uuid := (select id from organization_invites
+                             where organization_id = c_chelsea and email = 'teacher-b@example.com');
+  v_late_invite uuid := (select id from organization_invites
+                          where organization_id = c_b and email = 'late@example.com');
+  v_student_invite uuid := (select id from organization_invites
+                             where organization_id = c_b and email = 'student@example.com');
   v_expired uuid;
 begin
   delete from verify.failures;
 
-  if has_function_privilege('anon', 'accept_my_school_invite(uuid)', 'execute')
-     or has_function_privilege('anon', 'my_open_school_invites()', 'execute') then
+  if has_function_privilege('anon', 'accept_my_organization_invite(uuid)', 'execute')
+     or has_function_privilege('anon', 'my_open_organization_invites()', 'execute') then
     insert into verify.failures values ('anon may call the invite functions');
   end if;
 
   -- An expired invite for the teacher of B, written as the owner.
-  insert into school_invites (school_id, email, role, expires_at)
+  insert into organization_invites (organization_id, email, role, expires_at)
     values (c_b, 'teacher-b@example.com', 'student', now() - interval '1 day')
     returning id into v_expired;
 
@@ -2006,47 +2210,47 @@ begin
 
   -- She sees her open invite and nobody else's.
   perform set_config('test.uid', c_teacher_b::text, false);
-  if not exists (select 1 from my_open_school_invites() where id = v_teacher_invite) then
+  if not exists (select 1 from my_open_organization_invites() where id = v_teacher_invite) then
     insert into verify.failures values ('the invited person does not see her open invite');
   end if;
-  if exists (select 1 from my_open_school_invites() where id <> v_teacher_invite) then
-    insert into verify.failures values ('my_open_school_invites returned an invite of another email or an expired one');
+  if exists (select 1 from my_open_organization_invites() where id <> v_teacher_invite) then
+    insert into verify.failures values ('my_open_organization_invites returned an invite of another email or an expired one');
   end if;
 
   -- Someone else, signed in, cannot accept it.
   perform set_config('test.uid', c_late::text, false);
   perform verify.expect_refused(
-    'another account accepting her invite', 'accept_my_school_invite_open',
-    format('select accept_my_school_invite(%L)', v_teacher_invite));
+    'another account accepting her invite', 'accept_my_organization_invite_open',
+    format('select accept_my_organization_invite(%L)', v_teacher_invite));
 
   -- An expired invite is not accepted, even by its own person.
   perform set_config('test.uid', c_teacher_b::text, false);
   perform verify.expect_refused(
-    'an expired invite accepted', 'accept_my_school_invite_open',
-    format('select accept_my_school_invite(%L)', v_expired));
+    'an expired invite accepted', 'accept_my_organization_invite_open',
+    format('select accept_my_organization_invite(%L)', v_expired));
 
   -- Her yes makes the membership and closes the invite.
-  if verify.refused_by(format('select accept_my_school_invite(%L)', v_teacher_invite)) is not null then
+  if verify.refused_by(format('select accept_my_organization_invite(%L)', v_teacher_invite)) is not null then
     insert into verify.failures values ('she could not accept her own open invite');
   end if;
   reset role;
-  if not exists (select 1 from school_members
-                  where user_id = c_teacher_b and school_id = c_chelsea and role = 'teacher') then
+  if not exists (select 1 from organization_members
+                  where user_id = c_teacher_b and organization_id = c_chelsea and role = 'teacher') then
     insert into verify.failures values ('accepting did not make the membership');
   end if;
-  if (select accepted_at from school_invites where id = v_teacher_invite) is null then
+  if (select accepted_at from organization_invites where id = v_teacher_invite) is null then
     insert into verify.failures values ('an accepted invite was left open');
   end if;
-  if exists (select 1 from school_members where user_id = c_teacher_b and school_id = c_b and role = 'student') then
+  if exists (select 1 from organization_members where user_id = c_teacher_b and organization_id = c_b and role = 'student') then
     insert into verify.failures values ('an expired invite became a membership');
   end if;
 
   -- A student invite accepted makes the students row too.
   set local role authenticated;
   perform set_config('test.uid', c_late::text, false);
-  perform accept_my_school_invite(v_late_invite);
+  perform accept_my_organization_invite(v_late_invite);
   reset role;
-  if not exists (select 1 from students where id = c_late and school_id = c_b) then
+  if not exists (select 1 from students where id = c_late and organization_id = c_b) then
     insert into verify.failures values ('accepting a student invite did not make the students row');
   end if;
 
@@ -2055,11 +2259,11 @@ begin
   set local role authenticated;
   perform set_config('test.uid', c_student::text, false);
   perform verify.expect_refused(
-    'a Chelsea student accepting a student invite of B', 'accept_my_school_invite_one_school',
-    format('select accept_my_school_invite(%L)', v_student_invite));
+    'a Chelsea student accepting a student invite of B', 'accept_my_organization_invite_one_organization',
+    format('select accept_my_organization_invite(%L)', v_student_invite));
   reset role;
-  if exists (select 1 from school_members where user_id = c_student and school_id = c_b) then
-    insert into verify.failures values ('a student of one school joined another as a student');
+  if exists (select 1 from organization_members where user_id = c_student and organization_id = c_b) then
+    insert into verify.failures values ('a student of one organization joined another as a student');
   end if;
 
   select string_agg(what, '; ') into v_failures from verify.failures;
@@ -2068,19 +2272,19 @@ begin
   end if;
 
   raise notice 'invite acceptance: an invite for an account waits for her yes, signed in, her own and open';
-  raise notice 'and a student of one school is refused another one when she accepts, not when invited';
+  raise notice 'and a student of one organization is refused another one when she accepts, not when invited';
 end;
 $$;
 
 -- A question can show a scene (0030) ------------------------------------------------
 --
 -- Scenes, their attempts, approving, the one-of-three rule on questions, the
--- school a scene's attempt takes, and who reads a scene. Written as the owner
+-- organization a scene's attempt takes, and who reads a scene. Written as the owner
 -- unless a role is set.
 do $$
 declare
-  c_chelsea constant uuid := (select id from schools where slug = 'chelsea-st');
-  c_b constant uuid := (select id from schools where slug = 'escola-b');
+  c_chelsea constant uuid := (select id from organizations where slug = 'chelsea-st');
+  c_b constant uuid := (select id from organizations where slug = 'escola-b');
   c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
   c_student constant uuid := '22222222-2222-2222-2222-222222222222';
   -- Only of B: the teacher of B of the blocks above also teaches at Chelsea
@@ -2106,7 +2310,7 @@ begin
   delete from verify.failures;
 
   insert into auth.users (id, email) values (c_teacher_b, 'only-b@example.com');
-  insert into school_members (school_id, user_id, role) values (c_b, c_teacher_b, 'teacher');
+  insert into organization_members (organization_id, user_id, role) values (c_b, c_teacher_b, 'teacher');
 
   -- Scenes ------------------------------------------------------------------------
   perform verify.expect_refused(
@@ -2133,8 +2337,8 @@ begin
   exception when unique_violation then
     raise notice 'the same common description between a tab and a line break: refused by scenes_description_key';
   end;
-  insert into scenes (description, school_id) values ('Big box', c_chelsea) returning id into v_chelsea;
-  insert into scenes (description, school_id) values ('A pen on a book', c_b) returning id into v_b;
+  insert into scenes (description, organization_id) values ('Big box', c_chelsea) returning id into v_chelsea;
+  insert into scenes (description, organization_id) values ('A pen on a book', c_b) returning id into v_b;
   insert into scenes (description) values ('Only in a draft') returning id into v_unpublished;
 
   -- Attempts belong to a word or to a scene --------------------------------------------
@@ -2146,19 +2350,19 @@ begin
     format('insert into image_attempts (vocabulary_item_id, scene_id, provider, status) values (%L, %L, %L, %L)',
            c_word, v_common, 'freepik', 'pending'));
 
-  -- A scene's attempt takes the scene's school: its first parent, the word, is
-  -- null, and the first parent present gives the school.
+  -- A scene's attempt takes the scene's organization: its first parent, the word, is
+  -- null, and the first parent present gives the organization.
   if verify.refused_by(
        format('insert into image_attempts (scene_id, provider, status) values (%L, %L, %L)',
               v_chelsea, 'freepik', 'pending')) is not null then
     insert into verify.failures values ('an attempt of a Chelsea scene was refused');
-  elsif (select school_id from image_attempts where scene_id = v_chelsea) is distinct from c_chelsea then
+  elsif (select organization_id from image_attempts where scene_id = v_chelsea) is distinct from c_chelsea then
     insert into verify.failures values ('an attempt of a Chelsea scene did not take Chelsea');
   end if;
-  -- And a table of before still takes its first parent's school.
+  -- And a table of before still takes its first parent's organization.
   insert into questions (point_id, position, prompt, expected_answer)
     values (c_chelsea_point, 100, 'q', 'a') returning id into v_question;
-  if (select school_id from questions where id = v_question) is distinct from c_chelsea then
+  if (select organization_id from questions where id = v_question) is distinct from c_chelsea then
     insert into verify.failures values ('a question of a Chelsea point did not take Chelsea');
   end if;
 
@@ -2214,9 +2418,9 @@ begin
   insert into questions (point_id, position, prompt, expected_answer, scene_id, is_published)
     values (c_b_point, 107, 'Where is the pen?', 'On the book.', v_b, true);
 
-  -- A common question does not show a school's scene; a school's may show a common one.
+  -- A common question does not show an organization's scene; an organization's may show a common one.
   perform verify.expect_refused(
-    'a common question showing a Chelsea scene', 'questions_school',
+    'a common question showing a Chelsea scene', 'questions_organization',
     format('insert into questions (point_id, position, prompt, expected_answer, scene_id) values (%L, 108, %L, %L, %L)',
            c_common_point, 'q', 'a', v_chelsea));
   if verify.refused_by(
@@ -2255,14 +2459,14 @@ begin
     insert into verify.failures values ('the teacher of B does not read a common scene');
   end if;
   if not verify.refused_for_privilege(
-       format('insert into scenes (description, school_id) values (%L, %L)', 'B writes Chelsea', c_chelsea)) then
+       format('insert into scenes (description, organization_id) values (%L, %L)', 'B writes Chelsea', c_chelsea)) then
     insert into verify.failures values ('the teacher of B wrote a Chelsea scene');
   end if;
   if not verify.refused_for_privilege('insert into scenes (description) values (''B writes common'')') then
     insert into verify.failures values ('the teacher of B wrote a common scene');
   end if;
   if verify.refused_for_privilege(
-       format('insert into scenes (description, school_id) values (%L, %L)', 'B writes B', c_b)) then
+       format('insert into scenes (description, organization_id) values (%L, %L)', 'B writes B', c_b)) then
     insert into verify.failures values ('the teacher of B could not write a scene of B');
   end if;
 
@@ -2279,7 +2483,7 @@ begin
   end if;
 
   raise notice 'scenes: a question shows a word, a scene or is acted out, at most one';
-  raise notice 'and a scene''s attempt takes the scene''s school, its picture is approved as a word''s, its reader follows the question';
+  raise notice 'and a scene''s attempt takes the scene''s organization, its picture is approved as a word''s, its reader follows the question';
 end;
 $$;
 
@@ -2417,7 +2621,7 @@ $$;
 
 -- A lesson marks where she stopped (0035) -------------------------------------------
 --
--- A mark names a common point or one of the lesson's school, and a point
+-- A mark names a common point or one of the lesson's organization, and a point
 -- someone stopped at is not deleted. Seeded as the owner: the rules under test
 -- are a trigger and a foreign key, which no policy decides.
 do $$
@@ -2435,22 +2639,22 @@ declare
 begin
   delete from verify.failures;
 
-  -- Another school's point is refused, on update and on insert.
-  perform verify.expect_refused('a lesson marking a point of another school', 'lessons_stop_in_school',
+  -- Another organization's point is refused, on update and on insert.
+  perform verify.expect_refused('a lesson marking a point of another organization', 'lessons_stop_in_organization',
     format('update lessons set stopped_at_point_id = %L where id = %L', c_other, c_lesson));
-  perform verify.expect_refused('a lesson written with a point of another school', 'lessons_stop_in_school',
+  perform verify.expect_refused('a lesson written with a point of another organization', 'lessons_stop_in_organization',
     format('insert into lessons (student_id, scheduled_at, stopped_at_point_id) values (%L, now() + interval ''9 days'', %L)',
            '22222222-2222-2222-2222-222222222222', c_other));
 
-  -- A common point and its own school's point are accepted.
+  -- A common point and its own organization's point are accepted.
   if verify.refusal(format('update lessons set stopped_at_point_id = %L where id = %L', c_common, c_lesson)) is not null then
     insert into verify.failures values ('a lesson could not mark a common point');
   end if;
   if verify.refusal(format('update lessons set stopped_at_point_id = %L where id = %L', c_own, c_lesson)) is not null then
-    insert into verify.failures values ('a lesson could not mark a point of its own school');
+    insert into verify.failures values ('a lesson could not mark a point of its own organization');
   end if;
 
-  -- The point a lesson stopped at is not deleted. The school's own point,
+  -- The point a lesson stopped at is not deleted. The organization's own point,
   -- which no word holds: a word's point is restricted already, and the
   -- refusal would come from vocabulary_items instead.
   perform verify.expect_refusal('deleting a point a lesson stopped at',
@@ -2471,16 +2675,17 @@ $$;
 -- A lead waits for a call (0036) --------------------------------------------------------
 --
 -- The checks refuse what the site's form must never write, each by its own
--- name, and accept the limits themselves. The privileges are asserted as
--- privileges, against the default ACL set before 0036 above: anon and
--- authenticated reach nothing, the service role inserts and nothing else, and
--- no policy exists. Rows are written as the superuser running this script,
--- since checks hold for everyone and the service role cannot select.
+-- name, and accept the limits themselves. This block runs after 0037 and
+-- 0038: the revoke all of 0036 is held by the snapshot right after 0036 above,
+-- and the number, the privileges and the policies of leads as they stand now
+-- by the block of 0038 below. Rows are written as the superuser running this
+-- script, since checks hold for everyone and nobody of the API selects.
 --
--- One well formed lead, with any column replaced by a named argument.
+-- One well formed lead, with any column replaced by a named argument. The
+-- number has the 55 that leads_whatsapp_br (0038) asks for.
 create function verify.lead_insert(
   p_nome text default 'Ana Souza',
-  p_whatsapp text default '11987654321',
+  p_whatsapp text default '5511987654321',
   p_objetivo text default 'trabalho',
   p_nivel text default 'basico',
   p_interesse text default 'trial',
@@ -2515,9 +2720,6 @@ $$;
 do $$
 declare
   v_failures text;
-  v_role text;
-  v_privilege text;
-  v_policies bigint;
 begin
   delete from verify.failures;
 
@@ -2539,20 +2741,6 @@ begin
     verify.lead_insert(p_nome => repeat('a', 80)));
   perform verify.expect_accepted('a lead named with 2 letters inside a tab, spaces and a line break',
     verify.lead_insert(p_nome => E'\t Al \n'));
-
-  -- The number: 10 to 13 digits and nothing else.
-  perform verify.expect_refused('a whatsapp of 9 digits', 'leads_whatsapp_digits',
-    verify.lead_insert(p_whatsapp => '119876543'));
-  perform verify.expect_refused('a whatsapp of 14 digits', 'leads_whatsapp_digits',
-    verify.lead_insert(p_whatsapp => '55119876543210'));
-  perform verify.expect_refused('a whatsapp with a plus sign', 'leads_whatsapp_digits',
-    verify.lead_insert(p_whatsapp => '+5511987654321'));
-  perform verify.expect_refused('a whatsapp with a mask', 'leads_whatsapp_digits',
-    verify.lead_insert(p_whatsapp => '(11) 98765-4321'));
-  perform verify.expect_accepted('a whatsapp of 10 digits',
-    verify.lead_insert(p_whatsapp => '1133334444'));
-  perform verify.expect_accepted('a whatsapp of 13 digits',
-    verify.lead_insert(p_whatsapp => '5511987654321'));
 
   -- The answers: only the listed values; objetivo and nivel may be left out,
   -- interesse may not.
@@ -2583,35 +2771,1106 @@ begin
                        p_utm_campaign => repeat('c', 200), p_codigo_origem => repeat('o', 200),
                        p_user_agent => repeat('u', 512)));
 
-  -- The privileges. anon and authenticated hold none of the eight a table can
-  -- carry; service_role holds insert and none of the other seven. MAINTAIN
-  -- exists from Postgres 17, the version CI runs (ADR 0003).
-  foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
-    foreach v_privilege in array array['select', 'insert', 'update', 'delete',
-                                        'truncate', 'references', 'trigger', 'maintain'] loop
-      if v_role = 'service_role' and v_privilege = 'insert' then
-        if not has_table_privilege(v_role, 'public.leads', v_privilege) then
-          insert into verify.failures values (format('%s lacks %s on leads', v_role, v_privilege));
-        end if;
-      elsif has_table_privilege(v_role, 'public.leads', v_privilege) then
-        insert into verify.failures values (format('%s has %s on leads', v_role, v_privilege));
-      end if;
-    end loop;
-  end loop;
-
-  -- No policy: the service role bypasses RLS, and a policy would open rows to
-  -- whoever it names.
-  select count(*) into v_policies
-    from pg_policies where schemaname = 'public' and tablename = 'leads';
-  if v_policies <> 0 then
-    insert into verify.failures values (format('leads has %s policies, expected 0', v_policies));
-  end if;
-
   select string_agg(what, '; ') into v_failures from verify.failures;
   if v_failures is not null then
     raise exception 'leads: %', v_failures;
   end if;
 
-  raise notice 'leads: every check refuses by name and accepts its limits; only service_role inserts, nobody selects, no policy';
+  raise notice 'leads: every check refuses by name and accepts its limits';
+end;
+$$;
+
+-- A lead comes through one door (0038) -------------------------------------------------
+--
+-- The site writes a lead only by calling submit_lead, as anon, with the
+-- publishable key. Nobody of the API reads leads or leads_latest, and the
+-- service role, which inserted straight into the table until 0038, no longer
+-- can. The door does not open around the checks: a number without the 55 is
+-- refused through submit_lead by the same check as straight into the table.
+-- A number sent twice is kept twice, and leads_latest shows the latest send of
+-- each number.
+--
+-- The calls are made as the roles themselves, and the helpers of verify run
+-- under them, so anon and service_role get usage on that schema here, as
+-- authenticated did above. The schema is this script's own; production has no
+-- verify. Whatever is found is recorded after reset role, as the superuser.
+grant usage on schema verify to anon, service_role;
+
+-- One call of submit_lead the way PostgREST makes it for the site: every
+-- parameter named, the ones the form left empty as null.
+create function verify.submit_lead_call(p_whatsapp text, p_interesse text default 'trial')
+returns text
+language sql as $$
+  select format(
+    'select public.submit_lead(nome => %L, whatsapp => %L, objetivo => %L, nivel => %L, interesse => %L, utm_source => %L, utm_medium => %L, utm_campaign => %L, codigo_origem => %L, user_agent => %L)',
+    'Bruna Lima', p_whatsapp, 'viagem', null, p_interesse,
+    'instagram', null, null, '[verify]', 'verify-rls');
+$$;
+
+do $$
+declare
+  c_roles constant text[] := array['anon', 'authenticated', 'service_role'];
+  c_privileges constant text[] := array['select', 'insert', 'update', 'delete',
+                                        'truncate', 'references', 'trigger', 'maintain'];
+  -- Sent twice, first for the waitlist and then for a trial; and sent once.
+  c_twice constant text := '5521999990001';
+  c_once constant text := '5521999990002';
+  v_mark bigint := 0;
+  v_rows bigint;
+  v_refused boolean;
+  v_by text;
+  v_state text;
+  v_constraint text;
+  v_role text;
+  v_relation text;
+  v_privilege text;
+  v_reached text[] := '{}';
+  v_definer boolean;
+  v_config text[];
+  v_options text[];
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  -- anon calls submit_lead, and the row is there.
+  select count(*) into v_rows from public.leads;
+  set local role anon;
+  v_refused := verify.refused_for_privilege(verify.submit_lead_call('5511912345678'));
+  reset role;
+  if v_refused then
+    insert into verify.failures values ('anon is refused submit_lead');
+  elsif (select count(*) from public.leads) <> v_rows + 1 then
+    insert into verify.failures values (format('anon called submit_lead and leads went from %s to %s rows',
+                                               v_rows, (select count(*) from public.leads)));
+  else
+    raise notice 'anon calls submit_lead, and the lead is written';
+  end if;
+  v_mark := (select count(*) from verify.failures);
+
+  -- Nobody else calls it: not authenticated, which PUBLIC would let in, and
+  -- not the service role, which the site no longer holds.
+  foreach v_role in array array['authenticated', 'service_role'] loop
+    execute format('set local role %I', v_role);
+    v_refused := verify.refused_for_privilege(verify.submit_lead_call('5511912345679'));
+    reset role;
+    if not v_refused then
+      insert into verify.failures values (format('%s calls submit_lead', v_role));
+    end if;
+  end loop;
+  if (select count(*) from verify.failures) = v_mark then
+    raise notice 'authenticated and service_role are refused submit_lead';
+  end if;
+  v_mark := (select count(*) from verify.failures);
+
+  -- anon has the function and nothing else: no insert of its own, no read.
+  set local role anon;
+  if not verify.refused_for_privilege(verify.lead_insert()) then
+    v_reached := v_reached || 'inserts into leads'::text;
+  end if;
+  if not verify.refused_for_privilege('select 1 from public.leads') then
+    v_reached := v_reached || 'selects from leads'::text;
+  end if;
+  if not verify.refused_for_privilege('select 1 from public.leads_latest') then
+    v_reached := v_reached || 'selects from leads_latest'::text;
+  end if;
+  reset role;
+  insert into verify.failures select 'anon ' || r from unnest(v_reached) r;
+  if (select count(*) from verify.failures) = v_mark then
+    raise notice 'anon inserts into leads and selects from leads and leads_latest only to be refused';
+  end if;
+  v_mark := (select count(*) from verify.failures);
+
+  -- None of the eight a table can carry, for any of the three roles, on the
+  -- table or the view; and no policy on the table. has_table_privilege also
+  -- sees what reaches a role through PUBLIC.
+  foreach v_relation in array array['public.leads', 'public.leads_latest'] loop
+    foreach v_role in array c_roles loop
+      foreach v_privilege in array c_privileges loop
+        if has_table_privilege(v_role, v_relation, v_privilege) then
+          insert into verify.failures
+            values (format('%s has %s on %s', v_role, v_privilege, v_relation));
+        end if;
+      end loop;
+    end loop;
+  end loop;
+  if (select count(*) from pg_policies where schemaname = 'public' and tablename = 'leads') <> 0 then
+    insert into verify.failures values ('leads has a policy');
+  end if;
+  if (select count(*) from verify.failures) = v_mark then
+    raise notice 'anon, authenticated and service_role hold no privilege on leads or leads_latest, and leads has no policy';
+  end if;
+  v_mark := (select count(*) from verify.failures);
+
+  -- The function writes as its owner and resolves no name through the
+  -- caller's search_path; the view reads as whoever queries it, so it opens
+  -- nothing the table keeps closed.
+  select p.prosecdef, p.proconfig into v_definer, v_config
+    from pg_proc p
+   where p.oid = to_regprocedure(
+           'public.submit_lead(text, text, text, text, text, text, text, text, text, text)');
+  if v_definer is distinct from true then
+    insert into verify.failures values ('submit_lead is not security definer');
+  end if;
+  if v_config is distinct from array['search_path=""'] then
+    insert into verify.failures values (format('submit_lead runs with %s, expected {search_path=""}',
+                                               coalesce(v_config::text, 'no setting')));
+  end if;
+  select c.reloptions into v_options from pg_class c where c.oid = to_regclass('public.leads_latest');
+  if not coalesce('security_invoker=true' = any (v_options), false) then
+    insert into verify.failures values (format('leads_latest has options %s, expected security_invoker=true',
+                                               coalesce(v_options::text, 'none')));
+  end if;
+  if (select count(*) from verify.failures) = v_mark then
+    raise notice 'submit_lead is security definer with an empty search_path, and leads_latest is security invoker';
+  end if;
+  v_mark := (select count(*) from verify.failures);
+
+  -- The number: 55, then 10 or 11 digits, and nothing else.
+  perform verify.expect_refused('a whatsapp without 55, 11 digits', 'leads_whatsapp_br',
+    verify.lead_insert(p_whatsapp => '11987654321'));
+  perform verify.expect_refused('a whatsapp without 55, 10 digits', 'leads_whatsapp_br',
+    verify.lead_insert(p_whatsapp => '1133334444'));
+  perform verify.expect_refused('a whatsapp of another country', 'leads_whatsapp_br',
+    verify.lead_insert(p_whatsapp => '5611987654321'));
+  perform verify.expect_refused('a whatsapp of 11 digits with 55', 'leads_whatsapp_br',
+    verify.lead_insert(p_whatsapp => '55119876543'));
+  perform verify.expect_refused('a whatsapp of 14 digits', 'leads_whatsapp_br',
+    verify.lead_insert(p_whatsapp => '55119876543210'));
+  perform verify.expect_refused('a whatsapp with a plus sign', 'leads_whatsapp_br',
+    verify.lead_insert(p_whatsapp => '+5511987654321'));
+  perform verify.expect_refused('a whatsapp with a mask', 'leads_whatsapp_br',
+    verify.lead_insert(p_whatsapp => '+55 (11) 98765-4321'));
+  perform verify.expect_accepted('a whatsapp of 12 digits with 55',
+    verify.lead_insert(p_whatsapp => '551133334444'));
+  perform verify.expect_accepted('a whatsapp of 13 digits with 55',
+    verify.lead_insert(p_whatsapp => '5511987654321'));
+
+  -- And through the door, as anon: the same check, by name. Any refusal is
+  -- caught, so a door that refuses anon for privilege is reported here too
+  -- rather than stopping the script; leaving the block undoes the set role.
+  begin
+    set local role anon;
+    execute verify.submit_lead_call('11987654321');
+    reset role;
+    v_by := 'accepted';
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_constraint = constraint_name;
+    v_by := v_state || coalesce(' ' || nullif(v_constraint, ''), '');
+  end;
+  if v_by <> '23514 leads_whatsapp_br' then
+    insert into verify.failures values (format(
+      'a whatsapp without 55 through submit_lead: %s, expected 23514 leads_whatsapp_br', v_by));
+  else
+    raise notice 'a whatsapp without 55 through submit_lead: refused with %', v_by;
+  end if;
+  v_mark := (select count(*) from verify.failures);
+
+  -- The history. Three sends as anon, in one transaction, as close together as
+  -- this script can make them: the same number twice, then another number.
+  -- Each send is a row; the latest of each number is in leads_latest. The two
+  -- sends of the same number get two different instants, in the order they
+  -- were made: with now() they would share the instant of the transaction,
+  -- and the view would choose between them by a random id.
+  begin
+    set local role anon;
+    execute verify.submit_lead_call(c_twice, 'waitlist');
+    execute verify.submit_lead_call(c_twice, 'trial');
+    execute verify.submit_lead_call(c_once, 'waitlist');
+    reset role;
+  exception when insufficient_privilege then
+    insert into verify.failures values ('anon could not send the history: ' || sqlerrm);
+  end;
+  v_rows := (select count(*) from public.leads where whatsapp = c_twice);
+  if v_rows <> 2 then
+    insert into verify.failures values (format('a number sent twice has %s rows in leads, expected 2', v_rows));
+  end if;
+  if (select count(distinct created_at) from public.leads where whatsapp = c_twice) <> 2
+     or (select created_at from public.leads where whatsapp = c_twice and interesse = 'trial')
+        <= (select created_at from public.leads where whatsapp = c_twice and interesse = 'waitlist') then
+    insert into verify.failures values ('the second send of a number is not later than the first');
+  end if;
+  if (select array_agg(interesse) from public.leads_latest where whatsapp = c_twice)
+     is distinct from array['trial'] then
+    insert into verify.failures values (format('leads_latest shows %s for the number sent twice, expected {trial}',
+      coalesce((select array_agg(interesse) from public.leads_latest where whatsapp = c_twice)::text, 'no row')));
+  end if;
+  if (select array_agg(interesse) from public.leads_latest where whatsapp = c_once)
+     is distinct from array['waitlist'] then
+    insert into verify.failures values (format('leads_latest shows %s for the number sent once, expected {waitlist}',
+      coalesce((select array_agg(interesse) from public.leads_latest where whatsapp = c_once)::text, 'no row')));
+  end if;
+  if (select count(*) from public.leads_latest)
+     <> (select count(distinct whatsapp) from public.leads) then
+    insert into verify.failures values ('leads_latest does not have exactly one row per number');
+  end if;
+  if (select count(*) from verify.failures) = v_mark then
+    raise notice 'a number sent twice is two rows in leads and one in leads_latest, the later one; another number keeps its own';
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a lead comes through one door: %', v_failures;
+  end if;
+end;
+$$;
+
+-- A narrowing names a point she stopped at (0039) ---------------------------------------
+--
+-- materialize_points counts, before it deletes anything, the points outside the
+-- new range that a lesson stopped at, and refuses by naming them. Until 0039 it
+-- did not, and the delete ran into lessons_stopped_at_point_fkey (23503), a
+-- refusal the teacher could not read. Point 128 of Book 2 carries no content
+-- and no lesson of content reaches it, so the mark is the only reason left.
+-- Written as the owner, with test.uid on the platform admin, who alone may
+-- configure a common book.
+--
+-- The English sentence is the one src/app/teacher/content/range-refusal.test.ts
+-- translates: a change to it is made in both places.
+do $$
+declare
+  c_book constant uuid := (select id from books where title = 'Book 2');
+  c_lesson constant uuid := (select id from lessons
+                              where student_id = '22222222-2222-2222-2222-222222222222'
+                              order by scheduled_at limit 1);
+  c_point constant uuid := (select id from points where book_id = c_book and number = 128);
+  v_failures text;
+begin
+  delete from verify.failures;
+  perform set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+
+  update lessons set stopped_at_point_id = c_point where id = c_lesson;
+
+  perform verify.expect_refusal('narrowing a book past the point a lesson stopped at',
+    format('P0001 cannot narrow book %s to 1..127: 0 point(s) outside carry content, '
+           '0 lesson(s) reach outside, 1 point(s) outside are where a lesson stopped', c_book),
+    format('select materialize_points(%L, 1, 127)', c_book));
+
+  -- The refusal wrote nothing: the book keeps its range and the lesson its mark.
+  if (select last_point from books where id = c_book) <> 128 then
+    insert into verify.failures values ('the refused narrowing changed the range of the book');
+  end if;
+  if not exists (select 1 from lessons where id = c_lesson and stopped_at_point_id = c_point) then
+    insert into verify.failures values ('the refused narrowing took the point the lesson stopped at');
+  end if;
+
+  update lessons set stopped_at_point_id = null where id = c_lesson;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a narrowing names a point she stopped at: %', v_failures;
+  end if;
+
+  raise notice 'a narrowing names a point she stopped at, and the refusal writes nothing';
+end;
+$$;
+
+-- Every row knows its organization (0040) -----------------------------------------------
+--
+-- Every assertion above this block, from the fixtures on, already ran against
+-- the renamed database: that is the proof the behaviour stayed. This block
+-- holds what a rename can lose without any behaviour failing first.
+--
+-- 1. Nothing of public still says school: no relation, column, type, enum
+--    label, function (name, arguments, result, body), trigger, constraint,
+--    index or policy (name and expressions), and no policy of storage. A body
+--    is text, so a rename of a table or column never reaches it: only this
+--    finds a body left behind.
+-- 2. Execute on the six functions the app and the policies call, for anon,
+--    authenticated and service_role, as measured on the project on
+--    2026-11-06 before 0040 (has_function_privilege, so PUBLIC counts). Three
+--    of them are new functions and one was dropped and created again: a lost
+--    grant shows here.
+-- 3. The 16 functions 0040 rewrites keep security definer or invoker and
+--    their search_path as on the project: create or replace resets both to
+--    whatever it is given.
+--
+-- That row level security stays on for the three renamed tables is held by
+-- the block "every table in public has row level security enabled", which
+-- runs after 0040 since the move of its \i line.
+do $$
+declare
+  v_failures text;
+  v_before bigint := 0;
+begin
+  delete from verify.failures;
+
+  insert into verify.failures
+  select 'still says school: ' || what
+    from (
+      select format('relation %s', c.relname) as what, c.relname::text as text
+        from pg_class c join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public'
+      union all
+      -- The columns of an index too: an index keeps, as its own attribute
+      -- name, the name its column had when the index was built, and a rename
+      -- of the table's column does not reach it.
+      select format('column %s.%s', c.relname, a.attname), a.attname::text
+        from pg_attribute a
+        join pg_class c on c.oid = a.attrelid
+        join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public' and a.attnum > 0 and not a.attisdropped
+      union all
+      select format('type %s', t.typname), t.typname::text
+        from pg_type t join pg_namespace n on n.oid = t.typnamespace
+       where n.nspname = 'public'
+      union all
+      select format('enum label %s.%s', t.typname, e.enumlabel), e.enumlabel::text
+        from pg_enum e
+        join pg_type t on t.oid = e.enumtypid
+        join pg_namespace n on n.oid = t.typnamespace
+       where n.nspname = 'public'
+      union all
+      select format('function %s(%s)', p.proname, pg_get_function_identity_arguments(p.oid)),
+             concat_ws(' ', p.proname, pg_get_function_arguments(p.oid),
+                       pg_get_function_result(p.oid), p.prosrc)
+        from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public'
+      union all
+      select format('trigger %s on %s', t.tgname, t.tgrelid::regclass), pg_get_triggerdef(t.oid)
+        from pg_trigger t
+        join pg_class c on c.oid = t.tgrelid
+        join pg_namespace n on n.oid = c.relnamespace
+        join pg_proc p on p.oid = t.tgfoid
+        join pg_namespace pn on pn.oid = p.pronamespace
+       where not t.tgisinternal and (n.nspname = 'public' or pn.nspname = 'public')
+      union all
+      select format('constraint %s on %s', co.conname, co.conrelid::regclass),
+             co.conname || ' ' || pg_get_constraintdef(co.oid)
+        from pg_constraint co join pg_namespace n on n.oid = co.connamespace
+       where n.nspname = 'public'
+      union all
+      select format('index %s', i.indexrelid::regclass), pg_get_indexdef(i.indexrelid)
+        from pg_index i
+        join pg_class c on c.oid = i.indrelid
+        join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public'
+      union all
+      select format('policy %s on %s.%s', pol.polname, n.nspname, c.relname),
+             concat_ws(' ', pol.polname, pg_get_expr(pol.polqual, pol.polrelid),
+                       pg_get_expr(pol.polwithcheck, pol.polrelid))
+        from pg_policy pol
+        join pg_class c on c.oid = pol.polrelid
+        join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname in ('public', 'storage')
+    ) found
+   where found.text ilike '%school%'
+   order by what;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'nothing of public, nor a policy of storage, says school: names, bodies and expressions';
+  end if;
+  v_before := (select count(*) from verify.failures);
+
+  with expected (fn, anon, authenticated, service_role) as (values
+    ('is_organization_member(uuid,organization_role[])', true, true, true),
+    ('can_invite(uuid,organization_role)', true, true, true),
+    ('can_write_content(uuid)', true, true, true),
+    ('my_open_organization_invites()', false, true, false),
+    ('accept_my_organization_invite(uuid)', false, true, false),
+    ('accept_organization_invites(uuid,text)', false, false, false)
+  )
+  insert into verify.failures
+  select format('execute on %s: anon %s, authenticated %s, service_role %s; expected %s, %s, %s',
+                e.fn,
+                has_function_privilege('anon', e.fn, 'execute'),
+                has_function_privilege('authenticated', e.fn, 'execute'),
+                has_function_privilege('service_role', e.fn, 'execute'),
+                e.anon, e.authenticated, e.service_role)
+    from expected e
+   where has_function_privilege('anon', e.fn, 'execute') <> e.anon
+      or has_function_privilege('authenticated', e.fn, 'execute') <> e.authenticated
+      or has_function_privilege('service_role', e.fn, 'execute') <> e.service_role;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'execute on the six invite and membership functions is held by anon, authenticated and service_role as on the project before 0040';
+  end if;
+  v_before := (select count(*) from verify.failures);
+
+  with expected (fn, secdef, config) as (values
+    ('accept_my_organization_invite', true, 'search_path=public'),
+    ('accept_organization_invites', true, 'search_path=public'),
+    ('accept_organization_invites_on_confirmation', true, 'search_path=public'),
+    ('belongs_anywhere', true, 'search_path=public'),
+    ('can_invite', true, 'search_path=public'),
+    ('can_write_content', true, 'search_path=public'),
+    ('is_organization_member', true, 'search_path=public'),
+    ('lesson_stop_in_organization', true, 'search_path=public'),
+    ('my_open_organization_invites', true, 'search_path=public'),
+    ('organization_follows_parents', true, 'search_path=public'),
+    ('teaches_anywhere', true, 'search_path=public'),
+    ('delete_question', false, 'search_path=public'),
+    ('reorder_questions', false, 'search_path=public'),
+    ('materialize_lessons', false, null),
+    ('materialize_points', false, null),
+    ('organization_invites_fifteen_days', false, null)
+  ),
+  actual as (
+    select p.proname::text as fn, p.prosecdef as secdef,
+           array_to_string(p.proconfig, ',') as config
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+  )
+  insert into verify.failures
+  select format('function %s: security definer %s and config %s, expected %s and %s',
+                e.fn, a.secdef, coalesce(a.config, 'none'), e.secdef, coalesce(e.config, 'none'))
+    from expected e
+    left join actual a on a.fn = e.fn
+   where a.fn is null
+      or a.secdef is distinct from e.secdef
+      or a.config is distinct from e.config;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'the 16 functions 0040 rewrites keep security definer or invoker, and their search_path';
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'every row knows its organization: %', v_failures;
+  end if;
+end;
+$$;
+
+-- An organization wears a brand (0041) ---------------------------------------------------
+--
+-- Every organization names one of the two brands, and nobody but the platform
+-- admin changes it. Each assertion stands on one clause of 0041 or on the
+-- policy it relies on:
+--
+-- 1. The rows already there wear Chelsea St (the default that filled them),
+--    and GrifoAI's organization exists wearing GrifoAI (the insert).
+-- 2. A brand outside the two is refused by organizations_brand_known.
+-- 3. An organization written without a brand is refused (23502 on brand):
+--    the default is gone.
+-- 4. An organization's admin, not a platform admin, changes her own
+--    organization's brand in no row; the platform admin does, which shows the
+--    statement could have changed it (organizations_write).
+-- 5. A member reads her own organization's brand and not another's
+--    (organizations_read).
+--
+-- The admin of B is made here, as the owner, and removed at the end: the
+-- fixtures above give B a teacher and a student only.
+do $$
+declare
+  c_chelsea constant uuid := (select id from organizations where slug = 'chelsea-st');
+  c_b constant uuid := (select id from organizations where slug = 'escola-b');
+  c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  c_admin_b constant uuid := 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+  v_n integer;
+  v_brand text;
+  v_state text;
+  v_column text;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  -- 1. The rows 0041 found and the one it adds.
+  if (select brand from organizations where id = c_chelsea) is distinct from 'chelsea-st' then
+    insert into verify.failures values ('Chelsea St does not wear chelsea-st');
+  end if;
+  if (select brand from organizations where slug = 'grifoai') is distinct from 'grifoai' then
+    insert into verify.failures values ('there is no grifoai organization wearing grifoai');
+  end if;
+
+  -- 2. Only the two brands.
+  perform verify.expect_refused(
+    'an organization wearing an unknown brand', 'organizations_brand_known',
+    $q$insert into organizations (slug, name, brand, has_teacher) values ('outra', 'Outra', 'outra', true)$q$);
+
+  -- 3. No default: a new organization names its brand.
+  begin
+    insert into organizations (slug, name, has_teacher) values ('sem-marca', 'Sem marca', true);
+    insert into verify.failures values ('an organization without a brand was accepted');
+    delete from organizations where slug = 'sem-marca';
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_column = column_name;
+    if v_state <> '23502' or v_column is distinct from 'brand' then
+      insert into verify.failures values (format(
+        'an organization without a brand was refused with %s on %s, expected 23502 on brand',
+        v_state, coalesce(v_column, 'no column')));
+    else
+      raise notice 'an organization without a brand: refused, 23502 on brand';
+    end if;
+  end;
+
+  insert into auth.users (id, email, raw_user_meta_data)
+    values (c_admin_b, 'admin-b@example.com', null);
+  insert into organization_members (organization_id, user_id, role)
+    values (c_b, c_admin_b, 'admin');
+
+  set local role authenticated;
+
+  -- 4. Her own organization's admin changes nothing.
+  perform set_config('test.uid', c_admin_b::text, false);
+  update organizations set brand = 'chelsea-st' where id = c_b;
+  get diagnostics v_n = row_count;
+  if v_n <> 0 then
+    insert into verify.failures values (format('the admin of B changed B''s brand in %s rows', v_n));
+  end if;
+
+  -- The platform admin does, and puts it back.
+  perform set_config('test.uid', c_admin::text, false);
+  update organizations set brand = 'chelsea-st' where id = c_b;
+  get diagnostics v_n = row_count;
+  if v_n <> 1 then
+    insert into verify.failures values (format('the platform admin changed B''s brand in %s rows', v_n));
+  end if;
+  update organizations set brand = 'grifoai' where id = c_b;
+
+  -- 5. Each member reads her own organization's brand and no other. The admin
+  -- of B, made above, belongs to B alone (the teacher of B joined Chelsea in
+  -- the block of 0032).
+  perform set_config('test.uid', c_admin_b::text, false);
+  select count(*) into v_n from organizations;
+  select brand into v_brand from organizations where id = c_b;
+  if v_n <> 1 or v_brand is distinct from 'grifoai' then
+    insert into verify.failures values (format(
+      'the admin of B reads %s organizations, B wearing %s', v_n, coalesce(v_brand, 'nothing')));
+  end if;
+  perform set_config('test.uid', c_student::text, false);
+  select count(*) into v_n from organizations;
+  select brand into v_brand from organizations where id = c_chelsea;
+  if v_n <> 1 or v_brand is distinct from 'chelsea-st' then
+    insert into verify.failures values (format(
+      'the Chelsea student reads %s organizations, her own wearing %s', v_n, coalesce(v_brand, 'nothing')));
+  end if;
+
+  reset role;
+  if (select brand from organizations where id = c_b) is distinct from 'grifoai' then
+    insert into verify.failures values ('B no longer wears grifoai');
+  end if;
+  delete from organization_members where user_id = c_admin_b;
+  delete from auth.users where id = c_admin_b;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'an organization wears a brand: %', v_failures;
+  end if;
+
+  raise notice 'every organization wears chelsea-st or grifoai, named on insert; only the platform admin changes it';
+  raise notice 'a member reads her own organization''s brand and no other';
+end;
+$$;
+
+-- Without a teacher, the admin does not teach (0042) --------------------------------------
+--
+-- An organization says whether it has a teacher. Where it has none, its admin
+-- invites people and reads them, and holds no power of a teacher: no content,
+-- common or its own, no lesson, schedule, assignment, attempt or review, no
+-- image in Storage. Nobody is a teacher there. Where it has one, nothing
+-- changed. Each assertion stands on one clause of 0042:
+--
+-- 1. Only the substitution: every policy of public and storage equals its
+--    text before 0042 (policies_before_0042), except the 34 of the 17 tables,
+--    whose text is the old one with the admin-or-teacher check replaced by
+--    teaches_in(organization_id), and vocabulary_images_write, which now asks
+--    teaches_in and names no role.
+-- 2. has_teacher: true on Chelsea St, false on GrifoAI's organization (the
+--    update), and named on insert (no default, 23502).
+-- 3. teaches_in, teaches_anywhere and can_write_content: false for the admin
+--    of a company without a teacher, true for a Chelsea admin who is not a
+--    platform admin and for B's teacher.
+-- 4. The company's admin reads no row of the 10 content tables and of the 7
+--    operation tables that only a teacher reads (verify.teachers_only), though
+--    rows of her organization and common rows exist;
+--    writes no book of hers, no lesson, no schedule, no student; and
+--    materialize_lessons refuses her.
+-- 5. Storage: she writes no file under her organization's folder; B's teacher
+--    still writes under B's.
+-- 6. She still invites an employee and an admin, reads her organization's
+--    invites, members and their names; an invite as teacher there is refused
+--    by teacher_needs_a_teaching_organization, also from the platform admin,
+--    and so is a teacher member written by the owner.
+-- 7. An organization with a teacher member, or an open teacher invite, does
+--    not turn into one without a teacher (organization_without_teacher_has_none);
+--    the company's admin changes has_teacher in no row; and the check of a
+--    teacher member or invite locks the organization's row, so the two
+--    checks cannot pass each other.
+-- 8. The employee still reads the common published questions, which is what
+--    Robin will use, and her own lesson row (her own rows stay hers).
+-- 9. A Chelsea admin who is not a platform admin still writes a Chelsea
+--    student's lesson and materializes her lessons.
+--
+-- Seeded as the owner; read and written as authenticated. Failures are
+-- collected and raised together.
+
+-- The rows of a table only a teacher reads. Every member reads the published
+-- questions (questions_read_published) and the scenes they show
+-- (scenes_read_published): the employee needs them, and the admin of a company
+-- is a member too. Everything else of the 17 tables is a teacher's.
+create function verify.teachers_only(p_table text) returns text
+language sql immutable as $$
+  select case p_table
+    when 'questions' then 'not is_published'
+    when 'scenes' then 'not exists (select 1 from questions q where q.scene_id = scenes.id)'
+    else 'true' end;
+$$;
+
+do $$
+declare
+  c_from constant text :=
+    'is_organization_member(organization_id, ''{admin,teacher}''::organization_role[])';
+  c_to constant text := 'teaches_in(organization_id)';
+  c_tables constant text[] := array[
+    'books', 'lessons_content', 'points', 'blocks', 'vocabulary_items',
+    'image_attempts', 'contrast_sets', 'contrast_set_items', 'questions', 'scenes',
+    'students', 'lessons', 'lesson_schedules', 'assignments', 'assignment_items',
+    'attempts', 'review_schedule'];
+  c_content constant text[] := array[
+    'books', 'lessons_content', 'points', 'blocks', 'vocabulary_items',
+    'image_attempts', 'contrast_sets', 'contrast_set_items', 'questions', 'scenes'];
+  c_operation constant text[] := array[
+    'students', 'lessons', 'lesson_schedules', 'assignments', 'assignment_items',
+    'attempts', 'review_schedule'];
+  c_chelsea constant uuid := (select id from organizations where slug = 'chelsea-st');
+  c_b constant uuid := (select id from organizations where slug = 'escola-b');
+  c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  c_teacher_b constant uuid := '33333333-3333-3333-3333-333333333333';
+  c_admin_c constant uuid := 'c1c1c1c1-c1c1-c1c1-c1c1-c1c1c1c1c1c1';
+  c_employee constant uuid := 'e1e1e1e1-e1e1-e1e1-e1e1-e1e1e1e1e1e1';
+  c_admin_chelsea constant uuid := 'a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1';
+  v_c uuid;
+  v_d uuid;
+  v_e uuid;
+  v_book uuid;
+  v_point uuid;
+  v_question uuid;
+  v_assignment uuid;
+  v_table text;
+  v_n integer;
+  v_owner_n integer;
+  v_moved integer;
+  v_drift text;
+  v_state text;
+  v_column text;
+  v_message text;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  -- 1. Only the substitution.
+  with expected as (
+    select schemaname, tablename, policyname, permissive, roles, cmd,
+           case when schemaname = 'public' and tablename = any (c_tables)
+                then replace(qual, c_from, c_to) else qual end as qual,
+           case when schemaname = 'public' and tablename = any (c_tables)
+                then replace(with_check, c_from, c_to) else with_check end as with_check
+      from policies_before_0042
+     where not (schemaname = 'storage' and policyname = 'vocabulary_images_write')
+  ),
+  actual as (
+    select schemaname::text, tablename::text, policyname::text, permissive::text,
+           roles::text, cmd::text, qual, with_check
+      from pg_policies
+     where schemaname in ('public', 'storage')
+       and not (schemaname = 'storage' and policyname = 'vocabulary_images_write')
+  ),
+  drift as (
+    (select 'expected but not held' as what, * from expected
+     except select 'expected but not held', * from actual)
+    union all
+    (select 'held but not expected', * from actual
+     except select 'held but not expected', * from expected)
+  )
+  select string_agg(format('%s: %s.%s', what, tablename, policyname), '; '
+                    order by tablename, policyname, what)
+    into v_drift from drift;
+  if v_drift is not null then
+    insert into verify.failures values ('policies beyond the substitution: ' || v_drift);
+  end if;
+
+  select count(*) into v_moved
+    from policies_before_0042 b
+    join pg_policies p using (policyname)
+   where b.schemaname = 'public' and p.schemaname = 'public'
+     and b.tablename = p.tablename
+     and (b.qual is distinct from p.qual or b.with_check is distinct from p.with_check);
+  if v_moved <> 34 then
+    insert into verify.failures values (format('%s policies of public changed, expected 34', v_moved));
+  end if;
+  if (select count(*) from pg_policies where schemaname in ('public', 'storage'))
+     <> (select count(*) from policies_before_0042) then
+    insert into verify.failures values ('the number of policies changed');
+  end if;
+  if exists (select 1 from pg_policies
+              where schemaname = 'public' and tablename = any (c_tables)
+                and (strpos(coalesce(qual, ''), c_from) > 0
+                     or strpos(coalesce(with_check, ''), c_from) > 0)) then
+    insert into verify.failures values ('a policy of the 17 tables still asks admin or teacher');
+  end if;
+  if not exists (select 1 from pg_policies
+                  where schemaname = 'storage' and policyname = 'vocabulary_images_write'
+                    and strpos(qual, 'teaches_in') > 0 and strpos(with_check, 'teaches_in') > 0
+                    and strpos(qual, '''admin''') = 0 and strpos(with_check, '''admin''') = 0) then
+    insert into verify.failures values ('vocabulary_images_write does not ask teaches_in, or still names a role');
+  end if;
+
+  -- 2. has_teacher.
+  if (select has_teacher from organizations where id = c_chelsea) is distinct from true then
+    insert into verify.failures values ('Chelsea St has no teacher');
+  end if;
+  if (select has_teacher from organizations where slug = 'grifoai') is distinct from false then
+    insert into verify.failures values ('GrifoAI''s organization has a teacher');
+  end if;
+  begin
+    insert into organizations (slug, name, brand) values ('sem-professor', 'Sem', 'grifoai');
+    insert into verify.failures values ('an organization without has_teacher was accepted');
+    delete from organizations where slug = 'sem-professor';
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_column = column_name;
+    if v_state <> '23502' or v_column is distinct from 'has_teacher' then
+      insert into verify.failures values (format(
+        'an organization without has_teacher was refused with %s on %s, expected 23502 on has_teacher',
+        v_state, coalesce(v_column, 'no column')));
+    else
+      raise notice 'an organization without has_teacher: refused, 23502 on has_teacher';
+    end if;
+  end;
+
+  -- The company without a teacher, its admin and one employee, and a Chelsea
+  -- admin who is not a platform admin.
+  insert into organizations (slug, name, brand, has_teacher)
+    values ('empresa-c', 'Empresa C', 'grifoai', false) returning id into v_c;
+  insert into auth.users (id, email, raw_user_meta_data) values
+    (c_admin_c, 'admin-c@example.com', '{"full_name":"Admin C"}'),
+    (c_employee, 'employee-c@example.com', '{"full_name":"Employee C"}'),
+    (c_admin_chelsea, 'admin-chelsea@example.com', null);
+  insert into organization_members (organization_id, user_id, role) values
+    (v_c, c_admin_c, 'admin'),
+    (v_c, c_employee, 'student'),
+    (c_chelsea, c_admin_chelsea, 'admin');
+  insert into students (id, organization_id) values (c_employee, v_c);
+
+  -- One row of every operation table, and content of her own, so the reads
+  -- below have something to miss.
+  insert into books (position, title, organization_id) values (2, 'C only', v_c)
+    returning id into v_book;
+  insert into points (book_id, number) values (v_book, 1) returning id into v_point;
+  insert into questions (point_id, position, prompt, expected_answer, is_published)
+    values (v_point, 0, 'of C', 'a', true) returning id into v_question;
+  insert into questions (point_id, position, prompt, expected_answer, is_published)
+    values (v_point, 1, 'of C, a draft', 'a', false);
+  insert into lessons (student_id, scheduled_at) values (c_employee, now() + interval '2 days');
+  insert into lesson_schedules (student_id, weekday, start_time) values (c_employee, 1, '09:00');
+  insert into assignments (student_id, due_on) values (c_employee, current_date)
+    returning id into v_assignment;
+  insert into assignment_items (assignment_id, question_id, position)
+    values (v_assignment, v_question, 0);
+  insert into attempts (student_id, question_id, audio_path)
+    values (c_employee, v_question, 'c/one.webm');
+  insert into review_schedule (student_id, question_id) values (c_employee, v_question);
+
+  foreach v_table in array c_content loop
+    execute format('select count(*) from %I where (organization_id is null or organization_id = %L) and %s',
+                   v_table, v_c, verify.teachers_only(v_table)) into v_owner_n;
+    if v_owner_n = 0 then
+      insert into verify.failures values (format(
+        'no common or C row in %s: the read below would prove nothing', v_table));
+    end if;
+  end loop;
+  foreach v_table in array c_operation loop
+    execute format('select count(*) from %I where organization_id = %L', v_table, v_c)
+      into v_owner_n;
+    if v_owner_n = 0 then
+      insert into verify.failures values (format(
+        'no row of C in %s: the read below would prove nothing', v_table));
+    end if;
+  end loop;
+
+  set local role authenticated;
+
+  -- 3. Who teaches.
+  perform set_config('test.uid', c_admin_c::text, false);
+  if teaches_in(v_c) then
+    insert into verify.failures values ('the admin of C teaches in C');
+  end if;
+  if teaches_anywhere() then
+    insert into verify.failures values ('the admin of C teaches somewhere');
+  end if;
+  if can_write_content(v_c) then
+    insert into verify.failures values ('the admin of C writes C''s content');
+  end if;
+  perform set_config('test.uid', c_admin_chelsea::text, false);
+  if not teaches_in(c_chelsea) or not teaches_anywhere() or not can_write_content(c_chelsea) then
+    insert into verify.failures values ('a Chelsea admin no longer teaches in Chelsea');
+  end if;
+  perform set_config('test.uid', c_teacher_b::text, false);
+  if not teaches_in(c_b) then
+    insert into verify.failures values ('B''s teacher no longer teaches in B');
+  end if;
+
+  -- 4. Nothing of a teacher's for the admin of C.
+  perform set_config('test.uid', c_admin_c::text, false);
+  foreach v_table in array c_content || c_operation loop
+    execute format('select count(*) from %I where %s', v_table, verify.teachers_only(v_table))
+      into v_n;
+    if v_n <> 0 then
+      insert into verify.failures values (format('the admin of C reads %s rows of %s', v_n, v_table));
+    end if;
+  end loop;
+  if not verify.refused_for_privilege(
+       format('insert into books (position, title, organization_id) values (8, %L, %L)', 'by C', v_c)) then
+    insert into verify.failures values ('the admin of C wrote a book of C');
+  end if;
+  if not verify.refused_for_privilege(
+       format('insert into lessons (student_id, scheduled_at) values (%L, now() + interval ''5 days'')',
+              c_employee)) then
+    insert into verify.failures values ('the admin of C wrote a lesson for her employee');
+  end if;
+  if not verify.refused_for_privilege(
+       format('insert into lesson_schedules (student_id, weekday, start_time) values (%L, 2, ''10:00'')',
+              c_employee)) then
+    insert into verify.failures values ('the admin of C wrote a schedule for her employee');
+  end if;
+  update students set meet_url = 'https://meet.example/c' where id = c_employee;
+  get diagnostics v_n = row_count;
+  if v_n <> 0 then
+    insert into verify.failures values ('the admin of C changed her employee''s student row');
+  end if;
+  -- materialize_lessons runs as its caller, and the admin of C no longer reads
+  -- the student row its check looks up, so the refusal below holds with the
+  -- old check too. Its body is held to asking teaches_in: a caller who reads
+  -- the row (a future policy) must still meet the new rule.
+  if strpos(pg_get_functiondef('materialize_lessons(uuid, integer)'::regprocedure),
+            'teaches_in((select organization_id from students where id = p_student_id))') = 0
+     or strpos(pg_get_functiondef('materialize_lessons(uuid, integer)'::regprocedure),
+               '{admin,teacher}') > 0 then
+    insert into verify.failures values ('materialize_lessons does not ask teaches_in');
+  end if;
+  begin
+    perform materialize_lessons(c_employee);
+    insert into verify.failures values ('materialize_lessons ran for the admin of C');
+  exception when others then
+    get stacked diagnostics v_message = message_text;
+    if v_message not like 'only a teacher%' then
+      insert into verify.failures values ('materialize_lessons refused the admin of C with: ' || v_message);
+    end if;
+  end;
+
+  -- 5. Storage.
+  if not verify.refused_for_privilege(
+       format('insert into storage.objects (bucket_id, name) values (%L, %L)',
+              'vocabulary-images', v_c || '/c.png')) then
+    insert into verify.failures values ('the admin of C wrote a file under C''s folder');
+  end if;
+  perform set_config('test.uid', c_teacher_b::text, false);
+  if verify.refused_for_privilege(
+       format('insert into storage.objects (bucket_id, name) values (%L, %L)',
+              'vocabulary-images', c_b || '/b-0042.png')) then
+    insert into verify.failures values ('B''s teacher no longer writes under B''s folder');
+  end if;
+
+  -- 6. Running the organization.
+  perform set_config('test.uid', c_admin_c::text, false);
+  perform verify.expect_accepted('the admin of C invites an employee', format(
+    'insert into organization_invites (organization_id, email, role, invited_by) values (%L, %L, %L, %L)',
+    v_c, 'new-employee@example.com', 'student', c_admin_c));
+  perform verify.expect_accepted('the admin of C invites an admin', format(
+    'insert into organization_invites (organization_id, email, role, invited_by) values (%L, %L, %L, %L)',
+    v_c, 'new-admin@example.com', 'admin', c_admin_c));
+  select count(*) into v_n from organization_invites where organization_id = v_c;
+  if v_n <> 2 then
+    insert into verify.failures values (format('the admin of C reads %s of C''s 2 invites', v_n));
+  end if;
+  select count(*) into v_n from organization_members where organization_id = v_c;
+  if v_n <> 2 then
+    insert into verify.failures values (format('the admin of C reads %s of C''s 2 members', v_n));
+  end if;
+  if not exists (select 1 from profiles where id = c_employee) then
+    insert into verify.failures values ('the admin of C does not read her employee''s name');
+  end if;
+  perform verify.expect_refused('an invite as teacher from the admin of C',
+    'teacher_needs_a_teaching_organization', format(
+    'insert into organization_invites (organization_id, email, role, invited_by) values (%L, %L, %L, %L)',
+    v_c, 'teacher-c@example.com', 'teacher', c_admin_c));
+  perform set_config('test.uid', c_admin::text, false);
+  perform verify.expect_refused('an invite as teacher of C from the platform admin',
+    'teacher_needs_a_teaching_organization', format(
+    'insert into organization_invites (organization_id, email, role, invited_by) values (%L, %L, %L, %L)',
+    v_c, 'teacher-c-by-platform@example.com', 'teacher', c_admin));
+
+  -- 8. The employee.
+  perform set_config('test.uid', c_employee::text, false);
+  if not exists (select 1 from questions where organization_id is null and is_published) then
+    insert into verify.failures values ('the employee of C does not read a common published question');
+  end if;
+  if not exists (select 1 from lessons where student_id = c_employee) then
+    insert into verify.failures values ('the employee of C does not read her own lesson');
+  end if;
+
+  -- 9. Chelsea's admin keeps a teacher's power.
+  perform set_config('test.uid', c_admin_chelsea::text, false);
+  if verify.refused_for_privilege(
+       format('insert into lessons (student_id, scheduled_at) values (%L, now() + interval ''9 days'')',
+              c_student)) then
+    insert into verify.failures values ('a Chelsea admin no longer writes a Chelsea student''s lesson');
+  end if;
+  if (select count(*) from books where organization_id is null) = 0 then
+    insert into verify.failures values ('a Chelsea admin no longer reads common content');
+  end if;
+  begin
+    perform materialize_lessons(c_student);
+  exception when others then
+    get stacked diagnostics v_message = message_text;
+    insert into verify.failures values ('materialize_lessons refused a Chelsea admin: ' || v_message);
+  end;
+
+  -- 7. Turning an organization into one without a teacher.
+  perform set_config('test.uid', c_admin_c::text, false);
+  update organizations set has_teacher = true where id = v_c;
+  get diagnostics v_n = row_count;
+  if v_n <> 0 then
+    insert into verify.failures values ('the admin of C changed has_teacher');
+  end if;
+
+  reset role;
+
+  perform verify.expect_refused('an invite of C turned into a teacher''s by the owner',
+    'teacher_needs_a_teaching_organization', format(
+    'update organization_invites set role = %L where organization_id = %L and role = %L',
+    'teacher', v_c, 'student'));
+  perform verify.expect_refused('a teacher member of C written by the owner',
+    'teacher_needs_a_teaching_organization', format(
+    'insert into organization_members (organization_id, user_id, role) values (%L, %L, %L)',
+    v_c, c_teacher_b, 'teacher'));
+  perform verify.expect_refused('C''s admin made a teacher by the owner',
+    'teacher_needs_a_teaching_organization', format(
+    'update organization_members set role = %L where organization_id = %L and user_id = %L',
+    'teacher', v_c, c_admin_c));
+  perform verify.expect_refused('B, which has a teacher, turned into an organization without one',
+    'organization_without_teacher_has_none',
+    format('update organizations set has_teacher = false where id = %L', c_b));
+
+  -- The member and invite branch locks the organization's row (for share),
+  -- which a single session cannot watch happen: held to its text, so a
+  -- rewrite that drops it fails here.
+  if strpos(pg_get_functiondef('a_teacher_needs_a_teaching_organization()'::regprocedure),
+            'where id = new.organization_id for share') = 0 then
+    insert into verify.failures values (
+      'a_teacher_needs_a_teaching_organization reads has_teacher without locking the organization');
+  end if;
+
+  -- An organization whose only teacher is a member, with no invite: B above
+  -- may also hold an open teacher invite from the blocks of 0031 and 0032.
+  insert into organizations (slug, name, brand, has_teacher)
+    values ('empresa-e', 'Empresa E', 'grifoai', true) returning id into v_e;
+  insert into organization_members (organization_id, user_id, role)
+    values (v_e, c_teacher_b, 'teacher');
+  perform verify.expect_refused('E, with a teacher member and no invite, turned into one without a teacher',
+    'organization_without_teacher_has_none',
+    format('update organizations set has_teacher = false where id = %L', v_e));
+
+  -- An organization whose only teacher is an open invite.
+  insert into organizations (slug, name, brand, has_teacher)
+    values ('empresa-d', 'Empresa D', 'grifoai', true) returning id into v_d;
+  insert into organization_invites (organization_id, email, role)
+    values (v_d, 'teacher-d@example.com', 'teacher');
+  perform verify.expect_refused('D, with an open teacher invite, turned into one without a teacher',
+    'organization_without_teacher_has_none',
+    format('update organizations set has_teacher = false where id = %L', v_d));
+  update organization_invites set accepted_at = now() where organization_id = v_d;
+  perform verify.expect_accepted('D, its teacher invite accepted and no teacher member, without a teacher',
+    format('update organizations set has_teacher = false where id = %L', v_d));
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'without a teacher, the admin does not teach: %', v_failures;
+  end if;
+
+  raise notice '0042 changed 34 policies of public by the one substitution, and vocabulary_images_write; nothing else';
+  raise notice 'the admin of an organization without a teacher reads and writes no content and no lesson, and writes no image';
+  raise notice 'she still invites, reads her invites, members and their names; nobody is a teacher there';
+  raise notice 'a Chelsea admin still teaches in Chelsea, B''s teacher in B';
+end;
+$$;
+
+-- Nobody truncates what RLS guards (0037) ----------------------------------------------
+--
+-- Holds for every relation public has now and any a migration adds later: the
+-- last block of the script, so it sees whatever the migrations above created.
+-- anon, authenticated and service_role hold none of truncate, references,
+-- trigger and maintain on any relation of public, references on no column;
+-- postgres's default ACL in public gives none of the four to the three; and a
+-- table created here, as postgres, is born with no privilege at all for them.
+-- has_table_privilege also sees what reaches a role through PUBLIC.
+--
+-- The probe table is dropped in the same block: scripts/gen-types.sh makes the
+-- types from this same database, and it must not show in them.
+do $$
+declare
+  c_roles constant text[] := array['anon', 'authenticated', 'service_role'];
+  c_unused constant text[] := array['truncate', 'references', 'trigger', 'maintain'];
+  v_relation record;
+  v_role text;
+  v_privilege text;
+  v_failures text;
+  v_before bigint := 0;
+begin
+  delete from verify.failures;
+
+  for v_relation in
+    select c.oid, c.relname
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm', 'f')
+     order by c.relname
+  loop
+    foreach v_role in array c_roles loop
+      foreach v_privilege in array c_unused loop
+        if has_table_privilege(v_role, v_relation.oid, v_privilege) then
+          insert into verify.failures
+            values (format('%s has %s on %s', v_role, v_privilege, v_relation.relname));
+        end if;
+      end loop;
+      if has_any_column_privilege(v_role, v_relation.oid, 'references')
+         and not has_table_privilege(v_role, v_relation.oid, 'references') then
+        insert into verify.failures
+          values (format('%s has references on a column of %s', v_role, v_relation.relname));
+      end if;
+    end loop;
+  end loop;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'no relation of public gives truncate, references, trigger or maintain to anon, authenticated or service_role';
+  end if;
+  v_before := (select count(*) from verify.failures);
+
+  insert into verify.failures
+  select format('the default ACL of postgres in public gives %s %s on new tables',
+                r.rolname, a.privilege_type)
+    from pg_default_acl d
+    cross join lateral aclexplode(d.defaclacl) a
+    join pg_roles r on r.oid = a.grantee
+   where d.defaclrole = 'postgres'::regrole
+     and d.defaclnamespace = 'public'::regnamespace
+     and d.defaclobjtype = 'r'
+     and r.rolname = any (c_roles)
+     and lower(a.privilege_type) = any (c_unused)
+   order by r.rolname, a.privilege_type;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'the default ACL of postgres in public gives none of the four to the three roles';
+  end if;
+  v_before := (select count(*) from verify.failures);
+
+  if current_user <> 'postgres' then
+    insert into verify.failures values (format(
+      'the probe table would be created by %s, not postgres, and prove nothing about its default ACL',
+      current_user));
+  end if;
+  create table public.verify_default_acl_probe (id integer);
+  foreach v_role in array c_roles loop
+    foreach v_privilege in array array['select', 'insert', 'update', 'delete',
+                                       'truncate', 'references', 'trigger', 'maintain'] loop
+      if has_table_privilege(v_role, 'public.verify_default_acl_probe', v_privilege) then
+        insert into verify.failures
+          values (format('a new table is born giving %s %s', v_role, v_privilege));
+      end if;
+    end loop;
+  end loop;
+  drop table public.verify_default_acl_probe;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a new table of public is born with no privilege for anon, authenticated or service_role';
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'unused privileges: %', v_failures;
+  end if;
 end;
 $$;

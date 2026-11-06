@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
 
+import { CHELSEA } from "@/lib/brand";
 import { listVocabularyImages } from "@/lib/content/queries";
+import { currentSite } from "@/lib/current-site";
 import type { SessionWord } from "@/lib/tutor/turn-engine";
 
 import { FakeSession } from "./fake-session";
 
 export const metadata: Metadata = {
-  title: "Prévia da sessão · Chelsea St",
+  title: "Prévia da sessão",
 };
 
 /** How many words the fake script walks through. */
@@ -19,9 +21,15 @@ const PREVIEW_WORDS = 5;
  *
  * The words are the first of lesson 1, in book order, that already have an
  * approved picture, read through the same query as the images screen.
+ *
+ * The tutor wears the mascot of the brand of the Host. A host outside the list
+ * shows Robin's art, which names no brand: the tutor is Robin everywhere.
  */
 export default async function SessionPreviewPage() {
-  const { lessons } = await listVocabularyImages();
+  const [{ lessons }, site] = await Promise.all([
+    listVocabularyImages(),
+    currentSite(),
+  ]);
   const words: SessionWord[] = (
     lessons.find((lesson) => lesson.lessonNumber === 1)?.words ?? []
   )
@@ -41,5 +49,5 @@ export default async function SessionPreviewPage() {
     );
   }
 
-  return <FakeSession words={words} />;
+  return <FakeSession words={words} mascot={(site?.brand ?? CHELSEA).mascot} />;
 }

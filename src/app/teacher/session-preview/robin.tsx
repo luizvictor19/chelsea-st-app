@@ -1,24 +1,14 @@
-export type RobinState = "idle" | "listening" | "thinking" | "speaking";
+import type { Mascot } from "@/lib/brand";
+
+import { ART, artUrl, type RobinState } from "./mascot-art";
+
+export type { RobinState };
 
 const LABELS: Record<RobinState, string> = {
   idle: "parado",
   listening: "ouvindo",
   thinking: "pensando",
   speaking: "falando",
-};
-
-/**
- * What each state shows: the looping idle video, or a still.
- *
- * Thinking and speaking have no art yet. Thinking borrows the listening still
- * and speaking borrows the idle loop; both are stand-ins, to be replaced here
- * when their files arrive, and nowhere else.
- */
-const ART: Record<RobinState, { kind: "video" | "still"; name: string }> = {
-  idle: { kind: "video", name: "robin-idle" },
-  listening: { kind: "still", name: "robin-listening" },
-  thinking: { kind: "still", name: "robin-listening" }, // stand-in
-  speaking: { kind: "video", name: "robin-idle" }, // stand-in
 };
 
 /*
@@ -30,14 +20,20 @@ const ART: Record<RobinState, { kind: "video" | "still"; name: string }> = {
  */
 const FRAME = "size-full object-contain";
 
-function Still({ name }: { readonly name: string }) {
+type ArtProps = { readonly mascot: Mascot; readonly pose: string };
+
+function Still({ mascot, pose }: ArtProps) {
   return (
     <picture>
       <source
-        srcSet={`/robin/${name}-dark.png`}
+        srcSet={artUrl(mascot, pose, "dark", "png")}
         media="(prefers-color-scheme: dark)"
       />
-      <img src={`/robin/${name}-light.png`} alt="" className={FRAME} />
+      <img
+        src={artUrl(mascot, pose, "light", "png")}
+        alt=""
+        className={FRAME}
+      />
     </picture>
   );
 }
@@ -51,14 +47,14 @@ function Still({ name }: { readonly name: string }) {
  * price is one more file of under 200 KB and a second small decode, accepted
  * for a prototype; pausing it would need the theme in script.
  */
-function Loop({ name }: { readonly name: string }) {
+function Loop({ mascot, pose }: ArtProps) {
   return (
     <>
       {(["light", "dark"] as const).map((theme) => (
         <video
           key={theme}
-          src={`/robin/${name}-${theme}.mp4`}
-          poster={`/robin/${name}-${theme}.png`}
+          src={artUrl(mascot, pose, theme, "mp4")}
+          poster={artUrl(mascot, pose, theme, "png")}
           autoPlay
           loop
           muted
@@ -75,7 +71,17 @@ function Loop({ name }: { readonly name: string }) {
   );
 }
 
-export function Robin({ state }: { readonly state: RobinState }) {
+/**
+ * The tutor, drawn with the mascot of the brand of the Host. The tutor is
+ * called Robin under every brand; only the art changes.
+ */
+export function Robin({
+  state,
+  mascot,
+}: {
+  readonly state: RobinState;
+  readonly mascot: Mascot;
+}) {
   const art = ART[state];
   return (
     <div
@@ -84,9 +90,9 @@ export function Robin({ state }: { readonly state: RobinState }) {
       className="size-32 shrink-0 bg-[#F2F2F0] sm:size-40 dark:bg-[#0F1115]"
     >
       {art.kind === "video" ? (
-        <Loop key={art.name} name={art.name} />
+        <Loop key={`${mascot}/${art.pose}`} mascot={mascot} pose={art.pose} />
       ) : (
-        <Still name={art.name} />
+        <Still mascot={mascot} pose={art.pose} />
       )}
     </div>
   );

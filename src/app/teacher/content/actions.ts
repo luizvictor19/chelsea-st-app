@@ -3,9 +3,11 @@
 import { revalidatePath } from "next/cache";
 
 import { orphansToAttach, type LessonRange } from "@/lib/content/lesson-range";
-import { COMMON } from "@/lib/content/queries";
+import { COMMON, requireTeacher } from "@/lib/content/queries";
 import type { BlockKind } from "@/lib/extraction/classify";
-import { createClient } from "@/lib/supabase/server";
+
+import { failureMessage } from "./questions/draft";
+import { rangeRefusal } from "./range-refusal";
 
 export type ActionResult =
   | { readonly status: "ok" }
@@ -73,6 +75,25 @@ function refreshBookScreens(bookPosition: number): void {
   revalidatePath(`/teacher/content/${bookPosition}`);
 }
 
+/**
+ * requireTeacher for these actions, with its redirect said in words. A
+ * session that ended would otherwise navigate away from the review panel
+ * and take the teacher's unconfirmed pages with it; told in words, nothing
+ * is written and the pages stay on screen (failureMessage, as the
+ * questions screen does). Whoever does not teach gets the same refusal.
+ */
+async function asTeacher(): Promise<
+  | { readonly supabase: Client }
+  | { readonly status: "error"; readonly message: string }
+> {
+  try {
+    const { supabase } = await requireTeacher();
+    return { supabase };
+  } catch (cause) {
+    return { status: "error", message: failureMessage(cause) };
+  }
+}
+
 /** Records the book's range and creates its empty points. */
 export async function configureBook(
   bookId: string,
@@ -80,14 +101,18 @@ export async function configureBook(
   firstPoint: number,
   lastPoint: number,
 ): Promise<ActionResult> {
-  const supabase = await createClient();
+  const teacher = await asTeacher();
+  if (!("supabase" in teacher)) return teacher;
+  const { supabase } = teacher;
   const { error } = await supabase.rpc("materialize_points", {
     p_book_id: bookId,
     p_first_point: firstPoint,
     p_last_point: lastPoint,
   });
   if (error) {
-    return { status: "error", message: error.message };
+    // A narrowing refused because points outside still carry something is
+    // told in the teacher's words; anything else shows as it came.
+    return { status: "error", message: rangeRefusal(error) ?? error.message };
   }
   refreshBookScreens(bookPosition);
   return { status: "ok" };
@@ -108,6 +133,10 @@ export async function configureBook(
 export async function confirmPoint(
   point: ConfirmedPoint,
 ): Promise<ActionResult> {
+  const teacher = await asTeacher();
+  if (!("supabase" in teacher)) return teacher;
+  const { supabase } = teacher;
+
   // Refused before a single row is written, rather than written with a hole in
   // it. A point with no lesson is invisible to the lesson screen and nothing
   // goes back for it on its own, so this is the last place that can still say
@@ -118,8 +147,6 @@ export async function confirmPoint(
       message: `Diga a qual lição o ponto ${point.pointNumber} pertence antes de gravar.`,
     };
   }
-
-  const supabase = await createClient();
 
   const { data: row, error: lookupError } = await supabase
     .from("points")
@@ -253,7 +280,7 @@ export async function confirmPoint(
     const { data: existing } = await supabase
       .from("vocabulary_items")
       .select("id")
-      .is("school_id", COMMON)
+      .is("organization_id", COMMON)
       .ilike("term", term)
       .maybeSingle();
     if (existing === null) {
@@ -275,7 +302,7 @@ export async function confirmPoint(
   return { status: "ok" };
 }
 
-type Client = Awaited<ReturnType<typeof createClient>>;
+type Client = Awaited<ReturnType<typeof requireTeacher>>["supabase"];
 
 /**
  * Attaches the points that were written before their lesson existed.
@@ -359,7 +386,9 @@ export type BookLessons =
  * have answered.
  */
 export async function bookLessons(bookId: string): Promise<BookLessons> {
-  const supabase = await createClient();
+  const teacher = await asTeacher();
+  if (!("supabase" in teacher)) return teacher;
+  const { supabase } = teacher;
   const { data, error } = await supabase
     .from("lessons_content")
     .select("id, number, first_point, last_point")
@@ -399,7 +428,9 @@ export async function filledPoints(
   if (numbers.length === 0) {
     return { status: "ok", numbers: [] };
   }
-  const supabase = await createClient();
+  const teacher = await asTeacher();
+  if (!("supabase" in teacher)) return teacher;
+  const { supabase } = teacher;
   const { data, error } = await supabase
     .from("points")
     .select("number")

@@ -1,18 +1,26 @@
 import type { Metadata } from "next";
 
+import { rootMetadata } from "@/lib/brand";
+import { currentSite } from "@/lib/current-site";
+
 import { archivo, plexMono } from "./fonts";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "Chelsea St",
-  description: "Plataforma de apoio às aulas de inglês da Chelsea St.",
-};
+/** Name, description, icons and robots come from the brand of the Host. */
+export async function generateMetadata(): Promise<Metadata> {
+  return rootMetadata(await currentSite());
+}
 
-export default function RootLayout({
+/**
+ * data-brand picks the brand's colours in globals.css. A host outside the list
+ * gets none, and with it the default palette.
+ */
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const site = await currentSite();
   return (
-    <html lang="pt-BR">
+    <html lang="pt-BR" data-brand={site?.brand.key}>
       <body
         className={`${archivo.variable} ${plexMono.variable} font-sans antialiased`}
       >

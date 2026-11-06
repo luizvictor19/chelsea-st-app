@@ -117,6 +117,13 @@ export interface ImageProvider {
  * second window. Whether that was their service or the picture is not known,
  * which is exactly why one road was one too few.
  *
+ * `needsReference` says the model cannot draw without one (#186). Measured
+ * in image_attempts on 2026-11-04: Flux Kontext Pro generated 28 times with
+ * a reference, every one charged, and failed both times it was sent none,
+ * with a 400 "body.input_image is required" and no credits spent (one word
+ * on 25/09, one scene on 04/11). Mystic generated 49 times on words with no
+ * reference, so it takes one without needing it.
+ *
  * `preferredForReference` marks the one a new reference is generated on. It
  * is a judgement and it has to be, so see defaultReferenceModel for what it
  * was judged on and how thin the evidence is.
@@ -133,6 +140,7 @@ export const IMAGE_MODELS = [
     label: "Seedream 4",
     credits: 50,
     reference: "none",
+    needsReference: false,
     preferredForReference: false,
     composes: false,
   },
@@ -160,6 +168,7 @@ export const IMAGE_MODELS = [
     label: "Mystic",
     credits: 80,
     reference: "base64",
+    needsReference: false,
     preferredForReference: false,
     composes: false,
   },
@@ -175,6 +184,7 @@ export const IMAGE_MODELS = [
     label: "Flux Kontext Pro",
     credits: 150,
     reference: "url",
+    needsReference: true,
     preferredForReference: true,
     composes: false,
   },
@@ -191,6 +201,7 @@ export const IMAGE_MODELS = [
     label: "Seedream 4.5 Edit",
     credits: 50,
     reference: "none",
+    needsReference: false,
     preferredForReference: false,
     composes: true,
   },
@@ -199,6 +210,7 @@ export const IMAGE_MODELS = [
   label: string;
   credits: number | null;
   reference: "none" | "base64" | "url";
+  needsReference: boolean;
   preferredForReference: boolean;
   composes: boolean;
 }[];
@@ -247,6 +259,36 @@ export function defaultComposeModel(): ImageModelId | null {
 /** Whether this model can be handed a picture to work from. */
 export function takesReference(id: ImageModelId): boolean {
   return referenceDelivery(id) !== "none";
+}
+
+/** Whether this model cannot draw without a reference (#186). */
+export function needsReference(id: ImageModelId): boolean {
+  return IMAGE_MODELS.find((model) => model.id === id)?.needsReference ?? false;
+}
+
+/**
+ * Why this model cannot generate as things stand, or null when it can, as far
+ * as the reference goes. One sentence for the screen and for the server, so
+ * the Generate button and the action that refuses it never disagree.
+ */
+export function referenceRefusal(
+  id: ImageModelId,
+  hasReference: boolean,
+): string | null {
+  if (hasReference || !needsReference(id)) return null;
+  return `Sem referência, o ${modelLabel(id)} não gera.`;
+}
+
+/**
+ * Where the model goes when the reference comes off: the fallback when the
+ * current model needs one, otherwise where it already was. Leaving it on a
+ * model that needs a reference would leave a panel that cannot generate.
+ */
+export function modelWithoutReference(
+  current: ImageModelId,
+  fallback: ImageModelId,
+): ImageModelId {
+  return needsReference(current) ? fallback : current;
 }
 
 /** The form this model wants its reference in. */

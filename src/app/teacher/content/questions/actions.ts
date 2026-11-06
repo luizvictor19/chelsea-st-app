@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 
 import { requireTeacher } from "@/lib/content/queries";
+import type { ImageChoice } from "@/lib/questions/question-image";
+import { approvedPicture } from "@/lib/questions/shown-word";
 
 import {
   EDITED_ELSEWHERE,
@@ -10,8 +12,13 @@ import {
   deleteError,
   failureMessage,
   parseFields,
+  publishRefusal,
   questionError,
+  questionRow,
   refusal,
+  stillLoaded,
+  type PictureOf,
+  type QuestionFields,
 } from "./draft";
 
 /** What every action on this screen answers with. */
@@ -26,6 +33,67 @@ function failure(cause: unknown): QuestionResult {
   return { ok: false, error: failureMessage(cause) };
 }
 
+type Client = Awaited<ReturnType<typeof requireTeacher>>["supabase"];
+
+/**
+ * The approved picture of the word or the scene `image` names, read from
+ * its row as the screen reads it: a word's through approvedPicture (a kind
+ * that is drawn, and image_path), a scene's image_path while it is in use.
+ * A lookup that knows only that one item; anything else has no picture.
+ * A failed read throws, and the action says it.
+ */
+async function storedPictureOf(
+  supabase: Client,
+  image: ImageChoice,
+): Promise<PictureOf> {
+  if ((image.kind !== "word" && image.kind !== "scene") || image.id === null) {
+    return () => null;
+  }
+  let picture: string | null;
+  if (image.kind === "word") {
+    const { data, error } = await supabase
+      .from("vocabulary_items")
+      .select("representation, image_path")
+      .eq("id", image.id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    picture =
+      data === null
+        ? null
+        : approvedPicture({
+            representation: data.representation,
+            imageUrl: data.image_path,
+          });
+  } else {
+    const { data, error } = await supabase
+      .from("scenes")
+      .select("image_path")
+      .eq("id", image.id)
+      .is("archived_at", null)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    picture = data?.image_path ?? null;
+  }
+  const { kind, id } = image;
+  return (asked, askedId) =>
+    asked === kind && askedId === id ? picture : null;
+}
+
+/**
+ * Why `fields` cannot be written published (publishRefusal), with the
+ * picture read from the database and not taken from the screen. Reads only
+ * when there is something to read: a draft, or one acted out, needs none.
+ */
+async function storedPublishRefusal(
+  supabase: Client,
+  fields: QuestionFields,
+): Promise<string | null> {
+  const pictureOf = fields.isPublished
+    ? await storedPictureOf(supabase, fields.image)
+    : () => null;
+  return publishRefusal(fields, pictureOf);
+}
+
 /**
  * Adds a question at the end of its point.
  *
@@ -33,6 +101,9 @@ function failure(cause: unknown): QuestionResult {
  * taken from the screen. Two tabs adding at once can still read the same
  * number; the second insert is then refused by the unique on (point_id,
  * position) and says so, with the form left as it was.
+ *
+ * Published, it is only written showing a picture or acted out
+ * (storedPublishRefusal), as is an edit saved published.
  */
 export async function addQuestion(
   pointId: string,
@@ -44,9 +115,12 @@ export async function addQuestion(
     if (typeof pointId !== "string" || parsed === null) {
       return { ok: false, error: UNREADABLE };
     }
-    const why = refusal(parsed);
+    const why =
+      refusal(parsed) ?? (await storedPublishRefusal(supabase, parsed));
     if (why !== null) return { ok: false, error: why };
-    const question = cleaned(parsed);
+    const row = questionRow(cleaned(parsed));
+    // refusal has turned away every fields questionRow cannot write.
+    if (row === null) return { ok: false, error: UNREADABLE };
 
     const last = await supabase
       .from("questions")
@@ -59,11 +133,7 @@ export async function addQuestion(
     const { error } = await supabase.from("questions").insert({
       point_id: pointId,
       position: (last.data.at(0)?.position ?? -1) + 1,
-      prompt: question.prompt,
-      expected_answer: question.expectedAnswer,
-      answer_language: question.answerLanguage,
-      is_published: question.isPublished,
-      shown_vocabulary_item_id: question.shownWordId,
+      ...row,
     });
     if (error) {
       return { ok: false, error: questionError(error.message, error.code) };
@@ -78,10 +148,12 @@ export async function addQuestion(
 /**
  * Saves an edit, if the question is still what the form opened on.
  *
- * `loaded` is the fields as the screen read them, the word shown among them. The update only
- * matches a row that still holds them, so an edit made from an old view does
- * not silently undo one saved in another tab since: it matches nothing, and
- * the teacher is told to reload with the draft still on screen. A question
+ * `loaded` is the fields as the screen read them. The update only matches a
+ * row that still holds every column it writes, as they were loaded
+ * (stillLoaded): the text, the publish box and the three columns of the
+ * image. So an edit made from an old view does not silently undo one saved
+ * in another tab since, the image included: it matches nothing, and the
+ * teacher is told to reload with the draft still on screen. A question
  * deleted meanwhile is the same case and gets the same sentence.
  */
 export async function saveQuestion(
@@ -96,32 +168,24 @@ export async function saveQuestion(
     if (typeof questionId !== "string" || before === null || parsed === null) {
       return { ok: false, error: UNREADABLE };
     }
-    const why = refusal(parsed);
+    const why =
+      refusal(parsed) ?? (await storedPublishRefusal(supabase, parsed));
     if (why !== null) return { ok: false, error: why };
-    const question = cleaned(parsed);
+    const row = questionRow(cleaned(parsed));
+    const matches = stillLoaded(before);
+    // refusal has turned away the first; a row never holds the second.
+    if (row === null || matches === null) {
+      return { ok: false, error: UNREADABLE };
+    }
 
-    const stillLoaded = supabase
-      .from("questions")
-      .update({
-        prompt: question.prompt,
-        expected_answer: question.expectedAnswer,
-        answer_language: question.answerLanguage,
-        is_published: question.isPublished,
-        shown_vocabulary_item_id: question.shownWordId,
-      })
-      .eq("id", questionId)
-      .eq("prompt", before.prompt)
-      .eq("expected_answer", before.expectedAnswer)
-      .eq("answer_language", before.answerLanguage)
-      .eq("is_published", before.isPublished);
-    // Null is matched with `is`: `eq` against null compares with = and
-    // matches no row, which would refuse every edit of a question that shows
-    // no word.
-    const { data, error } = await (
-      before.shownWordId === null
-        ? stillLoaded.is("shown_vocabulary_item_id", null)
-        : stillLoaded.eq("shown_vocabulary_item_id", before.shownWordId)
-    ).select("id");
+    let update = supabase.from("questions").update(row).eq("id", questionId);
+    for (const match of matches) {
+      update =
+        match.op === "is"
+          ? update.is(match.column, null)
+          : update.eq(match.column, match.value);
+    }
+    const { data, error } = await update.select("id");
     if (error) {
       return { ok: false, error: questionError(error.message, error.code) };
     }

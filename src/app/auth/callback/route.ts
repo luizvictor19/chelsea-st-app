@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 
-import { safeNextUrl } from "@/lib/safe-redirect";
+import { isSameHostPath, safeNextPath } from "@/lib/safe-redirect";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -15,10 +15,13 @@ import { createClient } from "@/lib/supabase/server";
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams, origin } = request.nextUrl;
 
-  // Resolved once, here, and passed to redirect as-is. This is the one place a
-  // stranger's URL reaches a redirect that fires the instant someone is signed
-  // in, so it is checked before anything else happens.
-  const next = safeNextUrl(searchParams.get("next"), origin);
+  // Resolved once, here, before anything else happens. This is the one place
+  // a stranger's URL reaches a redirect that fires the instant someone is
+  // signed in. Two checks make it safe, both in safeNextPath: the destination
+  // resolves onto `origin`, and the path it returns cannot be read as another
+  // host. `origin` is only the base of the first: outside Vercel it names the
+  // server's host, not the one the link was opened at (#102).
+  const next = safeNextPath(searchParams.get("next"), origin);
 
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
@@ -29,7 +32,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      return NextResponse.redirect(next);
+      return redirectTo(next);
     }
   } else if (tokenHash && type) {
     const { error } = await supabase.auth.verifyOtp({
@@ -37,11 +40,31 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       token_hash: tokenHash,
     });
     if (!error) {
-      return NextResponse.redirect(next);
+      return redirectTo(next);
     }
   }
 
   // Expired, already used, or tampered with. All the same to the person holding
   // it: ask for a fresh one.
-  return NextResponse.redirect(new URL("/login?error=link", origin));
+  return redirectTo("/login?error=link");
+}
+
+/**
+ * A redirect with a relative Location, which the browser resolves against the
+ * address it opened the link at, so the session cookie set here and the page
+ * it goes to are on the same host. NextResponse.redirect only takes an
+ * absolute URL, and the only absolute URL this route has is built on
+ * nextUrl.origin, which is localhost when the link was opened at 127.0.0.1.
+ *
+ * The cookies the sign-in set through cookies() still go out: Next merges
+ * them into whatever Response a route handler returns.
+ *
+ * A Location starting with "//" would be another site. The callers pass
+ * safeNextPath's result or a constant, and the shape is checked here again
+ * anyway, so a later caller handing it a raw parameter gets the root and not
+ * an open redirect.
+ */
+function redirectTo(location: string): NextResponse {
+  const safe = isSameHostPath(location) ? location : "/";
+  return new NextResponse(null, { status: 307, headers: { location: safe } });
 }

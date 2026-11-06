@@ -1,7 +1,8 @@
 "use server";
 
+import { recoveryOptions } from "@/lib/auth-links";
 import { looksLikeEmail, normalizeEmail } from "@/lib/credentials";
-import { env } from "@/lib/env";
+import { currentSite } from "@/lib/current-site";
 import { createClient } from "@/lib/supabase/server";
 
 export type ResetState =
@@ -13,9 +14,9 @@ export type ResetState =
  * Sends the link that leads to /set-password.
  *
  * Same answer for an address with an account and one without, for the reason
- * the login gives. The redirect matters only while the email templates still
- * use Supabase's default link; the templates of #96 name /set-password
- * themselves (docs/commands.md).
+ * the login gives. The redirect is only the origin of this request's site
+ * (src/lib/auth-links.ts): the reset template adds the path, /set-password
+ * included (docs/commands.md).
  */
 export async function sendPasswordReset(
   _previous: ResetState,
@@ -28,9 +29,10 @@ export async function sendPasswordReset(
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/set-password`,
-  });
+  const { error } = await supabase.auth.resetPasswordForEmail(
+    email,
+    recoveryOptions(await currentSite()),
+  );
 
   if (error) {
     return {

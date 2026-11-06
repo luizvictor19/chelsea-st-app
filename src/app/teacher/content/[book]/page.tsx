@@ -16,7 +16,7 @@ import { PointGrid } from "./point-grid";
 import { SetupSteps } from "./setup-steps";
 
 export const metadata: Metadata = {
-  title: "Livro · Chelsea St",
+  title: "Livro",
 };
 
 export default async function BookPage({

@@ -2,10 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 
-import type { SchoolRole } from "@/lib/access";
-import { requireTeacher } from "@/lib/content/queries";
+import type { OrganizationRole } from "@/lib/access";
+import { requireInviter } from "@/lib/auth";
+import { inviteOptions } from "@/lib/auth-links";
+import { isBrandKey, siteOfBrand } from "@/lib/brand";
 import { looksLikeEmail, normalizeEmail } from "@/lib/credentials";
-import { env } from "@/lib/env";
+import { currentSite, siteConfig } from "@/lib/current-site";
 import { inviteRefusal, mailProblem, renewedExpiry } from "@/lib/invites";
 import { createInviteMailer } from "@/lib/supabase/admin";
 
@@ -14,14 +16,27 @@ export type InviteState =
   | { status: "sent"; email: string }
   // The typed email and role go back to the form: a refusal must not make the
   // person type them again.
-  | { status: "error"; message: string; email?: string; role?: SchoolRole };
+  | {
+      status: "error";
+      message: string;
+      email?: string;
+      role?: OrganizationRole;
+    };
 
 export type RowResult =
   | { status: "sent" }
   | { status: "cancelled" }
   | { status: "error"; message: string };
 
-const ROLES: readonly SchoolRole[] = ["student", "teacher", "admin"];
+const ROLES: readonly OrganizationRole[] = ["student", "teacher", "admin"];
+
+type Client = Awaited<ReturnType<typeof requireInviter>>["supabase"];
+
+/** Both screens that list invites: the teacher's and the company admin's (0042). */
+function refreshInviteScreens(): void {
+  revalidatePath("/teacher/invites");
+  revalidatePath("/team");
+}
 
 /**
  * Asks Supabase to mail the invite. For a new email it creates the account,
@@ -29,11 +44,31 @@ const ROLES: readonly SchoolRole[] = ["student", "teacher", "admin"];
  * to /set-password through the invite template of docs/commands.md. For an
  * account that already exists it mails nothing, and that reads as sent: she
  * accepts when she signs in (0032). See mailProblem.
+ *
+ * The link leads to the site of the brand the organization wears (#195),
+ * read here so both callers get it: a GrifoAI company's invite opens on the
+ * GrifoAI domain, whoever sent it and from wherever. A brand with no site yet
+ * (no GrifoAI domain before #193) gets no redirect, so the Site URL. When the
+ * organization's brand cannot be read, the inviter's site, as before #195.
  */
-async function mailInvite(email: string): Promise<string | null> {
-  const { error } = await createInviteMailer().inviteUserByEmail(email, {
-    redirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/set-password`,
-  });
+async function mailInvite(
+  supabase: Client,
+  email: string,
+  organizationId: string,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("organizations")
+    .select("brand")
+    .eq("id", organizationId)
+    .maybeSingle();
+  const site = isBrandKey(data?.brand)
+    ? siteOfBrand(data.brand, siteConfig())
+    : await currentSite();
+
+  const { error } = await createInviteMailer().inviteUserByEmail(
+    email,
+    inviteOptions(site),
+  );
   return mailProblem(error);
 }
 
@@ -42,15 +77,15 @@ async function mailInvite(email: string): Promise<string | null> {
  * may (0031), and only then mails it. Nobody joins here: every invite waits
  * for the person's yes (0032).
  */
-export async function inviteToSchool(
+export async function inviteToOrganization(
   _previous: InviteState,
   formData: FormData,
 ): Promise<InviteState> {
-  const { supabase } = await requireTeacher();
+  const { supabase } = await requireInviter();
 
   const email = normalizeEmail(formData.get("email"));
-  const role = String(formData.get("role") ?? "") as SchoolRole;
-  const schoolId = String(formData.get("school_id") ?? "");
+  const role = String(formData.get("role") ?? "") as OrganizationRole;
+  const organizationId = String(formData.get("organization_id") ?? "");
 
   if (!looksLikeEmail(email)) {
     return {
@@ -60,20 +95,24 @@ export async function inviteToSchool(
       role,
     };
   }
-  if (!ROLES.includes(role) || schoolId === "") {
-    return { status: "error", message: "Escolha o papel e a escola.", email };
+  if (!ROLES.includes(role) || organizationId === "") {
+    return {
+      status: "error",
+      message: "Escolha o papel e a organização.",
+      email,
+    };
   }
 
   const { error } = await supabase
-    .from("school_invites")
-    .insert({ school_id: schoolId, email, role });
+    .from("organization_invites")
+    .insert({ organization_id: organizationId, email, role });
   if (error) {
     return { status: "error", message: inviteRefusal(error), email, role };
   }
 
-  revalidatePath("/teacher/invites");
+  refreshInviteScreens();
 
-  const problem = await mailInvite(email);
+  const problem = await mailInvite(supabase, email, organizationId);
   if (problem !== null) {
     return { status: "error", message: problem };
   }
@@ -85,20 +124,20 @@ export async function inviteToSchool(
  * restarts the 15 days itself; the value sent is only what it would be.
  */
 export async function resendInvite(inviteId: string): Promise<RowResult> {
-  const { supabase } = await requireTeacher();
+  const { supabase } = await requireInviter();
 
   const { data: invite, error } = await supabase
-    .from("school_invites")
+    .from("organization_invites")
     .update({ expires_at: renewedExpiry(new Date()) })
     .eq("id", inviteId)
     .is("accepted_at", null)
-    .select("id, email")
+    .select("id, email, organization_id")
     .maybeSingle();
   if (error) {
     return { status: "error", message: inviteRefusal(error) };
   }
 
-  revalidatePath("/teacher/invites");
+  refreshInviteScreens();
 
   if (!invite) {
     return {
@@ -108,7 +147,11 @@ export async function resendInvite(inviteId: string): Promise<RowResult> {
     };
   }
 
-  const problem = await mailInvite(invite.email);
+  const problem = await mailInvite(
+    supabase,
+    invite.email,
+    invite.organization_id,
+  );
   if (problem !== null) {
     return { status: "error", message: problem };
   }
@@ -117,16 +160,16 @@ export async function resendInvite(inviteId: string): Promise<RowResult> {
 
 /**
  * Cancels an open invite. The account Supabase created when it was mailed
- * stays, unconfirmed and with no school. Its only way in is the recovery link
+ * stays, unconfirmed and with no organization. Its only way in is the recovery link
  * ("Esqueci minha senha", or the magic link, which falls back to it): that
  * confirms the email with no invite left to accept, and leads to the screen
  * of an account with no access.
  */
 export async function cancelInvite(inviteId: string): Promise<RowResult> {
-  const { supabase } = await requireTeacher();
+  const { supabase } = await requireInviter();
 
   const { data, error } = await supabase
-    .from("school_invites")
+    .from("organization_invites")
     .delete()
     .eq("id", inviteId)
     .is("accepted_at", null)
@@ -135,7 +178,7 @@ export async function cancelInvite(inviteId: string): Promise<RowResult> {
     return { status: "error", message: inviteRefusal(error) };
   }
 
-  revalidatePath("/teacher/invites");
+  refreshInviteScreens();
 
   if (data.length === 0) {
     return {

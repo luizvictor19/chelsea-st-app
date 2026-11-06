@@ -46,6 +46,9 @@ era `for all using (is_teacher())`, e a 0008 o seguiu.
   reconhecer um lote que gravou mas não conseguiu responder. PRs #16 e #19.
 - **Sugestão de Instrução.** "Sugerir instrução" pede ao modelo de texto uma Instrução para a palavra
   e grava a proposta em `vocabulary_items.image_subject`, o mesmo campo que o professor edita. PR #18.
+  A palavra segue no DeepSeek; a cena usa o Claude Haiku 5.5 (`claude-haiku-5-5`, atrás do mesmo
+  `TextProvider`, em `src/lib/text/claude.ts`), escolhido pela medição da #187: US$ 0,0129 por 100
+  propostas, mediana de 1,4 s.
 - **Toda tentativa é guardada**, gerada ou enviada à mão, aprovada ou descartada. É de onde sai
   "tentativas até aprovação" por modelo. Cada tentativa guarda três coisas diferentes:
   - `prompt`: o que foi enviado ao fornecedor, estilo e regra da categoria incluídos;
@@ -72,6 +75,8 @@ era `for all using (is_teacher())`, e a 0008 o seguiu.
   preço de cada imagem estão em `IMAGE_MODELS`: Seedream 4 a 50 créditos, Mystic a 80 e Flux Kontext
   Pro a 150, lidos no painel do Freepik e anotados ao lado da tabela. O modelo padrão vem do tipo
   (`defaultModelFor`): Mystic para `photo`, Seedream 4 para `figure`, `pose` e `action`. PR #22.
+  O Flux Kontext Pro só gera com referência (`needsReference`, #186): sem ela, o painel o mostra
+  desabilitado e o servidor recusa antes de gravar a tentativa.
 - **O custo é gravado pela aplicação.** O fornecedor não informa cobrança, então `credits_spent` é
   escrito quando o fornecedor aceita a tarefa, a partir do preço em `IMAGE_MODELS`. A 0015 preencheu
   do mesmo jeito as 50 tentativas que já existiam. Modelo e fornecedor ficam gravados por tentativa,
@@ -109,18 +114,32 @@ O desenho agora (`src/lib/images/generation.ts` e `src/app/teacher/content/image
 - **O painel pergunta a cada 2s** (`POLL_INTERVAL_MS`), em sequência e não por intervalo: a última
   pergunta de uma geração é a que baixa a imagem e a sobe para o bucket, e duas delas ao mesmo tempo
   fariam o trabalho duas vezes.
-- **O prazo é da linha.** `GENERATION_WINDOW_MS`, 90s, mede `now - created_at`, não um relógio
-  dentro de uma requisição. Ele limita quanto tempo se espera por uma resposta, e nada mais: um
-  fornecedor que diz COMPLETED depois do prazo ainda tem a imagem gravada, porque ela foi paga e
-  descartá-la por causa de um relógio é o único erro aqui que custa dinheiro.
-- **`completed_at`** é gravado uma vez, na saída de `pending`. `completed_at - created_at` é a
-  duração real, por modelo. Medido no banco em 24/10/2026, só tentativas sem erro:
+- **O prazo é da linha.** `GENERATION_WINDOW_MS`, 360s (90s até a #91), mede `now - created_at`,
+  não um relógio dentro de uma requisição. Ele limita quanto tempo se espera por uma resposta, e
+  nada mais. Uma pergunta que acha COMPLETED depois do prazo ainda grava a imagem, mas só se for a
+  primeira pergunta depois dele: a que acha `pending` depois do prazo fecha a linha como `failed`, e
+  uma linha `failed` não é mais perguntada. Por isso o prazo erra para cima: prazo curto perde
+  imagem paga (aconteceu uma vez, uma Mystic fechada aos 91,0s em 19/09, com 80 créditos), prazo
+  longo só deixa o Gerar daquela palavra desligado mais tempo numa geração que travou de verdade
+  (nunca aconteceu).
+- **`completed_at`** é gravado uma vez, na saída de `pending`. É a hora em que o **nosso servidor**
+  gravou a resposta, depois de baixar e subir a imagem, não a hora em que o fornecedor terminou:
+  `completed_at - created_at` é um teto da duração, perto dela só quando as perguntas não pararam.
+  Medido no banco em 04/11/2026, só tentativas sem erro:
 
-  | Modelo           | Tentativas | Mediana | Pior   |
-  | ---------------- | ---------- | ------- | ------ |
-  | Flux Kontext Pro | 27         | 13,2s   | 22,0s  |
-  | Seedream 4       | 63         | 14,3s   | 81,1s  |
-  | Mystic           | 43         | 24,9s   | 341,7s |
+  | Modelo            | Tentativas | Mediana | Pior   |
+  | ----------------- | ---------- | ------- | ------ |
+  | Flux Kontext Pro  | 28         | 13,2s   | 22,0s  |
+  | Seedream 4        | 63         | 14,3s   | 81,1s  |
+  | Seedream 4.5 Edit | 1          | 37,0s   | 37,0s  |
+  | Mystic            | 48         | 25,0s   | 341,7s |
+
+  As três linhas acima de 90s são Mystic, todas de antes de o painel continuar perguntando quando se
+  troca de palavra (26/09). Cada uma foi gravada pela primeira pergunta depois dos 90s, então o
+  fornecedor já tinha terminado antes. A de 95,0s pode ser duração de verdade (uma pergunta perto dos
+  91s que achou COMPLETED, mais o tempo de gravar). As de 147,0s e 341,7s tiveram um buraco nas
+  perguntas: são tetos, não durações. O prazo de 360s cobre o pior número da tabela mesmo assim, um
+  prazo só para todos os modelos.
 
   ```sql
   select model, count(*),
@@ -208,9 +227,10 @@ create policy vocabulary_images_write_teacher on storage.objects
 `search_path`.
 
 Desde a 0029 (#95, ADR 0004), `is_teacher()` não existe mais. As tabelas de imagem ganharam
-`school_id` (nulo é conteúdo comum) e as políticas chamam `is_platform_admin()` e
-`is_school_member()`. No bucket, escreve o admin da plataforma em qualquer caminho, e o admin ou o
-professor de uma escola só sob a pasta `{school_id}/`; os caminhos de hoje não mudaram.
+`organization_id` (nulo é conteúdo comum) e as políticas chamam `is_platform_admin()` e
+`is_organization_member()` (nomes da 0040; até a 0039 eram `school_id` e `is_school_member()`). No
+bucket, escreve o admin da plataforma em qualquer caminho, e o admin ou o professor de uma escola só
+sob a pasta `{organization_id}/`; os caminhos de hoje não mudaram.
 
 `scripts/verify-rls.sql` ganha duas coisas: a aluna vê zero `image_attempts`, e um stub do schema
 `storage` ao lado do stub de `auth` que já existia. O script roda contra um Postgres puro na CI, onde
@@ -404,6 +424,11 @@ mesma transação em que ele é acrescentado, então qualquer consulta, função
 - Painel da cena (`?cena=`): estilo, Instrução (começa pela instrução da tentativa mais nova, ou
   pela descrição, e fica gravada só na tentativa), referência de estrutura, modelo (Seedream 4 por
   padrão, como figura), Gerar, Enviar imagem pronta, tentativas com Aprovar e Descartar.
+  "Sugerir instrução" dentro do campo (#187): o Claude Haiku 5.5 propõe a Instrução a partir da
+  descrição e da pergunta mais antiga que mostra a cena. Só preenche o campo, não grava e não gera.
+  Se o campo mudou durante a espera, a edição fica e a nota mostra a sugestão; se não mudou, o texto
+  anterior volta com Desfazer. Só pede quem pode gravar a cena (`can_write_content`), e a recusa vem
+  antes da chamada paga.
 
 ## Medição
 
@@ -420,7 +445,7 @@ decidido" (`questions_one_image`).
 
 - Tabela `scenes`: descrição (nunca em branco), `image_style`, referência opcional em
   `references/`, imagem aprovada (`approved_attempt_id` e `image_path`, juntos ou nenhum),
-  `school_id` (nulo é comum) e `based_on_id`.
+  `organization_id` (nulo é comum) e `based_on_id`.
 - Descrição única por escopo, sem diferenciar maiúsculas e espaços: entre as comuns, e entre as de
   uma escola. Uma escola pode repetir a descrição de uma comum, que é como ela customiza.
 - As tentativas de imagem da cena são as mesmas de `image_attempts`: geração, upload, aprovação e
@@ -457,7 +482,29 @@ decidido" (`questions_one_image`).
   de novo uma cena excluída cria outra.
 - Apagar de verdade uma cena usada por uma pergunta é recusado (`on delete restrict`).
 - Telas: seção Cenas na tela de imagens (#64), escolha na tela de perguntas (#65), tela de aula
-  (#66). Publicar uma pergunta sem imagem, ou encenada, pede confirmação (#65).
+  (#66).
+  - Na tela de perguntas, o campo "Imagem da pergunta" tem quatro opções: **Sem decidir**,
+    **Palavra** (as palavras com imagem aprovada apresentadas até o ponto), **Cena** (as cenas
+    comuns em uso, em ordem alfabética, cada uma com a miniatura ou "sem imagem") e **Encenar**.
+    Trocar de opção guarda a última palavra e a última cena escolhidas. Cada gravação escreve as três
+    colunas, e salvar uma edição confere as três como a tela as leu: uma troca de imagem feita em
+    outra aba não é desfeita em silêncio.
+  - **Criar cena**, embaixo da lista, começa com a resposta esperada quando ela é em inglês (senão,
+    com a pergunta) e cria a cena sem gerar nada. Uma descrição que já existe escolhe a cena que a
+    tem. Criar não liga nada: a pergunta passa a mostrar a cena quando é salva.
+  - Uma cena sem imagem tem o link **fazer imagem** e, escolhida, o **Próximo passo** com **Fazer a
+    imagem em Imagens**. Os dois abrem o painel da cena na mesma aba (#184); se algum formulário da
+    tela tem algo não salvo, a tela pergunta antes ("Sair sem salvar?", com **Ficar** e **Sair e
+    descartar**), porque sair descarta todos. O painel aberto assim tem "← Perguntas · livro, lição,
+    ponto", que volta ao ponto de onde a professora veio.
+  - Uma pergunta só é gravada com **Publicada** marcada (Salvar e Acrescentar) se mostra uma palavra
+    com imagem aprovada, uma cena com imagem aprovada, ou é **Encenar** (#180). Sem decidir, ou
+    palavra ou cena sem imagem aprovada, deixa o botão desligado, com o motivo ao lado desde que o
+    formulário abre; sem Publicada, a pergunta é salva como rascunho. As ações conferem a mesma
+    regra lendo a palavra ou a cena no banco. O banco não guarda a regra: uma imagem pode sair da
+    palavra ou da cena depois, e a lista diz "Publicada sem imagem" com as três saídas (escolher a
+    imagem, marcar Encenar, desmarcar Publicada). Na aula ela continua aparecendo, com o cartão sem
+    imagem.
 
 ## Fora desta entrega
 

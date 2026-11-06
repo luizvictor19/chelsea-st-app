@@ -27,32 +27,32 @@ export type Database = {
         Row: {
           assignment_id: string;
           id: string;
+          organization_id: string;
           position: number;
           question_id: string;
-          school_id: string;
         };
         ComputedFields: never;
         Insert: {
           assignment_id: string;
           id?: string;
+          organization_id: string;
           position: number;
           question_id: string;
-          school_id: string;
         };
         Update: {
           assignment_id?: string;
           id?: string;
+          organization_id?: string;
           position?: number;
           question_id?: string;
-          school_id?: string;
         };
         Relationships: [
           {
             foreignKeyName: "assignment_items_assignment_fkey";
-            columns: ["school_id", "assignment_id"];
+            columns: ["organization_id", "assignment_id"];
             isOneToOne: false;
             referencedRelation: "assignments";
-            referencedColumns: ["school_id", "id"];
+            referencedColumns: ["organization_id", "id"];
           },
           {
             foreignKeyName: "assignment_items_question_id_fkey";
@@ -69,7 +69,7 @@ export type Database = {
           created_at: string;
           due_on: string;
           id: string;
-          school_id: string;
+          organization_id: string;
           student_id: string;
         };
         ComputedFields: never;
@@ -78,7 +78,7 @@ export type Database = {
           created_at?: string;
           due_on: string;
           id?: string;
-          school_id: string;
+          organization_id: string;
           student_id: string;
         };
         Update: {
@@ -86,16 +86,16 @@ export type Database = {
           created_at?: string;
           due_on?: string;
           id?: string;
-          school_id?: string;
+          organization_id?: string;
           student_id?: string;
         };
         Relationships: [
           {
             foreignKeyName: "assignments_student_fkey";
-            columns: ["school_id", "student_id"];
+            columns: ["organization_id", "student_id"];
             isOneToOne: false;
             referencedRelation: "students";
-            referencedColumns: ["school_id", "id"];
+            referencedColumns: ["organization_id", "id"];
           },
         ];
       };
@@ -105,10 +105,10 @@ export type Database = {
           audio_path: string;
           created_at: string;
           id: string;
+          organization_id: string;
           question_id: string;
           reviewed_at: string | null;
           reviewed_by: string | null;
-          school_id: string;
           student_id: string;
           teacher_note: string | null;
           transcript: string | null;
@@ -120,10 +120,10 @@ export type Database = {
           audio_path: string;
           created_at?: string;
           id?: string;
+          organization_id: string;
           question_id: string;
           reviewed_at?: string | null;
           reviewed_by?: string | null;
-          school_id: string;
           student_id: string;
           teacher_note?: string | null;
           transcript?: string | null;
@@ -134,10 +134,10 @@ export type Database = {
           audio_path?: string;
           created_at?: string;
           id?: string;
+          organization_id?: string;
           question_id?: string;
           reviewed_at?: string | null;
           reviewed_by?: string | null;
-          school_id?: string;
           student_id?: string;
           teacher_note?: string | null;
           transcript?: string | null;
@@ -167,10 +167,10 @@ export type Database = {
           },
           {
             foreignKeyName: "attempts_student_fkey";
-            columns: ["school_id", "student_id"];
+            columns: ["organization_id", "student_id"];
             isOneToOne: false;
             referencedRelation: "students";
-            referencedColumns: ["school_id", "id"];
+            referencedColumns: ["organization_id", "id"];
           },
         ];
       };
@@ -182,9 +182,9 @@ export type Database = {
           id: string;
           kind: Database["public"]["Enums"]["block_kind"];
           needs_review: boolean;
+          organization_id: string | null;
           point_id: string;
           position: number;
-          school_id: string | null;
           source_page: string | null;
         };
         ComputedFields: never;
@@ -195,9 +195,9 @@ export type Database = {
           id?: string;
           kind: Database["public"]["Enums"]["block_kind"];
           needs_review?: boolean;
+          organization_id?: string | null;
           point_id: string;
           position: number;
-          school_id?: string | null;
           source_page?: string | null;
         };
         Update: {
@@ -207,9 +207,9 @@ export type Database = {
           id?: string;
           kind?: Database["public"]["Enums"]["block_kind"];
           needs_review?: boolean;
+          organization_id?: string | null;
           point_id?: string;
           position?: number;
-          school_id?: string | null;
           source_page?: string | null;
         };
         Relationships: [
@@ -221,17 +221,17 @@ export type Database = {
             referencedColumns: ["id"];
           },
           {
+            foreignKeyName: "blocks_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
             foreignKeyName: "blocks_point_id_fkey";
             columns: ["point_id"];
             isOneToOne: false;
             referencedRelation: "points";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "blocks_school_id_fkey";
-            columns: ["school_id"];
-            isOneToOne: false;
-            referencedRelation: "schools";
             referencedColumns: ["id"];
           },
         ];
@@ -243,8 +243,8 @@ export type Database = {
           first_point: number | null;
           id: string;
           last_point: number | null;
+          organization_id: string | null;
           position: number;
-          school_id: string | null;
           title: string;
         };
         ComputedFields: never;
@@ -254,8 +254,8 @@ export type Database = {
           first_point?: number | null;
           id?: string;
           last_point?: number | null;
+          organization_id?: string | null;
           position: number;
-          school_id?: string | null;
           title: string;
         };
         Update: {
@@ -264,8 +264,8 @@ export type Database = {
           first_point?: number | null;
           id?: string;
           last_point?: number | null;
+          organization_id?: string | null;
           position?: number;
-          school_id?: string | null;
           title?: string;
         };
         Relationships: [
@@ -277,40 +277,40 @@ export type Database = {
             referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "books_school_id_fkey";
-            columns: ["school_id"];
+            foreignKeyName: "books_organization_id_fkey";
+            columns: ["organization_id"];
             isOneToOne: false;
-            referencedRelation: "schools";
+            referencedRelation: "organizations";
             referencedColumns: ["id"];
           },
         ];
       };
       contrast_set_items: {
         Row: {
+          organization_id: string | null;
           position: number;
-          school_id: string | null;
           set_id: string;
           vocabulary_item_id: string;
         };
         ComputedFields: never;
         Insert: {
+          organization_id?: string | null;
           position: number;
-          school_id?: string | null;
           set_id: string;
           vocabulary_item_id: string;
         };
         Update: {
+          organization_id?: string | null;
           position?: number;
-          school_id?: string | null;
           set_id?: string;
           vocabulary_item_id?: string;
         };
         Relationships: [
           {
-            foreignKeyName: "contrast_set_items_school_id_fkey";
-            columns: ["school_id"];
+            foreignKeyName: "contrast_set_items_organization_id_fkey";
+            columns: ["organization_id"];
             isOneToOne: false;
-            referencedRelation: "schools";
+            referencedRelation: "organizations";
             referencedColumns: ["id"];
           },
           {
@@ -334,20 +334,20 @@ export type Database = {
           based_on_id: string | null;
           created_at: string;
           id: string;
-          school_id: string | null;
+          organization_id: string | null;
         };
         ComputedFields: never;
         Insert: {
           based_on_id?: string | null;
           created_at?: string;
           id?: string;
-          school_id?: string | null;
+          organization_id?: string | null;
         };
         Update: {
           based_on_id?: string | null;
           created_at?: string;
           id?: string;
-          school_id?: string | null;
+          organization_id?: string | null;
         };
         Relationships: [
           {
@@ -358,10 +358,10 @@ export type Database = {
             referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "contrast_sets_school_id_fkey";
-            columns: ["school_id"];
+            foreignKeyName: "contrast_sets_organization_id_fkey";
+            columns: ["organization_id"];
             isOneToOne: false;
-            referencedRelation: "schools";
+            referencedRelation: "organizations";
             referencedColumns: ["id"];
           },
         ];
@@ -376,12 +376,12 @@ export type Database = {
           error: string | null;
           id: string;
           model: string | null;
+          organization_id: string | null;
           prompt: string | null;
           provider: string;
           provider_request_id: string | null;
           reference_path: string | null;
           scene_id: string | null;
-          school_id: string | null;
           source_filename: string | null;
           status: string;
           storage_path: string | null;
@@ -398,12 +398,12 @@ export type Database = {
           error?: string | null;
           id?: string;
           model?: string | null;
+          organization_id?: string | null;
           prompt?: string | null;
           provider: string;
           provider_request_id?: string | null;
           reference_path?: string | null;
           scene_id?: string | null;
-          school_id?: string | null;
           source_filename?: string | null;
           status: string;
           storage_path?: string | null;
@@ -419,12 +419,12 @@ export type Database = {
           error?: string | null;
           id?: string;
           model?: string | null;
+          organization_id?: string | null;
           prompt?: string | null;
           provider?: string;
           provider_request_id?: string | null;
           reference_path?: string | null;
           scene_id?: string | null;
-          school_id?: string | null;
           source_filename?: string | null;
           status?: string;
           storage_path?: string | null;
@@ -433,17 +433,17 @@ export type Database = {
         };
         Relationships: [
           {
+            foreignKeyName: "image_attempts_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
             foreignKeyName: "image_attempts_scene_id_fkey";
             columns: ["scene_id"];
             isOneToOne: false;
             referencedRelation: "scenes";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "image_attempts_school_id_fkey";
-            columns: ["school_id"];
-            isOneToOne: false;
-            referencedRelation: "schools";
             referencedColumns: ["id"];
           },
           {
@@ -507,7 +507,7 @@ export type Database = {
           duration_minutes: number;
           id: string;
           is_active: boolean;
-          school_id: string;
+          organization_id: string;
           start_time: string;
           student_id: string;
           timezone: string;
@@ -519,7 +519,7 @@ export type Database = {
           duration_minutes?: number;
           id?: string;
           is_active?: boolean;
-          school_id: string;
+          organization_id: string;
           start_time: string;
           student_id: string;
           timezone?: string;
@@ -530,7 +530,7 @@ export type Database = {
           duration_minutes?: number;
           id?: string;
           is_active?: boolean;
-          school_id?: string;
+          organization_id?: string;
           start_time?: string;
           student_id?: string;
           timezone?: string;
@@ -539,10 +539,10 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "lesson_schedules_student_fkey";
-            columns: ["school_id", "student_id"];
+            columns: ["organization_id", "student_id"];
             isOneToOne: false;
             referencedRelation: "students";
-            referencedColumns: ["school_id", "id"];
+            referencedColumns: ["organization_id", "id"];
           },
         ];
       };
@@ -552,8 +552,8 @@ export type Database = {
           duration_minutes: number;
           id: string;
           meet_url: string | null;
+          organization_id: string;
           scheduled_at: string;
-          school_id: string;
           status: Database["public"]["Enums"]["lesson_status"];
           stopped_at_point_id: string | null;
           student_id: string;
@@ -565,8 +565,8 @@ export type Database = {
           duration_minutes?: number;
           id?: string;
           meet_url?: string | null;
+          organization_id: string;
           scheduled_at: string;
-          school_id: string;
           status?: Database["public"]["Enums"]["lesson_status"];
           stopped_at_point_id?: string | null;
           student_id: string;
@@ -577,8 +577,8 @@ export type Database = {
           duration_minutes?: number;
           id?: string;
           meet_url?: string | null;
+          organization_id?: string;
           scheduled_at?: string;
-          school_id?: string;
           status?: Database["public"]["Enums"]["lesson_status"];
           stopped_at_point_id?: string | null;
           student_id?: string;
@@ -594,10 +594,10 @@ export type Database = {
           },
           {
             foreignKeyName: "lessons_student_fkey";
-            columns: ["school_id", "student_id"];
+            columns: ["organization_id", "student_id"];
             isOneToOne: false;
             referencedRelation: "students";
-            referencedColumns: ["school_id", "id"];
+            referencedColumns: ["organization_id", "id"];
           },
         ];
       };
@@ -610,7 +610,7 @@ export type Database = {
           id: string;
           last_point: number;
           number: number;
-          school_id: string | null;
+          organization_id: string | null;
         };
         ComputedFields: never;
         Insert: {
@@ -621,7 +621,7 @@ export type Database = {
           id?: string;
           last_point: number;
           number: number;
-          school_id?: string | null;
+          organization_id?: string | null;
         };
         Update: {
           based_on_id?: string | null;
@@ -631,7 +631,7 @@ export type Database = {
           id?: string;
           last_point?: number;
           number?: number;
-          school_id?: string | null;
+          organization_id?: string | null;
         };
         Relationships: [
           {
@@ -649,13 +649,127 @@ export type Database = {
             referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "lessons_content_school_id_fkey";
-            columns: ["school_id"];
+            foreignKeyName: "lessons_content_organization_id_fkey";
+            columns: ["organization_id"];
             isOneToOne: false;
-            referencedRelation: "schools";
+            referencedRelation: "organizations";
             referencedColumns: ["id"];
           },
         ];
+      };
+      organization_invites: {
+        Row: {
+          accepted_at: string | null;
+          created_at: string;
+          email: string;
+          expires_at: string;
+          id: string;
+          invited_by: string | null;
+          organization_id: string;
+          role: Database["public"]["Enums"]["organization_role"];
+        };
+        ComputedFields: never;
+        Insert: {
+          accepted_at?: string | null;
+          created_at?: string;
+          email: string;
+          expires_at?: string;
+          id?: string;
+          invited_by?: string | null;
+          organization_id: string;
+          role: Database["public"]["Enums"]["organization_role"];
+        };
+        Update: {
+          accepted_at?: string | null;
+          created_at?: string;
+          email?: string;
+          expires_at?: string;
+          id?: string;
+          invited_by?: string | null;
+          organization_id?: string;
+          role?: Database["public"]["Enums"]["organization_role"];
+        };
+        Relationships: [
+          {
+            foreignKeyName: "organization_invites_invited_by_fkey";
+            columns: ["invited_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "organization_invites_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      organization_members: {
+        Row: {
+          created_at: string;
+          organization_id: string;
+          role: Database["public"]["Enums"]["organization_role"];
+          user_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          organization_id: string;
+          role: Database["public"]["Enums"]["organization_role"];
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          organization_id?: string;
+          role?: Database["public"]["Enums"]["organization_role"];
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "organization_members_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "organization_members_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      organizations: {
+        Row: {
+          brand: string;
+          created_at: string;
+          has_teacher: boolean;
+          id: string;
+          name: string;
+          slug: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          brand: string;
+          created_at?: string;
+          has_teacher: boolean;
+          id?: string;
+          name: string;
+          slug: string;
+        };
+        Update: {
+          brand?: string;
+          created_at?: string;
+          has_teacher?: boolean;
+          id?: string;
+          name?: string;
+          slug?: string;
+        };
+        Relationships: [];
       };
       platform_admins: {
         Row: {
@@ -690,7 +804,7 @@ export type Database = {
           id: string;
           lesson_content_id: string | null;
           number: number;
-          school_id: string | null;
+          organization_id: string | null;
         };
         ComputedFields: never;
         Insert: {
@@ -701,7 +815,7 @@ export type Database = {
           id?: string;
           lesson_content_id?: string | null;
           number: number;
-          school_id?: string | null;
+          organization_id?: string | null;
         };
         Update: {
           based_on_id?: string | null;
@@ -711,7 +825,7 @@ export type Database = {
           id?: string;
           lesson_content_id?: string | null;
           number?: number;
-          school_id?: string | null;
+          organization_id?: string | null;
         };
         Relationships: [
           {
@@ -736,10 +850,10 @@ export type Database = {
             referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "points_school_id_fkey";
-            columns: ["school_id"];
+            foreignKeyName: "points_organization_id_fkey";
+            columns: ["organization_id"];
             isOneToOne: false;
-            referencedRelation: "schools";
+            referencedRelation: "organizations";
             referencedColumns: ["id"];
           },
         ];
@@ -776,12 +890,12 @@ export type Database = {
           image_path: string | null;
           is_acted_out: boolean;
           is_published: boolean;
+          organization_id: string | null;
           point_id: string;
           position: number;
           prompt: string;
           prompt_audio_path: string | null;
           scene_id: string | null;
-          school_id: string | null;
           shown_vocabulary_item_id: string | null;
         };
         ComputedFields: never;
@@ -794,12 +908,12 @@ export type Database = {
           image_path?: string | null;
           is_acted_out?: boolean;
           is_published?: boolean;
+          organization_id?: string | null;
           point_id: string;
           position: number;
           prompt: string;
           prompt_audio_path?: string | null;
           scene_id?: string | null;
-          school_id?: string | null;
           shown_vocabulary_item_id?: string | null;
         };
         Update: {
@@ -811,12 +925,12 @@ export type Database = {
           image_path?: string | null;
           is_acted_out?: boolean;
           is_published?: boolean;
+          organization_id?: string | null;
           point_id?: string;
           position?: number;
           prompt?: string;
           prompt_audio_path?: string | null;
           scene_id?: string | null;
-          school_id?: string | null;
           shown_vocabulary_item_id?: string | null;
         };
         Relationships: [
@@ -825,6 +939,13 @@ export type Database = {
             columns: ["based_on_id"];
             isOneToOne: false;
             referencedRelation: "questions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "questions_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
             referencedColumns: ["id"];
           },
           {
@@ -842,13 +963,6 @@ export type Database = {
             referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "questions_school_id_fkey";
-            columns: ["school_id"];
-            isOneToOne: false;
-            referencedRelation: "schools";
-            referencedColumns: ["id"];
-          },
-          {
             foreignKeyName: "questions_shown_vocabulary_item_id_fkey";
             columns: ["shown_vocabulary_item_id"];
             isOneToOne: false;
@@ -862,9 +976,9 @@ export type Database = {
           due_on: string;
           ease: number;
           interval_days: number;
+          organization_id: string;
           question_id: string;
           repetitions: number;
-          school_id: string;
           student_id: string;
         };
         ComputedFields: never;
@@ -872,18 +986,18 @@ export type Database = {
           due_on?: string;
           ease?: number;
           interval_days?: number;
+          organization_id: string;
           question_id: string;
           repetitions?: number;
-          school_id: string;
           student_id: string;
         };
         Update: {
           due_on?: string;
           ease?: number;
           interval_days?: number;
+          organization_id?: string;
           question_id?: string;
           repetitions?: number;
-          school_id?: string;
           student_id?: string;
         };
         Relationships: [
@@ -896,10 +1010,10 @@ export type Database = {
           },
           {
             foreignKeyName: "review_schedule_student_fkey";
-            columns: ["school_id", "student_id"];
+            columns: ["organization_id", "student_id"];
             isOneToOne: false;
             referencedRelation: "students";
-            referencedColumns: ["school_id", "id"];
+            referencedColumns: ["organization_id", "id"];
           },
         ];
       };
@@ -914,8 +1028,8 @@ export type Database = {
           id: string;
           image_path: string | null;
           image_style: Database["public"]["Enums"]["image_style"];
+          organization_id: string | null;
           reference_path: string | null;
-          school_id: string | null;
         };
         ComputedFields: never;
         Insert: {
@@ -928,8 +1042,8 @@ export type Database = {
           id?: string;
           image_path?: string | null;
           image_style?: Database["public"]["Enums"]["image_style"];
+          organization_id?: string | null;
           reference_path?: string | null;
-          school_id?: string | null;
         };
         Update: {
           approved_attempt_id?: string | null;
@@ -941,8 +1055,8 @@ export type Database = {
           id?: string;
           image_path?: string | null;
           image_style?: Database["public"]["Enums"]["image_style"];
+          organization_id?: string | null;
           reference_path?: string | null;
-          school_id?: string | null;
         };
         Relationships: [
           {
@@ -960,129 +1074,21 @@ export type Database = {
             referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "scenes_school_id_fkey";
-            columns: ["school_id"];
+            foreignKeyName: "scenes_organization_id_fkey";
+            columns: ["organization_id"];
             isOneToOne: false;
-            referencedRelation: "schools";
+            referencedRelation: "organizations";
             referencedColumns: ["id"];
           },
         ];
-      };
-      school_invites: {
-        Row: {
-          accepted_at: string | null;
-          created_at: string;
-          email: string;
-          expires_at: string;
-          id: string;
-          invited_by: string | null;
-          role: Database["public"]["Enums"]["school_role"];
-          school_id: string;
-        };
-        ComputedFields: never;
-        Insert: {
-          accepted_at?: string | null;
-          created_at?: string;
-          email: string;
-          expires_at?: string;
-          id?: string;
-          invited_by?: string | null;
-          role: Database["public"]["Enums"]["school_role"];
-          school_id: string;
-        };
-        Update: {
-          accepted_at?: string | null;
-          created_at?: string;
-          email?: string;
-          expires_at?: string;
-          id?: string;
-          invited_by?: string | null;
-          role?: Database["public"]["Enums"]["school_role"];
-          school_id?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "school_invites_invited_by_fkey";
-            columns: ["invited_by"];
-            isOneToOne: false;
-            referencedRelation: "profiles";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "school_invites_school_id_fkey";
-            columns: ["school_id"];
-            isOneToOne: false;
-            referencedRelation: "schools";
-            referencedColumns: ["id"];
-          },
-        ];
-      };
-      school_members: {
-        Row: {
-          created_at: string;
-          role: Database["public"]["Enums"]["school_role"];
-          school_id: string;
-          user_id: string;
-        };
-        ComputedFields: never;
-        Insert: {
-          created_at?: string;
-          role: Database["public"]["Enums"]["school_role"];
-          school_id: string;
-          user_id: string;
-        };
-        Update: {
-          created_at?: string;
-          role?: Database["public"]["Enums"]["school_role"];
-          school_id?: string;
-          user_id?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "school_members_school_id_fkey";
-            columns: ["school_id"];
-            isOneToOne: false;
-            referencedRelation: "schools";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "school_members_user_id_fkey";
-            columns: ["user_id"];
-            isOneToOne: false;
-            referencedRelation: "profiles";
-            referencedColumns: ["id"];
-          },
-        ];
-      };
-      schools: {
-        Row: {
-          created_at: string;
-          id: string;
-          name: string;
-          slug: string;
-        };
-        ComputedFields: never;
-        Insert: {
-          created_at?: string;
-          id?: string;
-          name: string;
-          slug: string;
-        };
-        Update: {
-          created_at?: string;
-          id?: string;
-          name?: string;
-          slug?: string;
-        };
-        Relationships: [];
       };
       students: {
         Row: {
           id: string;
           is_active: boolean;
           meet_url: string | null;
-          member_role: Database["public"]["Enums"]["school_role"];
-          school_id: string;
+          member_role: Database["public"]["Enums"]["organization_role"];
+          organization_id: string;
           started_on: string | null;
         };
         ComputedFields: never;
@@ -1091,7 +1097,7 @@ export type Database = {
           is_active?: boolean;
           meet_url?: string | null;
           member_role?: never;
-          school_id: string;
+          organization_id: string;
           started_on?: string | null;
         };
         Update: {
@@ -1099,7 +1105,7 @@ export type Database = {
           is_active?: boolean;
           meet_url?: string | null;
           member_role?: never;
-          school_id?: string;
+          organization_id?: string;
           started_on?: string | null;
         };
         Relationships: [
@@ -1112,16 +1118,16 @@ export type Database = {
           },
           {
             foreignKeyName: "students_membership_fkey";
-            columns: ["school_id", "id", "member_role"];
+            columns: ["organization_id", "id", "member_role"];
             isOneToOne: false;
-            referencedRelation: "school_members";
-            referencedColumns: ["school_id", "user_id", "role"];
+            referencedRelation: "organization_members";
+            referencedColumns: ["organization_id", "user_id", "role"];
           },
           {
-            foreignKeyName: "students_school_id_fkey";
-            columns: ["school_id"];
+            foreignKeyName: "students_organization_id_fkey";
+            columns: ["organization_id"];
             isOneToOne: false;
-            referencedRelation: "schools";
+            referencedRelation: "organizations";
             referencedColumns: ["id"];
           },
         ];
@@ -1136,10 +1142,10 @@ export type Database = {
           image_path: string | null;
           image_style: Database["public"]["Enums"]["image_style"];
           image_subject: string | null;
+          organization_id: string | null;
           reference_path: string | null;
           representation:
             Database["public"]["Enums"]["representation_kind"] | null;
-          school_id: string | null;
           suggested_representation:
             Database["public"]["Enums"]["representation_kind"] | null;
           suggestion_run_id: string | null;
@@ -1156,10 +1162,10 @@ export type Database = {
           image_path?: string | null;
           image_style?: Database["public"]["Enums"]["image_style"];
           image_subject?: string | null;
+          organization_id?: string | null;
           reference_path?: string | null;
           representation?:
             Database["public"]["Enums"]["representation_kind"] | null;
-          school_id?: string | null;
           suggested_representation?:
             Database["public"]["Enums"]["representation_kind"] | null;
           suggestion_run_id?: string | null;
@@ -1175,10 +1181,10 @@ export type Database = {
           image_path?: string | null;
           image_style?: Database["public"]["Enums"]["image_style"];
           image_subject?: string | null;
+          organization_id?: string | null;
           reference_path?: string | null;
           representation?:
             Database["public"]["Enums"]["representation_kind"] | null;
-          school_id?: string | null;
           suggested_representation?:
             Database["public"]["Enums"]["representation_kind"] | null;
           suggestion_run_id?: string | null;
@@ -1208,24 +1214,41 @@ export type Database = {
             referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "vocabulary_items_school_id_fkey";
-            columns: ["school_id"];
+            foreignKeyName: "vocabulary_items_organization_id_fkey";
+            columns: ["organization_id"];
             isOneToOne: false;
-            referencedRelation: "schools";
+            referencedRelation: "organizations";
             referencedColumns: ["id"];
           },
         ];
       };
     };
     Views: {
-      [_ in never]: never;
+      leads_latest: {
+        Row: {
+          codigo_origem: string | null;
+          created_at: string;
+          id: string;
+          interesse: string;
+          nivel: string | null;
+          nome: string;
+          objetivo: string | null;
+          user_agent: string | null;
+          utm_campaign: string | null;
+          utm_medium: string | null;
+          utm_source: string | null;
+          whatsapp: string;
+        };
+        ComputedFields: never;
+        Relationships: [];
+      };
     };
     Functions: {
-      accept_my_school_invite: {
+      accept_my_organization_invite: {
         Args: { p_invite: string };
         Returns: undefined;
       };
-      accept_school_invites: {
+      accept_organization_invites: {
         Args: { p_email: string; p_user: string };
         Returns: undefined;
       };
@@ -1236,12 +1259,12 @@ export type Database = {
       belongs_anywhere: { Args: Record<PropertyKey, never>; Returns: boolean };
       can_invite: {
         Args: {
-          p_role: Database["public"]["Enums"]["school_role"];
-          p_school: string;
+          p_organization: string;
+          p_role: Database["public"]["Enums"]["organization_role"];
         };
         Returns: boolean;
       };
-      can_write_content: { Args: { p_school: string }; Returns: boolean };
+      can_write_content: { Args: { p_organization: string }; Returns: boolean };
       clear_word_representation: {
         Args: {
           p_kind: Database["public"]["Enums"]["representation_kind"];
@@ -1254,15 +1277,15 @@ export type Database = {
       dissolve_contrast_set: { Args: { p_set_id: string }; Returns: undefined };
       gen_random_uuid: { Args: Record<PropertyKey, never>; Returns: string };
       gen_salt: { Args: { "": string }; Returns: string };
-      is_platform_admin: { Args: Record<PropertyKey, never>; Returns: boolean };
-      is_reference_list: { Args: { p_paths: string[] }; Returns: boolean };
-      is_school_member: {
+      is_organization_member: {
         Args: {
-          p_roles?: Database["public"]["Enums"]["school_role"][];
-          p_school: string;
+          p_organization: string;
+          p_roles?: Database["public"]["Enums"]["organization_role"][];
         };
         Returns: boolean;
       };
+      is_platform_admin: { Args: Record<PropertyKey, never>; Returns: boolean };
+      is_reference_list: { Args: { p_paths: string[] }; Returns: boolean };
       materialize_lessons: {
         Args: { p_student_id: string; p_weeks?: number };
         Returns: number;
@@ -1275,14 +1298,14 @@ export type Database = {
         };
         Returns: number;
       };
-      my_open_school_invites: {
+      my_open_organization_invites: {
         Args: Record<PropertyKey, never>;
         Returns: {
           expires_at: string;
           id: string;
-          role: Database["public"]["Enums"]["school_role"];
-          school_id: string;
-          school_name: string;
+          organization_id: string;
+          organization_name: string;
+          role: Database["public"]["Enums"]["organization_role"];
         }[];
       };
       pgp_armor_headers: {
@@ -1297,7 +1320,23 @@ export type Database = {
         Args: { p_expected?: string[]; p_items: string[]; p_set_id?: string };
         Returns: string;
       };
+      submit_lead: {
+        Args: {
+          codigo_origem?: string;
+          interesse: string;
+          nivel?: string;
+          nome: string;
+          objetivo?: string;
+          user_agent?: string;
+          utm_campaign?: string;
+          utm_medium?: string;
+          utm_source?: string;
+          whatsapp: string;
+        };
+        Returns: undefined;
+      };
       teaches_anywhere: { Args: Record<PropertyKey, never>; Returns: boolean };
+      teaches_in: { Args: { p_organization: string }; Returns: boolean };
     };
     Enums: {
       answer_language: "en" | "pt";
@@ -1311,6 +1350,7 @@ export type Database = {
         | "chart_ref";
       image_style: "flat" | "realistic";
       lesson_status: "scheduled" | "done" | "cancelled" | "no_show";
+      organization_role: "admin" | "teacher" | "student";
       representation_kind:
         | "photo"
         | "symbol"
@@ -1320,7 +1360,6 @@ export type Database = {
         | "usage"
         | "metalanguage"
         | "none";
-      school_role: "admin" | "teacher" | "student";
       word_class:
         | "noun"
         | "verb"
@@ -1473,6 +1512,7 @@ export const Constants = {
       ],
       image_style: ["flat", "realistic"],
       lesson_status: ["scheduled", "done", "cancelled", "no_show"],
+      organization_role: ["admin", "teacher", "student"],
       representation_kind: [
         "photo",
         "symbol",
@@ -1483,7 +1523,6 @@ export const Constants = {
         "metalanguage",
         "none",
       ],
-      school_role: ["admin", "teacher", "student"],
       word_class: [
         "noun",
         "verb",

@@ -5,8 +5,13 @@ architecture question for Luiz.
 
 ## The product
 
-- Chelsea St: an English school by Luiz. Two parts: live 45-min lessons with Luiz (one trial class
-  given on 02/10/2026; no students yet) and Robin, a voice tutor for daily practice (not built yet).
+- Two brands on one app and one database (ADR 0005, 05/11/2026):
+  - Chelsea St: Luiz's personal brand, an English school. Two parts: live 45-min lessons with Luiz
+    (one trial class given on 02/10/2026; no students yet) and Robin, a voice tutor for daily
+    practice (not built yet).
+  - GrifoAI: AI automation for companies. Its employees practise English with Robin only, with no
+    teacher and no teacher tools, under the GrifoAI brand (griffin mascot).
+- English schools are not customers. Each tenant is an organization: Chelsea St, or one company.
 - Today only Luiz uses the platform, as teacher. Students will sign in later.
 - Offer and prices live outside this repository and do not drive code decisions without an issue.
 
@@ -37,12 +42,47 @@ architecture question for Luiz.
   - A preview per PR, behind Vercel's login, against the production database (there is no
     staging). Preview variables are only the public Supabase ones and the contact: no service
     role and no paid API key, so a preview sends no invite and spends no credit.
-  - Supabase Site URL is `https://app.chelsea-st.com`, so every auth email links there, also one
-    asked for from `localhost`. To test one locally, swap the start of the link for
-    `http://localhost:3100`: the `token_hash` works on any host.
+  - Supabase Site URL is `https://app.chelsea-st.com`. Since #196 an auth email (login,
+    "Esqueci minha senha", invite) links to the origin of the site of the request, from the
+    allowlist below. The templates take `{{ .RedirectTo }}` only when it is one of their listed
+    origins, whole, and the Site URL otherwise (`docs/commands.md`): a host outside the list, an
+    origin missing from the Redirect URLs or a redirect with a path gets a working link on the
+    Chelsea domain. Since #195 an invite follows the brand of the organization invited, not the
+    inviter's host: the site of that brand in the allowlist, `https` only, so a GrifoAI invite
+    gets the Site URL until the GrifoAI domain exists (#193). The `token_hash` works on any host,
+    so a link's start can still be swapped by hand.
+- The brand of a request comes from its Host, by an allowlist in `src/lib/brand.ts` (#194), read
+  through `currentSite()` (`src/lib/current-site.ts`):
+  - `app.chelsea-st.com` is Chelsea St, on `https://app.chelsea-st.com`.
+  - The host in `GRIFOAI_HOST` is GrifoAI, on `https://` (`http://` for a `.localhost` host). The
+    variable is empty in production until the domain exists (#193).
+  - Off Vercel only (`VERCEL` unset), `localhost` and `127.0.0.1` on any port are Chelsea St, on
+    `http://` and the request's port.
+  - Any other host (a preview, the `.vercel.app` alias of production, anything else) gets the
+    neutral brand: no brand name on the screen, the page's name alone as the title, no description,
+    no icon, `noindex, nofollow`, no canonical. Never Chelsea St.
+  - Compared whole and lower-cased, port included: `app.chelsea-st.com:443` is unknown. A site's
+    origin comes from the list, never from the Host text.
+  - "Chelsea St" is written only in `src/lib/brand.ts` (a test in `brand.test.ts` holds it there).
+    Icons live in `public/brand/<brand>/`, not in `src/app/`: the icon file convention would
+    override the brand.
+  - What a brand looks like (name, description, icons, contact, mascot, host) stays in
+    `src/lib/brand.ts`, reviewed in a PR; its colours are `:root[data-brand]` in `globals.css`,
+    set on `<html>` from the Host. Only the accent changes between brands: the ground stays, the
+    mascot art is painted on it. The database says only which brand an organization wears
+    (`organizations.brand`, 0041, #195).
+  - The Host decides what a screen looks like, before and after sign-in. The organization decides
+    where a person goes: at the front door (`/`), someone signed in whose organizations all wear
+    the other brand is sent to that brand's site (`homeSite`, `src/lib/brand-home.ts`), and signs
+    in there again (the session is per domain). A platform admin, someone with no organization,
+    a host outside the list, and a brand with no site of the same scheme (no GrifoAI domain yet,
+    or a dev server) stay.
+  - The GrifoAI mascot is Robin's art until the griffin files arrive in `public/grifo/`;
+    `mascot-files.test.ts` holds every file the tutor shows to exist, for every brand.
 - Luiz also runs it locally on port 3100 (`npm run dev`).
-- The landing page (chelsea-st.com) is a separate folder, not in git, deployed by Luiz with the
-  Vercel CLI. Out of scope for this repository.
+- The landing page (chelsea-st.com) is the repository `luizvictor19/chelsea-st-site` (local clone
+  `~/Projects/chelsea-st`), deployed by Luiz. Its form writes leads into this project's database
+  (see Database rules); everything else on it is out of scope for this repository.
 - DNS on Cloudflare (grey cloud). Email: Cloudflare Email Routing, Resend, Supabase SMTP from
   contato@chelsea-st.com.
 
@@ -56,29 +96,65 @@ architecture question for Luiz.
 - Every migration appears in `scripts/verify-rls.sql`, or in `LEFT_OUT` of
   `scripts/migrations.test.ts` with the reason, and each new clause is proven by reversion.
 - `types.ts` is generated from the migrations with `scripts/gen-types.sh`, never from the live project.
-- Schools follow ADR 0004, applied by 0029: every table carries `school_id`; people and operation
-  rows belong to one school, content rows are common (`school_id` null) or one school's. Roles live
-  in `school_members` (`admin`, `teacher`, `student`, one row each) and `platform_admins`; there is
-  no `profiles.role` and no `is_teacher()`. Policies call `is_platform_admin()` and
-  `is_school_member()`. A new table names its school, and the `school_follows_parents` trigger
-  fills it, on insert, from the first parent present in its list and refuses a parent of another
-  school (first present since 0030: an image attempt's parent is a word or a scene).
+- No relation of `public` gives `truncate`, `references`, `trigger` or `maintain` to `anon`,
+  `authenticated` or `service_role`, and the `postgres` default ACL in `public` gives none of them
+  to a new table (0037; RLS filters none of the four). `scripts/verify-rls.sql` replays
+  production's default ACL from before 0001 and checks this in its last block, for every table.
+  The `supabase_admin` default in `public` is Supabase's and still gives every privilege; on
+  2026-11-04 no relation of `public` was owned by it.
+- `leads` receives rows only through `submit_lead` (0038), executed by `anon` alone: the site's
+  function calls it with the publishable key. Nobody reads `leads` through the API, and the
+  service role holds nothing on it. A number sent twice is two rows (history, nothing is
+  overwritten); the latest send of each number is the view `leads_latest`, with no privilege for
+  any API role. The number is stored with the 55 (`leads_whatsapp_br`).
+- Every organization wears a brand since 0041: `organizations.brand`, `chelsea-st` or `grifoai`
+  (`organizations_brand_known`), with no default, so a new organization names it. Only the
+  platform admin changes it (`organizations_write`); a member reads her own organization's. The
+  list equals `BRAND_KEYS` in `src/lib/brand.ts` (`brand-keys.test.ts`): a new brand is a
+  migration and a code change together. 0041 also created GrifoAI's own organization
+  (`slug = 'grifoai'`); a company's organization is created later, one per client.
+- Organizations follow ADR 0004, applied by 0029: every table carries `organization_id`; people
+  and operation rows belong to one organization, content rows are common (`organization_id` null)
+  or one organization's. Roles live in `organization_members` (`admin`, `teacher`, `student`, one
+  row each) and `platform_admins`; there is no `profiles.role` and no `is_teacher()`. Policies call
+  `is_platform_admin()` and `is_organization_member()`. A new table names its organization, and the
+  `organization_follows_parents` trigger fills it, on insert, from the first parent present in its
+  list and refuses a parent of another organization (first present since 0030: an image attempt's
+  parent is a word or a scene). Until 0039 every one of these names said `school` (`schools`,
+  `school_id`, `school_role`, `is_school_member`...); 0040 renamed them all, with parameters and
+  refusal messages, and the older migrations keep the names of their time.
+- An organization says whether it has a teacher since 0042 (#197): `organizations.has_teacher`, with
+  no default, written by the platform admin only. Chelsea St has one; GrifoAI's organization and
+  every company on GrifoAI have none. "Admin can do everything a teacher can" (ADR 0004) holds only
+  where there is a teacher: `teaches_in(organization)` (a teacher, or an admin where `has_teacher`)
+  is what the 34 policies of a teacher's power, `teaches_anywhere`, `can_write_content`,
+  `materialize_lessons` and the image upload policy ask. Where there is no teacher, the admin
+  invites (employees and admins), reads the invites, the members and their names, and nothing
+  else; nobody is a teacher there (triggers on members and invites), and an organization with a
+  teacher member or an open teacher invite cannot turn into one without. On screen the company
+  admin lands on `/team`, the employee (`student`) on `/dashboard`, which shows only the practice
+  with Robin.
 - What a question shows follows 0030: the picture of one word (`shown_vocabulary_item_id`), one
   scene (`scene_id`), or acted out (`is_acted_out`), at most one of the three, checked by
   `questions_one_image`; none of them means not decided yet. An image attempt belongs to exactly
-  one word or one scene (`image_attempts_one_owner`).
+  one word or one scene (`image_attempts_one_owner`). Publishing needs a word or a scene with an
+  approved picture, or acted out: checked on the screen and in `addQuestion`/`saveQuestion`
+  (`publishRefusal`, #180), not in the database.
 - Where a student stopped follows 0035: one point per lesson, `lessons.stopped_at_point_id`,
   written by "Parei aqui" on the live lesson screen. The points of a lesson are the ones between
   the previous lesson's mark and its own; they are not stored. A marked point cannot be deleted
-  (`on delete restrict`), and a mark names a common point or one of the lesson's school
-  (`lessons_stop_in_school`).
-- Joining a school follows 0031 and 0032: a membership is born only from a row of
-  `school_invites`, when the invited email is first confirmed (a trigger on `auth.users`) or, for
-  an account that already exists, when that person accepts it signed in
-  (`accept_my_school_invite`, offered by `my_open_school_invites` on `/teacher` and `/dashboard`).
+  (`on delete restrict`), and `materialize_points` names this refusal before deleting (0039). A
+  mark names a common point or one of the lesson's organization (`lessons_stop_in_organization`,
+  a trigger).
+- Joining an organization follows 0031 and 0032: a membership is born only from a row of
+  `organization_invites`, when the invited email is first confirmed (a trigger on `auth.users`) or,
+  for an account that already exists, when that person accepts it signed in
+  (`accept_my_organization_invite`, offered by `my_open_organization_invites` on `/teacher` and
+  `/dashboard`).
   Writing an invite never makes a membership, and the inviter reads the same "Convite enviado"
-  whether or not the email has an account (a mail that failed is still said as failed). Never insert into `school_members` or `students` from the app. A school's admin invites
-  any role, its teacher students only; a student belongs to one school, checked on acceptance.
+  whether or not the email has an account (a mail that failed is still said as failed). Never insert into `organization_members` or `students` from the app. An organization's admin
+  invites any role, its teacher students only; a student belongs to one organization, checked on
+  acceptance.
   No account is created without an invite (#109): the magic link asks with
   `shouldCreateUser: false`, and "Allow new users to sign up" is off in the Auth dashboard.
   With sign-ups off, GoTrue refuses the magic link to an invite not yet accepted (an unconfirmed
@@ -91,6 +167,23 @@ architecture question for Luiz.
 - API keys are server-only, never `NEXT_PUBLIC_`.
 - `SUPABASE_SERVICE_ROLE_KEY` is read only by `src/lib/supabase/admin.ts`, to send invite emails
   (#96). It passes every policy: never use it to read or write tables.
+- Supabase API keys are the new kind only (#149). The variable names stayed, the formats changed:
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY` holds a publishable key (`sb_publishable_`, the one named
+  `default`) and `SUPABASE_SERVICE_ROLE_KEY` holds a secret key (`sb_secret_`). The app's Vercel
+  Production uses the secret named `vercel_app`; `.env.local` and the Supabase CLI use the secret
+  named `default`, so each one rotates without touching the other.
+- Since 2026-11-04 the legacy JWT keys (`anon`, `service_role`) are disabled and the legacy HS256
+  JWT secret is revoked. A key starting with `eyJ` is refused with 401, as `apikey` and as
+  `Authorization: Bearer`. User sessions are signed with an asymmetric key (ES256).
+- In a hand-written call (curl, a script), the new key goes only in the `apikey` header, never in
+  `Authorization: Bearer`. The secret key is refused (401) when the User-Agent is a browser's: it
+  runs on a server only.
+- `ANTHROPIC_API_KEY` is read by the app since #187 (the scene's "Sugerir instrução") and by the
+  measurement scripts. Two Console keys: `chelsea-vercel` in Vercel Production only, as a Secret,
+  and `chelsea-local` in `.env.local`, so each one rotates without touching the other.
+- The site (`luizvictor19/chelsea-st-site`) holds only the publishable key
+  (`SUPABASE_PUBLISHABLE_KEY`), never the service role (#146). Its Vercel project has only
+  `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` among the Supabase variables.
 - Student personal data (name, email, audio) is processed under the privacy terms published on the
   landing. Never log it, never paste it into an issue.
 

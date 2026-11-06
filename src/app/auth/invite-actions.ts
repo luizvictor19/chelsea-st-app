@@ -10,7 +10,7 @@ export type AcceptState =
   { status: "idle" } | { status: "error"; message: string };
 
 /**
- * Says yes to one invite, with the person's own client: accept_my_school_invite
+ * Says yes to one invite, with the person's own client: accept_my_organization_invite
  * (0032) checks that it is her confirmed email, open and in time. Then the
  * front door decides where someone with a new role belongs.
  */
@@ -21,7 +21,7 @@ export async function acceptInvite(
   const inviteId = String(formData.get("invite_id") ?? "");
 
   const supabase = await createClient();
-  const { error } = await supabase.rpc("accept_my_school_invite", {
+  const { error } = await supabase.rpc("accept_my_organization_invite", {
     p_invite: inviteId,
   });
   if (error) {

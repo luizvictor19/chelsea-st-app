@@ -7,7 +7,7 @@
  * the Flash price. Docs: https://api-docs.deepseek.com
  */
 
-import type { TextProvider } from "./provider";
+import type { TextProvider, TextUsage } from "./provider";
 
 // This module reads a secret, so it must never be bundled for the browser.
 if (typeof window !== "undefined") {
@@ -47,9 +47,38 @@ function readContent(body: unknown): string | null {
   return typeof content === "string" ? content : null;
 }
 
+/**
+ * The billed tokens, narrowed by hand like the content. The cache split is
+ * DeepSeek's own: prompt_cache_hit_tokens and prompt_cache_miss_tokens add up
+ * to the prompt, and each is billed at its own price. Null when any of the
+ * three is missing, rather than a usage that quietly costs less than it did.
+ */
+function readUsage(body: unknown): TextUsage | null {
+  if (typeof body !== "object" || body === null) return null;
+  const usage = (body as { usage?: unknown }).usage;
+  if (typeof usage !== "object" || usage === null) return null;
+  const {
+    prompt_cache_hit_tokens,
+    prompt_cache_miss_tokens,
+    completion_tokens,
+  } = usage as Record<string, unknown>;
+  if (
+    typeof prompt_cache_hit_tokens !== "number" ||
+    typeof prompt_cache_miss_tokens !== "number" ||
+    typeof completion_tokens !== "number"
+  ) {
+    return null;
+  }
+  return {
+    inputTokens: prompt_cache_miss_tokens,
+    cachedInputTokens: prompt_cache_hit_tokens,
+    outputTokens: completion_tokens,
+  };
+}
+
 export function createDeepSeekProvider(): TextProvider {
   return {
-    async complete({ system, user }): Promise<{ text: string; model: string }> {
+    async complete({ system, user }) {
       const response = await fetch(`${BASE_URL}/chat/completions`, {
         method: "POST",
         headers: {
@@ -78,14 +107,15 @@ export function createDeepSeekProvider(): TextProvider {
         );
       }
 
-      const content = readContent(await response.json());
+      const body: unknown = await response.json();
+      const content = readContent(body);
       // The docs warn that this endpoint occasionally answers with empty
       // content, so an empty answer is a failure to say out loud rather than
       // something to hand on as if it were a result.
       if (content === null || content.trim() === "") {
         throw new Error("Text API answered with no content");
       }
-      return { text: content, model: MODEL };
+      return { text: content, model: MODEL, usage: readUsage(body) };
     },
   };
 }

@@ -75,7 +75,7 @@ sessão são apagados assim mesmo.
 
 ## Redirecionamento por papel
 
-Lê os papéis no servidor, em `school_members` e `platform_admins` (desde a
+Lê os papéis no servidor, em `organization_members` e `platform_admins` (desde a
 0029; antes era `profiles.role`). Nunca no cliente, porque papel decidido no
 navegador é papel que o navegador pode mentir. A RLS já é a defesa real; isto é
 só roteamento. Uma pessoa pode ter mais de um papel na mesma escola.
@@ -91,7 +91,7 @@ só roteamento. Uma pessoa pode ter mais de um papel na mesma escola.
 ## Convite (#96, migration 0031)
 
 O vínculo com a escola nasce só de um convite por e-mail (ADR 0004), em
-`school_invites`:
+`organization_invites`:
 
 - o admin da escola convida qualquer papel, o professor só aluna, a aluna
   ninguém; o admin da plataforma convida em qualquer escola;

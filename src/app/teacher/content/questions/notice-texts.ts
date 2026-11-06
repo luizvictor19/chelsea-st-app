@@ -49,6 +49,20 @@ export function questionDeleted(point: number, number: number): NoticeText {
   return success(point, `pergunta ${number} apagada`);
 }
 
+/**
+ * A scene made from a question's form. It is chosen in the form, and the
+ * question shows it once the form is saved; a new scene has no picture yet,
+ * so the notice says what is still owed.
+ */
+export function sceneCreated(point: number): NoticeText {
+  return success(point, "cena criada e escolhida. Falta a imagem");
+}
+
+/** The description was a scene's already: that one is chosen instead. */
+export function sceneFound(point: number): NoticeText {
+  return success(point, "essa cena já existia e foi escolhida");
+}
+
 /** An action on one question that answered with ok false. */
 export function questionFailed(
   point: number,

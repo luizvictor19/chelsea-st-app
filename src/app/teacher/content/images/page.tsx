@@ -37,8 +37,10 @@ import {
   matchesSceneSelection,
   matchesSearch,
   matchesSelection,
+  parseBack,
   parseOpened,
   parseSelection,
+  SCENE_PANEL_ID,
   situationOf,
   type Selection,
 } from "./filters";
@@ -52,7 +54,7 @@ import { SuggestButton } from "./suggest-button";
 import { WordPanel } from "./word-panel";
 
 export const metadata: Metadata = {
-  title: "Imagens do vocabulário · Chelsea St",
+  title: "Imagens do vocabulário",
 };
 
 /*
@@ -120,6 +122,8 @@ export default async function VocabularyImagesPage({
   };
   const term = typeof params.busca === "string" ? params.busca : "";
   const opened = parseOpened(params.palavra, params.cena);
+  // The question a scene link came from (#184), for the panel's way back.
+  const back = parseBack(params.voltar);
   const selectedId = opened?.kind === "word" ? opened.id : null;
   const sceneId = opened?.kind === "scene" ? opened.id : null;
 
@@ -484,14 +488,22 @@ export default async function VocabularyImagesPage({
               attempts it is taller than the screen, and sticky alone just
               clipped the bottom of it. top-20 clears the sticky teacher nav,
               and the height is what is left of the viewport below it.
+
+              The id is where sceneHref lands. On a phone the panel comes
+              after the whole list, and scroll-mt-20 keeps it clear of the
+              sticky nav when the browser scrolls to it.
             */}
-            <div className="lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+            <div
+              id={SCENE_PANEL_ID}
+              className="scroll-mt-20 lg:min-h-0 lg:overflow-y-auto lg:pr-1"
+            >
               {selectedScene !== null ? (
                 <ScenePanel
                   key={selectedScene.id}
                   scene={selectedScene}
                   attempts={sceneAttempts}
                   point={firstPoint(selectedScene)}
+                  back={back}
                   approved={approved}
                   closeHref={filterHref(selection, null, term)}
                 />

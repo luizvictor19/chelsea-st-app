@@ -1,18 +1,22 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { studies, teaches } from "@/lib/access";
+import { destinationFor, manages, practicesOnly, studies } from "@/lib/access";
 import { readAccess } from "@/lib/auth";
+import { currentSite } from "@/lib/current-site";
 import { createClient } from "@/lib/supabase/server";
 
 import { PendingInvites } from "../auth/pending-invites";
 import { SignOutButton } from "../auth/sign-out-button";
+import { BrandMark } from "../brand-mark";
 import { AccountPending } from "./account-pending";
 import { DailyChallenge } from "./daily-challenge";
 import { NextLessonCard } from "./next-lesson-card";
+import { RobinPractice } from "./robin-practice";
 
 export const metadata: Metadata = {
-  title: "Minha aula · Chelsea St",
+  title: "Minha aula",
 };
 
 /**
@@ -45,15 +49,29 @@ export default async function DashboardPage() {
       .maybeSingle(),
   ]);
 
-  // A teacher signs in through the same door and belongs somewhere else,
-  // unless she is also a student: then this screen is hers too, which is how
-  // the admin sees what a student sees without a second account.
-  if (teaches(access) && !studies(access)) {
-    redirect("/teacher");
+  // A teacher, or the admin of a company (0042), signs in through the same
+  // door and belongs somewhere else, unless she is also a student: then this
+  // screen is hers too, which is how the admin sees what a student sees
+  // without a second account. No role at all stays, on the pending screen.
+  const home = destinationFor(access);
+  if (!studies(access) && home !== "/dashboard") {
+    redirect(home);
   }
 
   if (!profile || !student) {
-    return <AccountPending />;
+    return <AccountPending site={await currentSite()} />;
+  }
+
+  // An employee of a company without a teacher practises with Robin only: no
+  // lesson, no schedule, nothing that speaks of a class.
+  if (practicesOnly(access)) {
+    return (
+      <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-6 p-6">
+        <Greeting name={profile.full_name} team={manages(access)} />
+        <PendingInvites />
+        <RobinPractice />
+      </main>
+    );
   }
 
   const now = new Date();
@@ -82,17 +100,7 @@ export default async function DashboardPage() {
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-6 p-6">
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center justify-between gap-4">
-          <p className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
-            Chelsea St
-          </p>
-          <SignOutButton />
-        </div>
-        <h1 className="text-3xl font-extrabold tracking-tight">
-          Olá, {profile.full_name}.
-        </h1>
-      </div>
+      <Greeting name={profile.full_name} team={manages(access)} />
 
       <PendingInvites />
 
@@ -123,5 +131,35 @@ export default async function DashboardPage() {
 
       <DailyChallenge />
     </main>
+  );
+}
+
+/** The brand, "Sair da conta" and her name, on top of either dashboard. */
+function Greeting({
+  name,
+  team,
+}: {
+  readonly name: string;
+  /** Also runs a company without a teacher: a way back to /team. */
+  readonly team: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between gap-4">
+        <BrandMark />
+        <div className="flex items-center gap-4">
+          {team ? (
+            <Link
+              href="/team"
+              className="text-muted hover:text-foreground text-sm whitespace-nowrap transition-colors"
+            >
+              Equipe
+            </Link>
+          ) : null}
+          <SignOutButton />
+        </div>
+      </div>
+      <h1 className="text-3xl font-extrabold tracking-tight">Olá, {name}.</h1>
+    </div>
   );
 }

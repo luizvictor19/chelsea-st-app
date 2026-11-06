@@ -8,7 +8,7 @@ import { LiveLesson } from "./live-lesson";
 import { lastStop, loadStudents } from "./students";
 
 export const metadata: Metadata = {
-  title: "Aula ao vivo · Chelsea St",
+  title: "Aula ao vivo",
 };
 
 /** A whole number from the query string, or null for anything else. */

@@ -5,10 +5,11 @@ import { requireTeacher } from "@/lib/content/queries";
 import { formatLessonDate, formatLessonTime } from "@/lib/datetime";
 
 import { runsOutSoon } from "./agenda";
+import { progressLine } from "./progress";
 import { listStudents, teacherZone } from "./queries";
 
 export const metadata: Metadata = {
-  title: "Alunos · Chelsea St",
+  title: "Alunos",
 };
 
 const DAY = (date: Date, timeZone: string) =>
@@ -75,6 +76,9 @@ export default async function StudentsPage() {
                       {next === null
                         ? "sem aula agendada"
                         : `${formatLessonDate(next, zone)}, ${formatLessonTime(next, zone)}`}
+                    </span>
+                    <span className="text-muted text-sm">
+                      {progressLine(student.progress)}
                     </span>
                   </div>
                   {warnings.length > 0 ? (

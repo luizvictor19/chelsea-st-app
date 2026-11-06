@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import { Constants } from "../supabase/types.ts";
 import {
   COMPOSE_MODELS,
+  DEFAULT_SCENE_MODEL,
   IMAGE_MODELS,
   TEXT_MODELS,
   composesPictures,
@@ -12,7 +13,10 @@ import {
   defaultReferenceModel,
   isImageModelId,
   modelCredits,
+  modelWithoutReference,
+  needsReference,
   referenceDelivery,
+  referenceRefusal,
   takesReference,
 } from "./provider.ts";
 import { isDrawableKind } from "./style.ts";
@@ -238,5 +242,73 @@ describe("defaultComposeModel", () => {
     const chosen = defaultComposeModel();
     assert.ok(chosen !== null && composesPictures(chosen));
     assert.notEqual(modelCredits(chosen), null);
+  });
+});
+
+describe("needsReference", () => {
+  /*
+   * Measured in image_attempts on 2026-11-04: Kontext failed both times it
+   * was sent no reference, with a 400, and Mystic generated 49 times without
+   * one (#186).
+   */
+  test("only Kontext needs one", () => {
+    for (const { id } of IMAGE_MODELS) {
+      assert.equal(needsReference(id), id === "flux-kontext-pro", id);
+    }
+  });
+
+  test("every model that needs a reference takes one", () => {
+    for (const { id } of IMAGE_MODELS) {
+      if (needsReference(id)) assert.equal(takesReference(id), true, id);
+    }
+  });
+
+  /*
+   * A panel opens on these with no reference attached, so any of them
+   * needing one would open on a model that cannot generate.
+   */
+  test("no default needs one", () => {
+    for (const kind of KINDS) {
+      const model = defaultModelFor(kind);
+      if (model !== null) assert.equal(needsReference(model), false, kind);
+    }
+    assert.equal(needsReference(DEFAULT_SCENE_MODEL), false);
+    const compose = defaultComposeModel();
+    assert.ok(compose !== null);
+    assert.equal(needsReference(compose), false);
+  });
+});
+
+describe("referenceRefusal", () => {
+  test("is null for every model when there is a reference", () => {
+    for (const { id } of IMAGE_MODELS) {
+      assert.equal(referenceRefusal(id, true), null, id);
+    }
+  });
+
+  test("without one, refuses only Kontext, naming it", () => {
+    for (const { id } of IMAGE_MODELS) {
+      const refusal = referenceRefusal(id, false);
+      if (id === "flux-kontext-pro") {
+        assert.equal(refusal, "Sem referência, o Flux Kontext Pro não gera.");
+      } else {
+        assert.equal(refusal, null, id);
+      }
+    }
+  });
+});
+
+describe("modelWithoutReference", () => {
+  test("moves Kontext to the fallback", () => {
+    assert.equal(
+      modelWithoutReference("flux-kontext-pro", "seedream-v4"),
+      "seedream-v4",
+    );
+    assert.equal(modelWithoutReference("flux-kontext-pro", "mystic"), "mystic");
+  });
+
+  test("leaves a model that does not need one where it is", () => {
+    assert.equal(modelWithoutReference("mystic", "seedream-v4"), "mystic");
+    assert.equal(modelWithoutReference("seedream-v4", "mystic"), "seedream-v4");
   });
 });

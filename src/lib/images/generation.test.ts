@@ -102,14 +102,26 @@ describe("hasExpired", () => {
   });
 
   /*
-   * The two real generations of 2026-09-19 are the only measurements there
-   * are, and the window has to clear both by a wide margin or it would be a
-   * number that ends work that was going to succeed.
+   * The worst `completed_at - created_at` in the database, measured on
+   * 2026-11-04 over every freepik attempt that completed without an error:
+   *
+   *   select model, count(*), max(completed_at - created_at)
+   *   from image_attempts
+   *   where provider = 'freepik' and completed_at is not null
+   *     and error is null
+   *   group by model;
+   *
+   * Mystic, 341.7s (48 attempts); Seedream 4, 81.1s. The 341.7s is a ceiling,
+   * not a duration: it was written by the first poll after a gap in polling,
+   * so the provider finished somewhere before it. And 91.0s is the one
+   * generation the old 90s window is known to have closed as failed, with 80
+   * credits spent. The window has to clear all of them, or it ends work that
+   * was going to succeed and was already paid for.
    */
-  test("clears the slowest generation ever observed, 21s, several times over", () => {
-    assert.equal(hasExpired(attempt().createdAt, STARTED + 8_000), false);
-    assert.equal(hasExpired(attempt().createdAt, STARTED + 21_000), false);
-    assert.ok(GENERATION_WINDOW_MS >= 4 * 21_000);
+  test("clears the slowest generation in the database, 341.7s", () => {
+    assert.equal(hasExpired(attempt().createdAt, STARTED + 81_100), false);
+    assert.equal(hasExpired(attempt().createdAt, STARTED + 91_000), false);
+    assert.equal(hasExpired(attempt().createdAt, STARTED + 341_700), false);
   });
 
   /*

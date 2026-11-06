@@ -1,16 +1,23 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { unstable_rethrow } from "next/navigation";
 
 import { requireTeacher } from "@/lib/content/queries";
 import { parsePictureKeys } from "@/lib/images/pictures";
 import {
   composesPictures,
   isImageModelId,
+  referenceRefusal,
   takesReference,
 } from "@/lib/images/provider";
+import {
+  SCENE_SUBJECT_MODEL,
+  SCENE_SUBJECT_SCHEMA,
+} from "@/lib/images/scene-subject";
 import { buildScenePrompt, type ImageStyle } from "@/lib/images/style";
 import { readImageFile, refuseFile } from "@/lib/images/upload";
+import { createClaudeProvider } from "@/lib/text/claude";
 
 import {
   BUCKET,
@@ -25,6 +32,11 @@ import {
   storeUpload,
   type ActionResult,
 } from "./attempt-store";
+import { SCENE_SUGGESTION_FAILED } from "./claude-failure";
+import {
+  proposeSceneSubject,
+  type SceneSubjectResult,
+} from "./scene-suggestion";
 import { descriptionKey, isDescriptionTaken, isSceneInUse } from "./scenes";
 
 /**
@@ -33,10 +45,13 @@ import { descriptionKey, isDescriptionTaken, isSceneInUse } from "./scenes";
  * provider about a running one is pollAttempt's, in actions.ts, which serves
  * both owners.
  *
- * Every scene written here is common content (school_id null), as every word
- * is today (ADR 0004): the screen shows common content until a school writes
+ * Every scene written here is common content (organization_id null), as every word
+ * is today (ADR 0004): the screen shows common content until an organization writes
  * its own.
  */
+
+/** The questions screen, whose form offers the scenes. */
+const QUESTIONS_SCREEN = "/teacher/content/questions";
 
 /** The twin of actions.ts's SCENE_ATTEMPT, for a word's attempt sent here. */
 const WORD_ATTEMPT = "Essa tentativa é de uma palavra, não de uma cena.";
@@ -76,6 +91,9 @@ export async function createScene(
       .single();
     if (error === null) {
       revalidatePath(SCREEN);
+      // A question's form creates one too (#65), and its list of scenes
+      // only follows if that screen is revalidated as well.
+      revalidatePath(QUESTIONS_SCREEN);
       return { ok: true, id: data.id };
     }
 
@@ -85,7 +103,7 @@ export async function createScene(
       const { data: common } = await supabase
         .from("scenes")
         .select("id, description")
-        .is("school_id", null)
+        .is("organization_id", null)
         // The index holds only the scenes in use (0034).
         .is("archived_at", null);
       const key = descriptionKey(text);
@@ -422,6 +440,10 @@ export async function startSceneGeneration(
           "Essa cena tem imagens escolhidas, e esse modelo não desenha a partir delas. Recarregue a página ou tire as imagens.",
       };
     }
+    // A model that needs a reference, on a scene with none (#186): before a
+    // row is opened, as in startGeneration.
+    const refusal = referenceRefusal(model, scene.reference_path !== null);
+    if (refusal !== null) return { ok: false, error: refusal, reference: null };
 
     // Before anything is inserted or paid for: an empty subject throws here.
     const prompt = buildScenePrompt(subject, scene.image_style);
@@ -438,6 +460,100 @@ export async function startSceneGeneration(
     );
   } catch (cause) {
     return failure(cause);
+  }
+}
+
+/**
+ * How the suggestion is sent, as opposed to what it asks (#187). Two retries
+ * are the SDK's default: a passing 429 or 529, not billed, never reaches the
+ * teacher. 15 s per attempt is four times the slowest call measured (3450
+ * ms, batch "first"); a timed out attempt retried can be billed twice, about
+ * US$ 0.0003. Three attempts and the SDK's own backoff come near 47 s, but
+ * the SDK waits as long as a retry-after header asks, with no ceiling: the
+ * 60 s deadline is what keeps the call inside the screen's maxDuration of
+ * 120 s, with room for the reads around it.
+ */
+const SUGGESTION_CALL = {
+  maxRetries: 2,
+  timeoutMs: 15_000,
+  deadlineMs: 60_000,
+} as const;
+
+/**
+ * Propose the scene's Instrução with Claude Haiku (#187). Nothing is written
+ * and nothing is revalidated: the panel puts the proposal in the field, and
+ * the field is kept only on the attempt, when the teacher generates.
+ *
+ * Who may ask is who may write the scene, by can_write_content, before the
+ * paid call; see proposeSceneSubject, where that order is tested.
+ */
+export async function suggestSceneSubject(
+  sceneId: string,
+): Promise<SceneSubjectResult> {
+  try {
+    const { supabase } = await requireTeacher();
+    return await proposeSceneSubject({
+      scene: async () => {
+        const { data, error } = await supabase
+          .from("scenes")
+          .select("description, image_style, organization_id, archived_at")
+          .eq("id", sceneId)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        return data === null
+          ? null
+          : {
+              description: data.description,
+              imageStyle: data.image_style,
+              organizationId: data.organization_id,
+              archived: data.archived_at !== null,
+            };
+      },
+      canWrite: async (organization) => {
+        const { data, error } = await supabase.rpc("can_write_content", {
+          // The generated type says string because the generator never marks
+          // an argument nullable; null is exactly "common content" in the
+          // function (0029), and the scene's own organization is what is passed.
+          p_organization: organization as string,
+        });
+        if (error) throw new Error(error.message);
+        return data === true;
+      },
+      question: async (organization) => {
+        // The oldest question that shows the scene. On 2026-11-04 no scene
+        // was shown by more than one. Only questions of the scene's own
+        // scope: a platform admin reads every organization's, and one organization's
+        // wording must not shape common content (ADR 0004).
+        const shown = supabase
+          .from("questions")
+          .select("prompt")
+          .eq("scene_id", sceneId);
+        const { data, error } = await (
+          organization === null
+            ? shown.is("organization_id", null)
+            : shown.eq("organization_id", organization)
+        )
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        return data?.prompt ?? null;
+      },
+      provider: () =>
+        createClaudeProvider(
+          SCENE_SUBJECT_MODEL,
+          SCENE_SUBJECT_SCHEMA,
+          SUGGESTION_CALL,
+        ),
+    });
+  } catch (cause) {
+    // requireTeacher redirects an expired session to /login by throwing.
+    unstable_rethrow(cause);
+    return {
+      ok: false,
+      error: SCENE_SUGGESTION_FAILED,
+      cause: errorMessage(cause),
+    };
   }
 }
 
