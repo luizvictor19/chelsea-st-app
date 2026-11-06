@@ -48,8 +48,18 @@ export const SCENE_MAX_WORDS = 20;
  * answered "a tiny mouse standing alone, seen from the side": this prompt
  * calls the image it asks for a picture throughout, and the line's own
  * picture was read as that one, made small. The other two passes drew a
- * small framed picture on a wall. Whether the rule closes the 1 in 3 is the
- * A/B of the "picture" input in the phase 2 plan, not this file.
+ * small framed picture on a wall.
+ *
+ * The A/B of the "picture" input (fixtures/scene-instruction.jsonl, batches
+ * "picture-before" on main and "picture-after" on this rule, 2026-11-06,
+ * Haiku, 20 runs each, read by the Claude one by one): without the fourth
+ * rule no mouse came back, but 4 of 20 drew the illustration itself small
+ * instead of a framed picture as an object (runs 1, 8, 9 and 14, such as "a
+ * small picture, seen from the front, filling only a little of the frame"),
+ * and 3 more were doubtful (5, 12 and 19). With it, 20 of 20 were a small
+ * framed picture or image hanging on a wall; run 20 added a mirror the line
+ * does not ask for. US$ 0.00303 and 0.00286 per 20 calls, median 1097 and
+ * 1043 ms, worst 2904 and 2709 ms.
  *
  * The examples in them are deliberately not lines that are measured (the
  * box, the pen on the book, the picture): an example that is also an input
