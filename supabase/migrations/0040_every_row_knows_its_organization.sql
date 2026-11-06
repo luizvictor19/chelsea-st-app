@@ -415,6 +415,9 @@ $$;
 
 drop function my_open_school_invites();
 
+-- The alias s stays: the body is the project's text with the map applied and
+-- nothing more, so a rehearsal compares it to production with an empty diff.
+
 create function my_open_organization_invites()
 returns table (id uuid, organization_id uuid, organization_name text, role organization_role, expires_at timestamptz)
 language sql
@@ -739,6 +742,12 @@ begin
     v_count := v_count + 1;
   end loop;
 
+  -- 42 measured on the project on 2026-11-06 (39 call is_school_member, 3
+  -- call can_invite). Another number means the catalog is not the one this
+  -- was written against: stop here, by name, rather than at the drop below.
+  if v_count <> 42 then
+    raise exception '0040: % policies call is_school_member or can_invite, 42 were measured', v_count;
+  end if;
   raise notice '0040: % policies moved to is_organization_member and can_invite', v_count;
 end;
 $$;

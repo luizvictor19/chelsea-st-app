@@ -42,11 +42,14 @@ begin
     end if;
 
     foreach v_table in array v_tables loop
-      begin
+      -- -1 only for a role with no select on the table, as opposed to zero
+      -- rows. Any other refusal, such as a policy calling a function the role
+      -- may not execute, stops the script with its own error.
+      if has_table_privilege(current_user, format('public.%I', v_table), 'select') then
         execute format('select count(*) from public.%I', v_table) into v_count;
-      exception when insufficient_privilege then
-        v_count := -1;  -- no select privilege at all, as opposed to zero rows
-      end;
+      else
+        v_count := -1;
+      end if;
       v_counts := v_counts || v_count;
     end loop;
 
