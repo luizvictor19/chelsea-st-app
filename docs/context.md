@@ -44,10 +44,12 @@ architecture question for Luiz.
     role and no paid API key, so a preview sends no invite and spends no credit.
   - Supabase Site URL is `https://app.chelsea-st.com`. Since #196 an auth email (login,
     "Esqueci minha senha", invite) links to the origin of the site of the request, from the
-    allowlist below, through `{{ .RedirectTo }}` in the templates (`docs/commands.md`). A host
-    outside the list, or an origin missing from the Supabase Redirect URLs, gets the Site URL:
-    the link still works, on the Chelsea domain. An invite follows the inviter's host until #195.
-    The `token_hash` works on any host, so a link's start can still be swapped by hand.
+    allowlist below. The templates take `{{ .RedirectTo }}` only when it is one of their listed
+    origins, whole, and the Site URL otherwise (`docs/commands.md`): a host outside the list, an
+    origin missing from the Redirect URLs or a redirect with a path gets a working link on the
+    Chelsea domain. An invite follows the inviter's host until #195, and an invite sent from a dev
+    server (`http`) gets the Site URL. The `token_hash` works on any host, so a link's start can
+    still be swapped by hand.
 - The brand of a request comes from its Host, by an allowlist in `src/lib/brand.ts` (#194), read
   through `currentSite()` (`src/lib/current-site.ts`):
   - `app.chelsea-st.com` is Chelsea St, on `https://app.chelsea-st.com`.

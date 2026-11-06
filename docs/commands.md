@@ -158,13 +158,14 @@ Authentication > URL Configuration:
                     https://<grifoai-host>                     (exact, after #193)
 
 Since #196 every auth email leads to the site the request came from (`src/lib/auth-links.ts`):
-login, "Esqueci minha senha" and invite pass Supabase only the origin of that site, from the
-allowlist of `src/lib/brand.ts`, and the template adds the path after `{{ .RedirectTo }}`. Supabase
-accepts that origin when it has the Site URL's scheme and hostname, or when it matches a Redirect
-URL. An origin has no path, so no `/**` pattern matches it: each one is an exact entry. When the
-origin is refused, or the host is outside the allowlist (a preview) and nothing is sent, Supabase
-puts the Site URL in `{{ .RedirectTo }}`, and the link is still whole, on the Chelsea domain. An
-invite follows the inviter's host until #195 gives the organization a domain.
+login and "Esqueci minha senha" pass Supabase only the origin of that site, from the allowlist of
+`src/lib/brand.ts`. An invite does the same for an `https` site only: one sent from a dev server
+gets the Site URL, because the invitee opens it on her own machine. An invite follows the
+inviter's host until #195 gives the organization a domain. An origin has no path, so no `/**`
+pattern matches it: each one is an exact entry. GoTrue (`internal/utilities/request.go`) accepts a
+redirect whose hostname is the Site URL's, with any scheme, port, path or query, or one that
+matches a Redirect URL; otherwise, and when nothing is sent (a host outside the allowlist, a
+preview), it puts the Site URL in `{{ .RedirectTo }}`.
 
 Authentication > Sign In / Providers: "Allow new users to sign up" off (#109). Nobody gets an
 account without an invite; `inviteUserByEmail` is an admin call and still works.
@@ -175,57 +176,68 @@ but its email link lasts only this long; after that, "Reenviar" or "Esqueci minh
 the same email.
 
 Authentication > Emails. Each template's link is exactly this (`/set-password` since #116; an email
-sent before still says `/definir-senha`, which redirects there, see `src/lib/renamed-paths.ts`).
-`src/lib/auth-links.test.ts` holds every link here on `{{ .RedirectTo }}`:
+sent before still says `/definir-senha`, which redirects there, see `src/lib/renamed-paths.ts`):
 
-    Confirm signup   {{ .RedirectTo }}/auth/callback?token_hash={{ .TokenHash }}&type=email
-    Magic link       {{ .RedirectTo }}/auth/callback?token_hash={{ .TokenHash }}&type=email
-    Invite user      {{ .RedirectTo }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/set-password
-    Reset password   {{ .RedirectTo }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/set-password
+    Confirm signup   {{ $origem }}/auth/callback?token_hash={{ .TokenHash }}&type=email
+    Magic link       {{ $origem }}/auth/callback?token_hash={{ .TokenHash }}&type=email
+    Invite user      {{ $origem }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/set-password
+    Reset password   {{ $origem }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/set-password
 
-The templates are one set for every brand, and Go templates: the first line of each subject and
-each body picks the brand name by `{{ .RedirectTo }}` (`eq` with several values is true when the
-first equals any of the others). Until #193 the GrifoAI domain is written as the placeholder
-`https://<grifoai-host>`, which never matches; replace it with the real origin then. The sender
-stays `contato@chelsea-st.com` for both brands (one SMTP); a sender per brand is a new issue.
+The link never starts with `{{ .RedirectTo }}` itself. Anyone with the public key can call
+Supabase directly, and any redirect on the Site URL's hostname or under a `/**` pattern is
+accepted, path and query included: at the start of a link that carries a `token_hash`, it could
+send the person to a link of the caller's choosing. The templates are Go templates, one set for
+every brand. The first line of each body sets `$origem` to `{{ .SiteURL }}` and takes
+`{{ .RedirectTo }}` only when it equals one of the exact Redirect URLs above, whole (`eq` with
+several values is true when the first equals any of the others). The same line, and the first line
+of each subject, picks the brand name. `src/lib/auth-links.test.ts` holds every link here on
+`{{ $origem }}`, the four bodies on one line, and every origin the code sends in that line: a new
+origin enters the Redirect URLs, the line and the dashboard together.
 
-Order, once per change of these templates: deploy the code first. Before #196 the code sent
-`/auth/callback?next=/set-password` as the redirect, and a template that appends its own path to
-`{{ .RedirectTo }}` would make that link broken.
+Until #193 the GrifoAI domain is written as the placeholder `https://<grifoai-host>`, which never
+matches: replace it with the real origin then, in the four subjects and the four bodies. A GrifoAI
+origin missing from the line or from the Redirect URLs gives no error: the email says Chelsea St
+and links to the Site URL. The sender stays `contato@chelsea-st.com` for both brands (one SMTP); a
+sender per brand is a new issue.
+
+A redirect that is not a listed origin, such as the `/auth/callback?next=/set-password` the code
+sent before #196 (a rollback, another branch), gets the Site URL in the link: it stays whole and
+only loses the host it was asked from. The order between a deploy and a template change does not
+break a link.
 
 Every template is in Portuguese, like every string a teacher or student reads. Subject and body
-of each (#196; the ones before named Chelsea St and used `{{ .SiteURL }}`):
+of each (#196; the ones before named Chelsea St and used `{{ .SiteURL }}` alone):
 
     Subject: {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}Confirme o seu e-mail na {{ $marca }}
 
-    {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}
+    {{ $origem := .SiteURL }}{{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "https://app.chelsea-st.com" "http://localhost:3100" "http://127.0.0.1:3100" }}{{ $origem = .RedirectTo }}{{ end }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $origem = .RedirectTo }}{{ $marca = "GrifoAI" }}{{ end }}
     <h2>Confirme o seu e-mail</h2>
     <p>Clique no link abaixo para confirmar este e-mail e entrar na {{ $marca }}.</p>
-    <p><a href="{{ .RedirectTo }}/auth/callback?token_hash={{ .TokenHash }}&type=email">Confirmar e-mail</a></p>
+    <p><a href="{{ $origem }}/auth/callback?token_hash={{ .TokenHash }}&type=email">Confirmar e-mail</a></p>
     <p>Se não foi você, ignore esta mensagem.</p>
 
     Subject: {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}Seu convite para a {{ $marca }}
 
-    {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}
+    {{ $origem := .SiteURL }}{{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "https://app.chelsea-st.com" "http://localhost:3100" "http://127.0.0.1:3100" }}{{ $origem = .RedirectTo }}{{ end }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $origem = .RedirectTo }}{{ $marca = "GrifoAI" }}{{ end }}
     <h2>Você foi convidada para a {{ $marca }}</h2>
     <p>Clique no link abaixo para escolher a sua senha e entrar.</p>
-    <p><a href="{{ .RedirectTo }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/set-password">Aceitar o convite</a></p>
+    <p><a href="{{ $origem }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/set-password">Aceitar o convite</a></p>
     <p>O link vale por 24 horas. Se ele vencer, peça um novo em "Esqueci minha senha", na tela de entrar, com este e-mail.</p>
 
     Subject: {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}Seu link para entrar na {{ $marca }}
 
-    {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}
+    {{ $origem := .SiteURL }}{{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "https://app.chelsea-st.com" "http://localhost:3100" "http://127.0.0.1:3100" }}{{ $origem = .RedirectTo }}{{ end }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $origem = .RedirectTo }}{{ $marca = "GrifoAI" }}{{ end }}
     <h2>Entrar na {{ $marca }}</h2>
     <p>Clique no link abaixo para entrar. Ele vale uma vez só.</p>
-    <p><a href="{{ .RedirectTo }}/auth/callback?token_hash={{ .TokenHash }}&type=email">Entrar</a></p>
+    <p><a href="{{ $origem }}/auth/callback?token_hash={{ .TokenHash }}&type=email">Entrar</a></p>
     <p>Se não foi você que pediu, ignore esta mensagem.</p>
 
     Subject: {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}Nova senha na {{ $marca }}
 
-    {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}
+    {{ $origem := .SiteURL }}{{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "https://app.chelsea-st.com" "http://localhost:3100" "http://127.0.0.1:3100" }}{{ $origem = .RedirectTo }}{{ end }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $origem = .RedirectTo }}{{ $marca = "GrifoAI" }}{{ end }}
     <h2>Escolher uma nova senha</h2>
     <p>Clique no link abaixo para escolher uma nova senha.</p>
-    <p><a href="{{ .RedirectTo }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/set-password">Escolher nova senha</a></p>
+    <p><a href="{{ $origem }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/set-password">Escolher nova senha</a></p>
     <p>O link vale por 24 horas. Se não foi você que pediu, ignore esta mensagem: a sua senha continua a mesma.</p>
 
 ## GitHub quirks

@@ -146,11 +146,19 @@ describe("the email templates in docs/commands.md", () => {
   const COMMANDS = join(import.meta.dirname, "..", "..", "docs", "commands.md");
   const doc = readFileSync(COMMANDS, "utf8");
   const LINK = "/auth/callback?token_hash=";
-  const START = "{{ .RedirectTo }}";
+  const START = "{{ $origem }}";
+  const ORIGIN_LINE = "{{ $origem := .SiteURL }}";
 
-  test("every link starts with {{ .RedirectTo }}", () => {
-    // With {{ .SiteURL }} every email leads to the Chelsea domain, and
-    // GrifoAI loses its own.
+  const originLines = doc
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith(ORIGIN_LINE));
+
+  test("every link starts with {{ $origem }}", () => {
+    // Never {{ .RedirectTo }} itself: anyone with the public key can call
+    // Supabase with any redirect on the Site URL's hostname, path and query
+    // included, and that would become the start of a link with a token_hash.
+    // Never {{ .SiteURL }} alone either: GrifoAI would lose its domain.
     const starts: string[] = [];
     for (
       let at = doc.indexOf(LINK);
@@ -163,6 +171,40 @@ describe("the email templates in docs/commands.md", () => {
     assert.equal(starts.length, 8);
     for (const start of starts) {
       assert.equal(start, START);
+    }
+  });
+
+  test("the four bodies pick the origin with the same line", () => {
+    assert.equal(originLines.length, 4);
+    assert.equal(new Set(originLines).size, 1);
+  });
+
+  test("the line takes every origin the code sends, and nothing longer", () => {
+    // {{ .RedirectTo }} is used only when it equals one of these whole.
+    const listed = new Set<string>();
+    for (const group of originLines[0].matchAll(
+      /eq \.RedirectTo((?: "[^"]*")+) \}\}/g,
+    )) {
+      for (const quoted of group[1].matchAll(/"([^"]*)"/g)) {
+        listed.add(quoted[1]);
+      }
+    }
+
+    const dev = sitesFromEnv({ GRIFOAI_HOST: "grifoai.localhost:3100" });
+    const sent = [
+      origins("app.chelsea-st.com", PRODUCTION).magicLink,
+      origins("localhost:3100", dev).magicLink,
+      origins("127.0.0.1:3100", dev).magicLink,
+      origins("grifoai.localhost:3100", dev).magicLink,
+    ];
+    for (const origin of sent) {
+      assert.ok(origin && listed.has(origin), `${origin} is not listed`);
+    }
+    for (const origin of listed) {
+      if (origin.includes("<")) {
+        continue; // the GrifoAI placeholder, until #193
+      }
+      assert.equal(new URL(origin).origin, origin);
     }
   });
 });
