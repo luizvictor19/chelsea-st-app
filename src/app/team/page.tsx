@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { studies } from "@/lib/access";
 import { requireManager } from "@/lib/auth";
+import { TEAM_WEEKS, teamOf, weekLabels } from "@/lib/team";
 
 import { PendingInvites } from "../auth/pending-invites";
 import { SignOutButton } from "../auth/sign-out-button";
@@ -15,6 +16,8 @@ import {
 import { InviteForm } from "../teacher/invites/invite-form";
 import { InviteList } from "../teacher/invites/invite-list";
 import { Snackbar } from "../teacher/snackbar";
+import { readTeam } from "./queries";
+import { TeamProgress } from "./team-progress";
 
 export const metadata: Metadata = {
   title: "Equipe",
@@ -22,8 +25,8 @@ export const metadata: Metadata = {
 
 /**
  * The screen of the admin of an organization without a teacher (0042): she
- * invites her people and follows the invites, and reaches nothing of a
- * teacher's. The team's practice joins this screen in #198.
+ * invites her people, follows the invites and the team's practice (#198), and
+ * reaches nothing of a teacher's.
  */
 export default async function TeamPage() {
   const { supabase, user, access } = await requireManager();
@@ -37,7 +40,23 @@ export default async function TeamPage() {
   const organizations = invitable.filter(
     (organization) => !organization.hasTeacher,
   );
-  const invites = openInvites(rows, organizations, new Date());
+  const now = new Date();
+  const invites = openInvites(rows, organizations, now);
+  const team = await readTeam(
+    supabase,
+    organizations.map((organization) => organization.id),
+    user.id,
+  );
+  const sections = organizations.map((organization) => ({
+    organizationId: organization.id,
+    organizationName: organization.name,
+    rows: teamOf({ organizationId: organization.id, ...team, now }),
+  }));
+  // The weeks are labelled in the admin's own zone; each row counts in its
+  // person's, which differs only for a few hours around Monday's midnight.
+  const viewerZone =
+    team.profiles.find((profile) => profile.id === user.id)?.timeZone ??
+    "America/Sao_Paulo";
 
   return (
     <>
@@ -70,6 +89,13 @@ export default async function TeamPage() {
         </div>
 
         <PendingInvites />
+
+        {organizations.length === 0 ? null : (
+          <TeamProgress
+            sections={sections}
+            weeks={weekLabels(now, viewerZone, TEAM_WEEKS)}
+          />
+        )}
 
         {organizations.length === 0 ? (
           <p className="text-muted">Você não pode convidar ninguém.</p>
