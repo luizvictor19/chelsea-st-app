@@ -7,6 +7,7 @@ import {
   withQuestions,
   type DeckQuestion,
   type DeckWord,
+  type QuestionImage,
   type Slide,
 } from "./deck";
 
@@ -67,7 +68,7 @@ export async function loadCourse(): Promise<Course> {
   const { data: questions, error: questionsError } = await supabase
     .from("questions")
     .select(
-      "id, position, prompt, expected_answer, shown_vocabulary_item_id, points!inner(number)",
+      "id, position, prompt, expected_answer, shown_vocabulary_item_id, scene_id, is_acted_out, scene:scenes!questions_scene_id_fkey(image_path), points!inner(number)",
     )
     .eq("is_published", true);
   if (questionsError) throw new Error(questionsError.message);
@@ -81,19 +82,39 @@ export async function loadCourse(): Promise<Course> {
     imageUrl: publicImageUrl(supabase, row.image_path),
   }));
 
-  // A question shows a word (0028), and its card shows the picture that word
-  // has now: the word is looked up among the ones just read, never copied.
+  // A question shows a word (0028), a scene or is acted out (0030), and its
+  // card shows the picture the word or the scene has now: the word is looked
+  // up among the ones just read, the scene's image read with the question,
+  // never copied.
   const wordOf = new Map(deckWords.map((word) => [word.id, word]));
+  const imageOf = (row: (typeof questions)[number]): QuestionImage => {
+    // In the database's order. questions_one_image lets at most one of the
+    // three be set, so the order only decides a row it would have refused.
+    if (row.shown_vocabulary_item_id !== null) {
+      // Not among the words read only if the read missed it: the neutral
+      // card, as before.
+      const word = wordOf.get(row.shown_vocabulary_item_id);
+      return word === undefined ? { kind: "none" } : { kind: "word", word };
+    }
+    if (row.scene_id !== null) {
+      // scenes.image_path is the approved image and nothing else
+      // (scenes_approved_pair, 0030). A scene the teacher cannot read comes
+      // back null, and its card is the neutral one.
+      return {
+        kind: "scene",
+        imageUrl: publicImageUrl(supabase, row.scene?.image_path ?? null),
+      };
+    }
+    if (row.is_acted_out) return { kind: "acted" };
+    return { kind: "none" };
+  };
   const deckQuestions: DeckQuestion[] = questions.map((row) => ({
     id: row.id,
     pointNumber: row.points.number,
     position: row.position,
     prompt: row.prompt,
     expectedAnswer: row.expected_answer,
-    word:
-      row.shown_vocabulary_item_id === null
-        ? null
-        : (wordOf.get(row.shown_vocabulary_item_id) ?? null),
+    image: imageOf(row),
   }));
 
   const positionOf = new Map(books.map((book) => [book.id, book.position]));
