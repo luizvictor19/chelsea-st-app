@@ -134,6 +134,16 @@ architecture question for Luiz.
   teacher member or an open teacher invite cannot turn into one without. On screen the company
   admin lands on `/team`, the employee (`student`) on `/dashboard`, which shows only the practice
   with Robin.
+- The admin of an organization sees her team's practice only through `team_practice` (0044, #198),
+  a `security definer` function that refuses (42501) anyone but an admin of that organization or
+  the platform admin, and `anon` holds no `execute` on it. Per person who has a row in `students`
+  it returns the last day practised, the days practised in each of the last 1 to 12 weeks (Monday
+  to Sunday, in `profiles.timezone`) and the minutes practised in the month; never what was said.
+  The days come from `attempts` and the minutes are 0 until Robin v1 (#71) records sessions with a
+  start and an end; #71 rewrites the body and keeps the signature. The policies of `attempts` and
+  `review_schedule` did not change. The daily cap (15 min, both brands) lives in
+  `src/lib/tutor/daily-cap.ts`; `/team` shows the month's minutes against the cap times the days of
+  the month so far, and the employee's card says the company sees the days and the time.
 - What a question shows follows 0030: the picture of one word (`shown_vocabulary_item_id`), one
   scene (`scene_id`), or acted out (`is_acted_out`), at most one of the three, checked by
   `questions_one_image`; none of them means not decided yet. An image attempt belongs to exactly
