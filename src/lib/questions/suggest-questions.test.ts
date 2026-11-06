@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { TEXT_PRICES } from "../text/cost.ts";
+
 import {
+  MAX_PAIRS,
+  MIN_PAIRS,
+  PAIRS_PER_POINT,
+  SUGGEST_QUESTIONS_MODEL,
   SUGGEST_QUESTIONS_SCHEMA,
   buildSuggestQuestionsPrompt,
   parseDrafts,
@@ -10,6 +16,10 @@ import {
   shownAs,
   type SuggestWord,
 } from "./suggest-questions.ts";
+
+test("the chosen model has a price, so the button can log what it cost", () => {
+  assert.ok(Object.hasOwn(TEXT_PRICES, SUGGEST_QUESTIONS_MODEL));
+});
 
 /*
  * Synthetic, in the geometry of book 1: terms of several words, a contrast
@@ -109,6 +119,34 @@ describe("buildSuggestQuestionsPrompt", () => {
     const text = JSON.stringify(SUGGEST_QUESTIONS_SCHEMA);
     assert.doesNotMatch(text, /minItems|maxItems|minLength|maxLength/u);
     assert.equal(text.match(/"additionalProperties":false/gu)?.length, 2);
+  });
+});
+
+describe("the count the teacher chooses", () => {
+  const build = (count?: number) =>
+    buildSuggestQuestionsPrompt({
+      book: 1,
+      point: 3,
+      words: WORDS,
+      scenes: SCENES,
+      count,
+    });
+
+  test("is the number asked for, the default when left out", () => {
+    assert.match(
+      build().system,
+      new RegExp(`Write ${PAIRS_PER_POINT} question and answer pairs`, "u"),
+    );
+    assert.match(build(12).system, /Write 12 question and answer pairs/u);
+    assert.match(build(1).system, /Write one question and answer pair for/u);
+  });
+
+  test("outside the range, or not whole, is refused before anything is asked", () => {
+    for (const count of [MIN_PAIRS - 1, MAX_PAIRS + 1, 2.5, Number.NaN]) {
+      assert.throws(() => build(count), String(count));
+    }
+    assert.doesNotThrow(() => build(MIN_PAIRS));
+    assert.doesNotThrow(() => build(MAX_PAIRS));
   });
 });
 
