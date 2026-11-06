@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { listBooks } from "@/lib/content/queries";
+import { listBooks, requireContentWriter } from "@/lib/content/queries";
 
 import { BookCard } from "./book-card";
 
@@ -12,6 +12,7 @@ export const metadata: Metadata = {
 const COURSE_BOOKS = 12;
 
 export default async function ContentIndexPage() {
+  await requireContentWriter();
   const { books, complete, total, course } = await listBooks();
 
   const expected = Math.max(total, COURSE_BOOKS);

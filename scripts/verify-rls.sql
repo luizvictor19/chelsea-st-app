@@ -281,6 +281,31 @@ create temp table policies_before_0042 as
 
 \i supabase/migrations/0042_without_a_teacher_the_admin_does_not_teach.sql
 
+-- Every policy of public and storage as 0042 left it, for the same comparison
+-- one migration later: 0043 rewrites the 10 content _write policies and the
+-- one of storage. The block of 0042 compares its two snapshots, and the block
+-- "All content is common (0043)" compares this one with the one right after
+-- 0043, so a later migration that rewrites a policy breaks neither. 0043 is
+-- applied before the fixtures too: no fixture below can hold content of an
+-- organization.
+create temp table policies_after_0042 as
+  select schemaname::text, tablename::text, policyname::text, permissive::text,
+         roles::text, cmd::text, qual, with_check
+    from pg_policies
+   where schemaname in ('public', 'storage');
+
+\i supabase/migrations/0043_all_content_is_common.sql
+
+create temp table policies_after_0043 as
+  select schemaname::text, tablename::text, policyname::text, permissive::text,
+         roles::text, cmd::text, qual, with_check
+    from pg_policies
+   where schemaname in ('public', 'storage');
+
+-- 0044 creates a function and nothing else; its block, "The admin sees how
+-- often, not what (0044)", runs after the fixtures.
+\i supabase/migrations/0044_the_admin_sees_how_often_not_what.sql
+
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
   ('22222222-2222-2222-2222-222222222222', 'student@example.com', null);
@@ -1727,19 +1752,8 @@ insert into organization_members (organization_id, user_id, role) values
 insert into students (id, organization_id)
   values ('44444444-4444-4444-4444-444444444444', (select id from organizations where slug = 'escola-b'));
 
--- One book for each organization, at the position of the common Book 2: the
--- position is unique per scope now, not across the table. Their points and
--- questions name no organization and take their book's.
-insert into books (position, title, organization_id) values
-  (2, 'Chelsea only', (select id from organizations where slug = 'chelsea-st')),
-  (2, 'B only', (select id from organizations where slug = 'escola-b'));
-insert into points (book_id, number)
-  select id, 1 from books where title in ('Chelsea only', 'B only');
-insert into questions (point_id, position, prompt, expected_answer, is_published)
-  select p.id, 0, 'of ' || b.title, 'a', true
-    from points p join books b on b.id = p.book_id
-   where b.title in ('Chelsea only', 'B only');
--- A lesson for each organization's student, so the reads below have something to
+-- No content of either organization: since 0043 every row of content is
+-- common, and the isolation below is of people and operation. A lesson for each organization's student, so the reads below have something to
 -- miss.
 insert into lessons (student_id, scheduled_at) values
   ('44444444-4444-4444-4444-444444444444', now() + interval '1 day'),
@@ -1769,25 +1783,14 @@ declare
   c_student constant uuid := '22222222-2222-2222-2222-222222222222';
   c_teacher_b constant uuid := '33333333-3333-3333-3333-333333333333';
   c_student_b constant uuid := '44444444-4444-4444-4444-444444444444';
-  v_chelsea_book uuid := (select id from books where title = 'Chelsea only');
-  v_chelsea_point uuid;
-  v_b_point uuid;
-  v_b_word uuid;
+  c_common_point constant uuid := (select p.id from points p join books b on b.id = p.book_id
+                                    where b.title = 'Book 2' and p.number = 53);
   v_n integer;
   v_failures text;
 begin
   delete from verify.failures;
-  select id into v_chelsea_point from points where book_id = v_chelsea_book;
-  select p.id into v_b_point
-    from points p join books b on b.id = p.book_id where b.title = 'B only';
 
   -- Rows that name no organization take their parent's.
-  if (select organization_id from points where id = v_b_point) is distinct from c_b then
-    insert into verify.failures values ('a point of an organization book did not take the organization');
-  end if;
-  if (select organization_id from questions where point_id = v_b_point) is distinct from c_b then
-    insert into verify.failures values ('a question of an organization point did not take the organization');
-  end if;
   if (select organization_id from lessons where student_id = c_student_b) is distinct from c_b then
     insert into verify.failures values ('a lesson did not take its student''s organization');
   end if;
@@ -1796,28 +1799,13 @@ begin
     insert into verify.failures values ('a point of a common book took an organization');
   end if;
 
-  -- A row never points at another organization's, and its organization never changes.
-  insert into vocabulary_items (term, first_point_id) values ('a word of B', v_b_point)
-    returning id into v_b_word;
-  perform verify.expect_refused('a question of B on a Chelsea point', 'questions_organization',
-    format('insert into questions (point_id, position, prompt, expected_answer, organization_id)
-            values (%L, 1, %L, %L, %L)', v_chelsea_point, 'p', 'a', c_b));
-  perform verify.expect_refused('a common question showing a word of B', 'questions_organization',
-    format('insert into questions (point_id, position, prompt, expected_answer, shown_vocabulary_item_id)
-            values ((select id from points where number = 53 and organization_id is null), 9, %L, %L, %L)',
-           'p', 'a', v_b_word));
-  -- Points and questions and not books: two books at position 2 already live
-  -- in other scopes, so moving a book would trip the unique key first.
-  perform verify.expect_refused('a point moved to another organization', 'points_organization',
-    format('update points set organization_id = %L where id = %L', c_b, v_chelsea_point));
+  -- A row's organization never changes. The trigger speaks before the check
+  -- of 0043, which refuses the same row on its own.
+  perform verify.expect_refused('a common point given an organization', 'points_organization',
+    format('update points set organization_id = %L where id = %L', c_b, c_common_point));
   perform verify.expect_refused('a common question given an organization', 'questions_organization',
     format('update questions set organization_id = %L
              where id = (select id from questions where organization_id is null limit 1)', c_b));
-  -- A common row moved under an organization's parent is refused, not adopted: on an
-  -- update the organization is already written.
-  perform verify.expect_refused('a common word moved under a point of B', 'vocabulary_items_organization',
-    format('update vocabulary_items set first_point_id = %L
-             where id = (select id from vocabulary_items where term = %L)', v_b_point, 'a word'));
 
   -- A students row needs the student membership behind it.
   begin
@@ -1860,17 +1848,8 @@ begin
   perform set_config('test.uid', c_teacher_b::text, false);
   set local role authenticated;
 
-  if exists (select 1 from books where organization_id = c_chelsea) then
-    insert into verify.failures values ('the teacher of B reads a Chelsea book');
-  end if;
-  if exists (select 1 from questions where organization_id = c_chelsea) then
-    insert into verify.failures values ('the teacher of B reads a Chelsea question');
-  end if;
   if not exists (select 1 from books where organization_id is null) then
     insert into verify.failures values ('the teacher of B does not read common books');
-  end if;
-  if not exists (select 1 from books where organization_id = c_b) then
-    insert into verify.failures values ('the teacher of B does not read her own organization''s book');
   end if;
   if exists (select 1 from students where organization_id = c_chelsea) then
     insert into verify.failures values ('the teacher of B reads a Chelsea student');
@@ -1893,15 +1872,10 @@ begin
 
   -- An update the policy filters matches nothing and does not raise; what the
   -- rows hold is read back as the owner at the end.
-  update books set title = 'taken' where id = v_chelsea_book;
   update questions set prompt = 'taken' where organization_id is null;
   if not verify.refused_for_privilege(
        'insert into books (position, title) values (7, ''common, by B'')') then
     insert into verify.failures values ('the teacher of B wrote a common book');
-  end if;
-  if verify.refused_for_privilege(
-       format('insert into books (position, title, organization_id) values (7, %L, %L)', 'of B', c_b)) then
-    insert into verify.failures values ('the teacher of B could not write her own organization''s book');
   end if;
   if not verify.refused_for_privilege(
        format('insert into organization_members (organization_id, user_id, role) values (%L, %L, %L)',
@@ -1922,32 +1896,14 @@ begin
               'vocabulary-images', 'references/x.png')) then
     insert into verify.failures values ('the teacher of B wrote a file outside her organization''s folder');
   end if;
-  if verify.refused_for_privilege(
-       format('insert into storage.objects (bucket_id, name) values (%L, %L)',
-              'vocabulary-images', c_b || '/x.png')) then
-    insert into verify.failures values ('the teacher of B could not write under her organization''s folder');
-  end if;
 
-  -- The student of B reads common published questions and her organization's, and
-  -- not Chelsea's.
+  -- The student of B reads common published questions, and no book.
   perform set_config('test.uid', c_student_b::text, false);
   if not exists (select 1 from questions where organization_id is null and is_published) then
     insert into verify.failures values ('the student of B does not read a common published question');
   end if;
-  if not exists (select 1 from questions where organization_id = c_b) then
-    insert into verify.failures values ('the student of B does not read her organization''s published question');
-  end if;
-  if exists (select 1 from questions where organization_id = c_chelsea) then
-    insert into verify.failures values ('the student of B reads a Chelsea question');
-  end if;
   if exists (select 1 from books) then
     insert into verify.failures values ('the student of B reads a book');
-  end if;
-
-  -- And the Chelsea student does not read B's.
-  perform set_config('test.uid', c_student::text, false);
-  if exists (select 1 from questions where organization_id = c_b) then
-    insert into verify.failures values ('the Chelsea student reads a question of B');
   end if;
 
   -- The platform admin reads everything, B's people included.
@@ -1955,14 +1911,8 @@ begin
   if (select count(*) from students) <> 2 then
     insert into verify.failures values ('the platform admin does not read every student');
   end if;
-  if not exists (select 1 from books where organization_id = c_b) then
-    insert into verify.failures values ('the platform admin does not read a book of B');
-  end if;
 
   reset role;
-  if (select title from books where id = v_chelsea_book) <> 'Chelsea only' then
-    insert into verify.failures values ('the teacher of B renamed a Chelsea book');
-  end if;
   if exists (select 1 from questions where prompt = 'taken') then
     insert into verify.failures values ('the teacher of B changed a common question');
   end if;
@@ -2278,12 +2228,11 @@ $$;
 
 -- A question can show a scene (0030) ------------------------------------------------
 --
--- Scenes, their attempts, approving, the one-of-three rule on questions, the
--- organization a scene's attempt takes, and who reads a scene. Written as the owner
--- unless a role is set.
+-- Scenes, their attempts, approving, the one-of-three rule on questions, and
+-- who reads a scene. Written as the owner unless a role is set. Every scene is
+-- common since 0043: no scene of an organization is seeded.
 do $$
 declare
-  c_chelsea constant uuid := (select id from organizations where slug = 'chelsea-st');
   c_b constant uuid := (select id from organizations where slug = 'escola-b');
   c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
   c_student constant uuid := '22222222-2222-2222-2222-222222222222';
@@ -2292,19 +2241,12 @@ declare
   c_teacher_b constant uuid := '88888888-8888-8888-8888-888888888888';
   c_common_point constant uuid := (select p.id from points p join books b on b.id = p.book_id
                                     where b.title = 'Book 2' and p.number = 53);
-  c_chelsea_point constant uuid := (select p.id from points p join books b on b.id = p.book_id
-                                     where b.title = 'Chelsea only');
-  c_b_point constant uuid := (select p.id from points p join books b on b.id = p.book_id
-                               where b.title = 'B only');
   c_word constant uuid := (select id from vocabulary_items where term = 'a word');
   v_failures text;
   v_common uuid;
-  v_chelsea uuid;
-  v_b uuid;
   v_unpublished uuid;
   v_first uuid;
   v_second uuid;
-  v_question uuid;
   v_word_image text;
 begin
   delete from verify.failures;
@@ -2337,8 +2279,6 @@ begin
   exception when unique_violation then
     raise notice 'the same common description between a tab and a line break: refused by scenes_description_key';
   end;
-  insert into scenes (description, organization_id) values ('Big box', c_chelsea) returning id into v_chelsea;
-  insert into scenes (description, organization_id) values ('A pen on a book', c_b) returning id into v_b;
   insert into scenes (description) values ('Only in a draft') returning id into v_unpublished;
 
   -- Attempts belong to a word or to a scene --------------------------------------------
@@ -2349,22 +2289,6 @@ begin
     'an attempt of a word and a scene', 'image_attempts_one_owner',
     format('insert into image_attempts (vocabulary_item_id, scene_id, provider, status) values (%L, %L, %L, %L)',
            c_word, v_common, 'freepik', 'pending'));
-
-  -- A scene's attempt takes the scene's organization: its first parent, the word, is
-  -- null, and the first parent present gives the organization.
-  if verify.refused_by(
-       format('insert into image_attempts (scene_id, provider, status) values (%L, %L, %L)',
-              v_chelsea, 'freepik', 'pending')) is not null then
-    insert into verify.failures values ('an attempt of a Chelsea scene was refused');
-  elsif (select organization_id from image_attempts where scene_id = v_chelsea) is distinct from c_chelsea then
-    insert into verify.failures values ('an attempt of a Chelsea scene did not take Chelsea');
-  end if;
-  -- And a table of before still takes its first parent's organization.
-  insert into questions (point_id, position, prompt, expected_answer)
-    values (c_chelsea_point, 100, 'q', 'a') returning id into v_question;
-  if (select organization_id from questions where id = v_question) is distinct from c_chelsea then
-    insert into verify.failures values ('a question of a Chelsea point did not take Chelsea');
-  end if;
 
   -- Approving a scene's attempt ----------------------------------------------------------
   v_word_image := (select image_path from vocabulary_items where id = c_word);
@@ -2415,19 +2339,6 @@ begin
     values (c_common_point, 105, 'Is the box small?', 'No, it''s big.', v_common, true);
   insert into questions (point_id, position, prompt, expected_answer, scene_id, is_published)
     values (c_common_point, 106, 'Draft', 'a', v_unpublished, false);
-  insert into questions (point_id, position, prompt, expected_answer, scene_id, is_published)
-    values (c_b_point, 107, 'Where is the pen?', 'On the book.', v_b, true);
-
-  -- A common question does not show an organization's scene; an organization's may show a common one.
-  perform verify.expect_refused(
-    'a common question showing a Chelsea scene', 'questions_organization',
-    format('insert into questions (point_id, position, prompt, expected_answer, scene_id) values (%L, 108, %L, %L, %L)',
-           c_common_point, 'q', 'a', v_chelsea));
-  if verify.refused_by(
-       format('insert into questions (point_id, position, prompt, expected_answer, scene_id) values (%L, 109, %L, %L, %L)',
-              c_chelsea_point, 'q', 'a', v_common)) is not null then
-    insert into verify.failures values ('a Chelsea question could not show a common scene');
-  end if;
 
   -- A scene a question shows is not deleted from under it.
   begin
@@ -2447,27 +2358,13 @@ begin
   if exists (select 1 from scenes where id = v_unpublished) then
     insert into verify.failures values ('a student reads the scene of an unpublished question');
   end if;
-  if exists (select 1 from scenes where id = v_b) then
-    insert into verify.failures values ('a Chelsea student reads a scene of B');
-  end if;
 
   perform set_config('test.uid', c_teacher_b::text, false);
-  if exists (select 1 from scenes where id = v_chelsea) then
-    insert into verify.failures values ('the teacher of B reads a Chelsea scene');
-  end if;
   if not exists (select 1 from scenes where id = v_common) then
     insert into verify.failures values ('the teacher of B does not read a common scene');
   end if;
-  if not verify.refused_for_privilege(
-       format('insert into scenes (description, organization_id) values (%L, %L)', 'B writes Chelsea', c_chelsea)) then
-    insert into verify.failures values ('the teacher of B wrote a Chelsea scene');
-  end if;
   if not verify.refused_for_privilege('insert into scenes (description) values (''B writes common'')') then
     insert into verify.failures values ('the teacher of B wrote a common scene');
-  end if;
-  if verify.refused_for_privilege(
-       format('insert into scenes (description, organization_id) values (%L, %L)', 'B writes B', c_b)) then
-    insert into verify.failures values ('the teacher of B could not write a scene of B');
   end if;
 
   perform set_config('test.uid', c_admin::text, false);
@@ -2483,7 +2380,7 @@ begin
   end if;
 
   raise notice 'scenes: a question shows a word, a scene or is acted out, at most one';
-  raise notice 'and a scene''s attempt takes the scene''s organization, its picture is approved as a word''s, its reader follows the question';
+  raise notice 'and a scene''s picture is approved as a word''s, its reader follows the question';
 end;
 $$;
 
@@ -2621,9 +2518,10 @@ $$;
 
 -- A lesson marks where she stopped (0035) -------------------------------------------
 --
--- A mark names a common point or one of the lesson's organization, and a point
--- someone stopped at is not deleted. Seeded as the owner: the rules under test
--- are a trigger and a foreign key, which no policy decides.
+-- A mark names a common point, and a point someone stopped at is not deleted.
+-- Seeded as the owner: the rules under test are a trigger and a foreign key,
+-- which no policy decides. Since 0043 there is no point of an organization, so
+-- lessons_stop_in_organization has nothing left to refuse here.
 do $$
 declare
   c_lesson constant uuid := (select id from lessons
@@ -2631,35 +2529,27 @@ declare
                               order by scheduled_at limit 1);
   c_common constant uuid := (select p.id from points p join books b on b.id = p.book_id
                               where b.title = 'Book 2' and p.number = 53);
-  c_own constant uuid := (select p.id from points p join books b on b.id = p.book_id
-                           where b.title = 'Chelsea only');
-  c_other constant uuid := (select p.id from points p join books b on b.id = p.book_id
-                             where b.title = 'B only');
+  -- A common point that no word, block or question holds: a word's point is
+  -- restricted already, and the refusal would come from vocabulary_items
+  -- instead. Point 127 of Book 2 carries nothing.
+  c_bare constant uuid := (select p.id from points p join books b on b.id = p.book_id
+                            where b.title = 'Book 2' and p.number = 127);
   v_failures text;
 begin
   delete from verify.failures;
 
-  -- Another organization's point is refused, on update and on insert.
-  perform verify.expect_refused('a lesson marking a point of another organization', 'lessons_stop_in_organization',
-    format('update lessons set stopped_at_point_id = %L where id = %L', c_other, c_lesson));
-  perform verify.expect_refused('a lesson written with a point of another organization', 'lessons_stop_in_organization',
-    format('insert into lessons (student_id, scheduled_at, stopped_at_point_id) values (%L, now() + interval ''9 days'', %L)',
-           '22222222-2222-2222-2222-222222222222', c_other));
-
-  -- A common point and its own organization's point are accepted.
+  -- A common point is accepted.
   if verify.refusal(format('update lessons set stopped_at_point_id = %L where id = %L', c_common, c_lesson)) is not null then
     insert into verify.failures values ('a lesson could not mark a common point');
   end if;
-  if verify.refusal(format('update lessons set stopped_at_point_id = %L where id = %L', c_own, c_lesson)) is not null then
-    insert into verify.failures values ('a lesson could not mark a point of its own organization');
-  end if;
 
-  -- The point a lesson stopped at is not deleted. The organization's own point,
-  -- which no word holds: a word's point is restricted already, and the
-  -- refusal would come from vocabulary_items instead.
+  -- The point a lesson stopped at is not deleted.
+  if verify.refusal(format('update lessons set stopped_at_point_id = %L where id = %L', c_bare, c_lesson)) is not null then
+    insert into verify.failures values ('a lesson could not mark a bare common point');
+  end if;
   perform verify.expect_refusal('deleting a point a lesson stopped at',
     '23503 update or delete on table "points" violates foreign key constraint "lessons_stopped_at_point_fkey" on table "lessons"',
-    format('delete from points where id = %L', c_own));
+    format('delete from points where id = %L', c_bare));
 
   update lessons set stopped_at_point_id = null where id = c_lesson;
 
@@ -2668,7 +2558,7 @@ begin
     raise exception 'where she stopped: %', v_failures;
   end if;
 
-  raise notice 'where she stopped: a common or own point only, and a marked point stays';
+  raise notice 'where she stopped: a common point is marked, and a marked point stays';
 end;
 $$;
 
@@ -3357,23 +3247,27 @@ $$;
 -- image in Storage. Nobody is a teacher there. Where it has one, nothing
 -- changed. Each assertion stands on one clause of 0042:
 --
--- 1. Only the substitution: every policy of public and storage equals its
---    text before 0042 (policies_before_0042), except the 34 of the 17 tables,
---    whose text is the old one with the admin-or-teacher check replaced by
---    teaches_in(organization_id), and vocabulary_images_write, which now asks
---    teaches_in and names no role.
+-- 1. Only the substitution: every policy of public and storage right after
+--    0042 (policies_after_0042) equals its text before 0042
+--    (policies_before_0042), except the 34 of the 17 tables, whose text is the
+--    old one with the admin-or-teacher check replaced by
+--    teaches_in(organization_id), and vocabulary_images_write, which then
+--    asked teaches_in and named no role. Between two snapshots and not
+--    against pg_policies: 0043 rewrites 11 of them again, and its own block
+--    holds that.
 -- 2. has_teacher: true on Chelsea St, false on GrifoAI's organization (the
 --    update), and named on insert (no default, 23502).
 -- 3. teaches_in, teaches_anywhere and can_write_content: false for the admin
---    of a company without a teacher, true for a Chelsea admin who is not a
---    platform admin and for B's teacher.
+--    of a company without a teacher; teaches_in and teaches_anywhere true for
+--    a Chelsea admin who is not a platform admin, teaches_in for B's teacher.
+--    That can_write_content is false for both since 0043 is held by its block.
 -- 4. The company's admin reads no row of the 10 content tables and of the 7
 --    operation tables that only a teacher reads (verify.teachers_only), though
 --    rows of her organization and common rows exist;
---    writes no book of hers, no lesson, no schedule, no student; and
---    materialize_lessons refuses her.
--- 5. Storage: she writes no file under her organization's folder; B's teacher
---    still writes under B's.
+--    writes no lesson, no schedule, no student; and materialize_lessons
+--    refuses her. Content of her own cannot exist since 0043.
+-- 5. Storage: she writes no file under her organization's folder. Since 0043
+--    nobody but the platform admin writes there, held by its block.
 -- 6. She still invites an employee and an admin, reads her organization's
 --    invites, members and their names; an invite as teacher there is refused
 --    by teacher_needs_a_teaching_organization, also from the platform admin,
@@ -3430,8 +3324,6 @@ declare
   v_c uuid;
   v_d uuid;
   v_e uuid;
-  v_book uuid;
-  v_point uuid;
   v_question uuid;
   v_assignment uuid;
   v_table text;
@@ -3457,11 +3349,8 @@ begin
      where not (schemaname = 'storage' and policyname = 'vocabulary_images_write')
   ),
   actual as (
-    select schemaname::text, tablename::text, policyname::text, permissive::text,
-           roles::text, cmd::text, qual, with_check
-      from pg_policies
-     where schemaname in ('public', 'storage')
-       and not (schemaname = 'storage' and policyname = 'vocabulary_images_write')
+    select * from policies_after_0042
+     where not (schemaname = 'storage' and policyname = 'vocabulary_images_write')
   ),
   drift as (
     (select 'expected but not held' as what, * from expected
@@ -3479,14 +3368,14 @@ begin
 
   select count(*) into v_moved
     from policies_before_0042 b
-    join pg_policies p using (policyname)
+    join policies_after_0042 p using (policyname)
    where b.schemaname = 'public' and p.schemaname = 'public'
      and b.tablename = p.tablename
      and (b.qual is distinct from p.qual or b.with_check is distinct from p.with_check);
   if v_moved <> 34 then
     insert into verify.failures values (format('%s policies of public changed, expected 34', v_moved));
   end if;
-  if (select count(*) from pg_policies where schemaname in ('public', 'storage'))
+  if (select count(*) from policies_after_0042)
      <> (select count(*) from policies_before_0042) then
     insert into verify.failures values ('the number of policies changed');
   end if;
@@ -3496,7 +3385,7 @@ begin
                      or strpos(coalesce(with_check, ''), c_from) > 0)) then
     insert into verify.failures values ('a policy of the 17 tables still asks admin or teacher');
   end if;
-  if not exists (select 1 from pg_policies
+  if not exists (select 1 from policies_after_0042
                   where schemaname = 'storage' and policyname = 'vocabulary_images_write'
                     and strpos(qual, 'teaches_in') > 0 and strpos(with_check, 'teaches_in') > 0
                     and strpos(qual, '''admin''') = 0 and strpos(with_check, '''admin''') = 0) then
@@ -3539,15 +3428,12 @@ begin
     (c_chelsea, c_admin_chelsea, 'admin');
   insert into students (id, organization_id) values (c_employee, v_c);
 
-  -- One row of every operation table, and content of her own, so the reads
-  -- below have something to miss.
-  insert into books (position, title, organization_id) values (2, 'C only', v_c)
-    returning id into v_book;
-  insert into points (book_id, number) values (v_book, 1) returning id into v_point;
-  insert into questions (point_id, position, prompt, expected_answer, is_published)
-    values (v_point, 0, 'of C', 'a', true) returning id into v_question;
-  insert into questions (point_id, position, prompt, expected_answer, is_published)
-    values (v_point, 1, 'of C, a draft', 'a', false);
+  -- One row of every operation table, so the reads below have something to
+  -- miss, on a common published question: since 0043 there is no content of
+  -- C to hang them on.
+  v_question := (select id from questions
+                  where organization_id is null and is_published
+                  order by created_at, id limit 1);
   insert into lessons (student_id, scheduled_at) values (c_employee, now() + interval '2 days');
   insert into lesson_schedules (student_id, weekday, start_time) values (c_employee, 1, '09:00');
   insert into assignments (student_id, due_on) values (c_employee, current_date)
@@ -3589,7 +3475,7 @@ begin
     insert into verify.failures values ('the admin of C writes C''s content');
   end if;
   perform set_config('test.uid', c_admin_chelsea::text, false);
-  if not teaches_in(c_chelsea) or not teaches_anywhere() or not can_write_content(c_chelsea) then
+  if not teaches_in(c_chelsea) or not teaches_anywhere() then
     insert into verify.failures values ('a Chelsea admin no longer teaches in Chelsea');
   end if;
   perform set_config('test.uid', c_teacher_b::text, false);
@@ -3606,10 +3492,6 @@ begin
       insert into verify.failures values (format('the admin of C reads %s rows of %s', v_n, v_table));
     end if;
   end loop;
-  if not verify.refused_for_privilege(
-       format('insert into books (position, title, organization_id) values (8, %L, %L)', 'by C', v_c)) then
-    insert into verify.failures values ('the admin of C wrote a book of C');
-  end if;
   if not verify.refused_for_privilege(
        format('insert into lessons (student_id, scheduled_at) values (%L, now() + interval ''5 days'')',
               c_employee)) then
@@ -3650,12 +3532,6 @@ begin
        format('insert into storage.objects (bucket_id, name) values (%L, %L)',
               'vocabulary-images', v_c || '/c.png')) then
     insert into verify.failures values ('the admin of C wrote a file under C''s folder');
-  end if;
-  perform set_config('test.uid', c_teacher_b::text, false);
-  if verify.refused_for_privilege(
-       format('insert into storage.objects (bucket_id, name) values (%L, %L)',
-              'vocabulary-images', c_b || '/b-0042.png')) then
-    insert into verify.failures values ('B''s teacher no longer writes under B''s folder');
   end if;
 
   -- 6. Running the organization.
@@ -3782,96 +3658,583 @@ begin
 end;
 $$;
 
--- Nobody truncates what RLS guards (0037) ----------------------------------------------
+-- All content is common (0043) -----------------------------------------------------------
 --
--- Holds for every relation public has now and any a migration adds later: the
--- last block of the script, so it sees whatever the migrations above created.
--- anon, authenticated and service_role hold none of truncate, references,
--- trigger and maintain on any relation of public, references on no column;
--- postgres's default ACL in public gives none of the four to the three; and a
--- table created here, as postgres, is born with no privilege at all for them.
--- has_table_privilege also sees what reaches a role through PUBLIC.
+-- Every row of content is common and only the platform admin writes it; who
+-- teaches still reads it. Each assertion stands on one clause of 0043:
 --
--- The probe table is dropped in the same block: scripts/gen-types.sh makes the
--- types from this same database, and it must not show in them.
+-- 1. Only the change: every policy of public and storage right after 0043
+--    (policies_after_0043) equals its text after 0042 (policies_after_0042),
+--    except the 10 content _write policies, now ( SELECT is_platform_admin())
+--    in using and with check, and vocabulary_images_write, now the bucket and
+--    is_platform_admin() alone, with no teaches_in.
+-- 2. can_write_content is false for B's teacher, for a Chelsea admin who is
+--    not a platform admin and for the admin of C, with their organization and
+--    with null; true for the platform admin.
+-- 3. One check per table: as the owner, past RLS, a row of each of the 10
+--    tables written with an organization, on common parents, is refused by
+--    <table>_is_common; and the 10 constraints exist, validated.
+-- 4. Nobody but the platform admin writes: B's teacher and the Chelsea admin
+--    insert into none of the 10 tables (42501), update and delete no common
+--    row of them (read back as the owner), and materialize_points,
+--    reorder_questions and delete_question refuse them. This held for common
+--    rows before 0043 too: it guards what a teacher may not do, and the proof
+--    of the change is 1.
+-- 5. Who teaches still reads: B's teacher and the Chelsea admin read common
+--    rows of the 10 tables; the Chelsea student and the employee of C read a
+--    common published question.
+-- 6. The platform admin still writes: a common book, a common word, the
+--    points of a book, and a file in the bucket.
+-- 7. Storage: B's teacher writes no file under B's folder nor at the root;
+--    the Chelsea admin writes none under Chelsea's.
+--
+-- The people are the ones seeded above. Failures are collected and raised
+-- together.
 do $$
 declare
-  c_roles constant text[] := array['anon', 'authenticated', 'service_role'];
-  c_unused constant text[] := array['truncate', 'references', 'trigger', 'maintain'];
-  v_relation record;
-  v_role text;
-  v_privilege text;
+  c_content constant text[] := array[
+    'books', 'lessons_content', 'points', 'blocks', 'vocabulary_items',
+    'image_attempts', 'contrast_sets', 'contrast_set_items', 'questions', 'scenes'];
+  c_platform_admin constant text := '( SELECT is_platform_admin() AS is_platform_admin)';
+  c_bucket constant text :=
+    '((bucket_id = ''vocabulary-images''::text) AND ( SELECT is_platform_admin() AS is_platform_admin))';
+  c_chelsea constant uuid := (select id from organizations where slug = 'chelsea-st');
+  c_b constant uuid := (select id from organizations where slug = 'escola-b');
+  c_c constant uuid := (select id from organizations where slug = 'empresa-c');
+  c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  c_teacher_b constant uuid := '33333333-3333-3333-3333-333333333333';
+  c_admin_c constant uuid := 'c1c1c1c1-c1c1-c1c1-c1c1-c1c1c1c1c1c1';
+  c_employee constant uuid := 'e1e1e1e1-e1e1-e1e1-e1e1-e1e1e1e1e1e1';
+  c_admin_chelsea constant uuid := 'a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1';
+  c_book constant uuid := (select id from books where title = 'Book 2' and organization_id is null);
+  c_point constant uuid := (select id from points where book_id = c_book and number = 53);
+  c_word constant uuid := (select id from vocabulary_items where term = 'a word' and organization_id is null);
+  c_question constant uuid := (select id from questions
+                                where point_id = c_point and organization_id is null
+                                order by position limit 1);
+  v_set uuid := (select id from contrast_sets where organization_id is null order by id limit 1);
+  v_set_word uuid;
+  v_inserts text[];
+  v_writer uuid;
+  v_table text;
+  v_drift text;
+  v_refusal text;
+  v_n integer;
+  v_owner_n integer;
+  v_counts jsonb := '{}';
+  v_book uuid;
   v_failures text;
-  v_before bigint := 0;
 begin
   delete from verify.failures;
 
-  for v_relation in
-    select c.oid, c.relname
-      from pg_class c join pg_namespace n on n.oid = c.relnamespace
-     where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm', 'f')
-     order by c.relname
-  loop
-    foreach v_role in array c_roles loop
-      foreach v_privilege in array c_unused loop
-        if has_table_privilege(v_role, v_relation.oid, v_privilege) then
-          insert into verify.failures
-            values (format('%s has %s on %s', v_role, v_privilege, v_relation.relname));
-        end if;
-      end loop;
-      if has_any_column_privilege(v_role, v_relation.oid, 'references')
-         and not has_table_privilege(v_role, v_relation.oid, 'references') then
-        insert into verify.failures
-          values (format('%s has references on a column of %s', v_role, v_relation.relname));
-      end if;
-    end loop;
-  end loop;
-  if (select count(*) from verify.failures) = v_before then
-    raise notice 'no relation of public gives truncate, references, trigger or maintain to anon, authenticated or service_role';
+  -- 1. Only the change.
+  with expected as (
+    select schemaname, tablename, policyname, permissive, roles, cmd,
+           case when schemaname = 'public' and policyname = any (
+                       array(select t || '_write' from unnest(c_content) t))
+                  then c_platform_admin
+                when schemaname = 'storage' and policyname = 'vocabulary_images_write'
+                  then c_bucket
+                else qual end as qual,
+           case when schemaname = 'public' and policyname = any (
+                       array(select t || '_write' from unnest(c_content) t))
+                  then c_platform_admin
+                when schemaname = 'storage' and policyname = 'vocabulary_images_write'
+                  then c_bucket
+                else with_check end as with_check
+      from policies_after_0042
+  ),
+  drift as (
+    (select 'expected but not held' as what, * from expected
+     except select 'expected but not held', * from policies_after_0043)
+    union all
+    (select 'held but not expected', * from policies_after_0043
+     except select 'held but not expected', * from expected)
+  )
+  select string_agg(format('%s: %s.%s', what, tablename, policyname), '; '
+                    order by tablename, policyname, what)
+    into v_drift from drift;
+  if v_drift is not null then
+    insert into verify.failures values ('policies beyond the change of 0043: ' || v_drift);
   end if;
-  v_before := (select count(*) from verify.failures);
+  select count(*) into v_n
+    from policies_after_0042 b
+    join policies_after_0043 p using (schemaname, tablename, policyname)
+   where b.qual is distinct from p.qual or b.with_check is distinct from p.with_check;
+  if v_n <> 11 then
+    insert into verify.failures values (format('0043 changed %s policies, expected 11', v_n));
+  end if;
+  if (select count(*) from policies_after_0043) <> (select count(*) from policies_after_0042) then
+    insert into verify.failures values ('0043 changed the number of policies');
+  end if;
 
+  -- 2. can_write_content.
+  set local role authenticated;
+  perform set_config('test.uid', c_teacher_b::text, false);
+  if can_write_content(c_b) or can_write_content(null) then
+    insert into verify.failures values ('can_write_content is true for B''s teacher');
+  end if;
+  perform set_config('test.uid', c_admin_chelsea::text, false);
+  if can_write_content(c_chelsea) or can_write_content(null) then
+    insert into verify.failures values ('can_write_content is true for a Chelsea admin who is not a platform admin');
+  end if;
+  perform set_config('test.uid', c_admin_c::text, false);
+  if can_write_content(c_c) or can_write_content(null) then
+    insert into verify.failures values ('can_write_content is true for the admin of C');
+  end if;
+  perform set_config('test.uid', c_admin::text, false);
+  if not can_write_content(null) then
+    insert into verify.failures values ('can_write_content is false for the platform admin');
+  end if;
+  reset role;
+
+  -- 3. One check per table, as the owner. The common contrast set and the
+  -- word that no set holds are the parents of the two contrast rows.
+  if v_set is null then
+    insert into verify.failures values ('no common contrast set: the check of contrast_set_items would prove nothing');
+  end if;
+  insert into vocabulary_items (term, first_point_id) values ('not in a set, 0043', c_point)
+    returning id into v_set_word;
+  v_inserts := array[
+    format('insert into books (position, title, organization_id) values (11, %L, %L)', 'of Chelsea', c_chelsea),
+    format('insert into lessons_content (book_id, number, first_point, last_point, organization_id) values (%L, 99, 1, 2, %L)',
+           c_book, c_chelsea),
+    format('insert into points (book_id, number, organization_id) values (%L, 999, %L)', c_book, c_chelsea),
+    format('insert into blocks (point_id, position, kind, content, organization_id) values (%L, 99, %L, %L, %L)',
+           c_point, 'vocabulary', 'of Chelsea', c_chelsea),
+    format('insert into vocabulary_items (term, first_point_id, organization_id) values (%L, %L, %L)',
+           'of Chelsea', c_point, c_chelsea),
+    format('insert into image_attempts (vocabulary_item_id, provider, status, organization_id) values (%L, %L, %L, %L)',
+           c_word, 'freepik', 'pending', c_chelsea),
+    format('insert into contrast_sets (organization_id) values (%L)', c_chelsea),
+    format('insert into contrast_set_items (vocabulary_item_id, set_id, position, organization_id) values (%L, %L, 99, %L)',
+           v_set_word, v_set, c_chelsea),
+    format('insert into questions (point_id, position, prompt, expected_answer, organization_id) values (%L, 99, %L, %L, %L)',
+           c_point, 'of Chelsea', 'a', c_chelsea),
+    format('insert into scenes (description, organization_id) values (%L, %L)', 'of Chelsea', c_chelsea)];
+  for v_n in 1 .. array_length(c_content, 1) loop
+    perform verify.expect_refused(format('a row of %s with an organization', c_content[v_n]),
+      c_content[v_n] || '_is_common', v_inserts[v_n]);
+  end loop;
   insert into verify.failures
-  select format('the default ACL of postgres in public gives %s %s on new tables',
-                r.rolname, a.privilege_type)
-    from pg_default_acl d
-    cross join lateral aclexplode(d.defaclacl) a
-    join pg_roles r on r.oid = a.grantee
-   where d.defaclrole = 'postgres'::regrole
-     and d.defaclnamespace = 'public'::regnamespace
-     and d.defaclobjtype = 'r'
-     and r.rolname = any (c_roles)
-     and lower(a.privilege_type) = any (c_unused)
-   order by r.rolname, a.privilege_type;
-  if (select count(*) from verify.failures) = v_before then
-    raise notice 'the default ACL of postgres in public gives none of the four to the three roles';
-  end if;
-  v_before := (select count(*) from verify.failures);
+  select format('%s has no validated %s_is_common', t, t)
+    from unnest(c_content) t
+   where not exists (
+     select 1 from pg_constraint co
+      where co.conrelid = t::regclass and co.conname = t || '_is_common'
+        and co.contype = 'c' and co.convalidated
+        and pg_get_constraintdef(co.oid) = 'CHECK ((organization_id IS NULL))');
 
-  if current_user <> 'postgres' then
-    insert into verify.failures values (format(
-      'the probe table would be created by %s, not postgres, and prove nothing about its default ACL',
-      current_user));
-  end if;
-  create table public.verify_default_acl_probe (id integer);
-  foreach v_role in array c_roles loop
-    foreach v_privilege in array array['select', 'insert', 'update', 'delete',
-                                       'truncate', 'references', 'trigger', 'maintain'] loop
-      if has_table_privilege(v_role, 'public.verify_default_acl_probe', v_privilege) then
-        insert into verify.failures
-          values (format('a new table is born giving %s %s', v_role, v_privilege));
+  -- 4. Nobody but the platform admin writes. The rows of each table are
+  -- counted as the owner before and after.
+  foreach v_table in array c_content loop
+    execute format('select count(*) from %I', v_table) into v_owner_n;
+    if v_owner_n = 0 then
+      insert into verify.failures values (format(
+        'no common row in %s: the writes below would prove nothing', v_table));
+    end if;
+    v_counts := v_counts || jsonb_build_object(v_table, v_owner_n);
+  end loop;
+  -- Each insert is the owner's of 3 with the organization taken out: the same
+  -- row, common.
+  v_inserts := array[
+    'insert into books (position, title) values (11, ''common, by a teacher'')',
+    format('insert into lessons_content (book_id, number, first_point, last_point) values (%L, 99, 1, 2)', c_book),
+    format('insert into points (book_id, number) values (%L, 999)', c_book),
+    format('insert into blocks (point_id, position, kind, content) values (%L, 99, %L, %L)',
+           c_point, 'vocabulary', 'by a teacher'),
+    format('insert into vocabulary_items (term, first_point_id) values (%L, %L)', 'by a teacher', c_point),
+    format('insert into image_attempts (vocabulary_item_id, provider, status) values (%L, %L, %L)',
+           c_word, 'freepik', 'pending'),
+    'insert into contrast_sets default values',
+    format('insert into contrast_set_items (vocabulary_item_id, set_id, position) values (%L, %L, 99)',
+           v_set_word, v_set),
+    format('insert into questions (point_id, position, prompt, expected_answer) values (%L, 99, %L, %L)',
+           c_point, 'by a teacher', 'a'),
+    'insert into scenes (description) values (''by a teacher'')'];
+
+  set local role authenticated;
+  foreach v_writer in array array[c_teacher_b, c_admin_chelsea] loop
+    perform set_config('test.uid', v_writer::text, false);
+    for v_n in 1 .. array_length(c_content, 1) loop
+      v_refusal := verify.refusal(v_inserts[v_n]);
+      if v_refusal is null or v_refusal not like '42501 %' then
+        insert into verify.failures values (format('%s wrote a common row of %s: %s',
+          v_writer, c_content[v_n], coalesce(v_refusal, 'accepted')));
       end if;
     end loop;
+    -- A policy that lets the statement reach a row matches it; one that does
+    -- not matches nothing and raises nothing. Any error means a row was
+    -- reached (a foreign key, a trigger), and is a failure too.
+    foreach v_table in array c_content loop
+      begin
+        execute format('update %I set organization_id = organization_id', v_table);
+        get diagnostics v_n = row_count;
+        if v_n <> 0 then
+          insert into verify.failures values (format('%s updated %s common rows of %s', v_writer, v_n, v_table));
+        end if;
+      exception when others then
+        insert into verify.failures values (format('%s reached common rows of %s on update: %s', v_writer, v_table, sqlerrm));
+      end;
+      begin
+        execute format('delete from %I', v_table);
+        get diagnostics v_n = row_count;
+        if v_n <> 0 then
+          insert into verify.failures values (format('%s deleted %s common rows of %s', v_writer, v_n, v_table));
+        end if;
+      exception when others then
+        insert into verify.failures values (format('%s reached common rows of %s on delete: %s', v_writer, v_table, sqlerrm));
+      end;
+    end loop;
+    perform verify.expect_refusal(format('materialize_points from %s', v_writer),
+      'P0001 only a teacher of the book''s organization may configure it',
+      format('select materialize_points(%L, 1, 128)', c_book));
+    perform verify.expect_refusal(format('reorder_questions from %s', v_writer),
+      '42501 only a teacher of the point''s organization may order its questions',
+      format('select reorder_questions(%L, array[%L]::uuid[])', c_point, c_question));
+    perform verify.expect_refusal(format('delete_question from %s', v_writer),
+      '42501 only a teacher of the question''s organization may delete it',
+      format('select delete_question(%L)', c_question));
+
+    -- 5. And still reads.
+    foreach v_table in array c_content loop
+      execute format('select count(*) from %I where organization_id is null', v_table) into v_n;
+      if v_n = 0 then
+        insert into verify.failures values (format('%s reads no common row of %s', v_writer, v_table));
+      end if;
+    end loop;
+
+    -- 7. Storage, under the writer's own organization and at the root.
+    if not verify.refused_for_privilege(
+         format('insert into storage.objects (bucket_id, name) values (%L, %L)', 'vocabulary-images',
+                case when v_writer = c_teacher_b then c_b else c_chelsea end || '/x-0043.png')) then
+      insert into verify.failures values (format('%s wrote a file under her organization''s folder', v_writer));
+    end if;
+    if not verify.refused_for_privilege(
+         'insert into storage.objects (bucket_id, name) values (''vocabulary-images'', ''x-0043.png'')') then
+      insert into verify.failures values (format('%s wrote a file at the root of the bucket', v_writer));
+    end if;
   end loop;
-  drop table public.verify_default_acl_probe;
-  if (select count(*) from verify.failures) = v_before then
-    raise notice 'a new table of public is born with no privilege for anon, authenticated or service_role';
+
+  foreach v_writer in array array[c_student, c_employee] loop
+    perform set_config('test.uid', v_writer::text, false);
+    if not exists (select 1 from questions where organization_id is null and is_published) then
+      insert into verify.failures values (format('%s reads no common published question', v_writer));
+    end if;
+  end loop;
+
+  -- 6. The platform admin still writes.
+  perform set_config('test.uid', c_admin::text, false);
+  if verify.refused_for_privilege(
+       'insert into books (position, title) values (12, ''by the platform admin, 0043'')') then
+    insert into verify.failures values ('the platform admin could not write a common book');
+  end if;
+  update vocabulary_items set image_subject = 'a word, 0043' where id = c_word;
+  get diagnostics v_n = row_count;
+  if v_n <> 1 then
+    insert into verify.failures values (format('the platform admin updated %s common words, expected 1', v_n));
+  end if;
+  v_book := (select id from books where title = 'by the platform admin, 0043');
+  perform verify.expect_accepted('materialize_points from the platform admin',
+    format('select materialize_points(%L, 1, 2)', v_book));
+  if verify.refused_for_privilege(
+       'insert into storage.objects (bucket_id, name) values (''vocabulary-images'', ''admin-0043.png'')') then
+    insert into verify.failures values ('the platform admin could not write a file in the bucket');
+  end if;
+  reset role;
+
+  -- The writes of 4 changed nothing, read back as the owner.
+  foreach v_table in array c_content loop
+    execute format('select count(*) from %I', v_table) into v_n;
+    v_owner_n := (v_counts ->> v_table)::integer
+                 + case v_table when 'books' then 1 when 'points' then 2 else 0 end;
+    if v_n <> v_owner_n then
+      insert into verify.failures values (format('%s holds %s rows, expected %s', v_table, v_n, v_owner_n));
+    end if;
+  end loop;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'all content is common: %', v_failures;
+  end if;
+
+  raise notice '0043 changed the 10 content _write policies and vocabulary_images_write to the platform admin alone; nothing else';
+  raise notice 'no row of the 10 content tables holds an organization, each refused by its own check';
+  raise notice 'only the platform admin writes content and the bucket; who teaches still reads it';
+end;
+$$;
+
+-- The admin sees how often, not what (0044) ----------------------------------------------
+--
+-- team_practice is the only view of practice the admin of an organization
+-- without a teacher has. Two such companies, F and G, each with an admin and
+-- employees; attempts on days chosen around now(). Each assertion stands on
+-- one clause of 0044:
+--
+-- 1. The check of the caller: the admin of F reads F; the admin of F asking
+--    for G, the admin of G asking for F, an employee of F, and B's teacher are
+--    refused with 42501. The platform admin reads both.
+-- 2. Only the admin role: an employee of F, a member of F, is refused.
+-- 3. Only F's people: exactly F's five employees, never G's, though G's
+--    employee practised today.
+-- 4. Days, not attempts: two attempts on one day count 1 (distinct).
+-- 5. The window: an attempt five weeks back counts in no week, but the last
+--    day still comes from every attempt.
+-- 6. The person's own day: one instant, a Monday at 01:30 UTC, is Monday in
+--    London and Sunday in São Paulo, so it is a different last day and a
+--    different week for each. A zone Postgres does not know counts as São
+--    Paulo, the column's default, and does not refuse the team.
+-- 7. Weeks between 1 and 12: 0, 13 and null are refused with 22023.
+-- 8. What comes out: exactly person_id, last_practised_on, days_by_week and
+--    minutes_this_month, the minutes 0 until #71.
+-- 9. Execute: authenticated has it, anon does not.
+-- 10. Security definer: it reads attempts the admin of F reads no row of.
+--
+-- The lower bound on created_at in practised only spares reading older
+-- attempts: no result depends on it, so no assertion here can see it go.
+--
+-- Seeded as the owner; called as authenticated. Failures are collected and
+-- raised together. A refusal is named by its SQLSTATE and the start of the
+-- function's own message (verify.refusal), so a plain "permission denied for
+-- function" does not pass for the check of the caller.
+
+-- One person's row of team_practice for an organization, as text, so a
+-- missing row reads as null.
+create function verify.practice_of(p_organization uuid, p_person uuid, p_weeks integer default 4)
+returns table (last_practised_on date, days_by_week integer[], minutes_this_month integer)
+language sql as $$
+  select t.last_practised_on, t.days_by_week, t.minutes_this_month
+    from team_practice(p_organization, p_weeks) t
+   where t.person_id = p_person;
+$$;
+
+-- The four weeks of team_practice for one attempt on p_day, in a person's
+-- zone: 1 in the week the day falls in, counted back from her own Monday.
+-- Written apart from the function, by subtraction of weeks.
+create function verify.one_day_in(p_day date, p_zone text) returns integer[]
+language sql stable as $$
+  select array(
+    select case when (date_trunc('week', now() at time zone p_zone)::date
+                      - date_trunc('week', p_day::timestamp)::date) / 7 = w then 1 else 0 end
+      from generate_series(3, 0, -1) as w);
+$$;
+
+do $$
+declare
+  c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_teacher_b constant uuid := '33333333-3333-3333-3333-333333333333';
+  c_admin_f constant uuid := 'f0f0f0f0-f0f0-f0f0-f0f0-f0f0f0f0f0f0';
+  c_f1 constant uuid := 'f1f1f1f1-f1f1-f1f1-f1f1-f1f1f1f1f1f1';
+  c_f2 constant uuid := 'f2f2f2f2-f2f2-f2f2-f2f2-f2f2f2f2f2f2';
+  c_f3 constant uuid := 'f3f3f3f3-f3f3-f3f3-f3f3-f3f3f3f3f3f3';
+  c_f4 constant uuid := 'f4f4f4f4-f4f4-f4f4-f4f4-f4f4f4f4f4f4';
+  c_f5 constant uuid := 'f5f5f5f5-f5f5-f5f5-f5f5-f5f5f5f5f5f5';
+  c_refused constant text := '42501 only an admin of organization %';
+  c_admin_g constant uuid := 'd0d0d0d0-d0d0-d0d0-d0d0-d0d0d0d0d0d0';
+  c_g1 constant uuid := 'd1d1d1d1-d1d1-d1d1-d1d1-d1d1d1d1d1d1';
+  c_sp constant text := 'America/Sao_Paulo';
+  c_london constant text := 'Europe/London';
+  -- Her Monday, and today, in São Paulo.
+  c_sp_week constant date := date_trunc('week', now() at time zone 'America/Sao_Paulo')::date;
+  c_sp_today constant date := (now() at time zone 'America/Sao_Paulo')::date;
+  -- A Monday two weeks back, in UTC, and its 01:30: Sunday 22:30 in São
+  -- Paulo, Monday in London in any season. Two weeks back, so it is past and
+  -- inside the four weeks for both, whatever hour this runs.
+  c_monday constant date := date_trunc('week', now() at time zone 'UTC')::date - 14;
+  c_instant constant timestamptz := (c_monday + time '01:30') at time zone 'UTC';
+  v_f uuid;
+  v_g uuid;
+  v_question uuid;
+  v_row record;
+  v_ids uuid[];
+  v_state text;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  insert into organizations (slug, name, brand, has_teacher)
+    values ('empresa-f', 'Empresa F', 'grifoai', false) returning id into v_f;
+  insert into organizations (slug, name, brand, has_teacher)
+    values ('empresa-g', 'Empresa G', 'grifoai', false) returning id into v_g;
+  insert into auth.users (id, email, raw_user_meta_data) values
+    (c_admin_f, 'admin-f@example.com', '{"full_name":"Admin F"}'),
+    (c_f1, 'f1@example.com', '{"full_name":"F1"}'),
+    (c_f2, 'f2@example.com', '{"full_name":"F2"}'),
+    (c_f3, 'f3@example.com', '{"full_name":"F3"}'),
+    (c_f4, 'f4@example.com', '{"full_name":"F4"}'),
+    (c_f5, 'f5@example.com', '{"full_name":"F5"}'),
+    (c_admin_g, 'admin-g@example.com', '{"full_name":"Admin G"}'),
+    (c_g1, 'g1@example.com', '{"full_name":"G1"}');
+  update profiles set timezone = c_london where id = c_f2;
+  -- Any text goes in through profiles_update_self.
+  update profiles set timezone = 'Not/A_Zone' where id = c_f5;
+  insert into organization_members (organization_id, user_id, role) values
+    (v_f, c_admin_f, 'admin'),
+    (v_f, c_f1, 'student'), (v_f, c_f2, 'student'),
+    (v_f, c_f3, 'student'), (v_f, c_f4, 'student'), (v_f, c_f5, 'student'),
+    (v_g, c_admin_g, 'admin'),
+    (v_g, c_g1, 'student');
+  insert into students (id, organization_id) values
+    (c_f1, v_f), (c_f2, v_f), (c_f3, v_f), (c_f4, v_f), (c_f5, v_f), (c_g1, v_g);
+
+  -- A common question: every organization's attempt may name one.
+  select id into v_question from questions where organization_id is null order by id limit 1;
+  if v_question is null then
+    raise exception 'the fixtures hold no common question to practise';
+  end if;
+
+  -- F1, in São Paulo: today; twice on Wednesday of last week; Monday two
+  -- weeks back; and five weeks back, outside the four.
+  insert into attempts (student_id, question_id, audio_path, created_at) values
+    (c_f1, v_question, 'f1/today.webm', now()),
+    (c_f1, v_question, 'f1/wed-a.webm', (c_sp_week - 5 + time '10:00') at time zone c_sp),
+    (c_f1, v_question, 'f1/wed-b.webm', (c_sp_week - 5 + time '15:00') at time zone c_sp),
+    (c_f1, v_question, 'f1/two-back.webm', (c_sp_week - 14 + time '12:00') at time zone c_sp),
+    (c_f1, v_question, 'f1/five-back.webm', (c_sp_week - 35 + time '12:00') at time zone c_sp);
+  -- F2 in London, F3 in São Paulo and F5 in a zone nobody knows, the same
+  -- instant. F4 never practised.
+  insert into attempts (student_id, question_id, audio_path, created_at) values
+    (c_f2, v_question, 'f2/instant.webm', c_instant),
+    (c_f3, v_question, 'f3/instant.webm', c_instant),
+    (c_f5, v_question, 'f5/instant.webm', c_instant);
+  -- G1 practised today, and has a review row; F1 too.
+  insert into attempts (student_id, question_id, audio_path, created_at)
+    values (c_g1, v_question, 'g1/today.webm', now());
+  insert into review_schedule (student_id, question_id) values (c_f1, v_question);
+
+  set local role authenticated;
+
+  -- 1, 3. The admin of F reads exactly F's five.
+  perform set_config('test.uid', c_admin_f::text, false);
+  select array_agg(person_id order by person_id) into v_ids from team_practice(v_f, 4);
+  if v_ids is distinct from array[c_f1, c_f2, c_f3, c_f4, c_f5] then
+    insert into verify.failures values (format('the admin of F read the people %s, expected F''s five', v_ids));
+  end if;
+
+  -- 4, 5. F1: one day in each of the last three weeks; the two attempts of
+  -- Wednesday are one day; five weeks back is in no week.
+  select * into v_row from verify.practice_of(v_f, c_f1);
+  if v_row.days_by_week is distinct from array[0, 1, 1, 1] then
+    insert into verify.failures values (format('F1 practised %s days by week, expected {0,1,1,1}', v_row.days_by_week));
+  end if;
+  if v_row.last_practised_on is distinct from c_sp_today then
+    insert into verify.failures values (format('F1 last practised on %s, expected %s', v_row.last_practised_on, c_sp_today));
+  end if;
+
+  -- 6. One instant, two days.
+  select * into v_row from verify.practice_of(v_f, c_f2);
+  if v_row.last_practised_on is distinct from c_monday
+     or v_row.days_by_week is distinct from verify.one_day_in(c_monday, c_london) then
+    insert into verify.failures values (format('F2, in London, practised on %s, %s, expected %s, %s',
+      v_row.last_practised_on, v_row.days_by_week, c_monday, verify.one_day_in(c_monday, c_london)));
+  end if;
+  select * into v_row from verify.practice_of(v_f, c_f3);
+  if v_row.last_practised_on is distinct from c_monday - 1
+     or v_row.days_by_week is distinct from verify.one_day_in(c_monday - 1, c_sp) then
+    insert into verify.failures values (format('F3, in São Paulo, practised on %s, %s, expected %s, %s',
+      v_row.last_practised_on, v_row.days_by_week, c_monday - 1, verify.one_day_in(c_monday - 1, c_sp)));
+  end if;
+  -- While São Paulo is still on Sunday and London already on Monday, each
+  -- counts from her own Monday and the two shifts cancel: the weeks agree
+  -- then, rightly. Any other hour they must differ.
+  if date_trunc('week', now() at time zone c_sp) = date_trunc('week', now() at time zone c_london)
+     and verify.one_day_in(c_monday, c_london) = verify.one_day_in(c_monday - 1, c_sp) then
+    insert into verify.failures values ('the instant falls in the same week in London and São Paulo: the fixture proves nothing');
+  end if;
+  select * into v_row from verify.practice_of(v_f, c_f5);
+  if v_row.last_practised_on is distinct from c_monday - 1 then
+    insert into verify.failures values (format('F5, in an unknown zone, practised on %s, expected %s as in São Paulo',
+      v_row.last_practised_on, c_monday - 1));
+  end if;
+
+  -- F4 never practised.
+  select * into v_row from verify.practice_of(v_f, c_f4);
+  if v_row.last_practised_on is not null or v_row.days_by_week is distinct from array[0, 0, 0, 0] then
+    insert into verify.failures values (format('F4 never practised, but reads %s, %s',
+      v_row.last_practised_on, v_row.days_by_week));
+  end if;
+
+  -- 8. The minutes are 0 for everyone, and a week count is the length asked.
+  if exists (select 1 from team_practice(v_f, 4) where minutes_this_month <> 0) then
+    insert into verify.failures values ('minutes other than 0 before #71 records sessions');
+  end if;
+  if exists (select 1 from team_practice(v_f, 12) where cardinality(days_by_week) <> 12) then
+    insert into verify.failures values ('twelve weeks asked, another number given');
+  end if;
+
+  -- 10. The rows behind it stay closed to her.
+  if (select count(*) from attempts) <> 0 or (select count(*) from review_schedule) <> 0 then
+    insert into verify.failures values ('the admin of F reads rows of attempts or review_schedule');
+  end if;
+
+  -- 1, 2. Refused: another organization, an employee, a teacher elsewhere.
+  v_state := verify.refusal(format('select * from team_practice(%L, 4)', v_g));
+  if v_state is null or v_state not like c_refused then
+    insert into verify.failures values (format('the admin of F asking for G: %s', coalesce(v_state, 'answered')));
+  end if;
+  perform set_config('test.uid', c_admin_g::text, false);
+  v_state := verify.refusal(format('select * from team_practice(%L, 4)', v_f));
+  if v_state is null or v_state not like c_refused then
+    insert into verify.failures values (format('the admin of G asking for F: %s', coalesce(v_state, 'answered')));
+  end if;
+  select array_agg(person_id) into v_ids from team_practice(v_g, 4);
+  if v_ids is distinct from array[c_g1] then
+    insert into verify.failures values (format('the admin of G read the people %s, expected G1', v_ids));
+  end if;
+  perform set_config('test.uid', c_f1::text, false);
+  v_state := verify.refusal(format('select * from team_practice(%L, 4)', v_f));
+  if v_state is null or v_state not like c_refused then
+    insert into verify.failures values (format('an employee of F asking for F: %s', coalesce(v_state, 'answered')));
+  end if;
+  perform set_config('test.uid', c_teacher_b::text, false);
+  v_state := verify.refusal(format('select * from team_practice(%L, 4)', v_f));
+  if v_state is null or v_state not like c_refused then
+    insert into verify.failures values (format('B''s teacher asking for F: %s', coalesce(v_state, 'answered')));
+  end if;
+
+  -- 7. The weeks.
+  perform set_config('test.uid', c_admin_f::text, false);
+  foreach v_state in array array['0', '13', 'null'] loop
+    if coalesce(verify.refusal(format('select * from team_practice(%L, %s)', v_f, v_state)), 'answered')
+       not like '22023 weeks must be between 1 and 12%' then
+      insert into verify.failures values (format('%s weeks were not refused with 22023', v_state));
+    end if;
+  end loop;
+
+  -- 1. The platform admin reads both.
+  perform set_config('test.uid', c_admin::text, false);
+  if (select count(*) from team_practice(v_f, 4)) <> 5 or (select count(*) from team_practice(v_g, 4)) <> 1 then
+    insert into verify.failures values ('the platform admin does not read F and G');
+  end if;
+
+  reset role;
+  perform set_config('test.uid', '', false);
+
+  -- 8. What comes out, and nothing of what was said.
+  if pg_get_function_result('team_practice(uuid, integer)'::regprocedure)
+     <> 'TABLE(person_id uuid, last_practised_on date, days_by_week integer[], minutes_this_month integer)' then
+    insert into verify.failures values ('team_practice returns ' ||
+      pg_get_function_result('team_practice(uuid, integer)'::regprocedure));
+  end if;
+
+  -- 9. Execute.
+  if has_function_privilege('anon', 'team_practice(uuid, integer)', 'execute') then
+    insert into verify.failures values ('anon executes team_practice');
+  end if;
+  if not has_function_privilege('authenticated', 'team_practice(uuid, integer)', 'execute') then
+    insert into verify.failures values ('authenticated does not execute team_practice');
   end if;
 
   select string_agg(what, '; ') into v_failures from verify.failures;
   if v_failures is not null then
-    raise exception 'unused privileges: %', v_failures;
+    raise exception 'the admin sees how often, not what: %', v_failures;
   end if;
+
+  raise notice 'the admin of F reads the practice of F''s people only: days by week, the last day, 0 minutes';
+  raise notice 'another organization''s admin, an employee, a teacher elsewhere and anon are refused';
+  raise notice 'a day is the person''s own, two attempts on it are one day, the window is the weeks asked';
+  raise notice 'a zone nobody knows counts as São Paulo, and does not refuse the team';
 end;
 $$;
 
@@ -3999,5 +4362,99 @@ begin
 
   raise notice 'only the platform admin creates an organization; a company is grifoai with no teacher';
   raise notice 'its admin invite, once confirmed, makes an admin who teaches nothing, reads her organization and invites an employee';
+end;
+$$;
+
+
+-- Nobody truncates what RLS guards (0037) ----------------------------------------------
+--
+-- Holds for every relation public has now and any a migration adds later: the
+-- last block of the script, so it sees whatever the migrations above created.
+-- anon, authenticated and service_role hold none of truncate, references,
+-- trigger and maintain on any relation of public, references on no column;
+-- postgres's default ACL in public gives none of the four to the three; and a
+-- table created here, as postgres, is born with no privilege at all for them.
+-- has_table_privilege also sees what reaches a role through PUBLIC.
+--
+-- The probe table is dropped in the same block: scripts/gen-types.sh makes the
+-- types from this same database, and it must not show in them.
+do $$
+declare
+  c_roles constant text[] := array['anon', 'authenticated', 'service_role'];
+  c_unused constant text[] := array['truncate', 'references', 'trigger', 'maintain'];
+  v_relation record;
+  v_role text;
+  v_privilege text;
+  v_failures text;
+  v_before bigint := 0;
+begin
+  delete from verify.failures;
+
+  for v_relation in
+    select c.oid, c.relname
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm', 'f')
+     order by c.relname
+  loop
+    foreach v_role in array c_roles loop
+      foreach v_privilege in array c_unused loop
+        if has_table_privilege(v_role, v_relation.oid, v_privilege) then
+          insert into verify.failures
+            values (format('%s has %s on %s', v_role, v_privilege, v_relation.relname));
+        end if;
+      end loop;
+      if has_any_column_privilege(v_role, v_relation.oid, 'references')
+         and not has_table_privilege(v_role, v_relation.oid, 'references') then
+        insert into verify.failures
+          values (format('%s has references on a column of %s', v_role, v_relation.relname));
+      end if;
+    end loop;
+  end loop;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'no relation of public gives truncate, references, trigger or maintain to anon, authenticated or service_role';
+  end if;
+  v_before := (select count(*) from verify.failures);
+
+  insert into verify.failures
+  select format('the default ACL of postgres in public gives %s %s on new tables',
+                r.rolname, a.privilege_type)
+    from pg_default_acl d
+    cross join lateral aclexplode(d.defaclacl) a
+    join pg_roles r on r.oid = a.grantee
+   where d.defaclrole = 'postgres'::regrole
+     and d.defaclnamespace = 'public'::regnamespace
+     and d.defaclobjtype = 'r'
+     and r.rolname = any (c_roles)
+     and lower(a.privilege_type) = any (c_unused)
+   order by r.rolname, a.privilege_type;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'the default ACL of postgres in public gives none of the four to the three roles';
+  end if;
+  v_before := (select count(*) from verify.failures);
+
+  if current_user <> 'postgres' then
+    insert into verify.failures values (format(
+      'the probe table would be created by %s, not postgres, and prove nothing about its default ACL',
+      current_user));
+  end if;
+  create table public.verify_default_acl_probe (id integer);
+  foreach v_role in array c_roles loop
+    foreach v_privilege in array array['select', 'insert', 'update', 'delete',
+                                       'truncate', 'references', 'trigger', 'maintain'] loop
+      if has_table_privilege(v_role, 'public.verify_default_acl_probe', v_privilege) then
+        insert into verify.failures
+          values (format('a new table is born giving %s %s', v_role, v_privilege));
+      end if;
+    end loop;
+  end loop;
+  drop table public.verify_default_acl_probe;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a new table of public is born with no privilege for anon, authenticated or service_role';
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'unused privileges: %', v_failures;
+  end if;
 end;
 $$;

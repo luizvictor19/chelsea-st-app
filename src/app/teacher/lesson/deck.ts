@@ -38,9 +38,19 @@ export type DeckQuestion = {
   readonly position: number;
   readonly prompt: string;
   readonly expectedAnswer: string;
-  /** The word the question shows (0028), or null for a question with none. */
-  readonly word: DeckWord | null;
+  /**
+   * What the question shows, in the four cases the database has (0030): the
+   * picture of a word, a scene, acted out by the teacher, or nothing decided.
+   * A scene carries its approved image, or null when it has none yet.
+   */
+  readonly image: QuestionImage;
 };
+
+export type QuestionImage =
+  | { readonly kind: "word"; readonly word: DeckWord }
+  | { readonly kind: "scene"; readonly imageUrl: string | null }
+  | { readonly kind: "acted" }
+  | { readonly kind: "none" };
 
 /** One thing on the screen: a word alone, a whole contrast set, or a question. */
 export type Slide = {
@@ -232,12 +242,24 @@ export function clampPosition(
 }
 
 /**
- * What the first level of a question shows: the approved picture the word it
- * shows has now, or null for the neutral card. Null as well when the word has
- * lost its picture since it was chosen, which the question does not know.
+ * What the first level of a question shows, or null for the neutral card:
+ * the approved picture the word it shows has now, null as well when the word
+ * has lost its picture since it was chosen, which the question does not
+ * know; the approved image of the scene it shows, null while the scene has
+ * none; and the neutral card for a question acted out or with nothing
+ * decided.
  */
 export function questionPicture(question: DeckQuestion): string | null {
-  return question.word === null ? null : approvedPicture(question.word);
+  const { image } = question;
+  switch (image.kind) {
+    case "word":
+      return approvedPicture(image.word);
+    case "scene":
+      return image.imageUrl;
+    case "acted":
+    case "none":
+      return null;
+  }
 }
 
 /** Where the teacher is and how much of that slide is showing, from level 1. */

@@ -197,7 +197,7 @@ const question = (
   position,
   prompt: `${id}?`,
   expectedAnswer: `${id}.`,
-  word: null,
+  image: { kind: "none" },
 });
 
 describe("questionPicture", () => {
@@ -209,12 +209,15 @@ describe("questionPicture", () => {
 
   test("is the approved picture of the word the question shows", () => {
     assert.equal(
-      questionPicture({ ...question("what", 1, 0), word: pictured }),
+      questionPicture({
+        ...question("what", 1, 0),
+        image: { kind: "word", word: pictured },
+      }),
       "https://images/pen.png",
     );
   });
 
-  test("is nothing, the neutral card, for a question that shows no word", () => {
+  test("is nothing, the neutral card, for a question with no image decided", () => {
     assert.equal(questionPicture(question("what", 1, 0)), null);
   });
 
@@ -222,14 +225,49 @@ describe("questionPicture", () => {
     assert.equal(
       questionPicture({
         ...question("what", 1, 0),
-        word: { ...pictured, imageUrl: null },
+        image: { kind: "word", word: { ...pictured, imageUrl: null } },
       }),
       null,
     );
     assert.equal(
       questionPicture({
         ...question("what", 1, 0),
-        word: { ...pictured, representation: "symbol" },
+        image: {
+          kind: "word",
+          word: { ...pictured, representation: "symbol" },
+        },
+      }),
+      null,
+    );
+  });
+
+  test("is the approved image of the scene the question shows", () => {
+    assert.equal(
+      questionPicture({
+        ...question("what", 1, 0),
+        image: { kind: "scene", imageUrl: "https://images/large-box.png" },
+      }),
+      "https://images/large-box.png",
+    );
+  });
+
+  test("is nothing, the neutral card, for a scene with no approved image", () => {
+    assert.equal(
+      questionPicture({
+        ...question("what", 1, 0),
+        image: { kind: "scene", imageUrl: null },
+      }),
+      null,
+    );
+  });
+
+  test("is nothing, the neutral card, for a question acted out", () => {
+    // Neutral because it is acted out, not for lack of a word: the image
+    // says so, and a word is not even there to be missing.
+    assert.equal(
+      questionPicture({
+        ...question("what", 1, 0),
+        image: { kind: "acted" },
       }),
       null,
     );

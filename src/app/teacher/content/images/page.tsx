@@ -7,6 +7,7 @@ import {
   listScenes,
   listVocabularyImages,
   listWordAttempts,
+  requireContentWriter,
 } from "@/lib/content/queries";
 
 import { ProgressBar } from "../progress-bar";
@@ -114,6 +115,7 @@ export default async function VocabularyImagesPage({
 }: {
   readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  await requireContentWriter();
   const params = await searchParams;
   const selection: Selection = {
     tipo: parseSelection(params.tipo),

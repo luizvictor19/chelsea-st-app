@@ -118,7 +118,10 @@ architecture question for Luiz.
   organization without an admin, shown there as "Sem admin" and fixed on `/teacher/invites`.
 - Organizations follow ADR 0004, applied by 0029: every table carries `organization_id`; people
   and operation rows belong to one organization, content rows are common (`organization_id` null)
-  or one organization's. Roles live in `organization_members` (`admin`, `teacher`, `student`, one
+  or one organization's. Since 0043 (#211) every content row is common: each of the 10 content
+  tables refuses `organization_id` by its own check (`<table>_is_common`), the column stays, always
+  null, and only the platform admin writes content (`can_write_content` is `is_platform_admin()`,
+  so are the 10 content `_write` policies and the image bucket's). Roles live in `organization_members` (`admin`, `teacher`, `student`, one
   row each) and `platform_admins`; there is no `profiles.role` and no `is_teacher()`. Policies call
   `is_platform_admin()` and `is_organization_member()`. A new table names its organization, and the
   `organization_follows_parents` trigger fills it, on insert, from the first parent present in its
@@ -130,13 +133,24 @@ architecture question for Luiz.
   no default, written by the platform admin only. Chelsea St has one; GrifoAI's organization and
   every company on GrifoAI have none. "Admin can do everything a teacher can" (ADR 0004) holds only
   where there is a teacher: `teaches_in(organization)` (a teacher, or an admin where `has_teacher`)
-  is what the 34 policies of a teacher's power, `teaches_anywhere`, `can_write_content`,
-  `materialize_lessons` and the image upload policy ask. Where there is no teacher, the admin
+  is what the 34 policies of a teacher's power, `teaches_anywhere` and `materialize_lessons`
+  ask (0043 then gave the 10 content writes among the 34 to the platform admin alone). Where there is no teacher, the admin
   invites (employees and admins), reads the invites, the members and their names, and nothing
   else; nobody is a teacher there (triggers on members and invites), and an organization with a
   teacher member or an open teacher invite cannot turn into one without. On screen the company
   admin lands on `/team`, the employee (`student`) on `/dashboard`, which shows only the practice
   with Robin.
+- The admin of an organization sees her team's practice only through `team_practice` (0044, #198),
+  a `security definer` function that refuses (42501) anyone but an admin of that organization or
+  the platform admin, and `anon` holds no `execute` on it. Per person who has a row in `students`
+  it returns the last day practised, the days practised in each of the last 1 to 12 weeks (Monday
+  to Sunday, in `profiles.timezone`, São Paulo when that is not a zone: #219) and the minutes
+  practised in the month; never what was said.
+  The days come from `attempts` and the minutes are 0 until Robin v1 (#71) records sessions with a
+  start and an end; #71 rewrites the body and keeps the signature. The policies of `attempts` and
+  `review_schedule` did not change. The daily cap (15 min, both brands) lives in
+  `src/lib/tutor/daily-cap.ts`; `/team` shows the month's minutes against the cap times the days of
+  the month so far, and the employee's card says the company sees the days and the time.
 - What a question shows follows 0030: the picture of one word (`shown_vocabulary_item_id`), one
   scene (`scene_id`), or acted out (`is_acted_out`), at most one of the three, checked by
   `questions_one_image`; none of them means not decided yet. An image attempt belongs to exactly
@@ -196,7 +210,8 @@ architecture question for Luiz.
 - Book 1 lesson images (measured 08/10/2026): lessons 1 to 3 complete (37, 11 and 21 words);
   lesson 4 has 5 words that need an image and none approved; lessons 5 to 9 have 124 words whose
   type (representation) is not decided yet, so it is not known how many will need images.
-- Questions are written by hand on /teacher/content/questions; suggestion is planned, not built.
+- Questions are written by hand by the platform admin on /teacher/content/questions (the only
+  one who sees the content screens since #211); suggestion is planned, not built.
 
 ## Known traps
 

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { loadBook } from "@/lib/content/queries";
+import { loadBook, requireContentWriter } from "@/lib/content/queries";
 
 import { ProgressBar } from "../progress-bar";
 import {
@@ -24,6 +24,7 @@ export default async function BookPage({
 }: {
   params: Promise<{ book: string }>;
 }) {
+  await requireContentWriter();
   const { book: raw } = await params;
   const position = Number(raw);
   if (!Number.isInteger(position)) {
