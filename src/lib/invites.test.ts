@@ -8,30 +8,52 @@ import {
   invitableRoles,
   mailProblem,
   renewedExpiry,
+  roleLabel,
 } from "./invites.ts";
 
 describe("invites", () => {
   test("an organization's admin and a platform admin invite every role", () => {
-    assert.deepEqual(invitableRoles(false, ["admin"]), [
+    assert.deepEqual(invitableRoles(false, ["admin"], true), [
       "student",
       "teacher",
       "admin",
     ]);
-    assert.deepEqual(invitableRoles(true, []), ["student", "teacher", "admin"]);
+    assert.deepEqual(invitableRoles(true, [], true), [
+      "student",
+      "teacher",
+      "admin",
+    ]);
   });
 
   test("a teacher invites students only, a student no one", () => {
-    assert.deepEqual(invitableRoles(false, ["teacher"]), ["student"]);
-    assert.deepEqual(invitableRoles(false, ["student"]), []);
-    assert.deepEqual(invitableRoles(false, []), []);
+    assert.deepEqual(invitableRoles(false, ["teacher"], true), ["student"]);
+    assert.deepEqual(invitableRoles(false, ["student"], true), []);
+    assert.deepEqual(invitableRoles(false, [], true), []);
   });
 
   test("admin wins over teacher in the same organization", () => {
-    assert.deepEqual(invitableRoles(false, ["teacher", "admin"]), [
+    assert.deepEqual(invitableRoles(false, ["teacher", "admin"], true), [
       "student",
       "teacher",
       "admin",
     ]);
+  });
+
+  test("without a teacher, nobody is invited as one (0042)", () => {
+    assert.deepEqual(invitableRoles(false, ["admin"], false), [
+      "student",
+      "admin",
+    ]);
+    assert.deepEqual(invitableRoles(true, [], false), ["student", "admin"]);
+    assert.deepEqual(invitableRoles(false, ["student"], false), []);
+  });
+
+  test("a role is named for the kind of organization", () => {
+    assert.equal(roleLabel("student", true), "Aluna");
+    assert.equal(roleLabel("teacher", true), "Professor");
+    assert.equal(roleLabel("admin", true), "Admin da escola");
+    assert.equal(roleLabel("student", false), "Funcionário");
+    assert.equal(roleLabel("admin", false), "Admin da empresa");
   });
 
   test("sending again opens the invite for the full period", () => {
@@ -51,6 +73,17 @@ describe("invites", () => {
       /e-mail válido/,
     );
     assert.match(inviteRefusal({ code: "42501" }), /não pode convidar/);
+  });
+
+  test("a teacher invite where there is no teacher has its own sentence (0042)", () => {
+    assert.match(
+      inviteRefusal({
+        code: "23514",
+        message:
+          "organization 1 has no teacher (teacher_needs_a_teaching_organization)",
+      }),
+      /não tem professor/,
+    );
   });
 
   test("an unknown failure is not dressed as one of the rules", () => {

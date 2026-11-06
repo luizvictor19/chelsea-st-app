@@ -3,9 +3,9 @@
 import { revalidatePath } from "next/cache";
 
 import type { OrganizationRole } from "@/lib/access";
+import { requireInviter } from "@/lib/auth";
 import { inviteOptions } from "@/lib/auth-links";
 import { isBrandKey, siteOfBrand } from "@/lib/brand";
-import { requireTeacher } from "@/lib/content/queries";
 import { looksLikeEmail, normalizeEmail } from "@/lib/credentials";
 import { currentSite, siteConfig } from "@/lib/current-site";
 import { inviteRefusal, mailProblem, renewedExpiry } from "@/lib/invites";
@@ -30,7 +30,13 @@ export type RowResult =
 
 const ROLES: readonly OrganizationRole[] = ["student", "teacher", "admin"];
 
-type Client = Awaited<ReturnType<typeof requireTeacher>>["supabase"];
+type Client = Awaited<ReturnType<typeof requireInviter>>["supabase"];
+
+/** Both screens that list invites: the teacher's and the company admin's (0042). */
+function refreshInviteScreens(): void {
+  revalidatePath("/teacher/invites");
+  revalidatePath("/team");
+}
 
 /**
  * Asks Supabase to mail the invite. For a new email it creates the account,
@@ -75,7 +81,7 @@ export async function inviteToOrganization(
   _previous: InviteState,
   formData: FormData,
 ): Promise<InviteState> {
-  const { supabase } = await requireTeacher();
+  const { supabase } = await requireInviter();
 
   const email = normalizeEmail(formData.get("email"));
   const role = String(formData.get("role") ?? "") as OrganizationRole;
@@ -100,7 +106,7 @@ export async function inviteToOrganization(
     return { status: "error", message: inviteRefusal(error), email, role };
   }
 
-  revalidatePath("/teacher/invites");
+  refreshInviteScreens();
 
   const problem = await mailInvite(supabase, email, organizationId);
   if (problem !== null) {
@@ -114,7 +120,7 @@ export async function inviteToOrganization(
  * restarts the 15 days itself; the value sent is only what it would be.
  */
 export async function resendInvite(inviteId: string): Promise<RowResult> {
-  const { supabase } = await requireTeacher();
+  const { supabase } = await requireInviter();
 
   const { data: invite, error } = await supabase
     .from("organization_invites")
@@ -127,7 +133,7 @@ export async function resendInvite(inviteId: string): Promise<RowResult> {
     return { status: "error", message: inviteRefusal(error) };
   }
 
-  revalidatePath("/teacher/invites");
+  refreshInviteScreens();
 
   if (!invite) {
     return {
@@ -156,7 +162,7 @@ export async function resendInvite(inviteId: string): Promise<RowResult> {
  * of an account with no access.
  */
 export async function cancelInvite(inviteId: string): Promise<RowResult> {
-  const { supabase } = await requireTeacher();
+  const { supabase } = await requireInviter();
 
   const { data, error } = await supabase
     .from("organization_invites")
@@ -168,7 +174,7 @@ export async function cancelInvite(inviteId: string): Promise<RowResult> {
     return { status: "error", message: inviteRefusal(error) };
   }
 
-  revalidatePath("/teacher/invites");
+  refreshInviteScreens();
 
   if (data.length === 0) {
     return {

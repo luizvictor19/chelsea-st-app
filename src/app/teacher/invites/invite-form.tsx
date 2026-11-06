@@ -3,13 +3,15 @@
 import { useActionState, useState } from "react";
 
 import type { OrganizationRole } from "@/lib/access";
-import { ROLE_LABEL } from "@/lib/invites";
+import { roleLabel } from "@/lib/invites";
 
 import { inviteToOrganization, type InviteState } from "./actions";
 
 export type InvitableOrganization = {
   readonly id: string;
   readonly name: string;
+  /** Whether it has a teacher (0042): it names the roles. */
+  readonly hasTeacher: boolean;
   readonly roles: readonly OrganizationRole[];
 };
 
@@ -74,7 +76,7 @@ export function InviteForm({
           >
             {organization.roles.map((role) => (
               <option key={role} value={role}>
-                {ROLE_LABEL[role]}
+                {roleLabel(role, organization.hasTeacher)}
               </option>
             ))}
           </select>

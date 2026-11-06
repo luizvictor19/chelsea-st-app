@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
 
-import type { OrganizationRole } from "@/lib/access";
 import { requireTeacher } from "@/lib/content/queries";
-import { invitableRoles } from "@/lib/invites";
 
-import { InviteForm, type InvitableOrganization } from "./invite-form";
-import { InviteList, type OpenInvite } from "./invite-list";
+import { readInvitableOrganizations, readOpenInvites } from "./invitable";
+import { InviteForm } from "./invite-form";
+import { InviteList } from "./invite-list";
 
 export const metadata: Metadata = {
   title: "Convites",
@@ -19,36 +18,12 @@ export const metadata: Metadata = {
 export default async function InvitesPage() {
   const { supabase, user, access } = await requireTeacher();
 
-  const [organizations, { data: open, error: openError }] = await Promise.all([
-    readInvitableOrganizations(supabase, user.id, access.platformAdmin),
-    supabase
-      .from("organization_invites")
-      .select("id, email, role, expires_at, organization_id")
-      .is("accepted_at", null)
-      .order("created_at", { ascending: false }),
-  ]);
-  if (openError) throw new Error(openError.message);
-
-  const nameOf = new Map(
-    organizations.map((organization) => [organization.id, organization.name]),
+  const organizations = await readInvitableOrganizations(
+    supabase,
+    user.id,
+    access.platformAdmin,
   );
-  // A teacher reads every invite of her organization but renews and cancels only
-  // the student ones (can_invite in 0031); the others show no buttons.
-  const rolesFor = new Map(
-    organizations.map((organization) => [organization.id, organization.roles]),
-  );
-  const now = new Date();
-  const invites: OpenInvite[] = open.map((invite) => ({
-    id: invite.id,
-    email: invite.email,
-    role: invite.role,
-    expiresAt: invite.expires_at,
-    expired: new Date(invite.expires_at) <= now,
-    manageable: (rolesFor.get(invite.organization_id) ?? []).includes(
-      invite.role,
-    ),
-    organizationName: nameOf.get(invite.organization_id) ?? null,
-  }));
+  const invites = await readOpenInvites(supabase, organizations);
 
   return (
     <section className="flex max-w-3xl flex-col gap-8">
@@ -80,53 +55,4 @@ export default async function InvitesPage() {
       />
     </section>
   );
-}
-
-type Supabase = Awaited<ReturnType<typeof requireTeacher>>["supabase"];
-
-/** The organizations this person may invite to, each with the roles she may give. */
-async function readInvitableOrganizations(
-  supabase: Supabase,
-  userId: string,
-  platformAdmin: boolean,
-): Promise<InvitableOrganization[]> {
-  if (platformAdmin) {
-    const { data, error } = await supabase
-      .from("organizations")
-      .select("id, name")
-      .order("name");
-    if (error) throw new Error(error.message);
-    return data.map((organization) => ({
-      ...organization,
-      roles: invitableRoles(true, []),
-    }));
-  }
-
-  const { data, error } = await supabase
-    .from("organization_members")
-    .select("role, organizations!inner(id, name)")
-    .eq("user_id", userId);
-  if (error) throw new Error(error.message);
-
-  const byOrganization = new Map<
-    string,
-    { name: string; roles: OrganizationRole[] }
-  >();
-  for (const { role, organizations } of data) {
-    const entry = byOrganization.get(organizations.id) ?? {
-      name: organizations.name,
-      roles: [],
-    };
-    entry.roles.push(role);
-    byOrganization.set(organizations.id, entry);
-  }
-
-  return [...byOrganization]
-    .map(([id, { name, roles }]) => ({
-      id,
-      name,
-      roles: invitableRoles(false, roles),
-    }))
-    .filter((organization) => organization.roles.length > 0)
-    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 }
