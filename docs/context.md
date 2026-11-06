@@ -5,8 +5,13 @@ architecture question for Luiz.
 
 ## The product
 
-- Chelsea St: an English school by Luiz. Two parts: live 45-min lessons with Luiz (one trial class
-  given on 02/10/2026; no students yet) and Robin, a voice tutor for daily practice (not built yet).
+- Two brands on one app and one database (ADR 0005, 05/11/2026):
+  - Chelsea St: Luiz's personal brand, an English school. Two parts: live 45-min lessons with Luiz
+    (one trial class given on 02/10/2026; no students yet) and Robin, a voice tutor for daily
+    practice (not built yet).
+  - GrifoAI: AI automation for companies. Its employees practise English with Robin only, with no
+    teacher and no teacher tools, under the GrifoAI brand (griffin mascot).
+- English schools are not customers. Each tenant is an organization: Chelsea St, or one company.
 - Today only Luiz uses the platform, as teacher. Students will sign in later.
 - Offer and prices live outside this repository and do not drive code decisions without an issue.
 
@@ -131,6 +136,9 @@ architecture question for Luiz.
 - In a hand-written call (curl, a script), the new key goes only in the `apikey` header, never in
   `Authorization: Bearer`. The secret key is refused (401) when the User-Agent is a browser's: it
   runs on a server only.
+- `ANTHROPIC_API_KEY` is read by the app since #187 (the scene's "Sugerir instrução") and by the
+  measurement scripts. Two Console keys: `chelsea-vercel` in Vercel Production only, as a Secret,
+  and `chelsea-local` in `.env.local`, so each one rotates without touching the other.
 - The site (`luizvictor19/chelsea-st-site`) holds only the publishable key
   (`SUPABASE_PUBLISHABLE_KEY`), never the service role (#146). Its Vercel project has only
   `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` among the Supabase variables.
