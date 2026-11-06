@@ -11,7 +11,7 @@ import {
 } from "./invites.ts";
 
 describe("invites", () => {
-  test("a school's admin and a platform admin invite every role", () => {
+  test("an organization's admin and a platform admin invite every role", () => {
     assert.deepEqual(invitableRoles(false, ["admin"]), [
       "student",
       "teacher",
@@ -26,7 +26,7 @@ describe("invites", () => {
     assert.deepEqual(invitableRoles(false, []), []);
   });
 
-  test("admin wins over teacher in the same school", () => {
+  test("admin wins over teacher in the same organization", () => {
     assert.deepEqual(invitableRoles(false, ["teacher", "admin"]), [
       "student",
       "teacher",
@@ -46,7 +46,7 @@ describe("invites", () => {
       inviteRefusal({
         code: "23514",
         message:
-          'new row for relation "school_invites" violates check constraint "school_invites_email_check"',
+          'new row for relation "organization_invites" violates check constraint "organization_invites_email_check"',
       }),
       /e-mail válido/,
     );
@@ -65,7 +65,7 @@ describe("invites", () => {
     assert.doesNotMatch(
       inviteRefusal({
         code: "23514",
-        message: "this person already studies at another school",
+        message: "this person already studies at another organization",
       }),
       /outra escola/,
     );
@@ -92,7 +92,7 @@ describe("mailProblem", () => {
 });
 
 describe("acceptRefusal", () => {
-  test("each refusal of accept_my_school_invite has its own sentence", () => {
+  test("each refusal of accept_my_organization_invite has its own sentence", () => {
     assert.match(
       acceptRefusal({
         code: "23514",
@@ -103,7 +103,7 @@ describe("acceptRefusal", () => {
     assert.match(
       acceptRefusal({
         code: "23514",
-        message: "this person already studies at another school",
+        message: "this person already studies at another organization",
       }),
       /já estuda em outra escola/,
     );

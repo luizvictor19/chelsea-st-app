@@ -45,8 +45,8 @@ import { descriptionKey, isDescriptionTaken, isSceneInUse } from "./scenes";
  * provider about a running one is pollAttempt's, in actions.ts, which serves
  * both owners.
  *
- * Every scene written here is common content (school_id null), as every word
- * is today (ADR 0004): the screen shows common content until a school writes
+ * Every scene written here is common content (organization_id null), as every word
+ * is today (ADR 0004): the screen shows common content until an organization writes
  * its own.
  */
 
@@ -103,7 +103,7 @@ export async function createScene(
       const { data: common } = await supabase
         .from("scenes")
         .select("id, description")
-        .is("school_id", null)
+        .is("organization_id", null)
         // The index holds only the scenes in use (0034).
         .is("archived_at", null);
       const key = descriptionKey(text);
@@ -496,7 +496,7 @@ export async function suggestSceneSubject(
       scene: async () => {
         const { data, error } = await supabase
           .from("scenes")
-          .select("description, image_style, school_id, archived_at")
+          .select("description, image_style, organization_id, archived_at")
           .eq("id", sceneId)
           .maybeSingle();
         if (error) throw new Error(error.message);
@@ -505,33 +505,33 @@ export async function suggestSceneSubject(
           : {
               description: data.description,
               imageStyle: data.image_style,
-              schoolId: data.school_id,
+              organizationId: data.organization_id,
               archived: data.archived_at !== null,
             };
       },
-      canWrite: async (school) => {
+      canWrite: async (organization) => {
         const { data, error } = await supabase.rpc("can_write_content", {
           // The generated type says string because the generator never marks
           // an argument nullable; null is exactly "common content" in the
-          // function (0029), and the scene's own school is what is passed.
-          p_school: school as string,
+          // function (0029), and the scene's own organization is what is passed.
+          p_organization: organization as string,
         });
         if (error) throw new Error(error.message);
         return data === true;
       },
-      question: async (school) => {
+      question: async (organization) => {
         // The oldest question that shows the scene. On 2026-11-04 no scene
         // was shown by more than one. Only questions of the scene's own
-        // scope: a platform admin reads every school's, and one school's
+        // scope: a platform admin reads every organization's, and one organization's
         // wording must not shape common content (ADR 0004).
         const shown = supabase
           .from("questions")
           .select("prompt")
           .eq("scene_id", sceneId);
         const { data, error } = await (
-          school === null
-            ? shown.is("school_id", null)
-            : shown.eq("school_id", school)
+          organization === null
+            ? shown.is("organization_id", null)
+            : shown.eq("organization_id", organization)
         )
           .order("created_at", { ascending: true })
           .limit(1)

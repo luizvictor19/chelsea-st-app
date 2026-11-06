@@ -93,13 +93,16 @@ architecture question for Luiz.
   service role holds nothing on it. A number sent twice is two rows (history, nothing is
   overwritten); the latest send of each number is the view `leads_latest`, with no privilege for
   any API role. The number is stored with the 55 (`leads_whatsapp_br`).
-- Schools follow ADR 0004, applied by 0029: every table carries `school_id`; people and operation
-  rows belong to one school, content rows are common (`school_id` null) or one school's. Roles live
-  in `school_members` (`admin`, `teacher`, `student`, one row each) and `platform_admins`; there is
-  no `profiles.role` and no `is_teacher()`. Policies call `is_platform_admin()` and
-  `is_school_member()`. A new table names its school, and the `school_follows_parents` trigger
-  fills it, on insert, from the first parent present in its list and refuses a parent of another
-  school (first present since 0030: an image attempt's parent is a word or a scene).
+- Organizations follow ADR 0004, applied by 0029: every table carries `organization_id`; people
+  and operation rows belong to one organization, content rows are common (`organization_id` null)
+  or one organization's. Roles live in `organization_members` (`admin`, `teacher`, `student`, one
+  row each) and `platform_admins`; there is no `profiles.role` and no `is_teacher()`. Policies call
+  `is_platform_admin()` and `is_organization_member()`. A new table names its organization, and the
+  `organization_follows_parents` trigger fills it, on insert, from the first parent present in its
+  list and refuses a parent of another organization (first present since 0030: an image attempt's
+  parent is a word or a scene). Until 0039 every one of these names said `school` (`schools`,
+  `school_id`, `school_role`, `is_school_member`...); 0040 renamed them all, with parameters and
+  refusal messages, and the older migrations keep the names of their time.
 - What a question shows follows 0030: the picture of one word (`shown_vocabulary_item_id`), one
   scene (`scene_id`), or acted out (`is_acted_out`), at most one of the three, checked by
   `questions_one_image`; none of them means not decided yet. An image attempt belongs to exactly
@@ -110,14 +113,17 @@ architecture question for Luiz.
   written by "Parei aqui" on the live lesson screen. The points of a lesson are the ones between
   the previous lesson's mark and its own; they are not stored. A marked point cannot be deleted
   (`on delete restrict`), and `materialize_points` names this refusal before deleting (0039). A
-  mark names a common point or one of the lesson's school (`lessons_stop_in_school`).
-- Joining a school follows 0031 and 0032: a membership is born only from a row of
-  `school_invites`, when the invited email is first confirmed (a trigger on `auth.users`) or, for
-  an account that already exists, when that person accepts it signed in
-  (`accept_my_school_invite`, offered by `my_open_school_invites` on `/teacher` and `/dashboard`).
+  mark names a common point or one of the lesson's organization (`lessons_stop_in_organization`,
+  a trigger).
+- Joining an organization follows 0031 and 0032: a membership is born only from a row of
+  `organization_invites`, when the invited email is first confirmed (a trigger on `auth.users`) or,
+  for an account that already exists, when that person accepts it signed in
+  (`accept_my_organization_invite`, offered by `my_open_organization_invites` on `/teacher` and
+  `/dashboard`).
   Writing an invite never makes a membership, and the inviter reads the same "Convite enviado"
-  whether or not the email has an account (a mail that failed is still said as failed). Never insert into `school_members` or `students` from the app. A school's admin invites
-  any role, its teacher students only; a student belongs to one school, checked on acceptance.
+  whether or not the email has an account (a mail that failed is still said as failed). Never insert into `organization_members` or `students` from the app. An organization's admin
+  invites any role, its teacher students only; a student belongs to one organization, checked on
+  acceptance.
   No account is created without an invite (#109): the magic link asks with
   `shouldCreateUser: false`, and "Allow new users to sign up" is off in the Auth dashboard.
   With sign-ups off, GoTrue refuses the magic link to an invite not yet accepted (an unconfirmed

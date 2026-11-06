@@ -5,7 +5,7 @@ import { SignOutButton } from "../auth/sign-out-button";
 import { BrandMark } from "../brand-mark";
 
 /**
- * Someone signed in with no membership in any school.
+ * Someone signed in with no membership in any organization.
  *
  * Rare since 0031, but still reachable: an account whose invite was cancelled
  * or expired after the account existed. Anyone here has a confirmed email, so

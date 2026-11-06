@@ -2,15 +2,15 @@
 
 import { useActionState, useState } from "react";
 
-import type { SchoolRole } from "@/lib/access";
+import type { OrganizationRole } from "@/lib/access";
 import { ROLE_LABEL } from "@/lib/invites";
 
-import { inviteToSchool, type InviteState } from "./actions";
+import { inviteToOrganization, type InviteState } from "./actions";
 
-export type InvitableSchool = {
+export type InvitableOrganization = {
   readonly id: string;
   readonly name: string;
-  readonly roles: readonly SchoolRole[];
+  readonly roles: readonly OrganizationRole[];
 };
 
 const INITIAL_STATE: InviteState = { status: "idle" };
@@ -19,23 +19,24 @@ const fieldClass =
   "border-rule bg-surface focus:border-accent rounded-sm border px-4 py-3 outline-none";
 
 export function InviteForm({
-  schools,
+  organizations,
 }: {
-  readonly schools: readonly InvitableSchool[];
+  readonly organizations: readonly InvitableOrganization[];
 }) {
   const [state, formAction, isPending] = useActionState(
-    inviteToSchool,
+    inviteToOrganization,
     INITIAL_STATE,
   );
-  const [schoolId, setSchoolId] = useState(schools[0].id);
-  const school = schools.find((s) => s.id === schoolId) ?? schools[0];
+  const [organizationId, setOrganizationId] = useState(organizations[0].id);
+  const organization =
+    organizations.find((o) => o.id === organizationId) ?? organizations[0];
   // React resets the form when the action ends, refusal included; what the
   // action sends back becomes the default, so a refusal keeps what was typed.
   const kept = state.status === "error" ? state : null;
   const role =
-    kept?.role && school.roles.includes(kept.role)
+    kept?.role && organization.roles.includes(kept.role)
       ? kept.role
-      : school.roles[0];
+      : organization.roles[0];
 
   return (
     <form
@@ -65,13 +66,13 @@ export function InviteForm({
           <select
             id="invite-role"
             name="role"
-            // Remounted when the school changes, so it never keeps a role the
-            // new school does not allow.
-            key={school.id}
+            // Remounted when the organization changes, so it never keeps a role the
+            // new organization does not allow.
+            key={organization.id}
             defaultValue={role}
             className={fieldClass}
           >
-            {school.roles.map((role) => (
+            {organization.roles.map((role) => (
               <option key={role} value={role}>
                 {ROLE_LABEL[role]}
               </option>
@@ -80,27 +81,27 @@ export function InviteForm({
         </div>
       </div>
 
-      {schools.length > 1 ? (
+      {organizations.length > 1 ? (
         <div className="flex flex-col gap-2">
-          <label htmlFor="invite-school" className="font-semibold">
+          <label htmlFor="invite-organization" className="font-semibold">
             Escola
           </label>
           <select
-            id="invite-school"
-            name="school_id"
-            value={schoolId}
-            onChange={(event) => setSchoolId(event.target.value)}
+            id="invite-organization"
+            name="organization_id"
+            value={organizationId}
+            onChange={(event) => setOrganizationId(event.target.value)}
             className={fieldClass}
           >
-            {schools.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
+            {organizations.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
               </option>
             ))}
           </select>
         </div>
       ) : (
-        <input type="hidden" name="school_id" value={school.id} />
+        <input type="hidden" name="organization_id" value={organization.id} />
       )}
 
       {state.status === "error" && (

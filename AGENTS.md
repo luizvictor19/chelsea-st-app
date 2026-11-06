@@ -18,8 +18,8 @@ Read this before writing code in this repository.
 ## Content and licensing
 
 The teaching material in this product is written by Luiz and is common to
-every school on the platform (ADR 0004); a school may add content of its
-own, seen only by that school. This platform does not serve published
+every organization on the platform (ADR 0004); an organization may add
+content of its own, seen only by that organization. This platform does not serve published
 course books or their page images.
 Extraction targets and the teacher's own working notes, derived from
 books he owns and used for his own lessons, are his material and may be

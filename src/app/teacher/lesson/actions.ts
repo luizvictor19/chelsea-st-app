@@ -38,11 +38,11 @@ export async function markStop(
       .from("points")
       .select("id")
       .eq("number", pointNumber)
-      .is("school_id", null)
+      .is("organization_id", null)
       .maybeSingle(),
     supabase
       .from("students")
-      .select("school_id, profiles!inner(full_name)")
+      .select("organization_id, profiles!inner(full_name)")
       .eq("id", studentId)
       .maybeSingle(),
     supabase.from("profiles").select("timezone").eq("id", user.id).single(),
@@ -85,7 +85,7 @@ export async function markStop(
   if (target === null) {
     const { error } = await supabase.from("lessons").insert({
       student_id: studentId,
-      school_id: student.data.school_id,
+      organization_id: student.data.organization_id,
       scheduled_at: now.toISOString(),
       duration_minutes: LESSON_MINUTES,
       stopped_at_point_id: point.data.id,

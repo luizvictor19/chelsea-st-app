@@ -21,9 +21,9 @@ export const env = {
 
   /**
    * The contact of the Chelsea brand (see src/lib/brand.ts; a contact per
-   * school is #195), shown to someone signed in with no access, so they have a
-   * way to reach a human. Optional: when it is unset the screen simply omits
-   * the address rather than inventing one.
+   * organization is #195), shown to someone signed in with no access, so they
+   * have a way to reach a human. Optional: when it is unset the screen simply
+   * omits the address rather than inventing one.
    */
   NEXT_PUBLIC_TEACHER_CONTACT_EMAIL:
     process.env.NEXT_PUBLIC_TEACHER_CONTACT_EMAIL ?? "",

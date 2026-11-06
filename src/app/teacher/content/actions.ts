@@ -257,7 +257,7 @@ export async function confirmPoint(
     const { data: existing } = await supabase
       .from("vocabulary_items")
       .select("id")
-      .is("school_id", COMMON)
+      .is("organization_id", COMMON)
       .ilike("term", term)
       .maybeSingle();
     if (existing === null) {

@@ -14,7 +14,7 @@ export const MIN_PASSWORD_LENGTH = 8;
 // to it gets clicked; a stricter pattern here only rejects valid addresses.
 const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** Trimmed and lower case, the way auth.users and school_invites store it. */
+/** Trimmed and lower case, the way auth.users and organization_invites store it. */
 export function normalizeEmail(raw: unknown): string {
   return String(raw ?? "")
     .trim()

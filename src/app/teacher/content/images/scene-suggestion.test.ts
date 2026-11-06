@@ -11,7 +11,7 @@ import {
   COMMON_ONLY,
   SCENE_ARCHIVED,
   SCENE_GONE,
-  SCHOOL_ONLY,
+  ORGANIZATION_ONLY,
   UNREADABLE,
   proposeSceneSubject,
   type SceneRow,
@@ -21,7 +21,7 @@ import {
 const COMMON: SceneRow = {
   description: "No, the box isn’t small; it’s large",
   imageStyle: "flat",
-  schoolId: null,
+  organizationId: null,
   archived: false,
 };
 
@@ -66,24 +66,27 @@ function deps(
 
 describe("proposeSceneSubject", () => {
   test("a non-writer never reaches the client: neither built nor called", async () => {
-    for (const scene of [COMMON, { ...COMMON, schoolId: "school-1" }]) {
-      const schools: (string | null)[] = [];
+    for (const scene of [
+      COMMON,
+      { ...COMMON, organizationId: "organization-1" },
+    ]) {
+      const organizations: (string | null)[] = [];
       const d = deps({
         scene: async () => scene,
-        canWrite: async (school) => {
-          schools.push(school);
+        canWrite: async (organization) => {
+          organizations.push(organization);
           return false;
         },
       });
       const result = await proposeSceneSubject(d);
       assert.deepEqual(result, {
         ok: false,
-        error: scene.schoolId === null ? COMMON_ONLY : SCHOOL_ONLY,
+        error: scene.organizationId === null ? COMMON_ONLY : ORGANIZATION_ONLY,
       });
       assert.equal(d.client.built, 0);
       assert.equal(d.client.asked.length, 0);
-      // Asked with the scene's own school: null is "common content".
-      assert.deepEqual(schools, [scene.schoolId]);
+      // Asked with the scene's own organization: null is "common content".
+      assert.deepEqual(organizations, [scene.organizationId]);
     }
   });
 
@@ -118,18 +121,18 @@ describe("proposeSceneSubject", () => {
   });
 
   test("the question is looked for in the scene's own scope", async () => {
-    for (const schoolId of [null, "school-1"]) {
+    for (const organizationId of [null, "organization-1"]) {
       const scopes: (string | null)[] = [];
       await proposeSceneSubject(
         deps({
-          scene: async () => ({ ...COMMON, schoolId }),
-          question: async (school) => {
-            scopes.push(school);
+          scene: async () => ({ ...COMMON, organizationId }),
+          question: async (organization) => {
+            scopes.push(organization);
             return null;
           },
         }),
       );
-      assert.deepEqual(scopes, [schoolId]);
+      assert.deepEqual(scopes, [organizationId]);
     }
   });
 
