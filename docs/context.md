@@ -123,6 +123,17 @@ architecture question for Luiz.
   parent is a word or a scene). Until 0039 every one of these names said `school` (`schools`,
   `school_id`, `school_role`, `is_school_member`...); 0040 renamed them all, with parameters and
   refusal messages, and the older migrations keep the names of their time.
+- An organization says whether it has a teacher since 0042 (#197): `organizations.has_teacher`, with
+  no default, written by the platform admin only. Chelsea St has one; GrifoAI's organization and
+  every company on GrifoAI have none. "Admin can do everything a teacher can" (ADR 0004) holds only
+  where there is a teacher: `teaches_in(organization)` (a teacher, or an admin where `has_teacher`)
+  is what the 34 policies of a teacher's power, `teaches_anywhere`, `can_write_content`,
+  `materialize_lessons` and the image upload policy ask. Where there is no teacher, the admin
+  invites (employees and admins), reads the invites, the members and their names, and nothing
+  else; nobody is a teacher there (triggers on members and invites), and an organization with a
+  teacher member or an open teacher invite cannot turn into one without. On screen the company
+  admin lands on `/team`, the employee (`student`) on `/dashboard`, which shows only the practice
+  with Robin.
 - What a question shows follows 0030: the picture of one word (`shown_vocabulary_item_id`), one
   scene (`scene_id`), or acted out (`is_acted_out`), at most one of the three, checked by
   `questions_one_image`; none of them means not decided yet. An image attempt belongs to exactly

@@ -747,6 +747,7 @@ export type Database = {
         Row: {
           brand: string;
           created_at: string;
+          has_teacher: boolean;
           id: string;
           name: string;
           slug: string;
@@ -755,6 +756,7 @@ export type Database = {
         Insert: {
           brand: string;
           created_at?: string;
+          has_teacher: boolean;
           id?: string;
           name: string;
           slug: string;
@@ -762,6 +764,7 @@ export type Database = {
         Update: {
           brand?: string;
           created_at?: string;
+          has_teacher?: boolean;
           id?: string;
           name?: string;
           slug?: string;
@@ -1333,6 +1336,7 @@ export type Database = {
         Returns: undefined;
       };
       teaches_anywhere: { Args: Record<PropertyKey, never>; Returns: boolean };
+      teaches_in: { Args: { p_organization: string }; Returns: boolean };
     };
     Enums: {
       answer_language: "en" | "pt";

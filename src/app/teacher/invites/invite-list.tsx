@@ -3,7 +3,7 @@
 import { useTransition } from "react";
 
 import type { OrganizationRole } from "@/lib/access";
-import { ROLE_LABEL } from "@/lib/invites";
+import { roleLabel } from "@/lib/invites";
 
 import { notices } from "../notices";
 
@@ -18,8 +18,9 @@ export type OpenInvite = {
   readonly expired: boolean;
   /** Whether the reader may renew and cancel it, which RLS also decides. */
   readonly manageable: boolean;
-  /** Null when the organization is not one the reader invites to. */
-  readonly organizationName: string | null;
+  readonly organizationName: string;
+  /** Whether its organization has a teacher (0042): it names the role. */
+  readonly hasTeacher: boolean;
 };
 
 const DAY = new Intl.DateTimeFormat("pt-BR", {
@@ -84,10 +85,8 @@ function InviteRow({
       <div className="flex min-w-0 flex-col gap-1">
         <span className="truncate font-mono text-sm">{invite.email}</span>
         <span className="text-muted text-sm">
-          {ROLE_LABEL[invite.role]}
-          {showOrganization && invite.organizationName
-            ? ` · ${invite.organizationName}`
-            : ""}
+          {roleLabel(invite.role, invite.hasTeacher)}
+          {showOrganization ? ` · ${invite.organizationName}` : ""}
           {" · "}
           {invite.expired
             ? "vencido"

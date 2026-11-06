@@ -266,6 +266,21 @@ $$;
 -- (0041)" holds the column after the 0040 one.
 \i supabase/migrations/0041_an_organization_wears_a_brand.sql
 
+-- Every policy of public and storage as it stands before 0042, which rewrites
+-- 34 of them and one of storage in place. Kept in a temporary table for the
+-- block "Without a teacher, the admin does not teach (0042)", which holds that
+-- nothing changed beyond the one substitution 0042 makes. 0042 is applied
+-- before the fixtures, as 0040 and 0041, so every assertion below runs against
+-- the organizations that say whether they have a teacher; the fixtures name it
+-- like any new organization must.
+create temp table policies_before_0042 as
+  select schemaname::text, tablename::text, policyname::text, permissive::text,
+         roles::text, cmd::text, qual, with_check
+    from pg_policies
+   where schemaname in ('public', 'storage');
+
+\i supabase/migrations/0042_without_a_teacher_the_admin_does_not_teach.sql
+
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
   ('22222222-2222-2222-2222-222222222222', 'student@example.com', null);
@@ -1698,8 +1713,11 @@ $$;
 -- Seeded as the owner, so the rows go in past RLS; the reads and writes under
 -- test happen as authenticated. Failures are collected and raised together,
 -- so taking one clause out of 0029 shows every assertion that rests on it.
--- B wears GrifoAI, as every company does since 0041.
-insert into organizations (slug, name, brand) values ('escola-b', 'Escola B', 'grifoai');
+-- B wears GrifoAI, as every company does since 0041, and has a teacher
+-- (0042): a company with live lessons is a possible product, and the
+-- isolation below is between two organizations where both roles teach.
+insert into organizations (slug, name, brand, has_teacher)
+  values ('escola-b', 'Escola B', 'grifoai', true);
 insert into auth.users (id, email, raw_user_meta_data) values
   ('33333333-3333-3333-3333-333333333333', 'teacher-b@example.com', null),
   ('44444444-4444-4444-4444-444444444444', 'student-b@example.com', null);
@@ -3254,11 +3272,11 @@ begin
   -- 2. Only the two brands.
   perform verify.expect_refused(
     'an organization wearing an unknown brand', 'organizations_brand_known',
-    $q$insert into organizations (slug, name, brand) values ('outra', 'Outra', 'outra')$q$);
+    $q$insert into organizations (slug, name, brand, has_teacher) values ('outra', 'Outra', 'outra', true)$q$);
 
   -- 3. No default: a new organization names its brand.
   begin
-    insert into organizations (slug, name) values ('sem-marca', 'Sem marca');
+    insert into organizations (slug, name, has_teacher) values ('sem-marca', 'Sem marca', true);
     insert into verify.failures values ('an organization without a brand was accepted');
     delete from organizations where slug = 'sem-marca';
   exception when others then
@@ -3328,6 +3346,439 @@ begin
 
   raise notice 'every organization wears chelsea-st or grifoai, named on insert; only the platform admin changes it';
   raise notice 'a member reads her own organization''s brand and no other';
+end;
+$$;
+
+-- Without a teacher, the admin does not teach (0042) --------------------------------------
+--
+-- An organization says whether it has a teacher. Where it has none, its admin
+-- invites people and reads them, and holds no power of a teacher: no content,
+-- common or its own, no lesson, schedule, assignment, attempt or review, no
+-- image in Storage. Nobody is a teacher there. Where it has one, nothing
+-- changed. Each assertion stands on one clause of 0042:
+--
+-- 1. Only the substitution: every policy of public and storage equals its
+--    text before 0042 (policies_before_0042), except the 34 of the 17 tables,
+--    whose text is the old one with the admin-or-teacher check replaced by
+--    teaches_in(organization_id), and vocabulary_images_write, which now asks
+--    teaches_in and names no role.
+-- 2. has_teacher: true on Chelsea St, false on GrifoAI's organization (the
+--    update), and named on insert (no default, 23502).
+-- 3. teaches_in, teaches_anywhere and can_write_content: false for the admin
+--    of a company without a teacher, true for a Chelsea admin who is not a
+--    platform admin and for B's teacher.
+-- 4. The company's admin reads no row of the 10 content tables and of the 7
+--    operation tables that only a teacher reads (verify.teachers_only), though
+--    rows of her organization and common rows exist;
+--    writes no book of hers, no lesson, no schedule, no student; and
+--    materialize_lessons refuses her.
+-- 5. Storage: she writes no file under her organization's folder; B's teacher
+--    still writes under B's.
+-- 6. She still invites an employee and an admin, reads her organization's
+--    invites, members and their names; an invite as teacher there is refused
+--    by teacher_needs_a_teaching_organization, also from the platform admin,
+--    and so is a teacher member written by the owner.
+-- 7. An organization with a teacher member, or an open teacher invite, does
+--    not turn into one without a teacher (organization_without_teacher_has_none);
+--    the company's admin changes has_teacher in no row; and the check of a
+--    teacher member or invite locks the organization's row, so the two
+--    checks cannot pass each other.
+-- 8. The employee still reads the common published questions, which is what
+--    Robin will use, and her own lesson row (her own rows stay hers).
+-- 9. A Chelsea admin who is not a platform admin still writes a Chelsea
+--    student's lesson and materializes her lessons.
+--
+-- Seeded as the owner; read and written as authenticated. Failures are
+-- collected and raised together.
+
+-- The rows of a table only a teacher reads. Every member reads the published
+-- questions (questions_read_published) and the scenes they show
+-- (scenes_read_published): the employee needs them, and the admin of a company
+-- is a member too. Everything else of the 17 tables is a teacher's.
+create function verify.teachers_only(p_table text) returns text
+language sql immutable as $$
+  select case p_table
+    when 'questions' then 'not is_published'
+    when 'scenes' then 'not exists (select 1 from questions q where q.scene_id = scenes.id)'
+    else 'true' end;
+$$;
+
+do $$
+declare
+  c_from constant text :=
+    'is_organization_member(organization_id, ''{admin,teacher}''::organization_role[])';
+  c_to constant text := 'teaches_in(organization_id)';
+  c_tables constant text[] := array[
+    'books', 'lessons_content', 'points', 'blocks', 'vocabulary_items',
+    'image_attempts', 'contrast_sets', 'contrast_set_items', 'questions', 'scenes',
+    'students', 'lessons', 'lesson_schedules', 'assignments', 'assignment_items',
+    'attempts', 'review_schedule'];
+  c_content constant text[] := array[
+    'books', 'lessons_content', 'points', 'blocks', 'vocabulary_items',
+    'image_attempts', 'contrast_sets', 'contrast_set_items', 'questions', 'scenes'];
+  c_operation constant text[] := array[
+    'students', 'lessons', 'lesson_schedules', 'assignments', 'assignment_items',
+    'attempts', 'review_schedule'];
+  c_chelsea constant uuid := (select id from organizations where slug = 'chelsea-st');
+  c_b constant uuid := (select id from organizations where slug = 'escola-b');
+  c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  c_teacher_b constant uuid := '33333333-3333-3333-3333-333333333333';
+  c_admin_c constant uuid := 'c1c1c1c1-c1c1-c1c1-c1c1-c1c1c1c1c1c1';
+  c_employee constant uuid := 'e1e1e1e1-e1e1-e1e1-e1e1-e1e1e1e1e1e1';
+  c_admin_chelsea constant uuid := 'a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1';
+  v_c uuid;
+  v_d uuid;
+  v_e uuid;
+  v_book uuid;
+  v_point uuid;
+  v_question uuid;
+  v_assignment uuid;
+  v_table text;
+  v_n integer;
+  v_owner_n integer;
+  v_moved integer;
+  v_drift text;
+  v_state text;
+  v_column text;
+  v_message text;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  -- 1. Only the substitution.
+  with expected as (
+    select schemaname, tablename, policyname, permissive, roles, cmd,
+           case when schemaname = 'public' and tablename = any (c_tables)
+                then replace(qual, c_from, c_to) else qual end as qual,
+           case when schemaname = 'public' and tablename = any (c_tables)
+                then replace(with_check, c_from, c_to) else with_check end as with_check
+      from policies_before_0042
+     where not (schemaname = 'storage' and policyname = 'vocabulary_images_write')
+  ),
+  actual as (
+    select schemaname::text, tablename::text, policyname::text, permissive::text,
+           roles::text, cmd::text, qual, with_check
+      from pg_policies
+     where schemaname in ('public', 'storage')
+       and not (schemaname = 'storage' and policyname = 'vocabulary_images_write')
+  ),
+  drift as (
+    (select 'expected but not held' as what, * from expected
+     except select 'expected but not held', * from actual)
+    union all
+    (select 'held but not expected', * from actual
+     except select 'held but not expected', * from expected)
+  )
+  select string_agg(format('%s: %s.%s', what, tablename, policyname), '; '
+                    order by tablename, policyname, what)
+    into v_drift from drift;
+  if v_drift is not null then
+    insert into verify.failures values ('policies beyond the substitution: ' || v_drift);
+  end if;
+
+  select count(*) into v_moved
+    from policies_before_0042 b
+    join pg_policies p using (policyname)
+   where b.schemaname = 'public' and p.schemaname = 'public'
+     and b.tablename = p.tablename
+     and (b.qual is distinct from p.qual or b.with_check is distinct from p.with_check);
+  if v_moved <> 34 then
+    insert into verify.failures values (format('%s policies of public changed, expected 34', v_moved));
+  end if;
+  if (select count(*) from pg_policies where schemaname in ('public', 'storage'))
+     <> (select count(*) from policies_before_0042) then
+    insert into verify.failures values ('the number of policies changed');
+  end if;
+  if exists (select 1 from pg_policies
+              where schemaname = 'public' and tablename = any (c_tables)
+                and (strpos(coalesce(qual, ''), c_from) > 0
+                     or strpos(coalesce(with_check, ''), c_from) > 0)) then
+    insert into verify.failures values ('a policy of the 17 tables still asks admin or teacher');
+  end if;
+  if not exists (select 1 from pg_policies
+                  where schemaname = 'storage' and policyname = 'vocabulary_images_write'
+                    and strpos(qual, 'teaches_in') > 0 and strpos(with_check, 'teaches_in') > 0
+                    and strpos(qual, '''admin''') = 0 and strpos(with_check, '''admin''') = 0) then
+    insert into verify.failures values ('vocabulary_images_write does not ask teaches_in, or still names a role');
+  end if;
+
+  -- 2. has_teacher.
+  if (select has_teacher from organizations where id = c_chelsea) is distinct from true then
+    insert into verify.failures values ('Chelsea St has no teacher');
+  end if;
+  if (select has_teacher from organizations where slug = 'grifoai') is distinct from false then
+    insert into verify.failures values ('GrifoAI''s organization has a teacher');
+  end if;
+  begin
+    insert into organizations (slug, name, brand) values ('sem-professor', 'Sem', 'grifoai');
+    insert into verify.failures values ('an organization without has_teacher was accepted');
+    delete from organizations where slug = 'sem-professor';
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_column = column_name;
+    if v_state <> '23502' or v_column is distinct from 'has_teacher' then
+      insert into verify.failures values (format(
+        'an organization without has_teacher was refused with %s on %s, expected 23502 on has_teacher',
+        v_state, coalesce(v_column, 'no column')));
+    else
+      raise notice 'an organization without has_teacher: refused, 23502 on has_teacher';
+    end if;
+  end;
+
+  -- The company without a teacher, its admin and one employee, and a Chelsea
+  -- admin who is not a platform admin.
+  insert into organizations (slug, name, brand, has_teacher)
+    values ('empresa-c', 'Empresa C', 'grifoai', false) returning id into v_c;
+  insert into auth.users (id, email, raw_user_meta_data) values
+    (c_admin_c, 'admin-c@example.com', '{"full_name":"Admin C"}'),
+    (c_employee, 'employee-c@example.com', '{"full_name":"Employee C"}'),
+    (c_admin_chelsea, 'admin-chelsea@example.com', null);
+  insert into organization_members (organization_id, user_id, role) values
+    (v_c, c_admin_c, 'admin'),
+    (v_c, c_employee, 'student'),
+    (c_chelsea, c_admin_chelsea, 'admin');
+  insert into students (id, organization_id) values (c_employee, v_c);
+
+  -- One row of every operation table, and content of her own, so the reads
+  -- below have something to miss.
+  insert into books (position, title, organization_id) values (2, 'C only', v_c)
+    returning id into v_book;
+  insert into points (book_id, number) values (v_book, 1) returning id into v_point;
+  insert into questions (point_id, position, prompt, expected_answer, is_published)
+    values (v_point, 0, 'of C', 'a', true) returning id into v_question;
+  insert into questions (point_id, position, prompt, expected_answer, is_published)
+    values (v_point, 1, 'of C, a draft', 'a', false);
+  insert into lessons (student_id, scheduled_at) values (c_employee, now() + interval '2 days');
+  insert into lesson_schedules (student_id, weekday, start_time) values (c_employee, 1, '09:00');
+  insert into assignments (student_id, due_on) values (c_employee, current_date)
+    returning id into v_assignment;
+  insert into assignment_items (assignment_id, question_id, position)
+    values (v_assignment, v_question, 0);
+  insert into attempts (student_id, question_id, audio_path)
+    values (c_employee, v_question, 'c/one.webm');
+  insert into review_schedule (student_id, question_id) values (c_employee, v_question);
+
+  foreach v_table in array c_content loop
+    execute format('select count(*) from %I where (organization_id is null or organization_id = %L) and %s',
+                   v_table, v_c, verify.teachers_only(v_table)) into v_owner_n;
+    if v_owner_n = 0 then
+      insert into verify.failures values (format(
+        'no common or C row in %s: the read below would prove nothing', v_table));
+    end if;
+  end loop;
+  foreach v_table in array c_operation loop
+    execute format('select count(*) from %I where organization_id = %L', v_table, v_c)
+      into v_owner_n;
+    if v_owner_n = 0 then
+      insert into verify.failures values (format(
+        'no row of C in %s: the read below would prove nothing', v_table));
+    end if;
+  end loop;
+
+  set local role authenticated;
+
+  -- 3. Who teaches.
+  perform set_config('test.uid', c_admin_c::text, false);
+  if teaches_in(v_c) then
+    insert into verify.failures values ('the admin of C teaches in C');
+  end if;
+  if teaches_anywhere() then
+    insert into verify.failures values ('the admin of C teaches somewhere');
+  end if;
+  if can_write_content(v_c) then
+    insert into verify.failures values ('the admin of C writes C''s content');
+  end if;
+  perform set_config('test.uid', c_admin_chelsea::text, false);
+  if not teaches_in(c_chelsea) or not teaches_anywhere() or not can_write_content(c_chelsea) then
+    insert into verify.failures values ('a Chelsea admin no longer teaches in Chelsea');
+  end if;
+  perform set_config('test.uid', c_teacher_b::text, false);
+  if not teaches_in(c_b) then
+    insert into verify.failures values ('B''s teacher no longer teaches in B');
+  end if;
+
+  -- 4. Nothing of a teacher's for the admin of C.
+  perform set_config('test.uid', c_admin_c::text, false);
+  foreach v_table in array c_content || c_operation loop
+    execute format('select count(*) from %I where %s', v_table, verify.teachers_only(v_table))
+      into v_n;
+    if v_n <> 0 then
+      insert into verify.failures values (format('the admin of C reads %s rows of %s', v_n, v_table));
+    end if;
+  end loop;
+  if not verify.refused_for_privilege(
+       format('insert into books (position, title, organization_id) values (8, %L, %L)', 'by C', v_c)) then
+    insert into verify.failures values ('the admin of C wrote a book of C');
+  end if;
+  if not verify.refused_for_privilege(
+       format('insert into lessons (student_id, scheduled_at) values (%L, now() + interval ''5 days'')',
+              c_employee)) then
+    insert into verify.failures values ('the admin of C wrote a lesson for her employee');
+  end if;
+  if not verify.refused_for_privilege(
+       format('insert into lesson_schedules (student_id, weekday, start_time) values (%L, 2, ''10:00'')',
+              c_employee)) then
+    insert into verify.failures values ('the admin of C wrote a schedule for her employee');
+  end if;
+  update students set meet_url = 'https://meet.example/c' where id = c_employee;
+  get diagnostics v_n = row_count;
+  if v_n <> 0 then
+    insert into verify.failures values ('the admin of C changed her employee''s student row');
+  end if;
+  -- materialize_lessons runs as its caller, and the admin of C no longer reads
+  -- the student row its check looks up, so the refusal below holds with the
+  -- old check too. Its body is held to asking teaches_in: a caller who reads
+  -- the row (a future policy) must still meet the new rule.
+  if strpos(pg_get_functiondef('materialize_lessons(uuid, integer)'::regprocedure),
+            'teaches_in((select organization_id from students where id = p_student_id))') = 0
+     or strpos(pg_get_functiondef('materialize_lessons(uuid, integer)'::regprocedure),
+               '{admin,teacher}') > 0 then
+    insert into verify.failures values ('materialize_lessons does not ask teaches_in');
+  end if;
+  begin
+    perform materialize_lessons(c_employee);
+    insert into verify.failures values ('materialize_lessons ran for the admin of C');
+  exception when others then
+    get stacked diagnostics v_message = message_text;
+    if v_message not like 'only a teacher%' then
+      insert into verify.failures values ('materialize_lessons refused the admin of C with: ' || v_message);
+    end if;
+  end;
+
+  -- 5. Storage.
+  if not verify.refused_for_privilege(
+       format('insert into storage.objects (bucket_id, name) values (%L, %L)',
+              'vocabulary-images', v_c || '/c.png')) then
+    insert into verify.failures values ('the admin of C wrote a file under C''s folder');
+  end if;
+  perform set_config('test.uid', c_teacher_b::text, false);
+  if verify.refused_for_privilege(
+       format('insert into storage.objects (bucket_id, name) values (%L, %L)',
+              'vocabulary-images', c_b || '/b-0042.png')) then
+    insert into verify.failures values ('B''s teacher no longer writes under B''s folder');
+  end if;
+
+  -- 6. Running the organization.
+  perform set_config('test.uid', c_admin_c::text, false);
+  perform verify.expect_accepted('the admin of C invites an employee', format(
+    'insert into organization_invites (organization_id, email, role, invited_by) values (%L, %L, %L, %L)',
+    v_c, 'new-employee@example.com', 'student', c_admin_c));
+  perform verify.expect_accepted('the admin of C invites an admin', format(
+    'insert into organization_invites (organization_id, email, role, invited_by) values (%L, %L, %L, %L)',
+    v_c, 'new-admin@example.com', 'admin', c_admin_c));
+  select count(*) into v_n from organization_invites where organization_id = v_c;
+  if v_n <> 2 then
+    insert into verify.failures values (format('the admin of C reads %s of C''s 2 invites', v_n));
+  end if;
+  select count(*) into v_n from organization_members where organization_id = v_c;
+  if v_n <> 2 then
+    insert into verify.failures values (format('the admin of C reads %s of C''s 2 members', v_n));
+  end if;
+  if not exists (select 1 from profiles where id = c_employee) then
+    insert into verify.failures values ('the admin of C does not read her employee''s name');
+  end if;
+  perform verify.expect_refused('an invite as teacher from the admin of C',
+    'teacher_needs_a_teaching_organization', format(
+    'insert into organization_invites (organization_id, email, role, invited_by) values (%L, %L, %L, %L)',
+    v_c, 'teacher-c@example.com', 'teacher', c_admin_c));
+  perform set_config('test.uid', c_admin::text, false);
+  perform verify.expect_refused('an invite as teacher of C from the platform admin',
+    'teacher_needs_a_teaching_organization', format(
+    'insert into organization_invites (organization_id, email, role, invited_by) values (%L, %L, %L, %L)',
+    v_c, 'teacher-c-by-platform@example.com', 'teacher', c_admin));
+
+  -- 8. The employee.
+  perform set_config('test.uid', c_employee::text, false);
+  if not exists (select 1 from questions where organization_id is null and is_published) then
+    insert into verify.failures values ('the employee of C does not read a common published question');
+  end if;
+  if not exists (select 1 from lessons where student_id = c_employee) then
+    insert into verify.failures values ('the employee of C does not read her own lesson');
+  end if;
+
+  -- 9. Chelsea's admin keeps a teacher's power.
+  perform set_config('test.uid', c_admin_chelsea::text, false);
+  if verify.refused_for_privilege(
+       format('insert into lessons (student_id, scheduled_at) values (%L, now() + interval ''9 days'')',
+              c_student)) then
+    insert into verify.failures values ('a Chelsea admin no longer writes a Chelsea student''s lesson');
+  end if;
+  if (select count(*) from books where organization_id is null) = 0 then
+    insert into verify.failures values ('a Chelsea admin no longer reads common content');
+  end if;
+  begin
+    perform materialize_lessons(c_student);
+  exception when others then
+    get stacked diagnostics v_message = message_text;
+    insert into verify.failures values ('materialize_lessons refused a Chelsea admin: ' || v_message);
+  end;
+
+  -- 7. Turning an organization into one without a teacher.
+  perform set_config('test.uid', c_admin_c::text, false);
+  update organizations set has_teacher = true where id = v_c;
+  get diagnostics v_n = row_count;
+  if v_n <> 0 then
+    insert into verify.failures values ('the admin of C changed has_teacher');
+  end if;
+
+  reset role;
+
+  perform verify.expect_refused('an invite of C turned into a teacher''s by the owner',
+    'teacher_needs_a_teaching_organization', format(
+    'update organization_invites set role = %L where organization_id = %L and role = %L',
+    'teacher', v_c, 'student'));
+  perform verify.expect_refused('a teacher member of C written by the owner',
+    'teacher_needs_a_teaching_organization', format(
+    'insert into organization_members (organization_id, user_id, role) values (%L, %L, %L)',
+    v_c, c_teacher_b, 'teacher'));
+  perform verify.expect_refused('C''s admin made a teacher by the owner',
+    'teacher_needs_a_teaching_organization', format(
+    'update organization_members set role = %L where organization_id = %L and user_id = %L',
+    'teacher', v_c, c_admin_c));
+  perform verify.expect_refused('B, which has a teacher, turned into an organization without one',
+    'organization_without_teacher_has_none',
+    format('update organizations set has_teacher = false where id = %L', c_b));
+
+  -- The member and invite branch locks the organization's row (for share),
+  -- which a single session cannot watch happen: held to its text, so a
+  -- rewrite that drops it fails here.
+  if strpos(pg_get_functiondef('a_teacher_needs_a_teaching_organization()'::regprocedure),
+            'where id = new.organization_id for share') = 0 then
+    insert into verify.failures values (
+      'a_teacher_needs_a_teaching_organization reads has_teacher without locking the organization');
+  end if;
+
+  -- An organization whose only teacher is a member, with no invite: B above
+  -- may also hold an open teacher invite from the blocks of 0031 and 0032.
+  insert into organizations (slug, name, brand, has_teacher)
+    values ('empresa-e', 'Empresa E', 'grifoai', true) returning id into v_e;
+  insert into organization_members (organization_id, user_id, role)
+    values (v_e, c_teacher_b, 'teacher');
+  perform verify.expect_refused('E, with a teacher member and no invite, turned into one without a teacher',
+    'organization_without_teacher_has_none',
+    format('update organizations set has_teacher = false where id = %L', v_e));
+
+  -- An organization whose only teacher is an open invite.
+  insert into organizations (slug, name, brand, has_teacher)
+    values ('empresa-d', 'Empresa D', 'grifoai', true) returning id into v_d;
+  insert into organization_invites (organization_id, email, role)
+    values (v_d, 'teacher-d@example.com', 'teacher');
+  perform verify.expect_refused('D, with an open teacher invite, turned into one without a teacher',
+    'organization_without_teacher_has_none',
+    format('update organizations set has_teacher = false where id = %L', v_d));
+  update organization_invites set accepted_at = now() where organization_id = v_d;
+  perform verify.expect_accepted('D, its teacher invite accepted and no teacher member, without a teacher',
+    format('update organizations set has_teacher = false where id = %L', v_d));
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'without a teacher, the admin does not teach: %', v_failures;
+  end if;
+
+  raise notice '0042 changed 34 policies of public by the one substitution, and vocabulary_images_write; nothing else';
+  raise notice 'the admin of an organization without a teacher reads and writes no content and no lesson, and writes no image';
+  raise notice 'she still invites, reads her invites, members and their names; nobody is a teacher there';
+  raise notice 'a Chelsea admin still teaches in Chelsea, B''s teacher in B';
 end;
 $$;
 
