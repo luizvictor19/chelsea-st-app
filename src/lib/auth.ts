@@ -6,7 +6,7 @@ export type Destination = "/login" | "/dashboard" | "/teacher";
 type Client = Awaited<ReturnType<typeof createClient>>;
 
 /**
- * The current person's roles, read on the server from school_members and
+ * The current person's roles, read on the server from organization_members and
  * platform_admins (0029). A role decided in the browser is a role the browser
  * can lie about; RLS is the real defence and this is only routing.
  *
@@ -18,7 +18,7 @@ export async function readAccess(
   userId: string,
 ): Promise<Access> {
   const [{ data: members }, { data: admin }] = await Promise.all([
-    supabase.from("school_members").select("role").eq("user_id", userId),
+    supabase.from("organization_members").select("role").eq("user_id", userId),
     supabase
       .from("platform_admins")
       .select("user_id")

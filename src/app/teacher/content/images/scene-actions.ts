@@ -34,8 +34,8 @@ import { descriptionKey, isDescriptionTaken, isSceneInUse } from "./scenes";
  * provider about a running one is pollAttempt's, in actions.ts, which serves
  * both owners.
  *
- * Every scene written here is common content (school_id null), as every word
- * is today (ADR 0004): the screen shows common content until a school writes
+ * Every scene written here is common content (organization_id null), as every word
+ * is today (ADR 0004): the screen shows common content until an organization writes
  * its own.
  */
 
@@ -92,7 +92,7 @@ export async function createScene(
       const { data: common } = await supabase
         .from("scenes")
         .select("id, description")
-        .is("school_id", null)
+        .is("organization_id", null)
         // The index holds only the scenes in use (0034).
         .is("archived_at", null);
       const key = descriptionKey(text);

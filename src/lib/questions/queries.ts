@@ -85,7 +85,7 @@ export type QuestionsScreen = {
   readonly bookPoints: readonly BookPoint[];
   /**
    * The common scenes in use, by description: the ones a question here may
-   * show. A common question cannot show a school's scene (questions_school)
+   * show. A common question cannot show an organization's scene (questions_organization)
    * nor an excluded one (questions_scene_in_use, 0034).
    */
   readonly scenes: readonly ScreenScene[];
@@ -118,7 +118,7 @@ export async function loadQuestionsScreen(asked: {
     supabase
       .from("scenes")
       .select("id, description, image_path")
-      .is("school_id", null)
+      .is("organization_id", null)
       .is("archived_at", null)
       .order("description"),
     everyRow(async (from) => {

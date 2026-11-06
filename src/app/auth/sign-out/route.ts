@@ -12,7 +12,7 @@ import { createClient } from "@/lib/supabase/server";
  * the request turned away by the proxy, and the browser navigates for real,
  * which lets a screen with unsaved work ask before leaving (beforeunload).
  *
- * Local scope, not the default global one: leaving the school's computer should
+ * Local scope, not the default global one: leaving the organization's computer should
  * not sign the same person out of her phone. When the auth server cannot be
  * reached, the session cookies are deleted here anyway: on a shared computer,
  * "Sair da conta" must leave this browser signed out.

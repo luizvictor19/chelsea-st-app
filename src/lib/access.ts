@@ -1,10 +1,10 @@
 import type { Database } from "@/lib/supabase/types";
 
-export type SchoolRole = Database["public"]["Enums"]["school_role"];
+export type OrganizationRole = Database["public"]["Enums"]["organization_role"];
 
 /**
  * What the current person may do, as the database records it since 0029: a
- * platform admin above every school, and one role per row of school_members.
+ * platform admin above every organization, and one role per row of organization_members.
  * The same person can hold several, which is how an admin also opens the
  * student's screens without a second account.
  *
@@ -12,10 +12,10 @@ export type SchoolRole = Database["public"]["Enums"]["school_role"];
  */
 export type Access = {
   readonly platformAdmin: boolean;
-  readonly roles: readonly SchoolRole[];
+  readonly roles: readonly OrganizationRole[];
 };
 
-/** Admin or teacher somewhere, or above every school: the /teacher screens. */
+/** Admin or teacher somewhere, or above every organization: the /teacher screens. */
 export function teaches(access: Access): boolean {
   return (
     access.platformAdmin ||

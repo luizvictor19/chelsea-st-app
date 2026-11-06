@@ -31,17 +31,17 @@ function lessonsCreated(count: number): string {
   return count === 1 ? "1 aula nova" : `${count} aulas novas`;
 }
 
-/** The student's school, which every row written for her carries. */
-async function schoolOf(
+/** The student's organization, which every row written for her carries. */
+async function organizationOf(
   supabase: Supabase,
   studentId: string,
 ): Promise<string | null> {
   const { data } = await supabase
     .from("students")
-    .select("school_id")
+    .select("organization_id")
     .eq("id", studentId)
     .maybeSingle();
-  return data?.school_id ?? null;
+  return data?.organization_id ?? null;
 }
 
 /**
@@ -99,15 +99,15 @@ export async function addSchedule(
   if (!Number.isInteger(durationMinutes) || durationMinutes <= 0) {
     return { ok: false, error: "A duração precisa ser em minutos inteiros." };
   }
-  const schoolId = await schoolOf(supabase, studentId);
-  if (schoolId === null) {
+  const organizationId = await organizationOf(supabase, studentId);
+  if (organizationId === null) {
     return { ok: false, error: "Nada foi salvo: aluna não encontrada." };
   }
 
   // The time is typed in the teacher's zone, so the schedule lives there too.
   const { error } = await supabase.from("lesson_schedules").insert({
     student_id: studentId,
-    school_id: schoolId,
+    organization_id: organizationId,
     weekday,
     start_time: time,
     timezone: await teacherZone(supabase, user.id),
@@ -256,7 +256,7 @@ export async function rescheduleLesson(
   const { data: original, error: readError } = await supabase
     .from("lessons")
     .select(
-      "student_id, school_id, scheduled_at, duration_minutes, meet_url, status",
+      "student_id, organization_id, scheduled_at, duration_minutes, meet_url, status",
     )
     .eq("id", lessonId)
     .maybeSingle();
@@ -275,7 +275,7 @@ export async function rescheduleLesson(
 
   const { error: insertError } = await supabase.from("lessons").insert({
     student_id: original.student_id,
-    school_id: original.school_id,
+    organization_id: original.organization_id,
     scheduled_at: start.toISOString(),
     duration_minutes: original.duration_minutes,
     meet_url: original.meet_url,

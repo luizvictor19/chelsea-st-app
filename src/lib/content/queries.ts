@@ -24,7 +24,7 @@ import {
 
 /**
  * Every content screen is for whoever teaches: an admin or teacher of a
- * school, or a platform admin. The roles are read on the server; RLS is the
+ * organization, or a platform admin. The roles are read on the server; RLS is the
  * real defence and this only decides which screen someone lands on.
  */
 export async function requireTeacher() {
@@ -59,8 +59,8 @@ export async function requireTeacher() {
 }
 
 /**
- * The content screens show common content (school_id null), the only kind
- * there is until a school writes its own (ADR 0004). A book's position and a
+ * The content screens show common content (organization_id null), the only kind
+ * there is until an organization writes its own (ADR 0004). A book's position and a
  * word's term are unique per scope since 0029, so a lookup by either names
  * the scope or it can meet two rows.
  */
@@ -106,7 +106,7 @@ export async function listBooks(): Promise<BooksOverview> {
   const { data: books } = await supabase
     .from("books")
     .select("id, position, title, first_point, last_point")
-    .is("school_id", COMMON)
+    .is("organization_id", COMMON)
     .order("position");
 
   const { data: points } = await supabase
@@ -204,7 +204,7 @@ export async function loadBook(position: number): Promise<BookDetail | null> {
   const { data: book } = await supabase
     .from("books")
     .select("id, position, title, first_point, last_point")
-    .is("school_id", COMMON)
+    .is("organization_id", COMMON)
     .eq("position", position)
     .maybeSingle();
 
@@ -494,7 +494,7 @@ export type SceneImage = {
 /**
  * Every scene the teacher can read, with where the book first needs it.
  *
- * No school filter, as listVocabularyImages has none: RLS answers which
+ * No organization filter, as listVocabularyImages has none: RLS answers which
  * scenes are readable, and the content screens show what it lets through.
  * Both embeds name their foreign key, for the reason listVocabularyImages
  * gives: scenes and image_attempts reference each other.

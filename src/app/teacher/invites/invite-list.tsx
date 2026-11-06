@@ -2,7 +2,7 @@
 
 import { useTransition } from "react";
 
-import type { SchoolRole } from "@/lib/access";
+import type { OrganizationRole } from "@/lib/access";
 import { ROLE_LABEL } from "@/lib/invites";
 
 import { notices } from "../notices";
@@ -12,14 +12,14 @@ import { cancelInvite, resendInvite, type RowResult } from "./actions";
 export type OpenInvite = {
   readonly id: string;
   readonly email: string;
-  readonly role: SchoolRole;
+  readonly role: OrganizationRole;
   readonly expiresAt: string;
   /** Decided on the server, so the two renders agree. */
   readonly expired: boolean;
   /** Whether the reader may renew and cancel it, which RLS also decides. */
   readonly manageable: boolean;
-  /** Null when the school is not one the reader invites to. */
-  readonly schoolName: string | null;
+  /** Null when the organization is not one the reader invites to. */
+  readonly organizationName: string | null;
 };
 
 const DAY = new Intl.DateTimeFormat("pt-BR", {
@@ -30,10 +30,10 @@ const DAY = new Intl.DateTimeFormat("pt-BR", {
 
 export function InviteList({
   invites,
-  showSchool,
+  showOrganization,
 }: {
   readonly invites: readonly OpenInvite[];
-  readonly showSchool: boolean;
+  readonly showOrganization: boolean;
 }) {
   return (
     <section aria-labelledby="open-invites" className="flex flex-col gap-3">
@@ -48,7 +48,7 @@ export function InviteList({
             <InviteRow
               key={invite.id}
               invite={invite}
-              showSchool={showSchool}
+              showOrganization={showOrganization}
             />
           ))}
         </ul>
@@ -59,10 +59,10 @@ export function InviteList({
 
 function InviteRow({
   invite,
-  showSchool,
+  showOrganization,
 }: {
   readonly invite: OpenInvite;
-  readonly showSchool: boolean;
+  readonly showOrganization: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
 
@@ -85,7 +85,9 @@ function InviteRow({
         <span className="truncate font-mono text-sm">{invite.email}</span>
         <span className="text-muted text-sm">
           {ROLE_LABEL[invite.role]}
-          {showSchool && invite.schoolName ? ` · ${invite.schoolName}` : ""}
+          {showOrganization && invite.organizationName
+            ? ` · ${invite.organizationName}`
+            : ""}
           {" · "}
           {invite.expired
             ? "vencido"

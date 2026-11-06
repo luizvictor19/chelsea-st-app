@@ -7,7 +7,7 @@ const nobody: Access = { platformAdmin: false, roles: [] };
 const student: Access = { platformAdmin: false, roles: ["student"] };
 const teacher: Access = { platformAdmin: false, roles: ["teacher"] };
 const admin: Access = { platformAdmin: false, roles: ["admin"] };
-// Luiz after 0029: above every school, admin of Chelsea St and its student.
+// Luiz after 0029: above every organization, admin of Chelsea St and its student.
 const luiz: Access = { platformAdmin: true, roles: ["admin", "student"] };
 const platformOnly: Access = { platformAdmin: true, roles: [] };
 
