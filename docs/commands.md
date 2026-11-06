@@ -149,13 +149,14 @@ the browser where it was requested (#96, #102).
 Authentication > URL Configuration:
 
     Site URL        https://app.chelsea-st.com
-    Redirect URLs   https://app.chelsea-st.com/**
-                    https://*-<vercel-account>.vercel.app/**   (previews)
-                    http://localhost:3100/**
-                    http://localhost:3100                      (exact, #196)
+    Redirect URLs   http://localhost:3100                      (exact, #196)
                     http://127.0.0.1:3100                      (exact, #196)
                     http://grifoai.localhost:3100              (exact, #196)
                     https://<grifoai-host>                     (exact, after #193)
+
+No entry ends in `/**` (#209, removed on 2026-11-06): the app sends only an origin, which no
+`/**` pattern matches, a preview sends nothing, and production is accepted as the Site URL's
+hostname. A pattern would only widen what Supabase accepts.
 
 Since #196 every auth email leads to the site the request came from (`src/lib/auth-links.ts`):
 login and "Esqueci minha senha" pass Supabase only the origin of that site, from the allowlist of
@@ -184,9 +185,9 @@ sent before still says `/definir-senha`, which redirects there, see `src/lib/ren
     Reset password   {{ $origem }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/set-password
 
 The link never starts with `{{ .RedirectTo }}` itself. Anyone with the public key can call
-Supabase directly, and any redirect on the Site URL's hostname or under a `/**` pattern is
-accepted, path and query included: at the start of a link that carries a `token_hash`, it could
-send the person to a link of the caller's choosing. The templates are Go templates, one set for
+Supabase directly, and any redirect on the Site URL's hostname (or under a `/**` pattern, if one
+were added) is accepted, path and query included: at the start of a link that carries a
+`token_hash`, it could send the person to a link of the caller's choosing. The templates are Go templates, one set for
 every brand. The first line of each body sets `$origem` to `{{ .SiteURL }}` and takes
 `{{ .RedirectTo }}` only when it equals one of the exact Redirect URLs above, whole (`eq` with
 several values is true when the first equals any of the others). The same line, and the first line
