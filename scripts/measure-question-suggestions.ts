@@ -29,6 +29,7 @@ import { join } from "node:path";
 
 import { createChecker, type Mark } from "../src/lib/questions/presented.ts";
 import {
+  PAIRS_PER_POINT,
   SUGGEST_QUESTIONS_SCHEMA,
   buildSuggestQuestionsPrompt,
   parseDrafts,
@@ -124,6 +125,7 @@ async function run(): Promise<void> {
       point,
       words: inputs.words,
       scenes: inputs.scenes,
+      count: Number(option("count", String(PAIRS_PER_POINT))),
     });
     if (dry) {
       console.log(
@@ -232,6 +234,8 @@ function report(batch: string): void {
       ms: number[];
       usd: number;
       pending: string[];
+      // Distinct new scenes, per point: what someone has to make.
+      newScenes: Set<string>;
     }
   >();
   for (const line of lines) {
@@ -245,6 +249,7 @@ function report(batch: string): void {
       ms: [],
       usd: 0,
       pending: [],
+      newScenes: new Set<string>(),
     };
     perModel.set(line.model, stats);
     stats.calls += 1;
@@ -284,6 +289,11 @@ function report(batch: string): void {
       if (marks.length > 0) stats.marked += 1;
       if (resolved.kind === "invalid") stats.invalid += 1;
       if (draft.answerLanguage === "pt") stats.pt += 1;
+      if (resolved.kind === "new_scene") {
+        stats.newScenes.add(
+          `${line.point}|${resolved.description.toLowerCase()}`,
+        );
+      }
       rows.push({
         point: line.point,
         model: line.model,
@@ -333,7 +343,7 @@ function report(batch: string): void {
     const ms = [...s.ms].sort((a, b) => a - b);
     const median = ms[Math.floor((ms.length - 1) / 2)] ?? 0;
     console.log(
-      `${name}: ${s.calls} chamadas, ${s.failed} com falha · ${s.pairs} pares · ${s.marked} com marca do validador · ${s.invalid} imagens inválidas · ${s.pt} em português · mediana ${median} ms, pior ${ms.at(-1) ?? 0} ms · US$ ${s.usd.toFixed(5)} · pending: ${s.pending.join(", ") || "nenhum"}`,
+      `${name}: ${s.calls} chamadas, ${s.failed} com falha · ${s.pairs} pares · ${s.marked} com marca do validador · ${s.invalid} imagens inválidas · ${s.newScenes.size} cenas novas distintas · ${s.pt} em português · mediana ${median} ms, pior ${ms.at(-1) ?? 0} ms · US$ ${s.usd.toFixed(5)} · pending: ${s.pending.join(", ") || "nenhum"}`,
     );
   }
 }
