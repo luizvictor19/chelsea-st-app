@@ -7,6 +7,7 @@ import {
   practicesOnly,
   studies,
   teaches,
+  writesContent,
   type Access,
   type OrganizationRole,
 } from "./access.ts";
@@ -121,5 +122,25 @@ describe("an organization without a teacher (0042)", () => {
     assert.equal(teaches(both), true);
     assert.equal(manages(both), true);
     assert.equal(destinationFor(both), "/teacher");
+  });
+});
+
+describe("content is written by the platform admin alone (0043)", () => {
+  test("a platform admin writes content, with or without an organization", () => {
+    assert.equal(writesContent(platformOnly), true);
+    assert.equal(writesContent(luiz), true);
+    assert.equal(
+      writesContent({ platformAdmin: true, memberships: [company("admin")] }),
+      true,
+    );
+  });
+
+  test("whoever is not a platform admin writes none, teaching or not", () => {
+    assert.equal(writesContent(teacher), false);
+    assert.equal(writesContent(admin), false);
+    assert.equal(writesContent(companyAdmin), false);
+    assert.equal(writesContent(student), false);
+    assert.equal(writesContent(employee), false);
+    assert.equal(writesContent(nobody), false);
   });
 });

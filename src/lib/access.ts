@@ -37,6 +37,15 @@ export function teaches(access: Access): boolean {
 }
 
 /**
+ * Who writes content: the platform admin alone (0043, #211). Every row of
+ * content is common, and a teacher or an organization's admin only reads it
+ * where a lesson needs it. The content screens (Conteúdo, Imagens, Perguntas).
+ */
+export function writesContent(access: Access): boolean {
+  return access.platformAdmin;
+}
+
+/**
  * The admin of an organization without a teacher: she invites its people and
  * holds nothing of a teacher's (0042). The /team screen.
  */
