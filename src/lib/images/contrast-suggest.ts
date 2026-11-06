@@ -202,6 +202,12 @@ const UNREADABLE: ParsedContrast = {
  * lesson and every word in a set, so that one check refuses both. A word
  * named twice keeps its first place, and a proposal left with one member is
  * dropped. Everything dropped is counted; nothing is repaired by guessing.
+ *
+ * One repair is not a guess: a member that is no sent id but is the term of
+ * exactly one sent word, compared without case, is that word. Haiku 5.5
+ * answered lesson 1 that way in batch contrast-first of 2026-11-06 (#225),
+ * every member a term, and lessons 2 to 4 with ids. A term two sent words
+ * share names neither and stays unknown.
  */
 export function parseContrastSuggestions(
   text: string,
@@ -224,6 +230,16 @@ export function parseContrastSuggestions(
   if (!Array.isArray(raw)) return UNREADABLE;
 
   const allowed = new Set(sent.map((word) => word.id));
+  const byTerm = new Map<string, string | null>();
+  for (const word of sent) {
+    const key = word.term.trim().toLowerCase();
+    byTerm.set(key, byTerm.has(key) ? null : word.id);
+  }
+  const idOf = (member: unknown): string | null => {
+    if (typeof member !== "string") return null;
+    if (allowed.has(member)) return member;
+    return byTerm.get(member.trim().toLowerCase()) ?? null;
+  };
   const placed = new Set<string>();
   const sets: ProposedSet[] = [];
   let unknown = 0;
@@ -240,8 +256,9 @@ export function parseContrastSuggestions(
       continue;
     }
     const kept: string[] = [];
-    for (const id of members) {
-      if (typeof id !== "string" || !allowed.has(id)) {
+    for (const member of members) {
+      const id = idOf(member);
+      if (id === null) {
         unknown += 1;
       } else if (placed.has(id) || kept.includes(id)) {
         repeated += 1;
