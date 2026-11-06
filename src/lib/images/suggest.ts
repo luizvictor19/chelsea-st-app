@@ -82,10 +82,15 @@ Give one entry for every word you were sent, using the id exactly as it was give
 
 /**
  * The model behind Sugerir tipos since #225 (2026-11-06), when DeepSeek left
- * the app. Not measured on this task yet: Haiku 5.5 is the cheapest Claude
- * model and the one the scene's instruction measured best on (#187, see
- * SCENE_SUBJECT_MODEL). Phase 2 of #225 measures it against Sonnet 5.5 on the
- * 159 words of lessons 1 to 4, and the result is written here.
+ * the app. Haiku only, by Luiz's decision; kept by him on 2026-11-06 from
+ * the measurement (scripts/measure-claude-suggestions.ts, batch
+ * type-first@2026-11-06T23:51:18.024Z, the 159 words of book 1 lessons 1 to
+ * 4 against his decisions, 1 pass): kind right 150/159 and class right
+ * 150/159 (DeepSeek had 153/159 on the kind, not blind); 17 calls, no error,
+ * median 3665 ms and worst 4806 ms per batch of ten, US$ 0.0061 per 100
+ * words. Six of the nine class misses are "there is" and its forms called
+ * phrase where Luiz chose verb; Mr and Mrs came back usage, as SYSTEM itself
+ * says, where Luiz chose photo. The prompt was left as measured.
  */
 export const SUGGESTION_MODEL = "claude-haiku-5-5";
 

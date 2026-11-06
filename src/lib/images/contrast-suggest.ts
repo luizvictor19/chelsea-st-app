@@ -121,9 +121,16 @@ List the members of each set in the order they should be shown. Use only ids fro
 
 /**
  * The model behind Sugerir conjuntos since #225 (2026-11-06), when DeepSeek
- * left the app; the 90% and 98% above are DeepSeek's. Not measured on Claude
- * yet: phase 2 of #225 measures Haiku 5.5 against Sonnet 5.5 on the 25 sets
- * of lessons 1 to 4, and the result is written here.
+ * left the app; the 90% and 98% above are DeepSeek's. Haiku only, by Luiz's
+ * decision; kept by him on 2026-11-06 from the measurement
+ * (scripts/measure-claude-suggestions.ts, batch
+ * contrast-first@2026-11-06T23:52:18.654Z, lesson mode, the 25 sets of book 1
+ * lessons 1 to 4, 1 pass): 78.5% precision and 96.0% recall by pair, read
+ * with the term repair in parseContrastSuggestions; 4 calls, median 6047 ms,
+ * worst 6990 ms, US$ 0.0027 in all. The precision is lesson 3's: eleven to
+ * twenty came back as one set where Luiz keeps two. Missed: door/window,
+ * putting on/taking from (DeepSeek missed it too) and wall from
+ * ceiling/floor/wall; added: Mr/Mrs.
  */
 export const CONTRAST_MODEL = "claude-haiku-5-5";
 

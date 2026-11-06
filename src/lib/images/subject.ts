@@ -42,8 +42,13 @@ const MAX_WORDS = 12;
 /**
  * The model behind a word's Sugerir instrução since #225 (2026-11-06), when
  * DeepSeek left the app: the scene's, measured on the same shape of prompt
- * (#187, SCENE_SUBJECT_MODEL). Phase 2 of #225 measures it on 20 words of
- * lessons 1 to 3 against Sonnet 5.5, and the result is written here.
+ * (#187, SCENE_SUBJECT_MODEL). Haiku only, by Luiz's decision; kept by him
+ * on 2026-11-06 from the measurement (scripts/measure-claude-suggestions.ts,
+ * batch subject-first@2026-11-06T23:52:42.007Z, 10 words of book 1 lessons 1
+ * to 3 with an approved picture, read beside the instruction Luiz kept): all
+ * 10 readable and in shape; the Claude read 7 as a fair start and 3 as weak
+ * ("in" seen from above hides the ball, "say" lost the speech bubble, "pen"
+ * lost Luiz's details). Median 1131 ms, worst 2997 ms, US$ 0.0020 for 10.
  */
 export const SUBJECT_MODEL = "claude-haiku-5-5";
 

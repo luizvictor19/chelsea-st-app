@@ -50,7 +50,9 @@ era `for all using (is_teacher())`, e a 0008 o seguiu.
   A palavra e a cena usam o Claude Haiku 5.5 (`claude-haiku-5-5`, atrás do mesmo `TextProvider`, em
   `src/lib/text/claude.ts`). Na cena, escolhido pela medição da #187: US$ 0,0129 por 100 propostas,
   mediana de 1,4 s. Na palavra (desde a #225, antes era o DeepSeek), e também nos tipos e nos
-  conjuntos de contraste, a escolha é provisória até a medição da fase 2 da #225.
+  conjuntos de contraste, o Haiku foi mantido pela medição da fase 2 da #225 (06/11, só Haiku,
+  contra as decisões das lições 1 a 4): tipo e classe com 94% de acerto cada, contraste com 96% de
+  recall por par, os números ao lado de cada constante.
 - **Toda tentativa é guardada**, gerada ou enviada à mão, aprovada ou descartada. É de onde sai
   "tentativas até aprovação" por modelo. Cada tentativa guarda três coisas diferentes:
   - `prompt`: o que foi enviado ao fornecedor, estilo e regra da categoria incluídos;
