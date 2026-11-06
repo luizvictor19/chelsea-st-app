@@ -12,23 +12,26 @@ import ts from "typescript";
  * not reach one, and an action added later without the check fails here.
  *
  * An exported function of a "use server" file passes when its body calls
- * requireTeacher( or requireInviter(, itself or through a function of the
- * same file it calls (the streamed actions hand their work to a generator
- * that checks).
+ * requireTeacher, itself or through a function of the same file it calls
+ * (the streamed actions hand their work to a generator that checks). Only
+ * the invite actions, which /team shares, may call requireInviter instead:
+ * it lets the company's admin in. Calls are read from the syntax tree, so a
+ * name in a comment or a string counts for nothing.
  */
 
-const GUARDS = ["requireTeacher(", "requireInviter("];
 const ROOT = join(import.meta.dirname);
+const INVITE_ACTIONS = join("invites", "actions.ts");
 
-/** The exported functions of one file that reach no guard. */
-function unguardedActions(source: string): string[] {
+/** The exported functions of one file that reach none of the guards given. */
+function unguardedActions(source: string, guards: readonly string[]): string[] {
   const file = ts.createSourceFile(
     "actions.ts",
     source,
     ts.ScriptTarget.Latest,
+    true,
   );
-  const bodies = new Map<string, string>();
-  const exported: string[] = [];
+  const bodies = new Map<string, ts.Node>();
+  const exported = new Set<string>();
 
   for (const statement of file.statements) {
     const isExported = (
@@ -36,8 +39,8 @@ function unguardedActions(source: string): string[] {
     )?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword);
 
     if (ts.isFunctionDeclaration(statement) && statement.name) {
-      bodies.set(statement.name.text, statement.getText(file));
-      if (isExported) exported.push(statement.name.text);
+      bodies.set(statement.name.text, statement);
+      if (isExported) exported.add(statement.name.text);
     } else if (ts.isVariableStatement(statement)) {
       for (const declaration of statement.declarationList.declarations) {
         const init = declaration.initializer;
@@ -46,27 +49,47 @@ function unguardedActions(source: string): string[] {
           init &&
           (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
         ) {
-          bodies.set(declaration.name.text, init.getText(file));
-          if (isExported) exported.push(declaration.name.text);
+          bodies.set(declaration.name.text, init);
+          if (isExported) exported.add(declaration.name.text);
         }
       }
+    } else if (
+      ts.isExportDeclaration(statement) &&
+      !statement.moduleSpecifier &&
+      statement.exportClause &&
+      ts.isNamedExports(statement.exportClause)
+    ) {
+      for (const element of statement.exportClause.elements) {
+        exported.add((element.propertyName ?? element.name).text);
+      }
     }
+  }
+
+  function calls(node: ts.Node): string[] {
+    const names: string[] = [];
+    const visit = (child: ts.Node) => {
+      if (ts.isCallExpression(child) && ts.isIdentifier(child.expression)) {
+        names.push(child.expression.text);
+      }
+      ts.forEachChild(child, visit);
+    };
+    visit(node);
+    return names;
   }
 
   function reachesGuard(name: string, seen: Set<string>): boolean {
     if (seen.has(name)) return false;
     seen.add(name);
-    const body = bodies.get(name) ?? "";
-    if (GUARDS.some((guard) => body.includes(guard))) return true;
-    return [...bodies.keys()].some(
-      (other) =>
-        other !== name &&
-        new RegExp(`\\b${other}\\(`).test(body) &&
-        reachesGuard(other, seen),
+    const body = bodies.get(name);
+    if (!body) return false;
+    return calls(body).some(
+      (called) =>
+        guards.includes(called) ||
+        (bodies.has(called) && reachesGuard(called, seen)),
     );
   }
 
-  return exported.filter((name) => !reachesGuard(name, new Set()));
+  return [...exported].filter((name) => !reachesGuard(name, new Set()));
 }
 
 function serverActionFiles(dir: string): string[] {
@@ -91,8 +114,21 @@ describe("server actions under /teacher", () => {
       async function work() { await requireTeacher(); }
       export async function loops() { return a(); }
       function a() { return b(); }
-      function b() { return a(); }`;
-    assert.deepEqual(unguardedActions(source), ["open", "loops"]);
+      function b() { return a(); }
+      export async function commented() { /* requireTeacher() */ return "requireTeacher()"; }
+      async function late() { return 1; }
+      export { late };`;
+    assert.deepEqual(unguardedActions(source, ["requireTeacher"]), [
+      "open",
+      "arrow",
+      "loops",
+      "commented",
+      "late",
+    ]);
+    assert.deepEqual(
+      unguardedActions(source, ["requireTeacher", "requireInviter"]),
+      ["open", "loops", "commented", "late"],
+    );
   });
 
   test("there are server actions to check", () => {
@@ -100,11 +136,16 @@ describe("server actions under /teacher", () => {
   });
 
   test("every exported action checks its caller", () => {
-    const unguarded = serverActionFiles(ROOT).flatMap((path) =>
-      unguardedActions(readFileSync(path, "utf8")).map(
-        (name) => `${relative(ROOT, path)}: ${name}`,
-      ),
-    );
+    const unguarded = serverActionFiles(ROOT).flatMap((path) => {
+      const where = relative(ROOT, path);
+      const guards =
+        where === INVITE_ACTIONS
+          ? ["requireTeacher", "requireInviter"]
+          : ["requireTeacher"];
+      return unguardedActions(readFileSync(path, "utf8"), guards).map(
+        (name) => `${where}: ${name}`,
+      );
+    });
     assert.deepEqual(unguarded, []);
   });
 });

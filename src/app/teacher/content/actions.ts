@@ -6,6 +6,7 @@ import { orphansToAttach, type LessonRange } from "@/lib/content/lesson-range";
 import { COMMON, requireTeacher } from "@/lib/content/queries";
 import type { BlockKind } from "@/lib/extraction/classify";
 
+import { failureMessage } from "./questions/draft";
 import { rangeRefusal } from "./range-refusal";
 
 export type ActionResult =
@@ -74,6 +75,25 @@ function refreshBookScreens(bookPosition: number): void {
   revalidatePath(`/teacher/content/${bookPosition}`);
 }
 
+/**
+ * requireTeacher for these actions, with its redirect said in words. A
+ * session that ended would otherwise navigate away from the review panel
+ * and take the teacher's unconfirmed pages with it; told in words, nothing
+ * is written and the pages stay on screen (failureMessage, as the
+ * questions screen does). Whoever does not teach gets the same refusal.
+ */
+async function asTeacher(): Promise<
+  | { readonly supabase: Client }
+  | { readonly status: "error"; readonly message: string }
+> {
+  try {
+    const { supabase } = await requireTeacher();
+    return { supabase };
+  } catch (cause) {
+    return { status: "error", message: failureMessage(cause) };
+  }
+}
+
 /** Records the book's range and creates its empty points. */
 export async function configureBook(
   bookId: string,
@@ -81,7 +101,9 @@ export async function configureBook(
   firstPoint: number,
   lastPoint: number,
 ): Promise<ActionResult> {
-  const { supabase } = await requireTeacher();
+  const teacher = await asTeacher();
+  if (!("supabase" in teacher)) return teacher;
+  const { supabase } = teacher;
   const { error } = await supabase.rpc("materialize_points", {
     p_book_id: bookId,
     p_first_point: firstPoint,
@@ -111,8 +133,9 @@ export async function configureBook(
 export async function confirmPoint(
   point: ConfirmedPoint,
 ): Promise<ActionResult> {
-  // Before anything else, outside any try: redirect throws.
-  const { supabase } = await requireTeacher();
+  const teacher = await asTeacher();
+  if (!("supabase" in teacher)) return teacher;
+  const { supabase } = teacher;
 
   // Refused before a single row is written, rather than written with a hole in
   // it. A point with no lesson is invisible to the lesson screen and nothing
@@ -363,7 +386,9 @@ export type BookLessons =
  * have answered.
  */
 export async function bookLessons(bookId: string): Promise<BookLessons> {
-  const { supabase } = await requireTeacher();
+  const teacher = await asTeacher();
+  if (!("supabase" in teacher)) return teacher;
+  const { supabase } = teacher;
   const { data, error } = await supabase
     .from("lessons_content")
     .select("id, number, first_point, last_point")
@@ -400,10 +425,12 @@ export async function filledPoints(
   bookId: string,
   numbers: readonly number[],
 ): Promise<FilledPoints> {
-  const { supabase } = await requireTeacher();
   if (numbers.length === 0) {
     return { status: "ok", numbers: [] };
   }
+  const teacher = await asTeacher();
+  if (!("supabase" in teacher)) return teacher;
+  const { supabase } = teacher;
   const { data, error } = await supabase
     .from("points")
     .select("number")
