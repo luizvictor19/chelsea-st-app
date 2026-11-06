@@ -3,9 +3,8 @@
 import { revalidatePath } from "next/cache";
 
 import { orphansToAttach, type LessonRange } from "@/lib/content/lesson-range";
-import { COMMON } from "@/lib/content/queries";
+import { COMMON, requireTeacher } from "@/lib/content/queries";
 import type { BlockKind } from "@/lib/extraction/classify";
-import { createClient } from "@/lib/supabase/server";
 
 import { rangeRefusal } from "./range-refusal";
 
@@ -82,7 +81,7 @@ export async function configureBook(
   firstPoint: number,
   lastPoint: number,
 ): Promise<ActionResult> {
-  const supabase = await createClient();
+  const { supabase } = await requireTeacher();
   const { error } = await supabase.rpc("materialize_points", {
     p_book_id: bookId,
     p_first_point: firstPoint,
@@ -112,6 +111,9 @@ export async function configureBook(
 export async function confirmPoint(
   point: ConfirmedPoint,
 ): Promise<ActionResult> {
+  // Before anything else, outside any try: redirect throws.
+  const { supabase } = await requireTeacher();
+
   // Refused before a single row is written, rather than written with a hole in
   // it. A point with no lesson is invisible to the lesson screen and nothing
   // goes back for it on its own, so this is the last place that can still say
@@ -122,8 +124,6 @@ export async function confirmPoint(
       message: `Diga a qual lição o ponto ${point.pointNumber} pertence antes de gravar.`,
     };
   }
-
-  const supabase = await createClient();
 
   const { data: row, error: lookupError } = await supabase
     .from("points")
@@ -279,7 +279,7 @@ export async function confirmPoint(
   return { status: "ok" };
 }
 
-type Client = Awaited<ReturnType<typeof createClient>>;
+type Client = Awaited<ReturnType<typeof requireTeacher>>["supabase"];
 
 /**
  * Attaches the points that were written before their lesson existed.
@@ -363,7 +363,7 @@ export type BookLessons =
  * have answered.
  */
 export async function bookLessons(bookId: string): Promise<BookLessons> {
-  const supabase = await createClient();
+  const { supabase } = await requireTeacher();
   const { data, error } = await supabase
     .from("lessons_content")
     .select("id, number, first_point, last_point")
@@ -400,10 +400,10 @@ export async function filledPoints(
   bookId: string,
   numbers: readonly number[],
 ): Promise<FilledPoints> {
+  const { supabase } = await requireTeacher();
   if (numbers.length === 0) {
     return { status: "ok", numbers: [] };
   }
-  const supabase = await createClient();
   const { data, error } = await supabase
     .from("points")
     .select("number")
