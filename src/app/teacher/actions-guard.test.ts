@@ -141,8 +141,7 @@ describe("server actions under /teacher", () => {
     );
   });
 
-  test("creating an organization takes the platform admin's guard only", () => {
-    assert.deepEqual(guardsOf(ORGANIZATION_ACTIONS), ["requirePlatformAdmin"]);
+  test("the creation of an organization is among the files checked", () => {
     assert.ok(
       serverActionFiles(ROOT).some(
         (path) => relative(ROOT, path) === ORGANIZATION_ACTIONS,

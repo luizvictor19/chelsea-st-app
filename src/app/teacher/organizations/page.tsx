@@ -76,8 +76,10 @@ export default async function OrganizationsPage() {
         <h1 className="text-3xl font-extrabold tracking-tight">Nova empresa</h1>
         <p className="text-muted max-w-prose">
           Cria a organização da empresa e convida o primeiro admin dela por
-          e-mail. Ela entra, define a senha e convida os funcionários. Uma
-          organização criada aqui não se apaga pela tela: confira o nome antes.
+          e-mail. Ela entra, define a senha e convida os funcionários. Quem já
+          tem conta não recebe e-mail: vê o convite ao entrar na plataforma e
+          aceita ali. Uma organização criada aqui não se apaga pela tela:
+          confira o nome antes.
         </p>
       </div>
 
@@ -135,10 +137,16 @@ function AdminCell({ row }: { readonly row: Row }) {
     );
   }
   const parts = [
-    row.admins === 1 ? "1 admin" : `${row.admins} admins`,
-    row.openAdminInvites === 1
-      ? "1 convite de admin aberto"
-      : `${row.openAdminInvites} convites de admin abertos`,
-  ];
+    row.admins === 0
+      ? null
+      : row.admins === 1
+        ? "1 admin"
+        : `${row.admins} admins`,
+    row.openAdminInvites === 0
+      ? null
+      : row.openAdminInvites === 1
+        ? "1 convite de admin aberto"
+        : `${row.openAdminInvites} convites de admin abertos`,
+  ].filter((part) => part !== null);
   return <span>{parts.join(" · ")}</span>;
 }

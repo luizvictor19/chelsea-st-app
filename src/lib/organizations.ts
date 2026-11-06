@@ -18,6 +18,17 @@ const SLUG_INVALID =
   "O endereço usa só letras minúsculas sem acento, números e hífens entre eles.";
 const EMAIL_INVALID = "Digite o e-mail do primeiro admin.";
 
+/** Letters NFKD does not take apart, spelled the way a URL would. */
+const SPELLED: Readonly<Record<string, string>> = {
+  ß: "ss",
+  æ: "ae",
+  ø: "o",
+  œ: "oe",
+  đ: "d",
+  ł: "l",
+  þ: "th",
+};
+
 /**
  * The slug a name suggests: accents dropped, lower case, every other run of
  * characters one hyphen, none at either end. Empty when nothing is left, which
@@ -25,9 +36,10 @@ const EMAIL_INVALID = "Digite o e-mail do primeiro admin.";
  */
 export function slugFromName(name: string): string {
   return name
-    .normalize("NFD")
+    .normalize("NFKD")
     .replace(/\p{M}/gu, "")
     .toLowerCase()
+    .replace(/[ßæøœđłþ]/g, (letter) => SPELLED[letter])
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 }

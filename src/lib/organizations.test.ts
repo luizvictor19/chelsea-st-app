@@ -44,6 +44,10 @@ describe("a company's organization", () => {
     assert.equal(slugFromName("ACME & Filhos Ltda."), "acme-filhos-ltda");
     assert.equal(slugFromName("--Loja 24h--"), "loja-24h");
     assert.equal(slugFromName("Ünïcödé"), "unicode");
+    assert.equal(slugFromName("Straße Café"), "strasse-cafe");
+    assert.equal(slugFromName("Ølstue Æble Œuvre"), "olstue-aeble-oeuvre");
+    assert.equal(slugFromName("Łódź Đakovo Þór"), "lodz-dakovo-thor");
+    assert.equal(slugFromName("Loja ﬁna ①"), "loja-fina-1");
     assert.equal(slugFromName(""), "");
     assert.equal(slugFromName("!!!"), "");
   });
@@ -59,6 +63,38 @@ describe("a company's organization", () => {
     ]) {
       const slug = slugFromName(name);
       assert.ok(slug === "" || SLUG.test(slug), `${name} gave ${slug}`);
+    }
+  });
+
+  test("an email the form accepts is one organization_invites_email_check accepts", () => {
+    // The form is read whole before the organization is written, so that the
+    // invite is not refused after it (#205). The check is 0031's, renamed in
+    // 0040: the latest definition is the one the database holds.
+    const defined = migrations().flatMap(({ sql }) =>
+      [
+        ...sql.matchAll(
+          /email_check\s+check\s*\(\s*email\s*=\s*lower\(btrim\(email\)\)\s+and\s+email\s*~\s*'([^']*)'\s*\)/gi,
+        ),
+      ].map((match) => match[1]),
+    );
+    assert.ok(defined.length > 0, "no invite email check found");
+    const check = new RegExp(defined[defined.length - 1]);
+    for (const typed of [
+      "dona@padaria.com",
+      "  Dona@Padaria.COM  ",
+      "\tdona@padaria.com\n",
+      "a.b+c@d.e.f",
+      "çé@ação.br",
+      "dona@padaria",
+      "dona padaria@x.com",
+      "@x.com",
+      "dona@@x.com",
+    ]) {
+      const form = readCompanyForm({ name: "P", slug: "p", email: typed });
+      if (!form.ok) continue;
+      const { email } = form.company;
+      assert.ok(check.test(email), `${typed} passed the form, not the check`);
+      assert.equal(email, email.replace(/^ +| +$/g, "").toLowerCase(), typed);
     }
   });
 

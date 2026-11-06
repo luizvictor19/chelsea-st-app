@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { requirePlatformAdmin } from "@/lib/auth";
-import { inviteRefusal } from "@/lib/invites";
+import { inviteRefusal, mailProblem } from "@/lib/invites";
 import {
   COMPANY,
   createdButNotInvited,
@@ -18,8 +18,9 @@ export type CompanyState =
   | { status: "idle" }
   | { status: "created"; email: string }
   // The organization exists and something after it failed: the form is not
-  // given back, since sending it again would only meet the slug taken.
-  | { status: "created-with-problem"; message: string }
+  // given back, since sending it again would only meet the slug taken. The
+  // email is, so it can be invited again on Convites.
+  | { status: "created-with-problem"; message: string; email: string }
   // Nothing was written: what was typed goes back to the form.
   | {
       status: "error";
@@ -88,14 +89,20 @@ export async function createCompanyOrganization(
     return {
       status: "created-with-problem",
       message: createdButNotInvited(inviteRefusal(inviteError)),
+      email,
     };
   }
 
-  const problem = await mailInvite(supabase, email, organization.id);
+  // A mailer that throws (no secret key, the network) must not hide that the
+  // organization and its invite exist: said as a mail that did not go.
+  const problem = await mailInvite(supabase, email, organization.id).catch(() =>
+    mailProblem({ message: "the mailer threw" }),
+  );
   if (problem !== null) {
     return {
       status: "created-with-problem",
       message: createdButNotMailed(problem),
+      email,
     };
   }
   return { status: "created", email };

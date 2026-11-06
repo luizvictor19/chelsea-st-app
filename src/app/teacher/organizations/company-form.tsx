@@ -51,7 +51,8 @@ export function CompanyForm({ brandName }: { readonly brandName: string }) {
       )}
       {state.status === "created-with-problem" && (
         <p role="alert" className="text-accent text-sm">
-          {state.message}
+          {state.message} O e-mail do admin era{" "}
+          <span className="font-mono">{state.email}</span>.
         </p>
       )}
       {state.status === "created" && (
