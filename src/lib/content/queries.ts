@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { teaches } from "@/lib/access";
+import { destinationFor, teaches } from "@/lib/access";
 import { readAccess } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
@@ -23,8 +23,8 @@ import {
 } from "./progress";
 
 /**
- * Every content screen is for whoever teaches: an admin or teacher of a
- * organization, or a platform admin. The roles are read on the server; RLS is the
+ * Every content screen is for whoever teaches: a teacher, an admin of an
+ * organization with a teacher (0042), or a platform admin. The roles are read on the server; RLS is the
  * real defence and this only decides which screen someone lands on.
  */
 export async function requireTeacher() {
@@ -45,8 +45,11 @@ export async function requireTeacher() {
     readAccess(supabase, user.id),
   ]);
 
+  // Whoever does not teach goes where she belongs: a student to /dashboard,
+  // the admin of an organization without a teacher to /team (0042). Always
+  // /dashboard would send the latter back here.
   if (!teaches(access)) {
-    redirect("/dashboard");
+    redirect(destinationFor(access));
   }
   // Every account gets a profile from handle_new_user. A missing one is a
   // fault to show, not a reason to send a teacher to /dashboard, which would
