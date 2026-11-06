@@ -15,12 +15,22 @@ import ts from "typescript";
  * requireTeacher, itself or through a function of the same file it calls
  * (the streamed actions hand their work to a generator that checks). Only
  * the invite actions, which /team shares, may call requireInviter instead:
- * it lets the company's admin in. Calls are read from the syntax tree, so a
- * name in a comment or a string counts for nothing.
+ * it lets the company's admin in. The creation of an organization (#205)
+ * passes with requirePlatformAdmin alone: requireTeacher there would let a
+ * teacher through. Calls are read from the syntax tree, so a name in a
+ * comment or a string counts for nothing.
  */
 
 const ROOT = join(import.meta.dirname);
 const INVITE_ACTIONS = join("invites", "actions.ts");
+const ORGANIZATION_ACTIONS = join("organizations", "actions.ts");
+
+/** The guards that let a caller through, by file. */
+function guardsOf(where: string): readonly string[] {
+  if (where === INVITE_ACTIONS) return ["requireTeacher", "requireInviter"];
+  if (where === ORGANIZATION_ACTIONS) return ["requirePlatformAdmin"];
+  return ["requireTeacher"];
+}
 
 /** The exported functions of one file that reach none of the guards given. */
 function unguardedActions(source: string, guards: readonly string[]): string[] {
@@ -131,6 +141,16 @@ describe("server actions under /teacher", () => {
     );
   });
 
+  test("creating an organization takes the platform admin's guard only", () => {
+    assert.deepEqual(guardsOf(ORGANIZATION_ACTIONS), ["requirePlatformAdmin"]);
+    assert.ok(
+      serverActionFiles(ROOT).some(
+        (path) => relative(ROOT, path) === ORGANIZATION_ACTIONS,
+      ),
+      "organizations/actions.ts is not a server action file",
+    );
+  });
+
   test("there are server actions to check", () => {
     assert.ok(serverActionFiles(ROOT).length >= 8);
   });
@@ -138,11 +158,7 @@ describe("server actions under /teacher", () => {
   test("every exported action checks its caller", () => {
     const unguarded = serverActionFiles(ROOT).flatMap((path) => {
       const where = relative(ROOT, path);
-      const guards =
-        where === INVITE_ACTIONS
-          ? ["requireTeacher", "requireInviter"]
-          : ["requireTeacher"];
-      return unguardedActions(readFileSync(path, "utf8"), guards).map(
+      return unguardedActions(readFileSync(path, "utf8"), guardsOf(where)).map(
         (name) => `${where}: ${name}`,
       );
     });
