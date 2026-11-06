@@ -45,9 +45,9 @@ import { descriptionKey, isDescriptionTaken, isSceneInUse } from "./scenes";
  * provider about a running one is pollAttempt's, in actions.ts, which serves
  * both owners.
  *
- * Every scene written here is common content (organization_id null), as every word
- * is today (ADR 0004): the screen shows common content until an organization writes
- * its own.
+ * Every scene written here is common content (organization_id null), as every
+ * row of content is since 0043 (#211): no organization holds content of its
+ * own.
  */
 
 /** The questions screen, whose form offers the scenes. */
@@ -496,7 +496,7 @@ export async function suggestSceneSubject(
       scene: async () => {
         const { data, error } = await supabase
           .from("scenes")
-          .select("description, image_style, organization_id, archived_at")
+          .select("description, image_style, archived_at")
           .eq("id", sceneId)
           .maybeSingle();
         if (error) throw new Error(error.message);
@@ -505,34 +505,28 @@ export async function suggestSceneSubject(
           : {
               description: data.description,
               imageStyle: data.image_style,
-              organizationId: data.organization_id,
               archived: data.archived_at !== null,
             };
       },
-      canWrite: async (organization) => {
+      canWrite: async () => {
         const { data, error } = await supabase.rpc("can_write_content", {
           // The generated type says string because the generator never marks
           // an argument nullable; null is exactly "common content" in the
-          // function (0029), and the scene's own organization is what is passed.
-          p_organization: organization as string,
+          // function (0029), the only content there is since 0043.
+          p_organization: null as unknown as string,
         });
         if (error) throw new Error(error.message);
         return data === true;
       },
-      question: async (organization) => {
+      question: async () => {
         // The oldest question that shows the scene. On 2026-11-04 no scene
-        // was shown by more than one. Only questions of the scene's own
-        // scope: a platform admin reads every organization's, and one organization's
-        // wording must not shape common content (ADR 0004).
-        const shown = supabase
+        // was shown by more than one. Common questions only, the only kind
+        // since 0043.
+        const { data, error } = await supabase
           .from("questions")
           .select("prompt")
-          .eq("scene_id", sceneId);
-        const { data, error } = await (
-          organization === null
-            ? shown.is("organization_id", null)
-            : shown.eq("organization_id", organization)
-        )
+          .eq("scene_id", sceneId)
+          .is("organization_id", null)
           .order("created_at", { ascending: true })
           .limit(1)
           .maybeSingle();
