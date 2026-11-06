@@ -38,6 +38,7 @@ import {
   type SceneSubjectResult,
 } from "./scene-suggestion";
 import { descriptionKey, isDescriptionTaken, isSceneInUse } from "./scenes";
+import { SUGGESTION_CALL } from "./suggestion-call";
 
 /**
  * The Cenas section's actions (#64): a scene's own row, and its attempts
@@ -462,22 +463,6 @@ export async function startSceneGeneration(
     return failure(cause);
   }
 }
-
-/**
- * How the suggestion is sent, as opposed to what it asks (#187). Two retries
- * are the SDK's default: a passing 429 or 529, not billed, never reaches the
- * teacher. 15 s per attempt is four times the slowest call measured (3450
- * ms, batch "first"); a timed out attempt retried can be billed twice, about
- * US$ 0.0003. Three attempts and the SDK's own backoff come near 47 s, but
- * the SDK waits as long as a retry-after header asks, with no ceiling: the
- * 60 s deadline is what keeps the call inside the screen's maxDuration of
- * 120 s, with room for the reads around it.
- */
-const SUGGESTION_CALL = {
-  maxRetries: 2,
-  timeoutMs: 15_000,
-  deadlineMs: 60_000,
-} as const;
 
 /**
  * Propose the scene's Instrução with Claude Haiku (#187). Nothing is written
