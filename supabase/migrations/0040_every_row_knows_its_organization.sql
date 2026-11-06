@@ -14,7 +14,8 @@
 -- Measured against the project through the MCP on 2026-11-06, before this was
 -- written: migrations applied through 0039. 3 tables (schools,
 -- school_members, school_invites), the enum school_role, 19 columns school_id,
--- 24 constraints and 3 indexes with school in the name, 19 triggers (17 named
+-- 24 constraints and 3 indexes with school in the name, 7 index columns named
+-- school_id, 19 triggers (17 named
 -- <table>_school on school_follows_parents, lessons_stop_in_school,
 -- school_invites_fifteen_days), 16 functions whose name, parameters, result or
 -- body say school (11 security definer), 51 policies in public and storage, of
@@ -130,6 +131,19 @@ alter table vocabulary_items rename constraint vocabulary_items_school_id_fkey t
 alter index school_invites_email_idx rename to organization_invites_email_idx;
 alter index school_invites_open_key rename to organization_invites_open_key;
 alter index school_members_user_idx rename to organization_members_user_idx;
+
+-- An index keeps, as the name of its own column, the name the table's column
+-- had when the index was built: the rename of the column does not reach it.
+-- Nothing reads that name (pg_get_indexdef prints the table's column), but it
+-- says school, so it is renamed too. Measured on the project: these 7, each
+-- at attnum 1.
+alter table assignments_organization_id_id_key rename column school_id to organization_id;
+alter table books_position_key rename column school_id to organization_id;
+alter table organization_invites_open_key rename column school_id to organization_id;
+alter table organization_members_pkey rename column school_id to organization_id;
+alter table scenes_description_key rename column school_id to organization_id;
+alter table students_organization_id_id_key rename column school_id to organization_id;
+alter table vocabulary_items_term_idx rename column school_id to organization_id;
 
 -- Triggers -------------------------------------------------------------------------------
 

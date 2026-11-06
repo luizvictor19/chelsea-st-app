@@ -3076,17 +3076,14 @@ begin
         from pg_class c join pg_namespace n on n.oid = c.relnamespace
        where n.nspname = 'public'
       union all
-      -- Not the columns of an index: an index keeps, as its own attribute
+      -- The columns of an index too: an index keeps, as its own attribute
       -- name, the name its column had when the index was built, and a rename
-      -- of the column does not reach it. Nothing reads that name; what the
-      -- index is made of is pg_get_indexdef, below, which prints the table's
-      -- columns as they are now.
+      -- of the table's column does not reach it.
       select format('column %s.%s', c.relname, a.attname), a.attname::text
         from pg_attribute a
         join pg_class c on c.oid = a.attrelid
         join pg_namespace n on n.oid = c.relnamespace
-       where n.nspname = 'public' and c.relkind not in ('i', 'I')
-         and a.attnum > 0 and not a.attisdropped
+       where n.nspname = 'public' and a.attnum > 0 and not a.attisdropped
       union all
       select format('type %s', t.typname), t.typname::text
         from pg_type t join pg_namespace n on n.oid = t.typnamespace

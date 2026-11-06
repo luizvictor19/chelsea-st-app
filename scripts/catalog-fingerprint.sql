@@ -81,6 +81,13 @@ lines (line) as (
     from pg_index i
    where i.indrelid in (select oid from rel)
   union all
+  -- The name an index gives its own columns, which pg_get_indexdef does not
+  -- print: a rename of the table's column does not reach it.
+  select format('index column|%s|%s|%s', i.indexrelid::regclass, a.attnum, a.attname)
+    from pg_index i
+    join pg_attribute a on a.attrelid = i.indexrelid and a.attnum > 0
+   where i.indrelid in (select oid from rel)
+  union all
   select format('policy|%s.%s|%s|cmd=%s|roles=%s|permissive=%s|using=%s|check=%s',
                 n.nspname, c.relname, pol.polname, pol.polcmd,
                 (select string_agg(g.name, ',' order by g.name)
