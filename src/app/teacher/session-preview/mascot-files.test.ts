@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 
-import { CHELSEA, GRIFOAI } from "../../../lib/brand.ts";
+import { BRANDS, CHELSEA } from "../../../lib/brand.ts";
 import { mascotFiles } from "./mascot-art.ts";
 
 /*
@@ -14,7 +14,7 @@ import { mascotFiles } from "./mascot-art.ts";
 const PUBLIC = join(import.meta.dirname, "..", "..", "..", "..", "public");
 
 describe("the mascot art", () => {
-  for (const brand of [CHELSEA, GRIFOAI]) {
+  for (const brand of Object.values(BRANDS)) {
     test(`${brand.name}: every file the tutor shows exists in public/`, () => {
       const missing = mascotFiles(brand.mascot).filter(
         (url) => !existsSync(join(PUBLIC, url)),

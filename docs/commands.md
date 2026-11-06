@@ -182,10 +182,10 @@ hostname. A pattern would only widen what Supabase accepts.
 
 Since #196 every auth email leads to the site the request came from (`src/lib/auth-links.ts`):
 login and "Esqueci minha senha" pass Supabase only the origin of that site, from the allowlist of
-`src/lib/brand.ts`. An invite does the same for an `https` site only: one sent from a dev server
-gets the Site URL, because the invitee opens it on her own machine. Since #195 an invite follows
-the brand of the organization invited, not the inviter's host: a GrifoAI company's invite leads to
-the GrifoAI origin, once it is in the allowlist (#193). An origin has no path, so no `/**`
+`src/lib/brand.ts`. Since #195 an invite follows the brand of the organization invited, not the
+inviter's host, and only to an `https` site, because the invitee opens it on her own machine: a
+Chelsea invite leads to `https://app.chelsea-st.com` even when sent from a dev server, and a
+GrifoAI invite gets the Site URL until the GrifoAI origin is in the allowlist (#193). An origin has no path, so no `/**`
 pattern matches it: each one is an exact entry. GoTrue (`internal/utilities/request.go`) accepts a
 redirect whose hostname is the Site URL's, with any scheme, port, path or query, or one that
 matches a Redirect URL; otherwise, and when nothing is sent (a host outside the allowlist, a

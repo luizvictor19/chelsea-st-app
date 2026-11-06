@@ -90,11 +90,7 @@ export function Robin({
       className="size-32 shrink-0 bg-[#F2F2F0] sm:size-40 dark:bg-[#0F1115]"
     >
       {art.kind === "video" ? (
-        <Loop
-          key={`${mascot.dir}/${art.pose}`}
-          mascot={mascot}
-          pose={art.pose}
-        />
+        <Loop key={`${mascot}/${art.pose}`} mascot={mascot} pose={art.pose} />
       ) : (
         <Still mascot={mascot} pose={art.pose} />
       )}

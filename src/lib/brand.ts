@@ -26,15 +26,12 @@ export function isBrandKey(value: unknown): value is BrandKey {
 }
 
 /**
- * Where a brand's mascot art lives under public/: the folder and the prefix of
- * each file. The files themselves are named in
- * src/app/teacher/session-preview/mascot-art.ts, and mascot-files.test.ts
- * holds that every one of them exists for every brand.
+ * Which mascot's art a brand shows: the folder under public/ and the prefix of
+ * each file, one name for both, so a folder cannot point at another mascot's
+ * files. The files are named in src/app/teacher/session-preview/mascot-art.ts,
+ * and mascot-files.test.ts holds that every one exists for every brand.
  */
-export type Mascot = {
-  readonly dir: "/robin" | "/grifo";
-  readonly prefix: "robin" | "grifo";
-};
+export type Mascot = "robin" | "grifo";
 
 /** One icon file under public/, with the size it really has. */
 export type BrandIcon = {
@@ -81,7 +78,7 @@ export const CHELSEA: Brand = {
     apple: { url: "/brand/chelsea/apple-icon.png", sizes: "180x180" },
   },
   contactEmail: null,
-  mascot: { dir: "/robin", prefix: "robin" },
+  mascot: "robin",
 };
 
 /**
@@ -89,9 +86,8 @@ export const CHELSEA: Brand = {
  * an address of its own.
  *
  * The mascot is Robin's art as a stand-in: the griffin's files are not in the
- * repository yet. When they arrive in public/grifo/, this becomes
- * { dir: "/grifo", prefix: "grifo" } and mascot-files.test.ts checks every
- * file is there.
+ * repository yet. When they arrive in public/grifo/, this becomes "grifo"
+ * and mascot-files.test.ts checks every file is there.
  */
 export const GRIFOAI: Brand = {
   key: "grifoai",
@@ -100,7 +96,13 @@ export const GRIFOAI: Brand = {
     "Treino de inglês com IA para as equipes das empresas, da GrifoAI.",
   icons: null,
   contactEmail: null,
-  mascot: { dir: "/robin", prefix: "robin" },
+  mascot: "robin",
+};
+
+/** Every brand by its key: a brand added to BRAND_KEYS must be written here. */
+export const BRANDS: Readonly<Record<BrandKey, Brand>> = {
+  "chelsea-st": CHELSEA,
+  grifoai: GRIFOAI,
 };
 
 const CHELSEA_HOST = "app.chelsea-st.com";

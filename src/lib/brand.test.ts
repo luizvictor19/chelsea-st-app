@@ -5,6 +5,7 @@ import { describe, test } from "node:test";
 
 import {
   BRAND_KEYS,
+  BRANDS,
   CHELSEA,
   GRIFOAI,
   isBrandKey,
@@ -176,7 +177,12 @@ describe("resolveSite, unknown hosts", () => {
 
 describe("brand keys", () => {
   test("each brand carries its own key, and the keys are the list", () => {
-    assert.deepEqual([CHELSEA.key, GRIFOAI.key], [...BRAND_KEYS]);
+    assert.deepEqual(Object.keys(BRANDS), [...BRAND_KEYS]);
+    for (const [key, brand] of Object.entries(BRANDS)) {
+      assert.equal(brand.key, key);
+    }
+    assert.equal(BRANDS["chelsea-st"], CHELSEA);
+    assert.equal(BRANDS.grifoai, GRIFOAI);
   });
 
   test("isBrandKey takes the two keys and nothing else", () => {
@@ -298,7 +304,7 @@ describe("the brand icons", () => {
   const PUBLIC = join(import.meta.dirname, "..", "..", "public");
 
   test("each declared icon exists in public/ with the size it declares", () => {
-    for (const brand of [CHELSEA, GRIFOAI]) {
+    for (const brand of Object.values(BRANDS)) {
       for (const icon of brand.icons ? Object.values(brand.icons) : []) {
         assert.equal(pngSize(join(PUBLIC, icon.url)), icon.sizes, icon.url);
       }

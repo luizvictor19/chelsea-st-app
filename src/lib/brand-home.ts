@@ -7,7 +7,8 @@ import type { BrandKey, Site, SiteConfig } from "./brand.ts";
  * who types the Chelsea domain is taken to GrifoAI's.
  *
  * Pure on purpose: node:test runs this file as plain TypeScript. Reading the
- * memberships is homeElsewhere() in src/lib/auth.ts.
+ * memberships is readMemberBrands() in src/lib/auth.ts, for
+ * resolveDestination().
  */
 
 export type HomeInput = {

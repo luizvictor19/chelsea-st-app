@@ -23,32 +23,54 @@ const MIGRATIONS = join(
 );
 
 const CHECK =
-  /organizations_brand_known\s+check\s*\(\s*brand\s+in\s*\(([^)]*)\)\s*\)/gi;
+  /organizations_brand_known\s+check\s*\(\s*brand\s+in\s*\(([^)]*)\)\s*\)/;
 
-function brandsInTheDatabase(): string[] | null {
-  let latest: string | null = null;
-  for (const name of readdirSync(MIGRATIONS)
+/**
+ * Every mention of the constraint across the migrations, in order, each with
+ * the list it defines, or null when it is not a definition this test can read
+ * (a drop, or a check written in another form).
+ */
+function mentions(): { file: string; brands: string[] | null }[] {
+  const found: { file: string; brands: string[] | null }[] = [];
+  for (const file of readdirSync(MIGRATIONS)
     .filter((n) => n.endsWith(".sql"))
     .sort()) {
-    for (const match of readFileSync(join(MIGRATIONS, name), "utf8").matchAll(
-      CHECK,
-    )) {
-      latest = match[1];
+    const sql = readFileSync(join(MIGRATIONS, file), "utf8");
+    for (const match of sql.matchAll(/organizations_brand_known/g)) {
+      const defined = new RegExp(CHECK.source, "iy");
+      defined.lastIndex = match.index;
+      const list = defined.exec(sql)?.[1];
+      found.push({
+        file,
+        brands:
+          list === undefined
+            ? null
+            : [...list.matchAll(/'([^']*)'/g)].map((m) => m[1]),
+      });
     }
   }
-  if (latest === null) {
-    return null;
-  }
-  return [...latest.matchAll(/'([^']*)'/g)].map((m) => m[1]);
+  return found;
 }
 
 describe("the brand keys", () => {
   test("are exactly the ones organizations_brand_known accepts", () => {
-    const accepted = brandsInTheDatabase();
-    assert.ok(
-      accepted !== null,
-      "organizations_brand_known not found in the migrations",
-    );
-    assert.deepEqual([...accepted].sort(), [...BRAND_KEYS].sort());
+    const found = mentions();
+    assert.ok(found.length > 0, "organizations_brand_known not found");
+    const latest = found[found.length - 1].brands;
+    assert.ok(latest !== null, "the latest mention is not a definition");
+    assert.deepEqual([...latest].sort(), [...BRAND_KEYS].sort());
+  });
+
+  /*
+   * A drop, or a check rewritten in another form (= any (array[...])), would
+   * leave the test above reading an older list. Every mention has to be a
+   * definition it reads; a migration that changes the check another way
+   * changes this test with it.
+   */
+  test("every mention of the constraint is a definition this test reads", () => {
+    const unread = mentions()
+      .filter((m) => m.brands === null)
+      .map((m) => m.file);
+    assert.deepEqual(unread, []);
   });
 });

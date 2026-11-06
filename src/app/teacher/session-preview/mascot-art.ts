@@ -34,7 +34,7 @@ export function artUrl(
   theme: Theme,
   extension: "png" | "mp4",
 ): string {
-  return `${mascot.dir}/${mascot.prefix}-${pose}-${theme}.${extension}`;
+  return `/${mascot}/${mascot}-${pose}-${theme}.${extension}`;
 }
 
 /** Every file the states above ask for: a video also needs its poster. */
