@@ -232,6 +232,10 @@ Desde a 0029 (#95, ADR 0004), `is_teacher()` não existe mais. As tabelas de ima
 bucket, escreve o admin da plataforma em qualquer caminho, e o admin ou o professor de uma escola só
 sob a pasta `{organization_id}/`; os caminhos de hoje não mudaram.
 
+Desde a 0043 (#211), todo conteúdo é comum e só o admin da plataforma escreve no bucket, em qualquer
+caminho. O professor e o admin de uma organização não escrevem nada nele, nem sob a pasta da
+organização.
+
 `scripts/verify-rls.sql` ganha duas coisas: a aluna vê zero `image_attempts`, e um stub do schema
 `storage` ao lado do stub de `auth` que já existia. O script roda contra um Postgres puro na CI, onde
 `storage` não existe, e sem o stub a 0008 derrubaria o check `verify` na PR. A checagem geral de "toda
