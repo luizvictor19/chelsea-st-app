@@ -123,6 +123,27 @@ Compare: run `scripts/row-counts.sql` on the copy and ask Claude to run it on pr
 the MCP. Every line must match.
 
     psql -P pager=off postgresql://postgres:postgres@127.0.0.1:54322/postgres --file scripts/row-counts.sql
+
+Rehearse a migration on the copy (first for 0040, #199), from the worktree that holds it. Three
+read-only outputs, before and after: the row counts, the catalog of `public` and the policies of
+`storage` (`scripts/catalog-fingerprint.sql`), and how many rows each account sees in each table
+(`scripts/rls-visibility.sql`, local copy only: accounts by number, no email). Ask Claude to run
+the first two on production through the MCP and compare them with the copy before the migration:
+equal means the copy is production. A migration that changes behaviour states, in its plan, the
+expected difference; one that only renames, like 0040, expects none after its map.
+
+    DB=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+    for f in row-counts catalog-fingerprint rls-visibility; do
+      psql -X -q -At -v ON_ERROR_STOP=1 -f scripts/$f.sql "$DB" > "$B/$f.before"
+    done
+    psql -X -q --single-transaction -v ON_ERROR_STOP=1 \
+      -f supabase/migrations/NNNN_name.sql "$DB"
+    for f in row-counts catalog-fingerprint rls-visibility; do
+      psql -X -q -At -v ON_ERROR_STOP=1 -f scripts/$f.sql "$DB" > "$B/$f.after"
+    done
+
+The three outputs carry no personal data. Then:
+
     supabase stop --workdir "$S" --no-backup   # deletes the local copy
 
 ## Auth settings and email templates (Luiz only, in the Supabase dashboard)
@@ -140,7 +161,7 @@ Authentication > Sign In / Providers: "Allow new users to sign up" off (#109). N
 account without an invite; `inviteUserByEmail` is an admin call and still works.
 
 Authentication > Providers > Email: minimum password length 8, and Email OTP Expiration 86400
-seconds (24 hours, the most Supabase allows). The invite stays open 15 days in `school_invites`,
+seconds (24 hours, the most Supabase allows). The invite stays open 15 days in `organization_invites`,
 but its email link lasts only this long; after that, "Reenviar" or "Esqueci minha senha" with
 the same email.
 

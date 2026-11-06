@@ -224,9 +224,10 @@ create policy vocabulary_images_write_teacher on storage.objects
 `search_path`.
 
 Desde a 0029 (#95, ADR 0004), `is_teacher()` não existe mais. As tabelas de imagem ganharam
-`school_id` (nulo é conteúdo comum) e as políticas chamam `is_platform_admin()` e
-`is_school_member()`. No bucket, escreve o admin da plataforma em qualquer caminho, e o admin ou o
-professor de uma escola só sob a pasta `{school_id}/`; os caminhos de hoje não mudaram.
+`organization_id` (nulo é conteúdo comum) e as políticas chamam `is_platform_admin()` e
+`is_organization_member()` (nomes da 0040; até a 0039 eram `school_id` e `is_school_member()`). No
+bucket, escreve o admin da plataforma em qualquer caminho, e o admin ou o professor de uma escola só
+sob a pasta `{organization_id}/`; os caminhos de hoje não mudaram.
 
 `scripts/verify-rls.sql` ganha duas coisas: a aluna vê zero `image_attempts`, e um stub do schema
 `storage` ao lado do stub de `auth` que já existia. O script roda contra um Postgres puro na CI, onde
@@ -436,7 +437,7 @@ decidido" (`questions_one_image`).
 
 - Tabela `scenes`: descrição (nunca em branco), `image_style`, referência opcional em
   `references/`, imagem aprovada (`approved_attempt_id` e `image_path`, juntos ou nenhum),
-  `school_id` (nulo é comum) e `based_on_id`.
+  `organization_id` (nulo é comum) e `based_on_id`.
 - Descrição única por escopo, sem diferenciar maiúsculas e espaços: entre as comuns, e entre as de
   uma escola. Uma escola pode repetir a descrição de uma comum, que é como ela customiza.
 - As tentativas de imagem da cena são as mesmas de `image_attempts`: geração, upload, aprovação e
