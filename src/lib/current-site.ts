@@ -1,7 +1,12 @@
 import { headers } from "next/headers";
 import { cache } from "react";
 
-import { resolveSite, sitesFromEnv, type Site } from "@/lib/brand";
+import {
+  resolveSite,
+  sitesFromEnv,
+  type Site,
+  type SiteConfig,
+} from "@/lib/brand";
 import { env } from "@/lib/env";
 
 /**
@@ -13,10 +18,17 @@ import { env } from "@/lib/env";
  * differ per host.
  */
 export const currentSite = cache(async (): Promise<Site | null> => {
-  const config = sitesFromEnv({
+  return resolveSite((await headers()).get("host"), siteConfig());
+});
+
+/**
+ * Every site this deployment answers as, from the environment: what the
+ * front door and the invite links look a brand's site up in (#195).
+ */
+export function siteConfig(): SiteConfig {
+  return sitesFromEnv({
     GRIFOAI_HOST: process.env.GRIFOAI_HOST,
     VERCEL: process.env.VERCEL,
     contactEmail: env.NEXT_PUBLIC_TEACHER_CONTACT_EMAIL,
   });
-  return resolveSite((await headers()).get("host"), config);
-});
+}
