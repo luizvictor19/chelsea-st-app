@@ -55,7 +55,8 @@ export const CHELSEA: Brand = {
 /** No icon until the griffin artwork (#195), no contact until its row does. */
 export const GRIFOAI: Brand = {
   name: "GrifoAI",
-  description: "Plataforma de apoio às aulas de inglês da GrifoAI.",
+  description:
+    "Treino de inglês com IA para as equipes das empresas, da GrifoAI.",
   icons: null,
   contactEmail: null,
 };
