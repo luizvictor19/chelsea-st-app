@@ -9,7 +9,7 @@ import { progressLine } from "./progress";
 import { listStudents, teacherZone } from "./queries";
 
 export const metadata: Metadata = {
-  title: "Alunos · Chelsea St",
+  title: "Alunos",
 };
 
 const DAY = (date: Date, timeZone: string) =>

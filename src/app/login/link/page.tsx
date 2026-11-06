@@ -1,20 +1,22 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { pageMetadata } from "@/lib/brand";
+import { currentSite } from "@/lib/current-site";
+
+import { BrandMark } from "../../brand-mark";
 import { MagicLinkForm } from "../magic-link-form";
 
-export const metadata: Metadata = {
-  title: "Entrar sem senha · Chelsea St",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return pageMetadata(await currentSite(), "Entrar sem senha", "/login/link");
+}
 
 /** The way in from before #96, kept for whoever prefers no password. */
 export default function MagicLinkPage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 p-6">
       <div className="flex flex-col gap-3">
-        <p className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
-          Chelsea St
-        </p>
+        <BrandMark />
         <h1 className="text-3xl font-extrabold tracking-tight">
           Entrar sem senha
         </h1>

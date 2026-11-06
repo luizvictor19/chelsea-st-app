@@ -9,7 +9,7 @@ import {
 } from "./stt-recordings";
 
 export const metadata: Metadata = {
-  title: "Teste de áudio · Chelsea St",
+  title: "Teste de áudio",
 };
 
 /**

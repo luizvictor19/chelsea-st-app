@@ -3,10 +3,11 @@ import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
 
+import { BrandMark } from "../brand-mark";
 import { NewPasswordForm } from "./new-password-form";
 
 export const metadata: Metadata = {
-  title: "Definir senha · Chelsea St",
+  title: "Definir senha",
 };
 
 /**
@@ -26,9 +27,7 @@ export default async function SetPasswordPage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 p-6">
       <div className="flex flex-col gap-3">
-        <p className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
-          Chelsea St
-        </p>
+        <BrandMark />
         <h1 className="text-3xl font-extrabold tracking-tight">
           Definir senha
         </h1>
