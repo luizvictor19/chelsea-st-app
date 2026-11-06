@@ -33,13 +33,22 @@ function guardsFor(where: string): readonly string[] {
   return ["requireTeacher"];
 }
 
-/** The exported functions of one file that reach none of the guards given. */
-function unguardedActions(source: string, guards: readonly string[]): string[] {
+/**
+ * The exported functions of one file that reach none of the guards given.
+ * Parsed by the file's own name: a page read as plain TypeScript loses its
+ * tree at the first JSX it cannot read, and can hide a function after it.
+ */
+function unguardedActions(
+  source: string,
+  guards: readonly string[],
+  fileName = "actions.ts",
+): string[] {
   const file = ts.createSourceFile(
-    "actions.ts",
+    fileName,
     source,
     ts.ScriptTarget.Latest,
     true,
+    fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
   const bodies = new Map<string, ts.Node>();
   const exported = new Set<string>();
@@ -169,24 +178,50 @@ describe("server actions under /teacher", () => {
   test("every exported action checks its caller", () => {
     const unguarded = serverActionFiles(ROOT).flatMap((path) => {
       const where = relative(ROOT, path);
-      return unguardedActions(readFileSync(path, "utf8"), guardsFor(where)).map(
-        (name) => `${where}: ${name}`,
-      );
+      return unguardedActions(
+        readFileSync(path, "utf8"),
+        guardsFor(where),
+        path,
+      ).map((name) => `${where}: ${name}`);
     });
     assert.deepEqual(unguarded, []);
   });
 });
 
 describe("pages under /teacher/content", () => {
+  test("a page is read as TSX, past its JSX", () => {
+    // Read as plain TypeScript, the list below swallows the rest of the
+    // file, and the page after it is never seen.
+    const guarded = `
+      function List({ xs }: { xs: string[] }) {
+        return <ul>{xs.map((x) => <li key={x}>{x}</li>)}</ul>;
+      }
+      export default async function Page() {
+        await requireContentWriter();
+        return <List xs={[]} />;
+      }`;
+    const open = guarded.replace("await requireContentWriter();", "");
+    assert.deepEqual(
+      unguardedActions(guarded, ["requireContentWriter"], "page.tsx"),
+      [],
+    );
+    assert.deepEqual(
+      unguardedActions(open, ["requireContentWriter"], "page.tsx"),
+      ["Page"],
+    );
+  });
+
   test("there are content pages to check", () => {
     assert.ok(pageFiles(join(ROOT, CONTENT)).length >= 4);
   });
 
   test("every content page lets in only whoever writes content", () => {
     const unguarded = pageFiles(join(ROOT, CONTENT)).flatMap((path) =>
-      unguardedActions(readFileSync(path, "utf8"), [
-        "requireContentWriter",
-      ]).map((name) => `${relative(ROOT, path)}: ${name}`),
+      unguardedActions(
+        readFileSync(path, "utf8"),
+        ["requireContentWriter"],
+        path,
+      ).map((name) => `${relative(ROOT, path)}: ${name}`),
     );
     assert.deepEqual(unguarded, []);
   });
