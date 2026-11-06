@@ -132,6 +132,7 @@ the first two on production through the MCP and compare them with the copy befor
 equal means the copy is production. A migration that changes behaviour states, in its plan, the
 expected difference; one that only renames, like 0040, expects none after its map.
 
+    B=~/backups/chelsea-st/YYYY-MM-DD    # the folder of the copy restored above
     DB=postgresql://postgres:postgres@127.0.0.1:54322/postgres
     for f in row-counts catalog-fingerprint rls-visibility; do
       psql -X -q -At -v ON_ERROR_STOP=1 -f scripts/$f.sql "$DB" > "$B/$f.before"

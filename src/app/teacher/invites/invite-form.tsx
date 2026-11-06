@@ -29,7 +29,7 @@ export function InviteForm({
   );
   const [organizationId, setOrganizationId] = useState(organizations[0].id);
   const organization =
-    organizations.find((s) => s.id === organizationId) ?? organizations[0];
+    organizations.find((o) => o.id === organizationId) ?? organizations[0];
   // React resets the form when the action ends, refusal included; what the
   // action sends back becomes the default, so a refusal keeps what was typed.
   const kept = state.status === "error" ? state : null;
@@ -93,9 +93,9 @@ export function InviteForm({
             onChange={(event) => setOrganizationId(event.target.value)}
             className={fieldClass}
           >
-            {organizations.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
+            {organizations.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
               </option>
             ))}
           </select>
