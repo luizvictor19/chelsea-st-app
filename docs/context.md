@@ -40,6 +40,21 @@ architecture question for Luiz.
   - Supabase Site URL is `https://app.chelsea-st.com`, so every auth email links there, also one
     asked for from `localhost`. To test one locally, swap the start of the link for
     `http://localhost:3100`: the `token_hash` works on any host.
+- The brand of a request comes from its Host, by an allowlist in `src/lib/brand.ts` (#194), read
+  through `currentSite()` (`src/lib/current-site.ts`):
+  - `app.chelsea-st.com` is Chelsea St, on `https://app.chelsea-st.com`.
+  - The host in `GRIFOAI_HOST` is GrifoAI, on `https://` (`http://` for a `.localhost` host). The
+    variable is empty in production until the domain exists (#193).
+  - Off Vercel only (`VERCEL` unset), `localhost` and `127.0.0.1` on any port are Chelsea St, on
+    `http://` and the request's port.
+  - Any other host (a preview, the `.vercel.app` alias of production, anything else) gets the
+    neutral brand: no brand name on the screen, the page's name alone as the title, no description,
+    no icon, `noindex, nofollow`, no canonical. Never Chelsea St.
+  - Compared whole and lower-cased, port included: `app.chelsea-st.com:443` is unknown. A site's
+    origin comes from the list, never from the Host text.
+  - "Chelsea St" is written only in `src/lib/brand.ts` (a test in `brand.test.ts` holds it there).
+    Icons live in `public/brand/<brand>/`, not in `src/app/`: the icon file convention would
+    override the brand. #195 moves the list into `organizations`, with the same `Site` shape.
 - Luiz also runs it locally on port 3100 (`npm run dev`).
 - The landing page (chelsea-st.com) is the repository `luizvictor19/chelsea-st-site` (local clone
   `~/Projects/chelsea-st`), deployed by Luiz. Its form writes leads into this project's database
