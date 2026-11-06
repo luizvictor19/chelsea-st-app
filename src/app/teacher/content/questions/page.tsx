@@ -6,7 +6,7 @@ import { loadQuestionsScreen } from "@/lib/questions/queries";
 import { LessonQuestions } from "./lesson-questions";
 
 export const metadata: Metadata = {
-  title: "Perguntas · Chelsea St",
+  title: "Perguntas",
 };
 
 /** A whole number from the query string, or null for anything else. */

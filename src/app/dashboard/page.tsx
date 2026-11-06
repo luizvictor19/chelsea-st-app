@@ -3,16 +3,18 @@ import { redirect } from "next/navigation";
 
 import { studies, teaches } from "@/lib/access";
 import { readAccess } from "@/lib/auth";
+import { currentSite } from "@/lib/current-site";
 import { createClient } from "@/lib/supabase/server";
 
 import { PendingInvites } from "../auth/pending-invites";
 import { SignOutButton } from "../auth/sign-out-button";
+import { BrandMark } from "../brand-mark";
 import { AccountPending } from "./account-pending";
 import { DailyChallenge } from "./daily-challenge";
 import { NextLessonCard } from "./next-lesson-card";
 
 export const metadata: Metadata = {
-  title: "Minha aula · Chelsea St",
+  title: "Minha aula",
 };
 
 /**
@@ -53,7 +55,7 @@ export default async function DashboardPage() {
   }
 
   if (!profile || !student) {
-    return <AccountPending />;
+    return <AccountPending site={await currentSite()} />;
   }
 
   const now = new Date();
@@ -84,9 +86,7 @@ export default async function DashboardPage() {
     <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-6 p-6">
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between gap-4">
-          <p className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
-            Chelsea St
-          </p>
+          <BrandMark />
           <SignOutButton />
         </div>
         <h1 className="text-3xl font-extrabold tracking-tight">

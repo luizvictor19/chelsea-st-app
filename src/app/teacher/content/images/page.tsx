@@ -54,7 +54,7 @@ import { SuggestButton } from "./suggest-button";
 import { WordPanel } from "./word-panel";
 
 export const metadata: Metadata = {
-  title: "Imagens do vocabulário · Chelsea St",
+  title: "Imagens do vocabulário",
 };
 
 /*

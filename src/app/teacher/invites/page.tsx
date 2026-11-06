@@ -8,7 +8,7 @@ import { InviteForm, type InvitableSchool } from "./invite-form";
 import { InviteList, type OpenInvite } from "./invite-list";
 
 export const metadata: Metadata = {
-  title: "Convites · Chelsea St",
+  title: "Convites",
 };
 
 /**
