@@ -149,7 +149,7 @@ describe("teamOf", () => {
         daysByWeek: [0, 0, 0, 0],
         practisedThisWeek: false,
         minutesThisMonth: 0,
-        minutesAvailable: 6 * DAILY_PRACTICE_MINUTES,
+        minutesAvailable: 4 * DAILY_PRACTICE_MINUTES,
       },
     ]);
   });
@@ -185,14 +185,18 @@ describe("teamOf", () => {
     assert.equal(ana?.practisedThisWeek, true);
     assert.equal(bia?.lastPractice, "28/10");
     assert.equal(bia?.practisedThisWeek, false);
-    assert.equal(ana?.minutesAvailable, 90);
+    // Joined 03/11: 03, 04, 05 and 06/11 (#223).
+    assert.equal(ana?.minutesAvailable, 4 * DAILY_PRACTICE_MINUTES);
 
     // 01/11 at 02:00 UTC is still 31/10 in São Paulo and already 01/11 in
     // London: the month of one is ending, the other's just began.
     const turn = new Date("2026-11-01T02:00:00Z");
     const atTurn = teamOf({
       organizationId: F,
-      members: [member("ana", F, "2026-10-01T02:00:00Z"), member("caio")],
+      members: [
+        member("ana", F, "2026-10-01T02:00:00Z"),
+        member("caio", F, "2026-10-20T12:00:00Z"),
+      ],
       profiles,
       practice: [practice("ana", "2026-10-30", [0, 0, 1, 0])],
       now: turn,
@@ -203,6 +207,51 @@ describe("teamOf", () => {
     assert.equal(anaAtTurn?.lastPractice, "Ontem");
     assert.equal(anaAtTurn?.joinedOn, "30/09");
     assert.equal(caioAtTurn?.minutesAvailable, DAILY_PRACTICE_MINUTES);
+  });
+});
+
+describe("time available in the month", () => {
+  // #223: from the day she joined, in her own zone, or from the 1st when she
+  // joined before the month. NOW is Friday 06/11 in São Paulo.
+  const availableFor = (joinedAt: string) =>
+    teamOf({
+      organizationId: F,
+      members: [member("ana", F, joinedAt)],
+      profiles,
+      practice: [],
+      now: NOW,
+    })[0].minutesAvailable;
+
+  test("joined before the month: every day of the month so far", () => {
+    assert.equal(
+      availableFor("2026-10-15T12:00:00Z"),
+      6 * DAILY_PRACTICE_MINUTES,
+    );
+  });
+
+  test("joined on the 1st: every day of the month so far", () => {
+    assert.equal(
+      availableFor("2026-11-01T12:00:00Z"),
+      6 * DAILY_PRACTICE_MINUTES,
+    );
+  });
+
+  test("joined mid-month: from her day of joining, that day included", () => {
+    assert.equal(
+      availableFor("2026-11-03T12:00:00Z"),
+      4 * DAILY_PRACTICE_MINUTES,
+    );
+  });
+
+  test("joined today: today alone", () => {
+    assert.equal(availableFor("2026-11-06T13:00:00Z"), DAILY_PRACTICE_MINUTES);
+  });
+
+  test("the day of joining is hers: 01/11 02:00 UTC is 31/10 in São Paulo", () => {
+    assert.equal(
+      availableFor("2026-11-01T02:00:00Z"),
+      6 * DAILY_PRACTICE_MINUTES,
+    );
   });
 });
 
@@ -217,7 +266,7 @@ describe("knownZone", () => {
     // 01/11 at 02:00 UTC is still 31/10 in São Paulo, the default.
     const rows = teamOf({
       organizationId: F,
-      members: [member("ana"), member("bia")],
+      members: [member("ana", F, "2026-10-01T12:00:00Z"), member("bia")],
       profiles: [profile("ana", "Ana", "Not/A_Zone"), profile("bia", "Bia")],
       practice: [practice("ana", "2026-10-31", [0, 0, 0, 1])],
       now: new Date("2026-11-01T02:00:00Z"),
@@ -268,7 +317,8 @@ describe("teamSummary and summaryLine", () => {
       people: 4,
       practisedThisWeek: 1,
       minutesThisMonth: 55,
-      minutesAvailable: 4 * 6 * DAILY_PRACTICE_MINUTES,
+      // Four people, each joined 03/11: four days each (#223).
+      minutesAvailable: 4 * 4 * DAILY_PRACTICE_MINUTES,
     });
     assert.equal(summaryLine(summary), "1 de 4 praticou esta semana.");
     assert.equal(

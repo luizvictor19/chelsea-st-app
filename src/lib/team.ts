@@ -46,7 +46,7 @@ export type TeamRow = {
   readonly daysByWeek: readonly number[];
   readonly practisedThisWeek: boolean;
   readonly minutesThisMonth: number;
-  /** The daily cap times the days of her month so far, today included. */
+  /** The daily cap times her days of the month so far, from the day she joined (#223). */
   readonly minutesAvailable: number;
 };
 
@@ -93,6 +93,19 @@ export function knownZone(timeZone: string | undefined): string {
 /** A YYYY-MM-DD as a UTC midnight, for whole-day arithmetic. */
 function dayAsUtc(day: string): Date {
   return new Date(`${day}T00:00:00Z`);
+}
+
+/**
+ * The days of her month so far she could have practised, today included:
+ * from the day she joined (#223), or from the 1st when she joined before the
+ * month. Both days are YYYY-MM-DD in her own zone, so they compare as text.
+ */
+export function daysAvailable(joinedDay: string, today: string): number {
+  const firstOfMonth = `${today.slice(0, 8)}01`;
+  const from = joinedDay > firstOfMonth ? joinedDay : firstOfMonth;
+  const days =
+    (dayAsUtc(today).getTime() - dayAsUtc(from).getTime()) / 86_400_000 + 1;
+  return Math.max(0, Math.round(days));
 }
 
 /** "30/10", from a YYYY-MM-DD. */
@@ -180,7 +193,9 @@ export function teamOf({
       daysByWeek,
       practisedThisWeek: (daysByWeek.at(-1) ?? 0) > 0,
       minutesThisMonth: own?.minutesThisMonth ?? 0,
-      minutesAvailable: DAILY_PRACTICE_MINUTES * Number(today.slice(8, 10)),
+      minutesAvailable:
+        DAILY_PRACTICE_MINUTES *
+        daysAvailable(localDateKey(new Date(m.joinedAt), timeZone), today),
     });
   }
 
