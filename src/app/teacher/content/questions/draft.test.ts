@@ -5,6 +5,7 @@ import {
   CHANGED_ELSEWHERE,
   EMPTY,
   SESSION_ENDED,
+  CONTENT_WRITERS_ONLY,
   cleaned,
   closed,
   deleteError,
@@ -507,6 +508,21 @@ describe("failureMessage", () => {
       digest: "NEXT_REDIRECT;replace;/login;307;",
     });
     assert.equal(failureMessage(redirect), SESSION_ENDED);
+  });
+
+  test("the redirect of a teacher who does not write content says so", () => {
+    // requireContentWriter sends her to /teacher (0043, #211): her session
+    // is fine, and signing in again would not help.
+    for (const type of ["replace", "push"]) {
+      const redirect = Object.assign(new Error("NEXT_REDIRECT"), {
+        digest: `NEXT_REDIRECT;${type};/teacher;307;`,
+      });
+      assert.equal(failureMessage(redirect), CONTENT_WRITERS_ONLY);
+    }
+    const elsewhere = Object.assign(new Error("NEXT_REDIRECT"), {
+      digest: "NEXT_REDIRECT;replace;/teacher/lesson;307;",
+    });
+    assert.equal(failureMessage(elsewhere), SESSION_ENDED);
   });
 });
 

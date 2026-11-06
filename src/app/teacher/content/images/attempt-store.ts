@@ -25,6 +25,8 @@ import {
   type ReadImage,
 } from "@/lib/images/upload";
 
+import { failureMessage } from "../questions/draft";
+
 /**
  * The half of an image attempt that does not care whose it is: opening a
  * generation at the provider, storing what comes back, closing a row, sending
@@ -92,9 +94,13 @@ export type Supabase = Awaited<ReturnType<typeof requireTeacher>>["supabase"];
 export const BUCKET = "vocabulary-images";
 export const SCREEN = "/teacher/content/images";
 
-/** Whatever was thrown, as a string the screen can show. */
+/**
+ * Whatever was thrown, as a string the screen can show. A redirect of the
+ * guard (an ended session, or a teacher who does not write content) is said
+ * in words, as the questions screen says it, and not as NEXT_REDIRECT.
+ */
 export function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
+  return failureMessage(cause);
 }
 
 export function failure(error: unknown): ActionResult {

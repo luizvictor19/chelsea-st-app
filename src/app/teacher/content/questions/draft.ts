@@ -300,6 +300,14 @@ export const SESSION_ENDED =
   "A sua sessão terminou e nada foi gravado. Entre de novo em outra aba e repita aqui: o que você escreveu continua nesta tela";
 
 /**
+ * requireContentWriter's redirect to /teacher, said in words: the teacher's
+ * session is fine, and only the platform admin writes content (0043, #211).
+ * Reached from a screen opened before that, or by hand.
+ */
+export const CONTENT_WRITERS_ONLY =
+  "Só o admin da plataforma edita o conteúdo. Nada foi gravado.";
+
+/**
  * Whatever an action threw, as a sentence.
  *
  * requireTeacher redirects to the login when the session has ended, and a
@@ -315,7 +323,10 @@ export function failureMessage(cause: unknown): string {
       ? cause.digest
       : undefined;
   if (typeof digest === "string" && digest.startsWith("NEXT_REDIRECT")) {
-    return SESSION_ENDED;
+    // NEXT_REDIRECT;<type>;<url>;<status>; (next/navigation's redirect).
+    return digest.split(";")[2] === "/teacher"
+      ? CONTENT_WRITERS_ONLY
+      : SESSION_ENDED;
   }
   return cause instanceof Error ? cause.message : String(cause);
 }
