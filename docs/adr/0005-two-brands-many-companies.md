@@ -1,7 +1,7 @@
 # 0005 · Two brands, many companies
 
 - **Status**: accepted
-- **Date**: 2026-11-05
+- **Date**: 2026-11-05 (Content changed on 2026-11-06, #211)
 
 ## Context
 
@@ -51,8 +51,14 @@ serves is one.
   the team's practice (#198) without reaching the teacher's tools
   (content, lesson, preparation) (#197). In an organization with a teacher
   the admin keeps what ADR 0004 gives it.
-- **Content.** Common content is still written only by the platform admin
-  and served to every organization (AGENTS.md, "Content and licensing").
+- **Content** (changed on 2026-11-06, #211). All content is common, served
+  to every organization, and written only by the platform admin: ingestion,
+  blocks, points, vocabulary, images, scenes, contrast sets and questions.
+  A teacher only teaches: she reads content where a lesson needs it and
+  edits none. No organization holds content of its own: `organization_id`
+  stays on the content tables, always null, refused by one check per table
+  (`<table>_is_common`, migration 0043) (AGENTS.md, "Content and
+  licensing").
 - **Commercial terms.** Prices, trial lengths and the fee per employee live
   outside this repository, as `docs/context.md` says; code follows them
   only through an issue.
@@ -70,7 +76,9 @@ serves is one.
   organizations (ADR 0003).
 - "Admin can do everything a teacher can" (ADR 0004, Roles) now holds only
   in organizations with a teacher.
-- #99 (screens for a school's own content) loses its customer; a company
-  that wants its own content is a later decision, taken when one asks.
+- #99 (screens for a school's own content) is closed as not planned: by
+  the decision of 2026-11-06 (#211) no organization has content of its own,
+  and a company that wants some is a new decision that starts by undoing
+  migration 0043.
 - GrifoAI's offer depends on Robin working without a teacher, so Robin v1
   (#71) is on the critical path of the November milestone.

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { unstable_rethrow } from "next/navigation";
 
-import { requireTeacher } from "@/lib/content/queries";
+import { requireContentWriter } from "@/lib/content/queries";
 import { parsePictureKeys } from "@/lib/images/pictures";
 import {
   composesPictures,
@@ -45,9 +45,9 @@ import { descriptionKey, isDescriptionTaken, isSceneInUse } from "./scenes";
  * provider about a running one is pollAttempt's, in actions.ts, which serves
  * both owners.
  *
- * Every scene written here is common content (organization_id null), as every word
- * is today (ADR 0004): the screen shows common content until an organization writes
- * its own.
+ * Every scene written here is common content (organization_id null), as every
+ * row of content is since 0043 (#211): no organization holds content of its
+ * own.
  */
 
 /** The questions screen, whose form offers the scenes. */
@@ -82,7 +82,7 @@ export async function createScene(
     if (text === "") {
       return { ok: false, error: "Escreva o que a cena mostra." };
     }
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
 
     const { data, error } = await supabase
       .from("scenes")
@@ -148,7 +148,7 @@ export async function createScene(
  */
 export async function archiveScene(sceneId: string): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const { data: shown, error: shownError } = await supabase
       .from("questions")
       .select("prompt, points(number)")
@@ -211,7 +211,7 @@ export async function setSceneStyle(
   style: ImageStyle,
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const { error } = await supabase
       .from("scenes")
       .update({ image_style: style })
@@ -230,7 +230,7 @@ export async function setSceneReference(
   file: File,
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const stored = await storeReference(
       supabase,
       { kind: "scene", id: sceneId },
@@ -263,7 +263,7 @@ export async function clearSceneReference(
   sceneId: string,
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const { error } = await supabase
       .from("scenes")
       .update({ reference_path: null })
@@ -293,7 +293,7 @@ export async function setScenePictures(
   try {
     const parsed = parsePictureKeys(keys, sceneId);
     if (!parsed.ok) return parsed;
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
 
     const wordIds = parsed.sources
       .filter((source) => source.kind === "word")
@@ -374,7 +374,7 @@ export async function clearScenePictures(
   sceneId: string,
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const { error } = await supabase
       .from("scenes")
       .update({ composed_from: null })
@@ -403,7 +403,7 @@ export async function startSceneGeneration(
     if (!isImageModelId(model)) {
       return { ok: false, error: `Modelo desconhecido: ${model}` };
     }
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
 
     // The style and the reference from the row: the screen could be a
     // refresh behind the teacher's last decision.
@@ -491,12 +491,12 @@ export async function suggestSceneSubject(
   sceneId: string,
 ): Promise<SceneSubjectResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     return await proposeSceneSubject({
       scene: async () => {
         const { data, error } = await supabase
           .from("scenes")
-          .select("description, image_style, organization_id, archived_at")
+          .select("description, image_style, archived_at")
           .eq("id", sceneId)
           .maybeSingle();
         if (error) throw new Error(error.message);
@@ -505,34 +505,28 @@ export async function suggestSceneSubject(
           : {
               description: data.description,
               imageStyle: data.image_style,
-              organizationId: data.organization_id,
               archived: data.archived_at !== null,
             };
       },
-      canWrite: async (organization) => {
+      canWrite: async () => {
         const { data, error } = await supabase.rpc("can_write_content", {
           // The generated type says string because the generator never marks
           // an argument nullable; null is exactly "common content" in the
-          // function (0029), and the scene's own organization is what is passed.
-          p_organization: organization as string,
+          // function (0029), the only content there is since 0043.
+          p_organization: null as unknown as string,
         });
         if (error) throw new Error(error.message);
         return data === true;
       },
-      question: async (organization) => {
+      question: async () => {
         // The oldest question that shows the scene. On 2026-11-04 no scene
-        // was shown by more than one. Only questions of the scene's own
-        // scope: a platform admin reads every organization's, and one organization's
-        // wording must not shape common content (ADR 0004).
-        const shown = supabase
+        // was shown by more than one. Common questions only, the only kind
+        // since 0043.
+        const { data, error } = await supabase
           .from("questions")
           .select("prompt")
-          .eq("scene_id", sceneId);
-        const { data, error } = await (
-          organization === null
-            ? shown.is("organization_id", null)
-            : shown.eq("organization_id", organization)
-        )
+          .eq("scene_id", sceneId)
+          .is("organization_id", null)
           .order("created_at", { ascending: true })
           .limit(1)
           .maybeSingle();
@@ -547,7 +541,7 @@ export async function suggestSceneSubject(
         ),
     });
   } catch (cause) {
-    // requireTeacher redirects an expired session to /login by throwing.
+    // requireContentWriter redirects an expired session to /login by throwing.
     unstable_rethrow(cause);
     return {
       ok: false,
@@ -572,7 +566,7 @@ export async function uploadSceneImage(
     const refusal = refuseFile({ size: file.size, type: file.type });
     if (refusal !== null) return { ok: false, error: refusal };
 
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const image = await readImageFile(file);
     if (image === null) {
       return {
@@ -607,7 +601,7 @@ export async function approveSceneAttempt(
   attemptId: string,
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const { data: attempt, error: readError } = await supabase
       .from("image_attempts")
       .select("scene_id")
@@ -632,7 +626,7 @@ export async function rejectSceneAttempt(
   attemptId: string,
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const { data: attempt, error: readError } = await supabase
       .from("image_attempts")
       .select("scene_id, status, storage_path")

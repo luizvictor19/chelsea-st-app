@@ -2,7 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 
-import { ownerOf, readAttempts, requireTeacher } from "@/lib/content/queries";
+import {
+  ownerOf,
+  readAttempts,
+  requireContentWriter,
+  requireTeacher,
+} from "@/lib/content/queries";
 import { compareWords } from "@/lib/content/word-order";
 import { createFreepikProvider } from "@/lib/images/freepik";
 import { GENERATION_WINDOW_MS, hasExpired } from "@/lib/images/generation";
@@ -118,7 +123,7 @@ export async function setRepresentation(
   kind: Representation,
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const error = await writeRepresentation(supabase, wordId, kind);
     if (error !== null) return { ok: false, error };
     revalidatePath(SCREEN);
@@ -130,7 +135,7 @@ export async function setRepresentation(
 
 export async function approveAttempt(attemptId: string): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const { data: attempt, error: readError } = await supabase
       .from("image_attempts")
       .select("vocabulary_item_id")
@@ -155,7 +160,7 @@ export async function approveAttempt(attemptId: string): Promise<ActionResult> {
 /** Discard a word's generated attempt; see discardAttempt. */
 export async function rejectAttempt(attemptId: string): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
 
     const { data: attempt, error: readError } = await supabase
       .from("image_attempts")
@@ -191,7 +196,7 @@ export async function setReference(
   file: File,
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const stored = await storeReference(
       supabase,
       { kind: "word", id: wordId },
@@ -227,7 +232,7 @@ export async function uploadFinishedImage(
   // Every sentence here is the teacher's, in Portuguese; what Supabase said
   // goes in `cause`, for the console.
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
 
     // The kind from the row, as startGeneration reads it: the screen could be
     // a refresh behind the teacher's last decision.
@@ -308,7 +313,7 @@ export async function uploadFinishedImage(
  */
 export async function clearReference(wordId: string): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const { error } = await supabase
       .from("vocabulary_items")
       .update({ reference_path: null })
@@ -338,7 +343,7 @@ export async function startGeneration(
         error: "Esse modelo só desenha cena, a partir das imagens escolhidas.",
       };
     }
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
 
     /*
      * What the picture has to show depends on the kind, so the kind has to be
@@ -424,7 +429,7 @@ export async function startGeneration(
  */
 export async function pollAttempt(attemptId: string): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
 
     const { data: attempt, error: readError } = await supabase
       .from("image_attempts")
@@ -645,7 +650,7 @@ async function suggestBatch(
 
   try {
     const beforeAuth = performance.now();
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     marks.authMs = Math.round(performance.now() - beforeAuth);
 
     const beforeRead = performance.now();
@@ -850,7 +855,7 @@ export async function countSuggestionRun(
   offset: number,
 ): Promise<RunCountResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const lesson = await lessonWords(supabase, lessonContentId);
     if (!lesson.ok) return { ok: false, error: lesson.error };
 
@@ -886,7 +891,7 @@ export async function suggestSubject(
   expected: string | null,
 ): Promise<SubjectResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
 
     const { data: word, error: readError } = await supabase
       .from("vocabulary_items")
@@ -951,7 +956,7 @@ export async function saveSubject(
   text: string,
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     await storeSubject(subjectUpdate(supabase), wordId, text);
     // So a word reopened from the router's cache, as Back does, opens on it.
     revalidatePath(SCREEN);
@@ -967,7 +972,7 @@ export async function setWordClass(
   wordClass: Database["public"]["Enums"]["word_class"] | null,
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const error = await writeWordClass(supabase, wordId, wordClass);
     if (error !== null) return { ok: false, error };
     revalidatePath(SCREEN);
@@ -990,7 +995,7 @@ export async function setImageStyle(
   style: Database["public"]["Enums"]["image_style"],
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const error = await writeImageStyle(supabase, wordId, style);
     if (error !== null) return { ok: false, error };
     revalidatePath(SCREEN);
@@ -1016,7 +1021,7 @@ export async function applyToWords(
   change: BulkChange,
 ): Promise<BulkResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const { data: rows, error: readError } = await supabase
       .from("vocabulary_items")
       .select(
@@ -1088,7 +1093,7 @@ export async function saveContrastSet(
   set: { readonly id: string; readonly expected: readonly string[] } | null,
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const { error } = await supabase.rpc("save_contrast_set", {
       p_items: [...items],
       ...(set === null
@@ -1110,7 +1115,7 @@ export async function dissolveContrastSet(
   setId: string,
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const { error } = await supabase.rpc("dissolve_contrast_set", {
       p_set_id: setId,
     });
@@ -1173,7 +1178,7 @@ async function proposeContrastSets(
     outcome: "threw",
   };
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const { data: rows, error } = await supabase
       .from("vocabulary_items")
       .select(

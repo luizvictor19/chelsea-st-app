@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 import { describe, test } from "node:test";
 
 import ts from "typescript";
@@ -15,20 +15,40 @@ import ts from "typescript";
  * requireTeacher, itself or through a function of the same file it calls
  * (the streamed actions hand their work to a generator that checks). Only
  * the invite actions, which /team shares, may call requireInviter instead:
- * it lets the company's admin in. Calls are read from the syntax tree, so a
- * name in a comment or a string counts for nothing.
+ * it lets the company's admin in. Under content/ only requireContentWriter
+ * counts, for the actions and for every page: a teacher only teaches, and
+ * content is written by the platform admin alone (0043, #211). Calls are read
+ * from the syntax tree, so a name in a comment or a string counts for
+ * nothing.
  */
 
 const ROOT = join(import.meta.dirname);
 const INVITE_ACTIONS = join("invites", "actions.ts");
+const CONTENT = "content";
 
-/** The exported functions of one file that reach none of the guards given. */
-function unguardedActions(source: string, guards: readonly string[]): string[] {
+/** The guards that count for a file, by where it sits under /teacher. */
+function guardsFor(where: string): readonly string[] {
+  if (where === INVITE_ACTIONS) return ["requireTeacher", "requireInviter"];
+  if (where.split(sep)[0] === CONTENT) return ["requireContentWriter"];
+  return ["requireTeacher"];
+}
+
+/**
+ * The exported functions of one file that reach none of the guards given.
+ * Parsed by the file's own name: a page read as plain TypeScript loses its
+ * tree at the first JSX it cannot read, and can hide a function after it.
+ */
+function unguardedActions(
+  source: string,
+  guards: readonly string[],
+  fileName = "actions.ts",
+): string[] {
   const file = ts.createSourceFile(
-    "actions.ts",
+    fileName,
     source,
     ts.ScriptTarget.Latest,
     true,
+    fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
   const bodies = new Map<string, ts.Node>();
   const exported = new Set<string>();
@@ -92,6 +112,15 @@ function unguardedActions(source: string, guards: readonly string[]): string[] {
   return [...exported].filter((name) => !reachesGuard(name, new Set()));
 }
 
+/** Every page.tsx under dir, at any depth. */
+function pageFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return pageFiles(path);
+    return entry.name === "page.tsx" ? [path] : [];
+  });
+}
+
 function serverActionFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
@@ -131,6 +160,17 @@ describe("server actions under /teacher", () => {
     );
   });
 
+  test("a content action that only asks for a teacher is unguarded", () => {
+    const source = `"use server";
+      export async function save() { await requireTeacher(); }
+      export async function write() { await requireContentWriter(); }`;
+    const guards = guardsFor(join(CONTENT, "images", "actions.ts"));
+    assert.deepEqual(unguardedActions(source, guards), ["save"]);
+    assert.deepEqual(guardsFor(join("lesson", "actions.ts")), [
+      "requireTeacher",
+    ]);
+  });
+
   test("there are server actions to check", () => {
     assert.ok(serverActionFiles(ROOT).length >= 8);
   });
@@ -138,14 +178,51 @@ describe("server actions under /teacher", () => {
   test("every exported action checks its caller", () => {
     const unguarded = serverActionFiles(ROOT).flatMap((path) => {
       const where = relative(ROOT, path);
-      const guards =
-        where === INVITE_ACTIONS
-          ? ["requireTeacher", "requireInviter"]
-          : ["requireTeacher"];
-      return unguardedActions(readFileSync(path, "utf8"), guards).map(
-        (name) => `${where}: ${name}`,
-      );
+      return unguardedActions(
+        readFileSync(path, "utf8"),
+        guardsFor(where),
+        path,
+      ).map((name) => `${where}: ${name}`);
     });
+    assert.deepEqual(unguarded, []);
+  });
+});
+
+describe("pages under /teacher/content", () => {
+  test("a page is read as TSX, past its JSX", () => {
+    // Read as plain TypeScript, the list below swallows the rest of the
+    // file, and the page after it is never seen.
+    const guarded = `
+      function List({ xs }: { xs: string[] }) {
+        return <ul>{xs.map((x) => <li key={x}>{x}</li>)}</ul>;
+      }
+      export default async function Page() {
+        await requireContentWriter();
+        return <List xs={[]} />;
+      }`;
+    const open = guarded.replace("await requireContentWriter();", "");
+    assert.deepEqual(
+      unguardedActions(guarded, ["requireContentWriter"], "page.tsx"),
+      [],
+    );
+    assert.deepEqual(
+      unguardedActions(open, ["requireContentWriter"], "page.tsx"),
+      ["Page"],
+    );
+  });
+
+  test("there are content pages to check", () => {
+    assert.ok(pageFiles(join(ROOT, CONTENT)).length >= 4);
+  });
+
+  test("every content page lets in only whoever writes content", () => {
+    const unguarded = pageFiles(join(ROOT, CONTENT)).flatMap((path) =>
+      unguardedActions(
+        readFileSync(path, "utf8"),
+        ["requireContentWriter"],
+        path,
+      ).map((name) => `${relative(ROOT, path)}: ${name}`),
+    );
     assert.deepEqual(unguarded, []);
   });
 });

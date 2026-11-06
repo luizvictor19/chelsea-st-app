@@ -49,7 +49,8 @@ common row or hold content of its own.
   indexes such as `vocabulary_items_term_idx` and `books_position_key` hold
   per scope, `school_id` included with `nulls not distinct`. Only the
   platform admin writes common content; a school's admin and teachers write
-  that school's content.
+  that school's content (changed by ADR 0005, #211: all content is common,
+  written by the platform admin alone).
 - **RLS.** Every policy checks membership through one function,
   `is_school_member(school_id, roles[])`: `stable`, `security definer`, with
   a fixed `search_path`, called as `(select is_school_member(...))` so

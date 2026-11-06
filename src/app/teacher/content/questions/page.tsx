@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { requireContentWriter } from "@/lib/content/queries";
 import { loadQuestionsScreen } from "@/lib/questions/queries";
 
 import { LessonQuestions } from "./lesson-questions";
@@ -20,6 +21,7 @@ export default async function QuestionsPage({
 }: {
   readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  await requireContentWriter();
   const params = await searchParams;
   const {
     lessons,
