@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { unstable_rethrow } from "next/navigation";
 
-import { requireTeacher } from "@/lib/content/queries";
+import { requireContentWriter } from "@/lib/content/queries";
 import { parsePictureKeys } from "@/lib/images/pictures";
 import {
   composesPictures,
@@ -82,7 +82,7 @@ export async function createScene(
     if (text === "") {
       return { ok: false, error: "Escreva o que a cena mostra." };
     }
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
 
     const { data, error } = await supabase
       .from("scenes")
@@ -148,7 +148,7 @@ export async function createScene(
  */
 export async function archiveScene(sceneId: string): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const { data: shown, error: shownError } = await supabase
       .from("questions")
       .select("prompt, points(number)")
@@ -211,7 +211,7 @@ export async function setSceneStyle(
   style: ImageStyle,
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const { error } = await supabase
       .from("scenes")
       .update({ image_style: style })
@@ -230,7 +230,7 @@ export async function setSceneReference(
   file: File,
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const stored = await storeReference(
       supabase,
       { kind: "scene", id: sceneId },
@@ -263,7 +263,7 @@ export async function clearSceneReference(
   sceneId: string,
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const { error } = await supabase
       .from("scenes")
       .update({ reference_path: null })
@@ -293,7 +293,7 @@ export async function setScenePictures(
   try {
     const parsed = parsePictureKeys(keys, sceneId);
     if (!parsed.ok) return parsed;
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
 
     const wordIds = parsed.sources
       .filter((source) => source.kind === "word")
@@ -374,7 +374,7 @@ export async function clearScenePictures(
   sceneId: string,
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const { error } = await supabase
       .from("scenes")
       .update({ composed_from: null })
@@ -403,7 +403,7 @@ export async function startSceneGeneration(
     if (!isImageModelId(model)) {
       return { ok: false, error: `Modelo desconhecido: ${model}` };
     }
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
 
     // The style and the reference from the row: the screen could be a
     // refresh behind the teacher's last decision.
@@ -491,7 +491,7 @@ export async function suggestSceneSubject(
   sceneId: string,
 ): Promise<SceneSubjectResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     return await proposeSceneSubject({
       scene: async () => {
         const { data, error } = await supabase
@@ -547,7 +547,7 @@ export async function suggestSceneSubject(
         ),
     });
   } catch (cause) {
-    // requireTeacher redirects an expired session to /login by throwing.
+    // requireContentWriter redirects an expired session to /login by throwing.
     unstable_rethrow(cause);
     return {
       ok: false,
@@ -572,7 +572,7 @@ export async function uploadSceneImage(
     const refusal = refuseFile({ size: file.size, type: file.type });
     if (refusal !== null) return { ok: false, error: refusal };
 
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const image = await readImageFile(file);
     if (image === null) {
       return {
@@ -607,7 +607,7 @@ export async function approveSceneAttempt(
   attemptId: string,
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const { data: attempt, error: readError } = await supabase
       .from("image_attempts")
       .select("scene_id")
@@ -632,7 +632,7 @@ export async function rejectSceneAttempt(
   attemptId: string,
 ): Promise<ActionResult> {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     const { data: attempt, error: readError } = await supabase
       .from("image_attempts")
       .select("scene_id, status, storage_path")

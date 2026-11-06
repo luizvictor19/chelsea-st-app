@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 
 import { orphansToAttach, type LessonRange } from "@/lib/content/lesson-range";
-import { COMMON, requireTeacher } from "@/lib/content/queries";
+import {
+  COMMON,
+  requireContentWriter,
+  requireTeacher,
+} from "@/lib/content/queries";
 import type { BlockKind } from "@/lib/extraction/classify";
 
 import { failureMessage } from "./questions/draft";
@@ -76,18 +80,19 @@ function refreshBookScreens(bookPosition: number): void {
 }
 
 /**
- * requireTeacher for these actions, with its redirect said in words. A
- * session that ended would otherwise navigate away from the review panel
+ * requireContentWriter for these actions, with its redirect said in words.
+ * A session that ended would otherwise navigate away from the review panel
  * and take the teacher's unconfirmed pages with it; told in words, nothing
  * is written and the pages stay on screen (failureMessage, as the
- * questions screen does). Whoever does not teach gets the same refusal.
+ * questions screen does). Whoever does not write content (0043) gets the
+ * same refusal.
  */
-async function asTeacher(): Promise<
+async function asContentWriter(): Promise<
   | { readonly supabase: Client }
   | { readonly status: "error"; readonly message: string }
 > {
   try {
-    const { supabase } = await requireTeacher();
+    const { supabase } = await requireContentWriter();
     return { supabase };
   } catch (cause) {
     return { status: "error", message: failureMessage(cause) };
@@ -101,7 +106,7 @@ export async function configureBook(
   firstPoint: number,
   lastPoint: number,
 ): Promise<ActionResult> {
-  const teacher = await asTeacher();
+  const teacher = await asContentWriter();
   if (!("supabase" in teacher)) return teacher;
   const { supabase } = teacher;
   const { error } = await supabase.rpc("materialize_points", {
@@ -133,7 +138,7 @@ export async function configureBook(
 export async function confirmPoint(
   point: ConfirmedPoint,
 ): Promise<ActionResult> {
-  const teacher = await asTeacher();
+  const teacher = await asContentWriter();
   if (!("supabase" in teacher)) return teacher;
   const { supabase } = teacher;
 
@@ -386,7 +391,7 @@ export type BookLessons =
  * have answered.
  */
 export async function bookLessons(bookId: string): Promise<BookLessons> {
-  const teacher = await asTeacher();
+  const teacher = await asContentWriter();
   if (!("supabase" in teacher)) return teacher;
   const { supabase } = teacher;
   const { data, error } = await supabase
@@ -428,7 +433,7 @@ export async function filledPoints(
   if (numbers.length === 0) {
     return { status: "ok", numbers: [] };
   }
-  const teacher = await asTeacher();
+  const teacher = await asContentWriter();
   if (!("supabase" in teacher)) return teacher;
   const { supabase } = teacher;
   const { data, error } = await supabase
