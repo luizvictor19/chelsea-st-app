@@ -16,7 +16,7 @@ import { readAgenda, teacherZone } from "../queries";
 import { AgendaView } from "./agenda-view";
 
 export const metadata: Metadata = {
-  title: "Agenda · Chelsea St",
+  title: "Agenda",
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

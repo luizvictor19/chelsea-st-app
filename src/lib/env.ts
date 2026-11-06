@@ -22,8 +22,8 @@ export const env = {
     process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
 
   /**
-   * One contact for the whole platform (a contact per organization is not built:
-   * only Chelsea St exists), shown to someone signed in with no access, so they
+   * The contact of the Chelsea brand (see src/lib/brand.ts; a contact per
+   * organization is #195), shown to someone signed in with no access, so they
    * have a way to reach a human. Optional: when it is unset the screen simply
    * omits the address rather than inventing one.
    */

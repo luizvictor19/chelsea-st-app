@@ -46,6 +46,9 @@ era `for all using (is_teacher())`, e a 0008 o seguiu.
   reconhecer um lote que gravou mas não conseguiu responder. PRs #16 e #19.
 - **Sugestão de Instrução.** "Sugerir instrução" pede ao modelo de texto uma Instrução para a palavra
   e grava a proposta em `vocabulary_items.image_subject`, o mesmo campo que o professor edita. PR #18.
+  A palavra segue no DeepSeek; a cena usa o Claude Haiku 5.5 (`claude-haiku-5-5`, atrás do mesmo
+  `TextProvider`, em `src/lib/text/claude.ts`), escolhido pela medição da #187: US$ 0,0129 por 100
+  propostas, mediana de 1,4 s.
 - **Toda tentativa é guardada**, gerada ou enviada à mão, aprovada ou descartada. É de onde sai
   "tentativas até aprovação" por modelo. Cada tentativa guarda três coisas diferentes:
   - `prompt`: o que foi enviado ao fornecedor, estilo e regra da categoria incluídos;
@@ -421,6 +424,11 @@ mesma transação em que ele é acrescentado, então qualquer consulta, função
 - Painel da cena (`?cena=`): estilo, Instrução (começa pela instrução da tentativa mais nova, ou
   pela descrição, e fica gravada só na tentativa), referência de estrutura, modelo (Seedream 4 por
   padrão, como figura), Gerar, Enviar imagem pronta, tentativas com Aprovar e Descartar.
+  "Sugerir instrução" dentro do campo (#187): o Claude Haiku 5.5 propõe a Instrução a partir da
+  descrição e da pergunta mais antiga que mostra a cena. Só preenche o campo, não grava e não gera.
+  Se o campo mudou durante a espera, a edição fica e a nota mostra a sugestão; se não mudou, o texto
+  anterior volta com Desfazer. Só pede quem pode gravar a cena (`can_write_content`), e a recusa vem
+  antes da chamada paga.
 
 ## Medição
 

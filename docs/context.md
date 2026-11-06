@@ -5,8 +5,13 @@ architecture question for Luiz.
 
 ## The product
 
-- Chelsea St: an English school by Luiz. Two parts: live 45-min lessons with Luiz (one trial class
-  given on 02/10/2026; no students yet) and Robin, a voice tutor for daily practice (not built yet).
+- Two brands on one app and one database (ADR 0005, 05/11/2026):
+  - Chelsea St: Luiz's personal brand, an English school. Two parts: live 45-min lessons with Luiz
+    (one trial class given on 02/10/2026; no students yet) and Robin, a voice tutor for daily
+    practice (not built yet).
+  - GrifoAI: AI automation for companies. Its employees practise English with Robin only, with no
+    teacher and no teacher tools, under the GrifoAI brand (griffin mascot).
+- English schools are not customers. Each tenant is an organization: Chelsea St, or one company.
 - Today only Luiz uses the platform, as teacher. Students will sign in later.
 - Offer and prices live outside this repository and do not drive code decisions without an issue.
 
@@ -40,6 +45,21 @@ architecture question for Luiz.
   - Supabase Site URL is `https://app.chelsea-st.com`, so every auth email links there, also one
     asked for from `localhost`. To test one locally, swap the start of the link for
     `http://localhost:3100`: the `token_hash` works on any host.
+- The brand of a request comes from its Host, by an allowlist in `src/lib/brand.ts` (#194), read
+  through `currentSite()` (`src/lib/current-site.ts`):
+  - `app.chelsea-st.com` is Chelsea St, on `https://app.chelsea-st.com`.
+  - The host in `GRIFOAI_HOST` is GrifoAI, on `https://` (`http://` for a `.localhost` host). The
+    variable is empty in production until the domain exists (#193).
+  - Off Vercel only (`VERCEL` unset), `localhost` and `127.0.0.1` on any port are Chelsea St, on
+    `http://` and the request's port.
+  - Any other host (a preview, the `.vercel.app` alias of production, anything else) gets the
+    neutral brand: no brand name on the screen, the page's name alone as the title, no description,
+    no icon, `noindex, nofollow`, no canonical. Never Chelsea St.
+  - Compared whole and lower-cased, port included: `app.chelsea-st.com:443` is unknown. A site's
+    origin comes from the list, never from the Host text.
+  - "Chelsea St" is written only in `src/lib/brand.ts` (a test in `brand.test.ts` holds it there).
+    Icons live in `public/brand/<brand>/`, not in `src/app/`: the icon file convention would
+    override the brand. #195 moves the list into `organizations`, with the same `Site` shape.
 - Luiz also runs it locally on port 3100 (`npm run dev`).
 - The landing page (chelsea-st.com) is the repository `luizvictor19/chelsea-st-site` (local clone
   `~/Projects/chelsea-st`), deployed by Luiz. Its form writes leads into this project's database
@@ -122,6 +142,9 @@ architecture question for Luiz.
 - In a hand-written call (curl, a script), the new key goes only in the `apikey` header, never in
   `Authorization: Bearer`. The secret key is refused (401) when the User-Agent is a browser's: it
   runs on a server only.
+- `ANTHROPIC_API_KEY` is read by the app since #187 (the scene's "Sugerir instrução") and by the
+  measurement scripts. Two Console keys: `chelsea-vercel` in Vercel Production only, as a Secret,
+  and `chelsea-local` in `.env.local`, so each one rotates without touching the other.
 - The site (`luizvictor19/chelsea-st-site`) holds only the publishable key
   (`SUPABASE_PUBLISHABLE_KEY`), never the service role (#146). Its Vercel project has only
   `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` among the Supabase variables.

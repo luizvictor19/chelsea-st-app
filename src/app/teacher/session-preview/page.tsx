@@ -6,7 +6,7 @@ import type { SessionWord } from "@/lib/tutor/turn-engine";
 import { FakeSession } from "./fake-session";
 
 export const metadata: Metadata = {
-  title: "Prévia da sessão · Chelsea St",
+  title: "Prévia da sessão",
 };
 
 /** How many words the fake script walks through. */

@@ -18,6 +18,13 @@ Open Claude Code inside the worktree: the no-commit-on-main hook reads the sessi
     npx next dev -p 3110           # a worktree, on another port
     fuser -k 3110/tcp              # free a port
 
+The brand follows the Host (#194). `localhost` and `127.0.0.1` are Chelsea St. To see GrifoAI,
+start with `GRIFOAI_HOST=grifoai.localhost:3100 npm run dev` and open
+`http://grifoai.localhost:3100` (no setup: `next dev` accepts subdomains of `localhost`). Any other
+Host shows the neutral brand:
+
+    curl -s -H "Host: qualquer.example" http://127.0.0.1:3100/login | grep -o '<title>[^<]*</title>'
+
 The lesson server always runs in Luiz's own terminal, never in a Claude Code session.
 
 ## Gate (the CI steps, minus verify-rls.sql, which only CI runs)
@@ -51,12 +58,23 @@ Settings > Environment Variables, by name only (values live in Vercel and in `.e
     Production   NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
                  NEXT_PUBLIC_SITE_URL=https://app.chelsea-st.com,
                  NEXT_PUBLIC_TEACHER_CONTACT_EMAIL=contato@chelsea-st.com,
-                 SUPABASE_SERVICE_ROLE_KEY, FREEPIK_API_KEY, DEEPSEEK_API_KEY
+                 SUPABASE_SERVICE_ROLE_KEY, FREEPIK_API_KEY, DEEPSEEK_API_KEY,
+                 ANTHROPIC_API_KEY
     Preview      NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
                  NEXT_PUBLIC_TEACHER_CONTACT_EMAIL
 
-`OPENAI_API_KEY`, `DEEPGRAM_API_KEY` and `ANTHROPIC_API_KEY` are read only by the measurement
-scripts, never by the app: they stay out of Vercel.
+`GRIFOAI_HOST` (the GrifoAI domain, server only) enters Production only after #193, when the
+domain exists; until then it stays unset and nothing changes. A preview has no allowlisted host, so
+it always shows the neutral brand.
+
+`OPENAI_API_KEY` and `DEEPGRAM_API_KEY` are read only by the measurement scripts, never by the
+app: they stay out of Vercel.
+
+`ANTHROPIC_API_KEY` is read by the app (the scene panel's "Sugerir instrução", #187) and by the
+scripts. Two keys in the Claude Console, in the mould of the Supabase ones: `chelsea-vercel` in
+Vercel, type Secret, Production only (a preview spends no credit, and its button says the
+suggestion is not set up there); `chelsea-local` in `.env.local`. Each rotates without touching
+the other.
 
 Supabase key formats (#149; the names stayed from the legacy keys, the values did not):
 

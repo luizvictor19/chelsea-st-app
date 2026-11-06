@@ -1,5 +1,6 @@
 import { studies } from "@/lib/access";
 import { requireTeacher } from "@/lib/content/queries";
+import { currentSite } from "@/lib/current-site";
 
 import { PendingInvites } from "../auth/pending-invites";
 import { Snackbar } from "./snackbar";
@@ -13,12 +14,19 @@ import { TeacherNav } from "./teacher-nav";
 export default async function TeacherLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const { profile, access } = await requireTeacher();
+  const [{ profile, access }, site] = await Promise.all([
+    requireTeacher(),
+    currentSite(),
+  ]);
   const initial = profile.full_name.trim().charAt(0).toUpperCase() || "?";
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <TeacherNav initial={initial} alsoStudent={studies(access)} />
+      <TeacherNav
+        brandName={site?.brand.name ?? null}
+        initial={initial}
+        alsoStudent={studies(access)}
+      />
       <main className="mx-auto flex w-full max-w-[1760px] flex-1 flex-col gap-7 px-5 py-10 sm:px-8">
         <PendingInvites />
         {children}

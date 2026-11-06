@@ -41,9 +41,12 @@ function activeHref(pathname: string): string | null {
 }
 
 export function TeacherNav({
+  brandName,
   initial,
   alsoStudent,
 }: {
+  /** The Host's brand (#194); null on an unknown host, which names none. */
+  readonly brandName: string | null;
   readonly initial: string;
   /** Also a student: the admin who checks the student's screens. */
   readonly alsoStudent: boolean;
@@ -54,12 +57,14 @@ export function TeacherNav({
     <header className="border-rule bg-background sticky top-0 z-10 border-b">
       <div className="mx-auto flex h-14 w-full max-w-[1760px] items-center justify-between gap-6 px-5 sm:px-8">
         <div className="flex min-w-0 items-center gap-4 sm:gap-8">
-          <Link
-            href="/teacher"
-            className="text-foreground shrink-0 text-[0.9375rem] font-extrabold tracking-[-0.02em] whitespace-nowrap"
-          >
-            Chelsea St
-          </Link>
+          {brandName ? (
+            <Link
+              href="/teacher"
+              className="text-foreground shrink-0 text-[0.9375rem] font-extrabold tracking-[-0.02em] whitespace-nowrap"
+            >
+              {brandName}
+            </Link>
+          ) : null}
           <nav
             aria-label="Área do professor"
             className="-mx-1 flex items-center gap-1 overflow-x-auto px-1"

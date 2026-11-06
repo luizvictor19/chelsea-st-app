@@ -18,3 +18,4 @@ Format, kept short on purpose:
 | 0002   | Web first, no native app                            | accepted |
 | 0003   | RLS policies verified in CI against a real Postgres | accepted |
 | 0004   | One database, many schools                          | accepted |
+| 0005   | Two brands, many companies                          | accepted |
