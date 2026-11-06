@@ -745,6 +745,7 @@ export type Database = {
       };
       organizations: {
         Row: {
+          brand: string;
           created_at: string;
           id: string;
           name: string;
@@ -752,12 +753,14 @@ export type Database = {
         };
         ComputedFields: never;
         Insert: {
+          brand: string;
           created_at?: string;
           id?: string;
           name: string;
           slug: string;
         };
         Update: {
+          brand?: string;
           created_at?: string;
           id?: string;
           name?: string;

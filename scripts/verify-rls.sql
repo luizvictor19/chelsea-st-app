@@ -260,6 +260,12 @@ $$;
 -- blocks above keep the names of their time, like the migrations they follow.
 \i supabase/migrations/0040_every_row_knows_its_organization.sql
 
+-- 0041 gives every organization a brand and adds GrifoAI's organization. It
+-- is applied before the fixtures, so the second organization below names its
+-- brand like any new one must, and the block "An organization wears a brand
+-- (0041)" holds the column after the 0040 one.
+\i supabase/migrations/0041_an_organization_wears_a_brand.sql
+
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
   ('22222222-2222-2222-2222-222222222222', 'student@example.com', null);
@@ -1692,7 +1698,8 @@ $$;
 -- Seeded as the owner, so the rows go in past RLS; the reads and writes under
 -- test happen as authenticated. Failures are collected and raised together,
 -- so taking one clause out of 0029 shows every assertion that rests on it.
-insert into organizations (slug, name) values ('escola-b', 'Escola B');
+-- B wears GrifoAI, as every company does since 0041.
+insert into organizations (slug, name, brand) values ('escola-b', 'Escola B', 'grifoai');
 insert into auth.users (id, email, raw_user_meta_data) values
   ('33333333-3333-3333-3333-333333333333', 'teacher-b@example.com', null),
   ('44444444-4444-4444-4444-444444444444', 'student-b@example.com', null);
@@ -3199,6 +3206,128 @@ begin
   if v_failures is not null then
     raise exception 'every row knows its organization: %', v_failures;
   end if;
+end;
+$$;
+
+-- An organization wears a brand (0041) ---------------------------------------------------
+--
+-- Every organization names one of the two brands, and nobody but the platform
+-- admin changes it. Each assertion stands on one clause of 0041 or on the
+-- policy it relies on:
+--
+-- 1. The rows already there wear Chelsea St (the default that filled them),
+--    and GrifoAI's organization exists wearing GrifoAI (the insert).
+-- 2. A brand outside the two is refused by organizations_brand_known.
+-- 3. An organization written without a brand is refused (23502 on brand):
+--    the default is gone.
+-- 4. An organization's admin, not a platform admin, changes her own
+--    organization's brand in no row; the platform admin does, which shows the
+--    statement could have changed it (organizations_write).
+-- 5. A member reads her own organization's brand and not another's
+--    (organizations_read).
+--
+-- The admin of B is made here, as the owner, and removed at the end: the
+-- fixtures above give B a teacher and a student only.
+do $$
+declare
+  c_chelsea constant uuid := (select id from organizations where slug = 'chelsea-st');
+  c_b constant uuid := (select id from organizations where slug = 'escola-b');
+  c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  c_admin_b constant uuid := 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+  v_n integer;
+  v_brand text;
+  v_state text;
+  v_column text;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  -- 1. The rows 0041 found and the one it adds.
+  if (select brand from organizations where id = c_chelsea) is distinct from 'chelsea-st' then
+    insert into verify.failures values ('Chelsea St does not wear chelsea-st');
+  end if;
+  if (select brand from organizations where slug = 'grifoai') is distinct from 'grifoai' then
+    insert into verify.failures values ('there is no grifoai organization wearing grifoai');
+  end if;
+
+  -- 2. Only the two brands.
+  perform verify.expect_refused(
+    'an organization wearing an unknown brand', 'organizations_brand_known',
+    $q$insert into organizations (slug, name, brand) values ('outra', 'Outra', 'outra')$q$);
+
+  -- 3. No default: a new organization names its brand.
+  begin
+    insert into organizations (slug, name) values ('sem-marca', 'Sem marca');
+    insert into verify.failures values ('an organization without a brand was accepted');
+    delete from organizations where slug = 'sem-marca';
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_column = column_name;
+    if v_state <> '23502' or v_column is distinct from 'brand' then
+      insert into verify.failures values (format(
+        'an organization without a brand was refused with %s on %s, expected 23502 on brand',
+        v_state, coalesce(v_column, 'no column')));
+    else
+      raise notice 'an organization without a brand: refused, 23502 on brand';
+    end if;
+  end;
+
+  insert into auth.users (id, email, raw_user_meta_data)
+    values (c_admin_b, 'admin-b@example.com', null);
+  insert into organization_members (organization_id, user_id, role)
+    values (c_b, c_admin_b, 'admin');
+
+  set local role authenticated;
+
+  -- 4. Her own organization's admin changes nothing.
+  perform set_config('test.uid', c_admin_b::text, false);
+  update organizations set brand = 'chelsea-st' where id = c_b;
+  get diagnostics v_n = row_count;
+  if v_n <> 0 then
+    insert into verify.failures values (format('the admin of B changed B''s brand in %s rows', v_n));
+  end if;
+
+  -- The platform admin does, and puts it back.
+  perform set_config('test.uid', c_admin::text, false);
+  update organizations set brand = 'chelsea-st' where id = c_b;
+  get diagnostics v_n = row_count;
+  if v_n <> 1 then
+    insert into verify.failures values (format('the platform admin changed B''s brand in %s rows', v_n));
+  end if;
+  update organizations set brand = 'grifoai' where id = c_b;
+
+  -- 5. Each member reads her own organization's brand and no other. The admin
+  -- of B, made above, belongs to B alone (the teacher of B joined Chelsea in
+  -- the block of 0032).
+  perform set_config('test.uid', c_admin_b::text, false);
+  select count(*) into v_n from organizations;
+  select brand into v_brand from organizations where id = c_b;
+  if v_n <> 1 or v_brand is distinct from 'grifoai' then
+    insert into verify.failures values (format(
+      'the admin of B reads %s organizations, B wearing %s', v_n, coalesce(v_brand, 'nothing')));
+  end if;
+  perform set_config('test.uid', c_student::text, false);
+  select count(*) into v_n from organizations;
+  select brand into v_brand from organizations where id = c_chelsea;
+  if v_n <> 1 or v_brand is distinct from 'chelsea-st' then
+    insert into verify.failures values (format(
+      'the Chelsea student reads %s organizations, her own wearing %s', v_n, coalesce(v_brand, 'nothing')));
+  end if;
+
+  reset role;
+  if (select brand from organizations where id = c_b) is distinct from 'grifoai' then
+    insert into verify.failures values ('B no longer wears grifoai');
+  end if;
+  delete from organization_members where user_id = c_admin_b;
+  delete from auth.users where id = c_admin_b;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'an organization wears a brand: %', v_failures;
+  end if;
+
+  raise notice 'every organization wears chelsea-st or grifoai, named on insert; only the platform admin changes it';
+  raise notice 'a member reads her own organization''s brand and no other';
 end;
 $$;
 
