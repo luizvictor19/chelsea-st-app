@@ -1337,6 +1337,15 @@ export type Database = {
       };
       teaches_anywhere: { Args: Record<PropertyKey, never>; Returns: boolean };
       teaches_in: { Args: { p_organization: string }; Returns: boolean };
+      team_practice: {
+        Args: { p_organization: string; p_weeks: number };
+        Returns: {
+          days_by_week: number[];
+          last_practised_on: string;
+          minutes_this_month: number;
+          person_id: string;
+        }[];
+      };
     };
     Enums: {
       answer_language: "en" | "pt";
