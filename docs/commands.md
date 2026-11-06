@@ -51,12 +51,19 @@ Settings > Environment Variables, by name only (values live in Vercel and in `.e
     Production   NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
                  NEXT_PUBLIC_SITE_URL=https://app.chelsea-st.com,
                  NEXT_PUBLIC_TEACHER_CONTACT_EMAIL=contato@chelsea-st.com,
-                 SUPABASE_SERVICE_ROLE_KEY, FREEPIK_API_KEY, DEEPSEEK_API_KEY
+                 SUPABASE_SERVICE_ROLE_KEY, FREEPIK_API_KEY, DEEPSEEK_API_KEY,
+                 ANTHROPIC_API_KEY
     Preview      NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
                  NEXT_PUBLIC_TEACHER_CONTACT_EMAIL
 
-`OPENAI_API_KEY`, `DEEPGRAM_API_KEY` and `ANTHROPIC_API_KEY` are read only by the measurement
-scripts, never by the app: they stay out of Vercel.
+`OPENAI_API_KEY` and `DEEPGRAM_API_KEY` are read only by the measurement scripts, never by the
+app: they stay out of Vercel.
+
+`ANTHROPIC_API_KEY` is read by the app (the scene panel's "Sugerir instrução", #187) and by the
+scripts. Two keys in the Claude Console, in the mould of the Supabase ones: `chelsea-vercel` in
+Vercel, type Secret, Production only (a preview spends no credit, and its button says the
+suggestion is not set up there); `chelsea-local` in `.env.local`. Each rotates without touching
+the other.
 
 Supabase key formats (#149; the names stayed from the legacy keys, the values did not):
 

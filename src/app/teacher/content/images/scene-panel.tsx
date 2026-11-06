@@ -43,6 +43,7 @@ import {
   referenceAttached,
   referenceRemoved,
   styleChanged,
+  subjectGenerated,
   tell,
   uploadSent,
   wordFailed,
@@ -60,8 +61,15 @@ import {
   setSceneReference,
   setSceneStyle,
   startSceneGeneration,
+  suggestSceneSubject,
   uploadSceneImage,
 } from "./scene-actions";
+import {
+  NO_PROPOSAL,
+  landSceneProposal,
+  undoProposal,
+  type SceneProposal,
+} from "./scene-proposal";
 import { groupLabel } from "./scenes";
 import { NotAPicture, shrinkReference } from "./shrink-reference";
 
@@ -120,6 +128,20 @@ export function ScenePanel({
   const [subject, setSubject] = useState(
     () => scene.latestSubject ?? scene.description,
   );
+  /*
+   * `field` mirrors `subject` for the answer of a suggestion, which comes
+   * back in a closure from before any typing done while it was on its way.
+   * `proposal` is what the suggestions left: the texts Desfazer goes back
+   * to, and the note. Mirrored in a ref for the same reason as `field`. See
+   * scene-proposal.ts.
+   */
+  const field = useRef(subject);
+  const [proposal, setProposalState] = useState<SceneProposal>(NO_PROPOSAL);
+  const proposalNow = useRef(proposal);
+  function setProposal(next: SceneProposal) {
+    proposalNow.current = next;
+    setProposalState(next);
+  }
   const [model, setModel] = useState<string>(() =>
     scene.pictureUrls !== null
       ? (defaultComposeModel() ?? DEFAULT_SCENE_MODEL)
@@ -298,6 +320,45 @@ export function ScenePanel({
     );
   }
 
+  // Typing leaves the way back alone: see scene-proposal.ts.
+  function editSubject(text: string) {
+    field.current = text;
+    setSubject(text);
+  }
+
+  function suggest() {
+    const atRequest = field.current;
+    // Said only when the proposal filled the field.
+    let filled = false;
+    void run(
+      "sugerir",
+      async () => {
+        const result = await suggestSceneSubject(scene.id);
+        if (!result.ok) return result;
+        const landed = landSceneProposal(
+          atRequest,
+          field.current,
+          result.subject,
+          proposalNow.current,
+        );
+        filled = landed.filled;
+        field.current = landed.field;
+        setSubject(landed.field);
+        setProposal(landed.state);
+        return { ok: true };
+      },
+      () => (filled ? subjectGenerated(label) : null),
+    );
+  }
+
+  function undo() {
+    const back = undoProposal(proposalNow.current);
+    if (back === null) return;
+    field.current = back.field;
+    setSubject(back.field);
+    setProposal(back.state);
+  }
+
   const working = busy !== null;
 
   return (
@@ -368,16 +429,64 @@ export function ScenePanel({
         >
           Instrução
         </label>
-        <input
-          id="instrucao-cena"
-          value={subject}
-          onChange={(event) => setSubject(event.target.value)}
-          placeholder="o que a imagem mostra, em inglês"
-          className="border-rule bg-background w-full rounded-sm border px-3 py-2 text-sm"
-        />
+        {/*
+          The word panel's control, inside the field: the teacher knows it
+          from there. The field stays editable while it waits; whatever is
+          typed meanwhile wins (scene-proposal.ts).
+        */}
+        <div className="relative">
+          <input
+            id="instrucao-cena"
+            value={subject}
+            onChange={(event) => editSubject(event.target.value)}
+            placeholder="o que a imagem mostra, em inglês"
+            className="border-rule bg-background w-full rounded-sm border py-2 pr-10 pl-3 text-sm"
+          />
+          <button
+            type="button"
+            disabled={working}
+            aria-label="Sugerir instrução"
+            title="Sugerir uma instrução para esta cena"
+            onClick={suggest}
+            className="text-faint hover:text-foreground absolute top-1/2 right-1.5 -translate-y-1/2 rounded-sm p-1.5 transition-colors disabled:opacity-40"
+          >
+            {busy?.key === "sugerir" ? (
+              <span className="block size-3.5 text-center text-[0.6875rem] leading-3.5">
+                ·
+              </span>
+            ) : (
+              <svg
+                viewBox="0 0 16 16"
+                className="size-3.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                aria-hidden="true"
+              >
+                <path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3M3.4 3.4l2.1 2.1M10.5 10.5l2.1 2.1M12.6 3.4l-2.1 2.1M5.5 10.5l-2.1 2.1" />
+              </svg>
+            )}
+          </button>
+        </div>
+        {(proposal.note !== null || proposal.undo.length > 0) && (
+          <p className="text-muted flex flex-wrap items-baseline gap-x-2 text-xs wrap-anywhere">
+            {proposal.note !== null && <span>{proposal.note}</span>}
+            {proposal.undo.length > 0 && (
+              <button
+                type="button"
+                onClick={undo}
+                className="hover:text-foreground underline underline-offset-2"
+              >
+                Desfazer
+              </button>
+            )}
+          </p>
+        )}
         <p className="text-faint text-xs">
           Começa pela descrição da cena. O que você mudar aqui fica guardado só
-          na tentativa; a descrição da cena não muda.
+          na tentativa; a descrição da cena não muda. A sugestão só preenche o
+          campo: nada é gravado até Gerar.
         </p>
 
         <div className="flex flex-col gap-2 pt-2">
