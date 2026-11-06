@@ -42,9 +42,12 @@ architecture question for Luiz.
   - A preview per PR, behind Vercel's login, against the production database (there is no
     staging). Preview variables are only the public Supabase ones and the contact: no service
     role and no paid API key, so a preview sends no invite and spends no credit.
-  - Supabase Site URL is `https://app.chelsea-st.com`, so every auth email links there, also one
-    asked for from `localhost`. To test one locally, swap the start of the link for
-    `http://localhost:3100`: the `token_hash` works on any host.
+  - Supabase Site URL is `https://app.chelsea-st.com`. Since #196 an auth email (login,
+    "Esqueci minha senha", invite) links to the origin of the site of the request, from the
+    allowlist below, through `{{ .RedirectTo }}` in the templates (`docs/commands.md`). A host
+    outside the list, or an origin missing from the Supabase Redirect URLs, gets the Site URL:
+    the link still works, on the Chelsea domain. An invite follows the inviter's host until #195.
+    The `token_hash` works on any host, so a link's start can still be swapped by hand.
 - The brand of a request comes from its Host, by an allowlist in `src/lib/brand.ts` (#194), read
   through `currentSite()` (`src/lib/current-site.ts`):
   - `app.chelsea-st.com` is Chelsea St, on `https://app.chelsea-st.com`.

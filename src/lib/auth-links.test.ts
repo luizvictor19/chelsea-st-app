@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, test } from "node:test";
 
 import {
@@ -121,4 +123,29 @@ describe("the redirect is an origin and nothing more", () => {
       }
     });
   }
+});
+
+describe("the email templates in docs/commands.md", () => {
+  const COMMANDS = join(import.meta.dirname, "..", "..", "docs", "commands.md");
+  const doc = readFileSync(COMMANDS, "utf8");
+  const LINK = "/auth/callback?token_hash=";
+  const START = "{{ .RedirectTo }}";
+
+  test("every link starts with {{ .RedirectTo }}", () => {
+    // With {{ .SiteURL }} every email leads to the Chelsea domain, and
+    // GrifoAI loses its own.
+    const starts: string[] = [];
+    for (
+      let at = doc.indexOf(LINK);
+      at !== -1;
+      at = doc.indexOf(LINK, at + 1)
+    ) {
+      starts.push(doc.slice(Math.max(0, at - START.length), at));
+    }
+    // Four in the summary table and four in the bodies.
+    assert.equal(starts.length, 8);
+    for (const start of starts) {
+      assert.equal(start, START);
+    }
+  });
 });

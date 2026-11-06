@@ -56,7 +56,6 @@ Hobby plan. Project imported from `luizvictor19/chelsea-st-app`, framework Next.
 Settings > Environment Variables, by name only (values live in Vercel and in `.env.local`):
 
     Production   NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
-                 NEXT_PUBLIC_SITE_URL=https://app.chelsea-st.com,
                  NEXT_PUBLIC_TEACHER_CONTACT_EMAIL=contato@chelsea-st.com,
                  SUPABASE_SERVICE_ROLE_KEY, FREEPIK_API_KEY, DEEPSEEK_API_KEY,
                  ANTHROPIC_API_KEY
@@ -66,6 +65,9 @@ Settings > Environment Variables, by name only (values live in Vercel and in `.e
 `GRIFOAI_HOST` (the GrifoAI domain, server only) enters Production only after #193, when the
 domain exists; until then it stays unset and nothing changes. A preview has no allowlisted host, so
 it always shows the neutral brand.
+
+`NEXT_PUBLIC_SITE_URL` is read by nothing since #196 (auth links follow the site of the request):
+it can be deleted from Production whenever, and keeping it changes nothing.
 
 `OPENAI_API_KEY` and `DEEPGRAM_API_KEY` are read only by the measurement scripts, never by the
 app: they stay out of Vercel.
@@ -96,12 +98,7 @@ Settings > Deployment Protection: Vercel Authentication on for previews (the def
 Settings > Domains: `app.chelsea-st.com`. On Cloudflare, the CNAME record Vercel shows, grey
 cloud (DNS only).
 
-Supabase, Authentication > URL Configuration:
-
-    Site URL        https://app.chelsea-st.com
-    Redirect URLs   https://app.chelsea-st.com/**
-                    https://*-<vercel-account>.vercel.app/**   (previews)
-                    http://localhost:3100/**
+Supabase, Authentication > URL Configuration: see "Auth settings and email templates" below.
 
 ## Backup and local restore (Luiz only)
 
@@ -151,8 +148,23 @@ the browser where it was requested (#96, #102).
 
 Authentication > URL Configuration:
 
-    Site URL        http://localhost:3100   (https://app.chelsea-st.com after #68)
-    Redirect URLs   http://localhost:3100/**
+    Site URL        https://app.chelsea-st.com
+    Redirect URLs   https://app.chelsea-st.com/**
+                    https://*-<vercel-account>.vercel.app/**   (previews)
+                    http://localhost:3100/**
+                    http://localhost:3100                      (exact, #196)
+                    http://127.0.0.1:3100                      (exact, #196)
+                    http://grifoai.localhost:3100              (exact, #196)
+                    https://<grifoai-host>                     (exact, after #193)
+
+Since #196 every auth email leads to the site the request came from (`src/lib/auth-links.ts`):
+login, "Esqueci minha senha" and invite pass Supabase only the origin of that site, from the
+allowlist of `src/lib/brand.ts`, and the template adds the path after `{{ .RedirectTo }}`. Supabase
+accepts that origin when it has the Site URL's scheme and hostname, or when it matches a Redirect
+URL. An origin has no path, so no `/**` pattern matches it: each one is an exact entry. When the
+origin is refused, or the host is outside the allowlist (a preview) and nothing is sent, Supabase
+puts the Site URL in `{{ .RedirectTo }}`, and the link is still whole, on the Chelsea domain. An
+invite follows the inviter's host until #195 gives the organization a domain.
 
 Authentication > Sign In / Providers: "Allow new users to sign up" off (#109). Nobody gets an
 account without an invite; `inviteUserByEmail` is an admin call and still works.
@@ -163,42 +175,57 @@ but its email link lasts only this long; after that, "Reenviar" or "Esqueci minh
 the same email.
 
 Authentication > Emails. Each template's link is exactly this (`/set-password` since #116; an email
-sent before still says `/definir-senha`, which redirects there, see `src/lib/renamed-paths.ts`):
+sent before still says `/definir-senha`, which redirects there, see `src/lib/renamed-paths.ts`).
+`src/lib/auth-links.test.ts` holds every link here on `{{ .RedirectTo }}`:
 
-    Confirm signup   {{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email
-    Magic link       {{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email
-    Invite user      {{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/set-password
-    Reset password   {{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/set-password
+    Confirm signup   {{ .RedirectTo }}/auth/callback?token_hash={{ .TokenHash }}&type=email
+    Magic link       {{ .RedirectTo }}/auth/callback?token_hash={{ .TokenHash }}&type=email
+    Invite user      {{ .RedirectTo }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/set-password
+    Reset password   {{ .RedirectTo }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/set-password
+
+The templates are one set for every brand, and Go templates: the first line of each subject and
+each body picks the brand name by `{{ .RedirectTo }}` (`eq` with several values is true when the
+first equals any of the others). Until #193 the GrifoAI domain is written as the placeholder
+`https://<grifoai-host>`, which never matches; replace it with the real origin then. The sender
+stays `contato@chelsea-st.com` for both brands (one SMTP); a sender per brand is a new issue.
+
+Order, once per change of these templates: deploy the code first. Before #196 the code sent
+`/auth/callback?next=/set-password` as the redirect, and a template that appends its own path to
+`{{ .RedirectTo }}` would make that link broken.
 
 Every template is in Portuguese, like every string a teacher or student reads. Subject and body
-of each, as set in the dashboard on 2026-10-25:
+of each (#196; the ones before named Chelsea St and used `{{ .SiteURL }}`):
 
-    Subject: Confirme o seu e-mail na Chelsea St
+    Subject: {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}Confirme o seu e-mail na {{ $marca }}
 
+    {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}
     <h2>Confirme o seu e-mail</h2>
-    <p>Clique no link abaixo para confirmar este e-mail e entrar na Chelsea St.</p>
-    <p><a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email">Confirmar e-mail</a></p>
+    <p>Clique no link abaixo para confirmar este e-mail e entrar na {{ $marca }}.</p>
+    <p><a href="{{ .RedirectTo }}/auth/callback?token_hash={{ .TokenHash }}&type=email">Confirmar e-mail</a></p>
     <p>Se não foi você, ignore esta mensagem.</p>
 
-    Subject: Seu convite para a Chelsea St
+    Subject: {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}Seu convite para a {{ $marca }}
 
-    <h2>Você foi convidada para a Chelsea St</h2>
+    {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}
+    <h2>Você foi convidada para a {{ $marca }}</h2>
     <p>Clique no link abaixo para escolher a sua senha e entrar.</p>
-    <p><a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/set-password">Aceitar o convite</a></p>
+    <p><a href="{{ .RedirectTo }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/set-password">Aceitar o convite</a></p>
     <p>O link vale por 24 horas. Se ele vencer, peça um novo em "Esqueci minha senha", na tela de entrar, com este e-mail.</p>
 
-    Subject: Seu link para entrar na Chelsea St
+    Subject: {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}Seu link para entrar na {{ $marca }}
 
-    <h2>Entrar na Chelsea St</h2>
+    {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}
+    <h2>Entrar na {{ $marca }}</h2>
     <p>Clique no link abaixo para entrar. Ele vale uma vez só.</p>
-    <p><a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email">Entrar</a></p>
+    <p><a href="{{ .RedirectTo }}/auth/callback?token_hash={{ .TokenHash }}&type=email">Entrar</a></p>
     <p>Se não foi você que pediu, ignore esta mensagem.</p>
 
-    Subject: Nova senha na Chelsea St
+    Subject: {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}Nova senha na {{ $marca }}
 
+    {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}
     <h2>Escolher uma nova senha</h2>
     <p>Clique no link abaixo para escolher uma nova senha.</p>
-    <p><a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/set-password">Escolher nova senha</a></p>
+    <p><a href="{{ .RedirectTo }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/set-password">Escolher nova senha</a></p>
     <p>O link vale por 24 horas. Se não foi você que pediu, ignore esta mensagem: a sua senha continua a mesma.</p>
 
 ## GitHub quirks
@@ -273,8 +300,9 @@ The other labels are GitHub's defaults and are not used.
 
     adb reverse tcp:3100 tcp:3100  # after every cable connection
 
-Open http://127.0.0.1:3100, not localhost. An email link opened there, with its start swapped
-for `http://127.0.0.1:3100`, signs in and stays on that host (#102). Signing out still lands on
+Open http://127.0.0.1:3100, not localhost. An email link asked for there already starts with
+`http://127.0.0.1:3100` (#196; before its templates, swap the start by hand), signs in and stays
+on that host (#102). Signing out still lands on
 `localhost:3100/login` (the sign-out route builds its redirect on the server's host): go back to
 127.0.0.1 before signing in again.
 
