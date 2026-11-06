@@ -58,6 +58,28 @@
   --usage-high: #be185d;
 }
 
+/*
+ * GrifoAI wears its own accent (#195), set by data-brand on <html> from the
+ * brand of the Host. Only the accent and the text on it change: the ground
+ * and the surface stay, because the mascot art is painted on the exact
+ * ground. Provisional navy until the GrifoAI colours arrive with its art;
+ * src/app/brand-palette.test.ts holds whatever comes to text contrast.
+ *
+ * The selector outranks the bare :root of the dark theme below, so the dark
+ * GrifoAI accent is set again inside it.
+ */
+:root[data-brand="grifoai"] {
+  --accent: #1e3a8a;
+  --accent-foreground: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-brand="grifoai"] {
+    --accent: #93c5fd;
+    --accent-foreground: #0b1220;
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
