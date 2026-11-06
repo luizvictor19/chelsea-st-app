@@ -18,8 +18,7 @@ export type OpenInvite = {
   readonly expired: boolean;
   /** Whether the reader may renew and cancel it, which RLS also decides. */
   readonly manageable: boolean;
-  /** Null when the organization is not one the reader invites to. */
-  readonly organizationName: string | null;
+  readonly organizationName: string;
   /** Whether its organization has a teacher (0042): it names the role. */
   readonly hasTeacher: boolean;
 };
@@ -87,9 +86,7 @@ function InviteRow({
         <span className="truncate font-mono text-sm">{invite.email}</span>
         <span className="text-muted text-sm">
           {roleLabel(invite.role, invite.hasTeacher)}
-          {showOrganization && invite.organizationName
-            ? ` · ${invite.organizationName}`
-            : ""}
+          {showOrganization ? ` · ${invite.organizationName}` : ""}
           {" · "}
           {invite.expired
             ? "vencido"

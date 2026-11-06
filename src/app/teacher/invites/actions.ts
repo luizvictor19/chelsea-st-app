@@ -96,7 +96,11 @@ export async function inviteToOrganization(
     };
   }
   if (!ROLES.includes(role) || organizationId === "") {
-    return { status: "error", message: "Escolha o papel e a escola.", email };
+    return {
+      status: "error",
+      message: "Escolha o papel e a organização.",
+      email,
+    };
   }
 
   const { error } = await supabase

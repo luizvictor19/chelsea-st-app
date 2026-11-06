@@ -67,11 +67,7 @@ export default async function DashboardPage() {
   if (practicesOnly(access)) {
     return (
       <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-6 p-6">
-        <Greeting
-          name={profile.full_name}
-          // The company's admin who also practises goes back to her team.
-          team={manages(access)}
-        />
+        <Greeting name={profile.full_name} team={manages(access)} />
         <PendingInvites />
         <RobinPractice />
       </main>
@@ -104,7 +100,7 @@ export default async function DashboardPage() {
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-6 p-6">
-      <Greeting name={profile.full_name} />
+      <Greeting name={profile.full_name} team={manages(access)} />
 
       <PendingInvites />
 
@@ -141,10 +137,11 @@ export default async function DashboardPage() {
 /** The brand, "Sair da conta" and her name, on top of either dashboard. */
 function Greeting({
   name,
-  team = false,
+  team,
 }: {
   readonly name: string;
-  readonly team?: boolean;
+  /** Also runs a company without a teacher: a way back to /team. */
+  readonly team: boolean;
 }) {
   return (
     <div className="flex flex-col gap-1">

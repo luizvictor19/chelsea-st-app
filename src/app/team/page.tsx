@@ -8,6 +8,7 @@ import { PendingInvites } from "../auth/pending-invites";
 import { SignOutButton } from "../auth/sign-out-button";
 import { BrandMark } from "../brand-mark";
 import {
+  openInvites,
   readInvitableOrganizations,
   readOpenInvites,
 } from "../teacher/invites/invitable";
@@ -29,10 +30,14 @@ export default async function TeamPage() {
 
   // Only the organizations she runs without a teacher: one where she also
   // teaches is invited to from /teacher/invites.
-  const organizations = (
-    await readInvitableOrganizations(supabase, user.id, access.platformAdmin)
-  ).filter((organization) => !organization.hasTeacher);
-  const invites = await readOpenInvites(supabase, organizations);
+  const [invitable, rows] = await Promise.all([
+    readInvitableOrganizations(supabase, user.id, access.platformAdmin),
+    readOpenInvites(supabase),
+  ]);
+  const organizations = invitable.filter(
+    (organization) => !organization.hasTeacher,
+  );
+  const invites = openInvites(rows, organizations, new Date());
 
   return (
     <>

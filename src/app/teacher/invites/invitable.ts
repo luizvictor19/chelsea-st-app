@@ -62,42 +62,59 @@ export async function readInvitableOrganizations(
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 }
 
+type OpenInviteRow = {
+  readonly id: string;
+  readonly email: string;
+  readonly role: OrganizationRole;
+  readonly expires_at: string;
+  readonly organization_id: string;
+};
+
 /**
- * The invites still open that this person reads (organization_invites_read),
- * of the organizations given. A teacher reads every invite of her
- * organization but renews and cancels only the student ones (can_invite in
- * 0031); the others show no buttons.
+ * Every invite still open that this person reads (organization_invites_read:
+ * the organizations where she is admin or teacher, or all of them for a
+ * platform admin). Read beside the organizations, not after them, so a
+ * screen pays one round trip for both; openInvites keeps the ones it shows.
  */
 export async function readOpenInvites(
   supabase: Client,
-  organizations: readonly InvitableOrganization[],
-): Promise<OpenInvite[]> {
+): Promise<OpenInviteRow[]> {
   const { data, error } = await supabase
     .from("organization_invites")
     .select("id, email, role, expires_at, organization_id")
-    .in(
-      "organization_id",
-      organizations.map((organization) => organization.id),
-    )
     .is("accepted_at", null)
     .order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
+  return data;
+}
 
+/**
+ * The open invites of the organizations given, as the list shows them. A
+ * teacher reads every invite of her organization but renews and cancels only
+ * the student ones (can_invite in 0031); the others show no buttons.
+ */
+export function openInvites(
+  rows: readonly OpenInviteRow[],
+  organizations: readonly InvitableOrganization[],
+  now: Date,
+): OpenInvite[] {
   const byId = new Map(
     organizations.map((organization) => [organization.id, organization]),
   );
-  const now = new Date();
-  return data.map((invite) => {
+  return rows.flatMap((invite) => {
     const organization = byId.get(invite.organization_id);
-    return {
-      id: invite.id,
-      email: invite.email,
-      role: invite.role,
-      expiresAt: invite.expires_at,
-      expired: new Date(invite.expires_at) <= now,
-      manageable: (organization?.roles ?? []).includes(invite.role),
-      organizationName: organization?.name ?? null,
-      hasTeacher: organization?.hasTeacher ?? true,
-    };
+    if (!organization) return [];
+    return [
+      {
+        id: invite.id,
+        email: invite.email,
+        role: invite.role,
+        expiresAt: invite.expires_at,
+        expired: new Date(invite.expires_at) <= now,
+        manageable: organization.roles.includes(invite.role),
+        organizationName: organization.name,
+        hasTeacher: organization.hasTeacher,
+      },
+    ];
   });
 }

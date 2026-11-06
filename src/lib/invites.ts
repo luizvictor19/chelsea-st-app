@@ -85,7 +85,7 @@ export function inviteRefusal(error: DatabaseError): string {
     return "Essa organização não tem professor: convide como funcionário ou admin.";
   }
   if (error.code === "42501") {
-    return "Você não pode convidar alguém nesse papel nessa escola.";
+    return "Você não pode convidar alguém nesse papel nessa organização.";
   }
   return "Não foi possível gravar o convite agora. Tente de novo em alguns instantes.";
 }

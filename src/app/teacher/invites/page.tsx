@@ -2,7 +2,11 @@ import type { Metadata } from "next";
 
 import { requireTeacher } from "@/lib/content/queries";
 
-import { readInvitableOrganizations, readOpenInvites } from "./invitable";
+import {
+  openInvites,
+  readInvitableOrganizations,
+  readOpenInvites,
+} from "./invitable";
 import { InviteForm } from "./invite-form";
 import { InviteList } from "./invite-list";
 
@@ -18,12 +22,11 @@ export const metadata: Metadata = {
 export default async function InvitesPage() {
   const { supabase, user, access } = await requireTeacher();
 
-  const organizations = await readInvitableOrganizations(
-    supabase,
-    user.id,
-    access.platformAdmin,
-  );
-  const invites = await readOpenInvites(supabase, organizations);
+  const [organizations, rows] = await Promise.all([
+    readInvitableOrganizations(supabase, user.id, access.platformAdmin),
+    readOpenInvites(supabase),
+  ]);
+  const invites = openInvites(rows, organizations, new Date());
 
   return (
     <section className="flex max-w-3xl flex-col gap-8">

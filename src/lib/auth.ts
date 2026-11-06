@@ -45,7 +45,11 @@ export async function readAccess(
   };
 }
 
-/** The signed-in person and her access, or the login screen. */
+/**
+ * The signed-in person and her access, or the login screen: the prologue of
+ * requireManager and requireInviter. requireTeacher keeps its own, which
+ * reads the profile beside the access in one round trip.
+ */
 async function signedIn() {
   const supabase = await createClient();
   const {
