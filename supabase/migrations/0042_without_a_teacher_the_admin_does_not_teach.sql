@@ -216,8 +216,14 @@ begin
         using errcode = 'check_violation',
               constraint = 'organization_without_teacher_has_none';
     end if;
+  -- For share: an update of has_teacher waits for this row's transaction,
+  -- and this waits for one in flight, so a teacher invite written while the
+  -- organization turns into one without a teacher cannot slip past both
+  -- checks. Such an invite would make the member insert of 0031 fail when
+  -- she confirms her email, and the confirmation with it.
   elsif new.role = 'teacher'
-        and not (select has_teacher from organizations where id = new.organization_id) then
+        and not (select has_teacher from organizations
+                  where id = new.organization_id for share) then
     raise exception 'organization % has no teacher (teacher_needs_a_teaching_organization)', new.organization_id
       using errcode = 'check_violation',
             constraint = 'teacher_needs_a_teaching_organization';

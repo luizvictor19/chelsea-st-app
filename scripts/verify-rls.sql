@@ -3380,7 +3380,9 @@ $$;
 --    and so is a teacher member written by the owner.
 -- 7. An organization with a teacher member, or an open teacher invite, does
 --    not turn into one without a teacher (organization_without_teacher_has_none);
---    the company's admin changes has_teacher in no row.
+--    the company's admin changes has_teacher in no row; and the check of a
+--    teacher member or invite locks the organization's row, so the two
+--    checks cannot pass each other.
 -- 8. The employee still reads the common published questions, which is what
 --    Robin will use, and her own lesson row (her own rows stay hers).
 -- 9. A Chelsea admin who is not a platform admin still writes a Chelsea
@@ -3736,6 +3738,15 @@ begin
   perform verify.expect_refused('B, which has a teacher, turned into an organization without one',
     'organization_without_teacher_has_none',
     format('update organizations set has_teacher = false where id = %L', c_b));
+
+  -- The member and invite branch locks the organization's row (for share),
+  -- which a single session cannot watch happen: held to its text, so a
+  -- rewrite that drops it fails here.
+  if strpos(pg_get_functiondef('a_teacher_needs_a_teaching_organization()'::regprocedure),
+            'where id = new.organization_id for share') = 0 then
+    insert into verify.failures values (
+      'a_teacher_needs_a_teaching_organization reads has_teacher without locking the organization');
+  end if;
 
   -- An organization whose only teacher is a member, with no invite: B above
   -- may also hold an open teacher invite from the blocks of 0031 and 0032.
