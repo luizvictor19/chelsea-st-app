@@ -18,6 +18,8 @@ import {
   takesReference,
 } from "@/lib/images/provider";
 import {
+  CONTRAST_MODEL,
+  CONTRAST_SCHEMA,
   buildContrastPrompt,
   contrastCandidates,
   inBookOrder,
@@ -26,13 +28,21 @@ import {
 import { buildPrompt } from "@/lib/images/style";
 import { readImageFile, refuseUpload } from "@/lib/images/upload";
 import { ACTION_BEAT_MS, withHeartbeat, type Heartbeat } from "@/lib/heartbeat";
-import { buildSubjectPrompt, parseSubject } from "@/lib/images/subject";
 import {
+  SUBJECT_MODEL,
+  SUBJECT_SCHEMA,
+  buildSubjectPrompt,
+  parseSubject,
+} from "@/lib/images/subject";
+import {
+  SUGGESTION_MODEL,
+  SUGGESTION_SCHEMA,
   buildSuggestionPrompt,
   parseSuggestions,
   suggestionBatch,
 } from "@/lib/images/suggest";
-import { createDeepSeekProvider } from "@/lib/text/deepseek";
+import { createClaudeProvider } from "@/lib/text/claude";
+import type { TextUsage } from "@/lib/text/provider";
 import type { Database } from "@/lib/supabase/types";
 
 import {
@@ -50,6 +60,14 @@ import {
   type Supabase,
 } from "./attempt-store";
 import { planWrite, type BulkChange, type WordOutcome } from "./bulk";
+import { INSTRUCTION_WORDING, LESSON_WORDING } from "./claude-failure";
+import { UNREADABLE } from "./scene-suggestion";
+import {
+  LESSON_CALL,
+  SUGGESTION_CALL,
+  askModel,
+  usdOrNull,
+} from "./suggestion-call";
 import { contrastError } from "./contrast-sets";
 import {
   storeSubject,
@@ -641,6 +659,13 @@ async function suggestBatch(
     rejected: 0,
     total: 0,
     model: null as string | null,
+    // What the call was billed for and cost, null when it was not made or
+    // the provider gave no usage: the weekend's real use, measured for free.
+    usage: null as TextUsage | null,
+    usd: null as number | null,
+    // The reason in English when the model failed; see askModel for why it
+    // goes here and not on the answer.
+    cause: null as string | null,
     /*
      * Where the batch stopped, and it is set last on purpose: every early
      * return sets its own, and anything that escapes them all was thrown.
@@ -683,16 +708,23 @@ async function suggestBatch(
 
     const { system, user } = buildSuggestionPrompt(words);
     const beforeModel = performance.now();
-    const { text, model } = await createDeepSeekProvider().complete({
-      system,
-      user,
-      json: true,
-    });
+    const answer = await askModel(
+      createClaudeProvider(SUGGESTION_MODEL, SUGGESTION_SCHEMA, LESSON_CALL),
+      { system, user },
+      LESSON_WORDING,
+    );
     marks.modelMs = Math.round(performance.now() - beforeModel);
-    marks.model = model;
+    marks.usage = answer.usage;
+    marks.usd = usdOrNull(SUGGESTION_MODEL, answer.usage);
+    if (!answer.ok) {
+      marks.cause = answer.cause;
+      marks.outcome = "model_failed";
+      return { ok: false, error: answer.error };
+    }
+    marks.model = answer.model;
 
     const { suggestions, rejected } = parseSuggestions(
-      text,
+      answer.text,
       words.map((word) => word.id),
     );
     marks.rejected = rejected;
@@ -872,8 +904,14 @@ export async function countSuggestionRun(
   }
 }
 
+/**
+ * `cause` is the reason in English, for the console, as on the scene's. Safe
+ * here, unlike on the lesson buttons: no caller of this one reads a cause as
+ * a lost answer.
+ */
 export type SubjectResult =
-  { ok: true; subject: string; stored: boolean } | { ok: false; error: string };
+  | { ok: true; subject: string; stored: boolean }
+  | { ok: false; error: string; cause?: string };
 
 /**
  * Propose the subject line for one word, and keep it on that word.
@@ -921,18 +959,18 @@ export async function suggestSubject(
       word.image_style,
     );
 
-    const { text } = await createDeepSeekProvider().complete({
-      system,
-      user,
-      json: true,
-    });
+    const answer = await askModel(
+      createClaudeProvider(SUBJECT_MODEL, SUBJECT_SCHEMA, SUGGESTION_CALL),
+      { system, user },
+      INSTRUCTION_WORDING,
+    );
+    if (!answer.ok) {
+      return { ok: false, error: answer.error, cause: answer.cause };
+    }
 
-    const subject = parseSubject(text);
+    const subject = parseSubject(answer.text);
     if (subject === null) {
-      return {
-        ok: false,
-        error: "O modelo não devolveu uma instrução legível.",
-      };
+      return { ok: false, error: UNREADABLE, cause: answer.text };
     }
     const outcome = await storeSuggestion(
       subjectUpdate(supabase),
@@ -1175,6 +1213,11 @@ async function proposeContrastSets(
     dropped: 0,
     unreadable: false,
     modelMs: 0,
+    // As in suggest_batch: the bill, its cost and, on a failure, the reason.
+    model: null as string | null,
+    usage: null as TextUsage | null,
+    usd: null as number | null,
+    cause: null as string | null,
     outcome: "threw",
   };
   try {
@@ -1235,14 +1278,24 @@ async function proposeContrastSets(
       "lesson",
     );
     const beforeModel = performance.now();
-    const { text } = await createDeepSeekProvider().complete({
-      system,
-      user,
-      json: true,
-    });
+    const answer = await askModel(
+      createClaudeProvider(CONTRAST_MODEL, CONTRAST_SCHEMA, LESSON_CALL),
+      { system, user },
+      LESSON_WORDING,
+    );
     marks.modelMs = Math.round(performance.now() - beforeModel);
+    marks.usage = answer.usage;
+    marks.usd = usdOrNull(CONTRAST_MODEL, answer.usage);
+    if (!answer.ok) {
+      // No cause on the answer: the screen's askTwiceIfLost would read one as
+      // a lost response and pay for the same failure twice.
+      marks.cause = answer.cause;
+      marks.outcome = "model_failed";
+      return { ok: false, error: answer.error };
+    }
+    marks.model = answer.model;
 
-    const parsed = parseContrastSuggestions(text, sent);
+    const parsed = parseContrastSuggestions(answer.text, sent);
     marks.unreadable = parsed.unreadable;
     marks.dropped = parsed.unknown + parsed.repeated;
     if (parsed.unreadable) {

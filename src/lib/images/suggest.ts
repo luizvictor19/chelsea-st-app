@@ -45,9 +45,10 @@ export type Suggestion = {
  * The boundary rules underneath them were decided on 2026-09-19, from the
  * pairs the book actually puts next to each other: a named person against a
  * bare title, a country against a nationality. Usage against metalanguage
- * joined them on 2026-09-20. The word "json" has to appear for DeepSeek to
- * accept response_format json_object, and the example below is what the docs
- * ask for as well.
+ * joined them on 2026-09-20. The word "json" and the example below were
+ * written for DeepSeek, whose json_object mode required both; they stay word
+ * for word since #225, because the prompt is the one that was measured, and
+ * SUGGESTION_SCHEMA now enforces the shape the example only asks for.
  */
 const SYSTEM = `You sort English vocabulary words by the kind of picture each one needs.
 
@@ -78,6 +79,44 @@ The class is the part of speech, and it is a fact about the word rather than a j
 - phrase is only for a term with no single function: what is (what's).
 
 Give one entry for every word you were sent, using the id exactly as it was given to you. No prose, no explanation.`;
+
+/**
+ * The model behind Sugerir tipos since #225 (2026-11-06), when DeepSeek left
+ * the app. Not measured on this task yet: Haiku 5.5 is the cheapest Claude
+ * model and the one the scene's instruction measured best on (#187, see
+ * SCENE_SUBJECT_MODEL). Phase 2 of #225 measures it against Sonnet 5.5 on the
+ * 159 words of lessons 1 to 4, and the result is written here.
+ */
+export const SUGGESTION_MODEL = "claude-haiku-5-5";
+
+/**
+ * The answer's shape, enforced by the Claude provider. The kind and the class
+ * are the generated enums, so a value outside them cannot come back. The id
+ * is any string and not an enum of the ids sent: a schema that changes with
+ * every batch is compiled again on every call, and parseSuggestions already
+ * drops an id that was not sent. The class is required here, where the
+ * parser only validates it: the prompt asks for one on every word.
+ */
+export const SUGGESTION_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    suggestions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          kind: { type: "string", enum: [...REPRESENTATION_KINDS] },
+          class: { type: "string", enum: [...WORD_CLASSES] },
+        },
+        required: ["id", "kind", "class"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["suggestions"],
+  additionalProperties: false,
+};
 
 /**
  * How many words one suggestion request carries.

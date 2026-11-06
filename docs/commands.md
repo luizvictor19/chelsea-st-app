@@ -72,8 +72,13 @@ it can be deleted from Production whenever, and keeping it changes nothing.
 `OPENAI_API_KEY` and `DEEPGRAM_API_KEY` are read only by the measurement scripts, never by the
 app: they stay out of Vercel.
 
-`ANTHROPIC_API_KEY` is read by the app (the scene panel's "Sugerir instrução", #187) and by the
-scripts. Two keys in the Claude Console, in the mould of the Supabase ones: `chelsea-vercel` in
+`DEEPSEEK_API_KEY` is read only by the measurement scripts since #225: the app calls Claude for
+every suggestion, and `no-deepseek.test.ts` keeps any file of `src/` from importing
+`src/lib/text/deepseek.ts`. It stays in Production by Luiz's decision (06/11/2026), so going back
+to DeepSeek is an issue and a deploy, not a key to create again.
+
+`ANTHROPIC_API_KEY` is read by the app (the four content suggestions: the scene's and the word's
+"Sugerir instrução", #187, "Sugerir tipos" and "Sugerir conjuntos", #225) and by the scripts. Two keys in the Claude Console, in the mould of the Supabase ones: `chelsea-vercel` in
 Vercel, type Secret, Production only (a preview spends no credit, and its button says the
 suggestion is not set up there); `chelsea-local` in `.env.local`. Each rotates without touching
 the other.

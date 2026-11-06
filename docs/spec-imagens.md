@@ -38,17 +38,19 @@ era `for all using (is_teacher())`, e a 0008 o seguiu.
   corrige no painel, e sugerir a lição de novo sobrescreve. Termo de várias palavras: verbo com
   partícula é `verb` (putting on), locução prepositiva é `preposition` (in front of), e `phrase` fica
   só para o que não tem uma função (what is). PR #19.
-- **Sugestão automática por lição.** Um modelo de texto, hoje o DeepSeek atrás de `TextProvider`
-  (`src/lib/text/provider.ts`, `src/lib/text/deepseek.ts`), lê a lição inteira em lotes e devolve
+- **Sugestão automática por lição.** Um modelo de texto, desde a #225 o Claude Haiku 5.5 atrás de
+  `TextProvider` (`src/lib/text/provider.ts`, `src/lib/text/claude.ts`; antes era o DeepSeek), com
+  a forma da resposta imposta por um esquema JSON, lê a lição inteira em lotes e devolve
   tipo e classe de cada palavra no mesmo JSON (`src/lib/images/suggest.ts`). Grava
   `suggested_representation` e `word_class`, nunca `representation`. Sobrescreve o que já havia, e a
   tela pergunta antes quando a lição já tem sugestões. `suggestion_run_id` (0020) diz qual passada escreveu cada sugestão, para a tela
   reconhecer um lote que gravou mas não conseguiu responder. PRs #16 e #19.
 - **Sugestão de Instrução.** "Sugerir instrução" pede ao modelo de texto uma Instrução para a palavra
   e grava a proposta em `vocabulary_items.image_subject`, o mesmo campo que o professor edita. PR #18.
-  A palavra segue no DeepSeek; a cena usa o Claude Haiku 5.5 (`claude-haiku-5-5`, atrás do mesmo
-  `TextProvider`, em `src/lib/text/claude.ts`), escolhido pela medição da #187: US$ 0,0129 por 100
-  propostas, mediana de 1,4 s.
+  A palavra e a cena usam o Claude Haiku 5.5 (`claude-haiku-5-5`, atrás do mesmo `TextProvider`, em
+  `src/lib/text/claude.ts`). Na cena, escolhido pela medição da #187: US$ 0,0129 por 100 propostas,
+  mediana de 1,4 s. Na palavra (desde a #225, antes era o DeepSeek), e também nos tipos e nos
+  conjuntos de contraste, a escolha é provisória até a medição da fase 2 da #225.
 - **Toda tentativa é guardada**, gerada ou enviada à mão, aprovada ou descartada. É de onde sai
   "tentativas até aprovação" por modelo. Cada tentativa guarda três coisas diferentes:
   - `prompt`: o que foi enviado ao fornecedor, estilo e regra da categoria incluídos;
@@ -89,7 +91,9 @@ era `for all using (is_teacher())`, e a 0008 o seguiu.
   escolhe o conjunto, não escreve estilo. Ver "Estilo do desenho".
 - **Conjuntos de contraste** (0022): adjetivos de contraste (large e small, long e short) não se
   resolvem dentro de uma imagem. As palavras entram num conjunto ordenado, cada uma com a imagem de
-  um sujeito só, e a apresentação mostra o conjunto lado a lado.
+  um sujeito só, e a apresentação mostra o conjunto lado a lado. "Sugerir conjuntos" pede ao Claude
+  Haiku 5.5 (desde a #225) os conjuntos de uma lição e só propõe: o conjunto existe quando o
+  professor aceita.
 
 ## A espera
 

@@ -2,8 +2,9 @@
  * Claude behind the same TextProvider as DeepSeek, written for measuring the
  * two against each other (#187, phase 1) and used by the scene panel's
  * "Sugerir instrução" (phase 2), which the measurement gave to Haiku 5.5.
- * The SDK is therefore a dependency of the app, and this file stays server
- * only.
+ * Since #225 it is the provider of all four content suggestions: the scene's
+ * and the word's instruction, Sugerir tipos and Sugerir conjuntos. The SDK is
+ * therefore a dependency of the app, and this file stays server only.
  *
  * Choices, each of which would change a measured number if made the other way:
  *

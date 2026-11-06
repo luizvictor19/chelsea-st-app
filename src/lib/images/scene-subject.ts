@@ -17,7 +17,7 @@
  */
 
 import type { ImageStyle } from "./style.ts";
-import { sceneRules } from "./subject.ts";
+import { SUBJECT_SCHEMA, sceneRules } from "./subject.ts";
 
 /**
  * The model behind the scene panel's suggestion, chosen by Luiz on
@@ -73,16 +73,11 @@ export const SCENE_RULES: readonly string[] = [
 ];
 
 /**
- * The answer's shape as a JSON schema, for a provider that enforces one (the
- * Claude provider does). The same shape the prompt asks for in words, which
- * is what parseSubject reads.
+ * The answer's shape as a JSON schema: the word's, since the answer is read
+ * by the same parseSubject. One object, so the two cannot drift apart; the
+ * name stays for the scene's script and action.
  */
-export const SCENE_SUBJECT_SCHEMA: Record<string, unknown> = {
-  type: "object",
-  properties: { subject: { type: "string" } },
-  required: ["subject"],
-  additionalProperties: false,
-};
+export const SCENE_SUBJECT_SCHEMA: Record<string, unknown> = SUBJECT_SCHEMA;
 
 export function buildSceneSubjectPrompt(input: {
   sentence: string;
