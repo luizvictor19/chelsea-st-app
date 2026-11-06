@@ -4,11 +4,14 @@ import { join, relative } from "node:path";
 import { describe, test } from "node:test";
 
 import {
+  BRAND_KEYS,
   CHELSEA,
   GRIFOAI,
+  isBrandKey,
   pageMetadata,
   resolveSite,
   rootMetadata,
+  siteOfBrand,
   sitesFromEnv,
   type SiteConfig,
 } from "./brand.ts";
@@ -79,7 +82,7 @@ describe("resolveSite, the GrifoAI domain", () => {
     assert.equal(site("app.grifo.example", config)?.brand.name, "GrifoAI");
   });
 
-  test("GrifoAI shows no contact until #195", () => {
+  test("GrifoAI shows no contact", () => {
     const config = sitesFromEnv({
       GRIFOAI_HOST: "app.grifo.example",
       contactEmail: CONTACT,
@@ -169,6 +172,44 @@ describe("resolveSite, unknown hosts", () => {
       assert.equal(site(null, config), null);
     });
   }
+});
+
+describe("brand keys", () => {
+  test("each brand carries its own key, and the keys are the list", () => {
+    assert.deepEqual([CHELSEA.key, GRIFOAI.key], [...BRAND_KEYS]);
+  });
+
+  test("isBrandKey takes the two keys and nothing else", () => {
+    assert.ok(isBrandKey("chelsea-st"));
+    assert.ok(isBrandKey("grifoai"));
+    for (const value of ["", "Chelsea-St", "outra", null, undefined, 1]) {
+      assert.equal(isBrandKey(value), false, String(value));
+    }
+  });
+});
+
+describe("siteOfBrand", () => {
+  test("Chelsea lives on its https origin, on Vercel and off it", () => {
+    for (const config of [PRODUCTION, LOCAL]) {
+      assert.equal(
+        siteOfBrand("chelsea-st", config)?.origin,
+        "https://app.chelsea-st.com",
+      );
+    }
+  });
+
+  test("GrifoAI lives on GRIFOAI_HOST, and nowhere without it", () => {
+    const config = sitesFromEnv({
+      VERCEL: "1",
+      GRIFOAI_HOST: "app.grifo.example",
+    });
+    assert.equal(
+      siteOfBrand("grifoai", config)?.origin,
+      "https://app.grifo.example",
+    );
+    assert.equal(siteOfBrand("grifoai", PRODUCTION), null);
+    assert.equal(siteOfBrand("grifoai", LOCAL), null);
+  });
 });
 
 describe("rootMetadata", () => {

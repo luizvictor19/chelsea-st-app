@@ -20,8 +20,8 @@ export const env = {
   ),
 
   /**
-   * The contact of the Chelsea brand (see src/lib/brand.ts; a contact per
-   * organization is #195), shown to someone signed in with no access, so they
+   * The contact of the Chelsea brand (see src/lib/brand.ts, where each
+   * brand's contact lives), shown to someone signed in with no access, so they
    * have a way to reach a human. Optional: when it is unset the screen simply
    * omits the address rather than inventing one.
    */
