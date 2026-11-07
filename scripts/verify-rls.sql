@@ -316,6 +316,27 @@ create temp table policies_after_0043 as
 -- (0046)", runs after the fixtures.
 \i supabase/migrations/0046_an_open_invite_says_the_kind.sql
 
+-- Before 0047, two things production has and this Postgres does not, both
+-- measured through the MCP on 2026-11-07. anon and authenticated hold select,
+-- insert, update and delete on storage.objects (Supabase grants them), so
+-- anon's reads of the bucket go through its policies, as on the project, and
+-- the block of 0047 can read the bucket as anon at all.
+-- And rls_auto_enable(), Supabase's function behind the event trigger
+-- ensure_rls, which no migration creates: a stub here gives 0047's guarded
+-- revoke something to revoke. The block of 0047 drops the stub, so it never
+-- reaches the types.
+grant usage on schema storage to anon, authenticated;
+grant select, insert, update, delete on storage.objects to anon, authenticated;
+create function public.rls_auto_enable() returns event_trigger
+language plpgsql security definer as $$ begin end; $$;
+
+-- 0047 takes execute away from PUBLIC on 18 functions of public, gives it back
+-- to authenticated on 8, turns vocabulary_images_write to authenticated and
+-- makes every function created after it born closed. Its block, "A function
+-- runs only for who needs it (0047)", runs after the fixtures, which call
+-- these functions as authenticated and fire every one of these triggers.
+\i supabase/migrations/0047_a_function_runs_only_for_who_needs_it.sql
+
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
   ('22222222-2222-2222-2222-222222222222', 'student@example.com', null);
@@ -979,6 +1000,11 @@ $$;
 -- which are generated from public.
 create schema verify;
 grant usage on schema verify to authenticated;
+-- Since 0047 a function is born executable by its owner alone. The helpers
+-- below run as anon, authenticated and service_role, so this schema, which
+-- production does not have, gives them back to PUBLIC as before 0047.
+alter default privileges for role postgres in schema verify
+  grant execute on functions to public;
 
 create table verify.failures (what text not null);
 grant insert, select on verify.failures to authenticated;
@@ -2979,7 +3005,8 @@ $$;
 --    authenticated and service_role, as measured on the project on
 --    2026-11-06 before 0040 (has_function_privilege, so PUBLIC counts). Three
 --    of them are new functions and one was dropped and created again: a lost
---    grant shows here.
+--    grant shows here. This block runs after 0047 (#148), which took execute
+--    on the first three away from PUBLIC and gave it to authenticated alone.
 -- 3. The 16 functions 0040 rewrites keep security definer or invoker and
 --    their search_path as on the project: create or replace resets both to
 --    whatever it is given.
@@ -3061,9 +3088,9 @@ begin
   v_before := (select count(*) from verify.failures);
 
   with expected (fn, anon, authenticated, service_role) as (values
-    ('is_organization_member(uuid,organization_role[])', true, true, true),
-    ('can_invite(uuid,organization_role)', true, true, true),
-    ('can_write_content(uuid)', true, true, true),
+    ('is_organization_member(uuid,organization_role[])', false, true, false),
+    ('can_invite(uuid,organization_role)', false, true, false),
+    ('can_write_content(uuid)', false, true, false),
     ('my_open_organization_invites()', false, true, false),
     ('accept_my_organization_invite(uuid)', false, true, false),
     ('accept_organization_invites(uuid,text)', false, false, false)
@@ -3080,7 +3107,7 @@ begin
       or has_function_privilege('authenticated', e.fn, 'execute') <> e.authenticated
       or has_function_privilege('service_role', e.fn, 'execute') <> e.service_role;
   if (select count(*) from verify.failures) = v_before then
-    raise notice 'execute on the six invite and membership functions is held by anon, authenticated and service_role as on the project before 0040';
+    raise notice 'execute on the six invite and membership functions is held by anon, authenticated and service_role as on the project before 0040, and as 0047 left it';
   end if;
   v_before := (select count(*) from verify.failures);
 
@@ -4511,6 +4538,225 @@ begin
     raise exception 'an open invite says the kind of its organization: %', v_failures;
   end if;
   raise notice 'an open invite says has_teacher as its organization does, true for a school and false for a company';
+end;
+$$;
+
+
+-- A function runs only for who needs it (0047) ------------------------------------------
+--
+-- authenticated executes the 8 functions that policies, checks and the app
+-- call, and anon and service_role none of them. Every trigger function of
+-- public, and rls_auto_enable behind the event trigger, read from the catalog
+-- so a later one is held too, is executable by none of the three. Then every
+-- function of public: none executable by PUBLIC, and no security definer
+-- executable by anon but submit_lead (0038, the site's form), named by its
+-- whole signature. The functions of an extension are left out: pgcrypto sits
+-- in public only here (0001 creates it without a schema) and in extensions on
+-- the project, with its own grants. A function created now is born closed.
+-- The bucket, as production grants it: anon still reads it, and its write is
+-- refused by row level security, not by a function it may not execute; the
+-- platform admin still writes. And a signup made by a role that is neither the
+-- superuser nor the owner, as supabase_auth_admin is on the project, fires
+-- both triggers of auth.users: execute on a trigger function is checked when
+-- the trigger is created, never when it fires. has_function_privilege also
+-- sees what reaches a role through PUBLIC.
+
+do $$
+declare
+  c_authenticated constant regprocedure[] := array[
+    'public.belongs_anywhere()',
+    'public.can_invite(uuid, public.organization_role)',
+    'public.can_write_content(uuid)',
+    'public.is_organization_member(uuid, public.organization_role[])',
+    'public.is_platform_admin()',
+    'public.is_reference_list(text[])',
+    'public.teaches_anywhere()',
+    'public.teaches_in(uuid)']::regprocedure[];
+  c_submit_lead constant regprocedure :=
+    'public.submit_lead(text, text, text, text, text, text, text, text, text, text)';
+  c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_signup constant uuid := 'a1480000-0000-4000-8000-000000000148';
+  v_fn regprocedure;
+  v_role text;
+  v_before integer;
+  v_n integer;
+  v_anon_error text;
+  v_anon_write_error text;
+  v_admin_refused boolean;
+  v_signup_error text;
+  v_uid text := current_setting('test.uid', true);
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  v_before := (select count(*) from verify.failures);
+  foreach v_fn in array c_authenticated loop
+    if not has_function_privilege('authenticated', v_fn, 'execute') then
+      insert into verify.failures values (format('authenticated does not execute %s', v_fn));
+    end if;
+    foreach v_role in array array['anon', 'service_role'] loop
+      if has_function_privilege(v_role, v_fn, 'execute') then
+        insert into verify.failures values (format('%s executes %s', v_role, v_fn));
+      end if;
+    end loop;
+  end loop;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'authenticated executes the 8 that policies, checks and the app call; anon and service_role none';
+  end if;
+
+  v_before := (select count(*) from verify.failures);
+  insert into verify.failures
+  select format('%s executes the trigger function %s', r.role, p.oid::regprocedure)
+    from pg_proc p
+   cross join unnest(array['anon', 'authenticated', 'service_role']) r (role)
+   where p.pronamespace = 'public'::regnamespace
+     and p.prorettype in ('trigger'::regtype, 'event_trigger'::regtype)
+     and has_function_privilege(r.role, p.oid, 'execute')
+   order by 1;
+  select count(*) into v_n from pg_proc p
+   where p.pronamespace = 'public'::regnamespace
+     and p.prorettype in ('trigger'::regtype, 'event_trigger'::regtype);
+  if v_n < 10 then
+    insert into verify.failures
+      values (format('%s trigger functions in public, expected at least the 9 and rls_auto_enable', v_n));
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'nobody executes a trigger function of public (% of them, rls_auto_enable included)', v_n;
+  end if;
+
+  v_before := (select count(*) from verify.failures);
+  insert into verify.failures
+  select format('PUBLIC executes %s', p.oid::regprocedure)
+    from pg_proc p
+   where p.pronamespace = 'public'::regnamespace
+     and not exists (select 1 from pg_depend d
+                      where d.classid = 'pg_proc'::regclass and d.objid = p.oid
+                        and d.deptype = 'e')
+     and (p.proacl is null
+          or exists (select 1 from aclexplode(p.proacl) a
+                      where a.grantee = 0 and a.privilege_type = 'EXECUTE'))
+   order by 1;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'no function of public, outside an extension, is executable by PUBLIC';
+  end if;
+
+  v_before := (select count(*) from verify.failures);
+  insert into verify.failures
+  select format('anon executes the security definer %s', p.oid::regprocedure)
+    from pg_proc p
+   where p.pronamespace = 'public'::regnamespace
+     and not exists (select 1 from pg_depend d
+                      where d.classid = 'pg_proc'::regclass and d.objid = p.oid
+                        and d.deptype = 'e')
+     and p.prosecdef
+     and p.oid <> c_submit_lead
+     and has_function_privilege('anon', p.oid, 'execute')
+   order by 1;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'no security definer of public is executable by anon but submit_lead';
+  end if;
+
+  v_before := (select count(*) from verify.failures);
+  create function public.verify_born_closed() returns integer language sql as 'select 1';
+  foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+    if has_function_privilege(v_role, 'public.verify_born_closed()', 'execute') then
+      insert into verify.failures values (format('a new function is born executable by %s', v_role));
+    end if;
+  end loop;
+  drop function public.verify_born_closed();
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a function created after 0047 is born executable by its owner alone';
+  end if;
+
+  v_before := (select count(*) from verify.failures);
+  if not exists (select 1 from pg_policies
+                  where schemaname = 'storage' and policyname = 'vocabulary_images_write'
+                    and roles = '{authenticated}'::name[]) then
+    insert into verify.failures values ('vocabulary_images_write is not to authenticated alone');
+  end if;
+
+  insert into storage.objects (bucket_id, name) values ('vocabulary-images', 'kept-0047.png');
+  -- anon writes nothing in verify.failures: the answers are kept and
+  -- recorded after reset role.
+  set local role anon;
+  begin
+    select count(*) into v_n from storage.objects
+     where bucket_id = 'vocabulary-images' and name = 'kept-0047.png';
+  exception when others then
+    v_anon_error := sqlerrm;
+  end;
+  -- Refused either way, so the reason is what tells the two policies apart:
+  -- row level security now, "permission denied for function" while the write
+  -- policy still applied to anon.
+  begin
+    insert into storage.objects (bucket_id, name) values ('vocabulary-images', 'anon-0047.png');
+  exception when others then
+    v_anon_write_error := sqlerrm;
+  end;
+  reset role;
+  if v_anon_error is not null then
+    insert into verify.failures values (format('anon reading the bucket: %s', v_anon_error));
+  elsif v_n <> 1 then
+    insert into verify.failures values (format('anon read %s files of the bucket, expected 1', v_n));
+  end if;
+  if v_anon_write_error is null then
+    insert into verify.failures values ('anon wrote a file in the bucket');
+  elsif v_anon_write_error not like 'new row violates row-level security policy%' then
+    insert into verify.failures
+      values (format('anon writing the bucket was refused by something else than row level security: %s',
+                     v_anon_write_error));
+  end if;
+
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  v_admin_refused := verify.refused_for_privilege(
+    'insert into storage.objects (bucket_id, name) values (''vocabulary-images'', ''admin-0047.png'')');
+  reset role;
+  if v_admin_refused then
+    insert into verify.failures values ('the platform admin could not write a file in the bucket');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'vocabulary_images_write is to authenticated; anon reads the bucket, row level security refuses its write; the platform admin writes';
+  end if;
+
+  -- A signup by a role that is neither the superuser nor the owner of the
+  -- trigger functions, the way supabase_auth_admin inserts on the project.
+  v_before := (select count(*) from verify.failures);
+  create role verify_auth_admin nologin;
+  grant usage on schema auth to verify_auth_admin;
+  grant insert on auth.users to verify_auth_admin;
+  set local role verify_auth_admin;
+  begin
+    insert into auth.users (id, email, email_confirmed_at)
+      values (c_signup, 'signup-0047@example.com', now());
+  exception when others then
+    v_signup_error := sqlerrm;
+  end;
+  reset role;
+  if v_signup_error is not null then
+    insert into verify.failures values (format('a signup by a role without execute failed: %s', v_signup_error));
+  elsif not exists (select 1 from profiles where id = c_signup) then
+    insert into verify.failures values ('a signup by a role without execute made no profile');
+  end if;
+  delete from profiles where id = c_signup;
+  delete from auth.users where id = c_signup;
+  revoke all on auth.users from verify_auth_admin;
+  revoke all on schema auth from verify_auth_admin;
+  drop role verify_auth_admin;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a signup by a role without execute fires both triggers of auth.users';
+  end if;
+
+  delete from storage.objects where name like '%-0047.png';
+  -- The stub, so it never reaches the types.
+  drop function public.rls_auto_enable();
+  -- The uid of the blocks before.
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a function runs only for who needs it: %', v_failures;
+  end if;
 end;
 $$;
 

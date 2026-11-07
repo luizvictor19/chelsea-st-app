@@ -102,6 +102,21 @@ architecture question for Luiz.
   production's default ACL from before 0001 and checks this in its last block, for every table.
   The `supabase_admin` default in `public` is Supabase's and still gives every privilege; on
   2026-11-04 no relation of `public` was owned by it.
+- Every function of `public` says who executes it (0047, #148). Since 0047 a function `postgres`
+  creates in `public` is born executable by its owner alone (the global default of `postgres`: a
+  default per schema cannot narrow what the global one gives PUBLIC). Not in `storage`, whose own
+  default adds `anon`, `authenticated` and `service_role`; and an extension created or updated
+  later may give its new functions to `postgres` alone, so check their `execute` after the push.
+  If Supabase creates `rls_auto_enable` again (as `supabase_admin`, whose default in `public`
+  grants `anon`), it comes back open; only a query on the project shows it. The migration that
+  creates a function grants `execute` to who calls it: `authenticated` for what policies, checks and the
+  app call; `anon` only for the site's door (`submit_lead`). A trigger function, and
+  `rls_auto_enable` behind the event trigger `ensure_rls`, is executable by nobody: execute is
+  checked when a trigger is created, not when it fires. `service_role` gets none (it bypasses
+  RLS). A forgotten grant shows as "permission denied for function" on the screen, never as an
+  open door. `scripts/verify-rls.sql` holds it: no function of `public` executable by PUBLIC, no
+  `security definer` executable by `anon` but `submit_lead`. The image bucket's write policy is
+  `to authenticated`, so `anon` reading the bucket never reaches `is_platform_admin()`.
 - `leads` receives rows only through `submit_lead` (0038), executed by `anon` alone: the site's
   function calls it with the publishable key. Nobody reads `leads` through the API, and the
   service role holds nothing on it. A number sent twice is two rows (history, nothing is
