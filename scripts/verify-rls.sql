@@ -306,6 +306,11 @@ create temp table policies_after_0043 as
 -- often, not what (0044)", runs after the fixtures.
 \i supabase/migrations/0044_the_admin_sees_how_often_not_what.sql
 
+-- 0045 adds three columns and two checks to questions and nothing else; its
+-- block, "A suggested question keeps its draft (0045)", runs after the
+-- fixtures.
+\i supabase/migrations/0045_a_suggested_question_keeps_its_draft.sql
+
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
   ('22222222-2222-2222-2222-222222222222', 'student@example.com', null);
@@ -4362,6 +4367,59 @@ begin
 
   raise notice 'only the platform admin creates an organization; a company is grifoai with no teacher';
   raise notice 'its admin invite, once confirmed, makes an admin who teaches nothing, reads her organization and invites an employee';
+end;
+$$;
+
+-- A suggested question keeps its draft (0045) ---------------------------------------------
+--
+-- Each check refuses on its own, and the two shapes 0045 allows are written:
+-- a question by hand, with none of the three, and one from a suggestion,
+-- with all three. Run as the owner: a check binds every role alike, and
+-- who may write a question is the content policies' (0043), checked above.
+
+do $$
+declare
+  v_point uuid := (select id from points where number = 54);
+  v_failures text;
+  c_cols constant text :=
+    'point_id, position, prompt, expected_answer, suggested_model, suggested_prompt, suggested_answer';
+begin
+  delete from verify.failures;
+
+  perform verify.expect_refused('a model with no draft',
+    'questions_suggestion_whole',
+    format('insert into questions (%s) values (%L, 9001, ''Where''''s the pen?'', ''It''''s on the table.'', ''claude-haiku-5-5'', null, null)',
+      c_cols, v_point));
+  perform verify.expect_refused('a draft with no model',
+    'questions_suggestion_whole',
+    format('insert into questions (%s) values (%L, 9002, ''Where''''s the pen?'', ''It''''s on the table.'', null, ''Where is the pen?'', ''The pen is on the table.'')',
+      c_cols, v_point));
+  perform verify.expect_refused('a draft with a prompt and no answer',
+    'questions_suggestion_whole',
+    format('insert into questions (%s) values (%L, 9003, ''Where''''s the pen?'', ''It''''s on the table.'', ''claude-haiku-5-5'', ''Where is the pen?'', null)',
+      c_cols, v_point));
+  perform verify.expect_refused('a blank model',
+    'questions_suggested_model_named',
+    format('insert into questions (%s) values (%L, 9004, ''Where''''s the pen?'', ''It''''s on the table.'', ''  '', ''Where is the pen?'', ''The pen is on the table.'')',
+      c_cols, v_point));
+
+  if verify.refused_by(format(
+       'insert into questions (point_id, position, prompt, expected_answer) values (%L, 9005, ''Is this a pen?'', ''Yes, it''''s a pen.'')',
+       v_point)) is not null then
+    insert into verify.failures values ('a question written by hand: refused');
+  end if;
+  if verify.refused_by(format(
+       'insert into questions (%s) values (%L, 9006, ''Where''''s the pen?'', ''The pen''''s on the table.'', ''claude-haiku-5-5'', ''Where is the pen?'', ''The pen is on the table.'')',
+       c_cols, v_point)) is not null then
+    insert into verify.failures values ('a question saved from a suggestion: refused');
+  end if;
+  delete from questions where position between 9001 and 9006;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a suggested question keeps its draft: %', v_failures;
+  end if;
+  raise notice 'a question by hand has none of the three, one from a suggestion has all three, and nothing in between';
 end;
 $$;
 

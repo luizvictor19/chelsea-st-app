@@ -897,6 +897,9 @@ export type Database = {
           prompt_audio_path: string | null;
           scene_id: string | null;
           shown_vocabulary_item_id: string | null;
+          suggested_answer: string | null;
+          suggested_model: string | null;
+          suggested_prompt: string | null;
         };
         ComputedFields: never;
         Insert: {
@@ -915,6 +918,9 @@ export type Database = {
           prompt_audio_path?: string | null;
           scene_id?: string | null;
           shown_vocabulary_item_id?: string | null;
+          suggested_answer?: string | null;
+          suggested_model?: string | null;
+          suggested_prompt?: string | null;
         };
         Update: {
           answer_language?: Database["public"]["Enums"]["answer_language"];
@@ -932,6 +938,9 @@ export type Database = {
           prompt_audio_path?: string | null;
           scene_id?: string | null;
           shown_vocabulary_item_id?: string | null;
+          suggested_answer?: string | null;
+          suggested_model?: string | null;
+          suggested_prompt?: string | null;
         };
         Relationships: [
           {
