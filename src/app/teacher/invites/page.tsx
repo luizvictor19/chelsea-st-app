@@ -36,7 +36,7 @@ export default async function InvitesPage() {
           Convites
         </p>
         <h1 className="text-3xl font-extrabold tracking-tight">
-          Convidar para a escola
+          Convidar para uma organização
         </h1>
         <p className="text-muted max-w-prose">
           A pessoa recebe um e-mail, clica, define a senha e entra. O link do

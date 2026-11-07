@@ -196,7 +196,7 @@ export async function archiveScene(sceneId: string): Promise<ActionResult> {
         error:
           row?.archived_at != null
             ? "Essa cena já foi excluída."
-            : "Você não pode excluir esta cena: ela é comum a todas as escolas.",
+            : "Você não pode excluir esta cena: ela é comum a todas as organizações.",
       };
     }
     revalidatePath(SCREEN);
