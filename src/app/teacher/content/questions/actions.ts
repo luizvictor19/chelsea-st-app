@@ -12,11 +12,13 @@ import {
   deleteError,
   failureMessage,
   parseFields,
+  parseSuggestion,
   publishRefusal,
   questionError,
   questionRow,
   refusal,
   stillLoaded,
+  suggestionColumns,
   type PictureOf,
   type QuestionFields,
 } from "./draft";
@@ -104,15 +106,26 @@ async function storedPublishRefusal(
  *
  * Published, it is only written showing a picture or acted out
  * (storedPublishRefusal), as is an edit saved published.
+ *
+ * `suggestion` is where a question saved from a card of Sugerir perguntas
+ * came from (0045), and nothing for one written by hand. Only an add writes
+ * it: saveQuestion never sends those columns, and the database refuses an
+ * update that would change them (questions_suggestion_kept).
  */
 export async function addQuestion(
   pointId: string,
   fields: unknown,
+  suggestion?: unknown,
 ): Promise<QuestionResult> {
   try {
     const { supabase } = await requireContentWriter();
     const parsed = parseFields(fields);
-    if (typeof pointId !== "string" || parsed === null) {
+    const origin = parseSuggestion(suggestion);
+    if (
+      typeof pointId !== "string" ||
+      parsed === null ||
+      origin === undefined
+    ) {
       return { ok: false, error: UNREADABLE };
     }
     const why =
@@ -134,6 +147,7 @@ export async function addQuestion(
       point_id: pointId,
       position: (last.data.at(0)?.position ?? -1) + 1,
       ...row,
+      ...suggestionColumns(origin),
     });
     if (error) {
       return { ok: false, error: questionError(error.message, error.code) };

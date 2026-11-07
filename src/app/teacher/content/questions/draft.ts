@@ -222,6 +222,59 @@ function parseImage(value: unknown): ImageChoice | null {
 }
 
 /**
+ * Where a question saved from a card of "Sugerir perguntas" came from
+ * (0045, #229): the model, and the sentences as the model wrote them before
+ * the teacher's edit. A question written by hand has none.
+ */
+export type Suggestion = {
+  readonly model: string;
+  readonly prompt: string;
+  readonly answer: string;
+};
+
+/** Longer than any sentence of the course, so nothing real is refused. */
+const SUGGESTION_MAX = 1000;
+
+function isRecorded(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.trim() !== "" &&
+    value.length <= SUGGESTION_MAX
+  );
+}
+
+/**
+ * What the action receives as the provenance, checked: null for a question
+ * written by hand (nothing sent), a Suggestion with all three parts, or
+ * undefined for anything else, which the action refuses. Never a part
+ * missing or blank: the database refuses those too (questions_suggestion_whole,
+ * questions_suggestion_not_blank), and saying it here keeps the teacher's
+ * draft on screen with a sentence instead of a constraint name.
+ */
+export function parseSuggestion(value: unknown): Suggestion | null | undefined {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "object") return undefined;
+  const { model, prompt, answer } = value as Record<string, unknown>;
+  if (!isRecorded(model) || !isRecorded(prompt) || !isRecorded(answer)) {
+    return undefined;
+  }
+  return { model, prompt, answer };
+}
+
+/** The provenance as the columns of the insert (0045). */
+export function suggestionColumns(suggestion: Suggestion | null): {
+  readonly suggested_model: string | null;
+  readonly suggested_prompt: string | null;
+  readonly suggested_answer: string | null;
+} {
+  return {
+    suggested_model: suggestion?.model ?? null,
+    suggested_prompt: suggestion?.prompt ?? null,
+    suggested_answer: suggestion?.answer ?? null,
+  };
+}
+
+/**
  * The SQLSTATE reorder_questions raises when the list it is given is not
  * exactly the point's questions (0027): the screen loaded before another tab
  * added or removed one.
