@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { isSameHostPath, safeNextPath, safeNextUrl } from "./safe-redirect.ts";
+import {
+  isSameHostPath,
+  safeNextPath,
+  safeNextUrl,
+  sameHostRedirect,
+} from "./safe-redirect.ts";
 
 const ORIGIN = "https://app.chelsea.example";
 
@@ -208,5 +213,43 @@ describe("isSameHostPath", () => {
       assert.equal(isSameHostPath(location), true, location);
       assert.equal(landing(location).origin, LINK_ORIGIN);
     }
+  });
+});
+
+describe("sameHostRedirect", () => {
+  test("signing out leaves a relative Location, so 127.0.0.1 stays 127.0.0.1 (#172)", () => {
+    // Before #172 the sign-out route built its redirect on nextUrl.origin,
+    // which outside Vercel is the server's localhost, not the host the
+    // person was on.
+    const response = sameHostRedirect("/login", 303);
+    assert.equal(response.status, 303);
+    assert.equal(response.headers.get("location"), "/login");
+    assert.equal(landing("/login").href, `${LINK_ORIGIN}/login`);
+  });
+
+  test("keeps the status it is given: 307 for the auth callback", () => {
+    const response = sameHostRedirect("/login?error=link", 307);
+    assert.equal(response.status, 307);
+    assert.equal(response.headers.get("location"), "/login?error=link");
+  });
+
+  test("sends anything that could leave the host to the root", () => {
+    for (const location of [
+      "//evil.com",
+      "/\\evil.com",
+      "https://evil.com",
+      "",
+    ]) {
+      const response = sameHostRedirect(location, 307);
+      assert.equal(
+        response.headers.get("location"),
+        "/",
+        JSON.stringify(location),
+      );
+    }
+  });
+
+  test("has no body", async () => {
+    assert.equal(await sameHostRedirect("/", 303).text(), "");
   });
 });

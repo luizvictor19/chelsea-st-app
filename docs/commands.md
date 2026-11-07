@@ -386,9 +386,7 @@ The other labels are GitHub's defaults and are not used.
 
 Open http://127.0.0.1:3100, not localhost. An email link asked for there already starts with
 `http://127.0.0.1:3100` (#196; before its templates, swap the start by hand), signs in and stays
-on that host (#102). Signing out still lands on
-`localhost:3100/login` (the sign-out route builds its redirect on the server's host): go back to
-127.0.0.1 before signing in again.
+on that host (#102). Signing out stays on it too (#172).
 
 ## Supabase CLI
 
