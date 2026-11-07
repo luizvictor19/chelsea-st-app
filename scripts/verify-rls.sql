@@ -311,6 +311,11 @@ create temp table policies_after_0043 as
 -- fixtures.
 \i supabase/migrations/0045_a_suggested_question_keeps_its_draft.sql
 
+-- 0046 gives my_open_organization_invites one column more and changes
+-- nothing else; its block, "An open invite says the kind of its organization
+-- (0046)", runs after the fixtures.
+\i supabase/migrations/0046_an_open_invite_says_the_kind.sql
+
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
   ('22222222-2222-2222-2222-222222222222', 'student@example.com', null);
@@ -4443,6 +4448,69 @@ begin
     raise exception 'a suggested question keeps its draft: %', v_failures;
   end if;
   raise notice 'a question by hand has none of the three, one from a suggestion has all three, none blank, and the draft is kept';
+end;
+$$;
+
+-- An open invite says the kind of its organization (0046) -------------------------------
+--
+-- Someone who already has an account reads her open invites through
+-- my_open_organization_invites, and cannot read organizations before she is
+-- a member (organizations_read). The function gives has_teacher, so the
+-- screen names the role as the organization does (roleLabel, #213): one
+-- invite to Chelsea St (with a teacher) and one to GrifoAI's organization
+-- (without), for the same account, each read with its own organization's
+-- value. The rows are removed at the end.
+
+do $$
+declare
+  c_chelsea constant uuid := (select id from organizations where slug = 'chelsea-st');
+  c_grifoai constant uuid := (select id from organizations where slug = 'grifoai');
+  c_kind constant uuid := 'a2130000-0000-4000-8000-000000000213';
+  v_school uuid;
+  v_company uuid;
+  v_uid text := current_setting('test.uid', true);
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  insert into auth.users (id, email, email_confirmed_at)
+    values (c_kind, 'kind@example.com', now());
+  insert into organization_invites (organization_id, email, role)
+    values (c_chelsea, 'kind@example.com', 'student')
+    returning id into v_school;
+  insert into organization_invites (organization_id, email, role)
+    values (c_grifoai, 'kind@example.com', 'student')
+    returning id into v_company;
+  -- Two she must not see, so the recreated function is checked for its
+  -- filters on its own: someone else's open invite, and one of hers expired.
+  insert into organization_invites (organization_id, email, role)
+    values (c_grifoai, 'not-kind@example.com', 'student');
+  insert into organization_invites (organization_id, email, role, expires_at)
+    values (c_chelsea, 'kind@example.com', 'teacher', now() - interval '1 day');
+
+  set local role authenticated;
+  perform set_config('test.uid', c_kind::text, false);
+  if (select has_teacher from my_open_organization_invites() where id = v_school) is distinct from true then
+    insert into verify.failures values ('an invite to an organization with a teacher did not say has_teacher true');
+  end if;
+  if (select has_teacher from my_open_organization_invites() where id = v_company) is distinct from false then
+    insert into verify.failures values ('an invite to an organization without a teacher did not say has_teacher false');
+  end if;
+  if (select count(*) from my_open_organization_invites()) <> 2 then
+    insert into verify.failures values ('my_open_organization_invites did not give exactly her own two open invites');
+  end if;
+  reset role;
+
+  delete from organization_invites where email in ('kind@example.com', 'not-kind@example.com');
+  delete from auth.users where id = c_kind;
+  -- The uid of the blocks before, not of an account that is gone.
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'an open invite says the kind of its organization: %', v_failures;
+  end if;
+  raise notice 'an open invite says has_teacher as its organization does, true for a school and false for a company';
 end;
 $$;
 

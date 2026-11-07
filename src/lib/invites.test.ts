@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import {
   acceptRefusal,
   INVITE_DAYS,
+  invitedAs,
   inviteRefusal,
   invitableRoles,
   mailProblem,
@@ -54,6 +55,27 @@ describe("invites", () => {
     assert.equal(roleLabel("admin", true), "Admin da escola");
     assert.equal(roleLabel("student", false), "Funcionário");
     assert.equal(roleLabel("admin", false), "Admin da empresa");
+  });
+
+  test("an open invite names the role as its organization does (#213)", () => {
+    const company = { has_teacher: false } as const;
+    const school = { has_teacher: true } as const;
+    assert.equal(invitedAs({ ...company, role: "student" }), "Funcionário");
+    assert.equal(invitedAs({ ...company, role: "admin" }), "Admin da empresa");
+    assert.equal(invitedAs({ ...school, role: "student" }), "Aluna");
+    assert.equal(invitedAs({ ...school, role: "teacher" }), "Professor");
+    assert.equal(invitedAs({ ...school, role: "admin" }), "Admin da escola");
+  });
+
+  test("an invite read from a database before 0046 keeps the school's names", () => {
+    assert.equal(
+      invitedAs({ role: "student", has_teacher: undefined }),
+      "Aluna",
+    );
+    assert.equal(
+      invitedAs({ role: "admin", has_teacher: null }),
+      "Admin da escola",
+    );
   });
 
   test("sending again opens the invite for the full period", () => {

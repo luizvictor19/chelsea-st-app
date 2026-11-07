@@ -1,4 +1,4 @@
-import { ROLE_LABEL } from "@/lib/invites";
+import { invitedAs } from "@/lib/invites";
 import { createClient } from "@/lib/supabase/server";
 
 import { AcceptInviteForm } from "./accept-invite-form";
@@ -38,10 +38,9 @@ export async function PendingInvites() {
           className="flex flex-wrap items-center justify-between gap-3"
         >
           <p>
-            Você foi convidada para a{" "}
+            Convite para a{" "}
             <span className="font-semibold">{invite.organization_name}</span>{" "}
-            como{" "}
-            <span className="font-semibold">{ROLE_LABEL[invite.role]}</span>.
+            como <span className="font-semibold">{invitedAs(invite)}</span>.
           </p>
           <AcceptInviteForm inviteId={invite.id} />
         </div>

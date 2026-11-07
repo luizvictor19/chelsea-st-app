@@ -167,7 +167,9 @@ architecture question for Luiz.
   `organization_invites`, when the invited email is first confirmed (a trigger on `auth.users`) or,
   for an account that already exists, when that person accepts it signed in
   (`accept_my_organization_invite`, offered by `my_open_organization_invites` on `/teacher` and
-  `/dashboard`).
+  `/dashboard`). Since 0046 (#213) `my_open_organization_invites` also gives the organization's
+  `has_teacher`, because the invited person is not a member yet and cannot read `organizations`:
+  the screen names the role with it (`invitedAs`, `roleLabel`).
   Writing an invite never makes a membership, and the inviter reads the same "Convite enviado"
   whether or not the email has an account (a mail that failed is still said as failed). Never insert into `organization_members` or `students` from the app. An organization's admin
   invites any role, its teacher students only; a student belongs to one organization, checked on
