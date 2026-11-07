@@ -10,12 +10,186 @@ import {
   SUGGEST_QUESTIONS_MODEL,
   SUGGEST_QUESTIONS_SCHEMA,
   buildSuggestQuestionsPrompt,
+  draftImage,
   parseDrafts,
+  pendingTerms,
   presentedSets,
   resolveImage,
   shownAs,
   type SuggestWord,
 } from "./suggest-questions.ts";
+
+/*
+ * Book 1 as the database held it on 2026-11-06, cut down: the numbers of
+ * points 5 and 7 have no natural question until "How many?" (point 28), and
+ * the 10 published questions sit at points 1 to 3.
+ */
+describe("pendingTerms", () => {
+  const BOOK = [
+    { point: 1, term: "pen", kind: "photo" },
+    { point: 1, term: "this", kind: "usage" },
+    { point: 3, term: "large", kind: "figure" },
+    { point: 3, term: "contraction", kind: "metalanguage" },
+    { point: 5, term: "in", kind: "figure" },
+    { point: 5, term: "one", kind: "symbol" },
+    { point: 5, term: "two", kind: "symbol" },
+    { point: 7, term: "six", kind: "symbol" },
+    { point: 7, term: "where", kind: "usage" },
+    { point: 9, term: "in front of", kind: "figure" },
+    { point: 9, term: "behind", kind: "figure" },
+    { point: 9, term: "Tom", kind: null },
+  ];
+  const asked = (point: number, prompt: string, answer: string) => ({
+    point,
+    prompt,
+    expectedAnswer: answer,
+    answerLanguage: "en" as const,
+  });
+  const PUBLISHED = [
+    asked(1, "Is this a pen?", "Yes, it’s a pen."),
+    asked(3, "Is the box large?", "Yes, it’s large."),
+    asked(6, "Where’s the pen? Is it in the box?", "It’s in the box."),
+  ];
+
+  test("the numbers wait, and a word a question uses does not", () => {
+    assert.deepEqual(pendingTerms(BOOK, PUBLISHED, 8), ["one", "two", "six"]);
+  });
+
+  test("only earlier points count, on both sides", () => {
+    // At point 5 the question of point 6 has not happened, and in is new.
+    assert.deepEqual(pendingTerms(BOOK, PUBLISHED, 5), []);
+    assert.deepEqual(pendingTerms(BOOK, PUBLISHED, 6), ["in", "one", "two"]);
+  });
+
+  test("a term of several words needs all of them", () => {
+    const front = [
+      asked(
+        9,
+        "Is the pen in front of the box?",
+        "Yes, it’s in front of the box.",
+      ),
+    ];
+    const half = [asked(9, "Is the pen in the box?", "Yes, it’s in the box.")];
+    assert.ok(!pendingTerms(BOOK, front, 10).includes("in front of"));
+    assert.ok(pendingTerms(BOOK, half, 10).includes("in front of"));
+  });
+
+  test("usage, metalanguage and a kind not decided never wait", () => {
+    const pending = pendingTerms(BOOK, [], 10);
+    for (const never of ["this", "contraction", "where", "Tom"]) {
+      assert.ok(!pending.includes(never), never);
+    }
+  });
+
+  test("an answer in Portuguese uses no English word", () => {
+    const translated = [
+      {
+        ...asked(2, "The pen.", "Uma caneta pen."),
+        answerLanguage: "pt" as const,
+      },
+    ];
+    assert.ok(!pendingTerms(BOOK, translated, 3).includes("pen"));
+    const onlyAnswer = [
+      {
+        point: 2,
+        prompt: "O que é isto?",
+        expectedAnswer: "pen",
+        answerLanguage: "pt" as const,
+      },
+    ];
+    assert.ok(pendingTerms(BOOK, onlyAnswer, 3).includes("pen"));
+  });
+});
+
+describe("the pending line of the prompt", () => {
+  const words: readonly SuggestWord[] = [
+    {
+      point: 5,
+      term: "one",
+      class: "numeral",
+      kind: "symbol",
+      picture: false,
+      subject: null,
+      set: null,
+    },
+    {
+      point: 8,
+      term: "cup",
+      class: "noun",
+      kind: "photo",
+      picture: true,
+      subject: "a cup",
+      set: null,
+    },
+  ];
+  const at = (pending?: readonly string[]) =>
+    buildSuggestQuestionsPrompt({
+      book: 1,
+      point: 8,
+      words,
+      scenes: [],
+      pending,
+    }).user;
+
+  test("is there only when something waits", () => {
+    assert.doesNotMatch(at(), /no question uses yet/u);
+    assert.doesNotMatch(at([]), /no question uses yet/u);
+    assert.match(at(["one", "two"]), /no question uses yet .*: one, two$/u);
+  });
+});
+
+describe("draftImage", () => {
+  const WORDS = [
+    { id: "w-pen", term: "pen", picture: true },
+    { id: "w-the", term: "the", picture: false },
+  ];
+  const SCENES = [
+    { id: "s-box", description: "No, the box isn’t small; it’s large" },
+  ];
+
+  test("gives the ids the form keeps", () => {
+    assert.deepEqual(
+      draftImage({ imageKind: "word", image: "Pen" }, WORDS, SCENES),
+      { kind: "word", id: "w-pen" },
+    );
+    assert.deepEqual(
+      draftImage(
+        { imageKind: "scene", image: "No, the box isn't small; it's large" },
+        WORDS,
+        SCENES,
+      ),
+      { kind: "scene", id: "s-box" },
+    );
+    assert.deepEqual(
+      draftImage(
+        { imageKind: "new_scene", image: "a pen on a box" },
+        WORDS,
+        SCENES,
+      ),
+      {
+        kind: "new_scene",
+        description: "a pen on a box",
+      },
+    );
+    assert.deepEqual(
+      draftImage({ imageKind: "acted_out", image: "" }, WORDS, SCENES),
+      { kind: "acted" },
+    );
+  });
+
+  test("a picture that does not exist is none, with the reason in Portuguese", () => {
+    const none = draftImage({ imageKind: "word", image: "the" }, WORDS, SCENES);
+    assert.deepEqual(none, {
+      kind: "none",
+      reason: "a palavra sugerida ainda não tem imagem aprovada",
+    });
+    const gone = draftImage({ imageKind: "word", image: "cup" }, WORDS, SCENES);
+    assert.equal(
+      gone.kind === "none" ? gone.reason : null,
+      "a palavra sugerida para a imagem não existe neste ponto",
+    );
+  });
+});
 
 test("the chosen model has a price, so the button can log what it cost", () => {
   assert.ok(Object.hasOwn(TEXT_PRICES, SUGGEST_QUESTIONS_MODEL));
