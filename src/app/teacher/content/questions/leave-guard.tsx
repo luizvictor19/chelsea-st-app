@@ -73,8 +73,8 @@ export function LeaveGuardProvider({
             Sair sem salvar?
           </h2>
           <p className="text-muted text-sm">
-            Há pergunta não salva nesta tela. Abrir a cena em Imagens descarta o
-            que não foi salvo.
+            Há pergunta ou sugestão não salva nesta tela. Abrir a cena em
+            Imagens descarta o que não foi salvo.
           </p>
           <div className="flex flex-wrap justify-end gap-2">
             <form method="dialog">

@@ -67,6 +67,12 @@ import {
 import { ImageChoiceField, sceneSuggestion } from "./image-choice";
 import { LeaveGuardProvider, useUnsavedWarning } from "./leave-guard";
 import { segments, standing, summary } from "./marks";
+import { SuggestControls, useSuggestions } from "./suggest-controls";
+import {
+  draftToFields,
+  provenance,
+  type SuggestionCard,
+} from "./suggestion-cards";
 import {
   pointFailed,
   pointLabel,
@@ -329,6 +335,7 @@ function PointSection({
   } | null>(null);
   const confirm = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  const suggestions = useSuggestions(pointId, at.point);
 
   const published = questions.filter((q) => q.isPublished).length;
 
@@ -638,6 +645,66 @@ function PointSection({
         </button>
       )}
 
+      <SuggestControls
+        canAsk={groups.length > 0}
+        status={suggestions.status}
+        onAsk={(count) => void suggestions.ask(count)}
+      />
+
+      {suggestions.cards.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <p className="text-faint text-xs">
+            Sugestões do modelo, só nesta tela: nada foi gravado. Usar abre a
+            sugestão no formulário para você revisar e salvar.
+          </p>
+          <ul aria-label="Perguntas sugeridas" className="flex flex-col gap-2">
+            {suggestions.cards.map((card) => (
+              <li
+                key={card.key}
+                className="border-rule bg-surface rounded-sm border border-dashed p-3"
+              >
+                {card.inUse ? (
+                  <SuggestionForm
+                    card={card}
+                    at={at}
+                    lesson={lesson}
+                    checker={checker}
+                    shownWords={shownWords}
+                    wordOf={wordOf}
+                    scenes={scenes}
+                    pictureOf={pictureOf}
+                    reportDraft={reportDraft}
+                    busy={busy}
+                    onCancel={() => suggestions.putBack(card.key)}
+                    onSubmit={async (draft) => {
+                      const ok = await run(
+                        () => addQuestion(pointId, draft, provenance(card)),
+                        questionAdded(at.point, questions.length + 1),
+                        (message) => pointFailed(at.point, message),
+                      );
+                      if (ok) suggestions.remove(card.key);
+                      return ok;
+                    }}
+                  />
+                ) : (
+                  <SuggestionCardView
+                    card={card}
+                    at={at}
+                    checker={checker}
+                    wordOf={wordOf}
+                    sceneOf={sceneOf}
+                    pictureOf={pictureOf}
+                    busy={busy}
+                    onUse={() => suggestions.use(card.key)}
+                    onDiscard={() => suggestions.remove(card.key)}
+                  />
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/*
         The native dialog, as on the images screen: Esc and the focus move
         come with showModal. Deleting cannot be undone, so it is never one
@@ -693,6 +760,178 @@ function PointSection({
   );
 }
 
+/** What a card says of the picture the model proposed. */
+function proposedPicture(
+  card: SuggestionCard,
+  wordOf: ReadonlyMap<string, PicturedWord>,
+  sceneOf: ReadonlyMap<string, ScreenScene>,
+  pictureOf: PictureOf,
+): { readonly label: string; readonly picture: string | null } {
+  const { image } = card.question;
+  switch (image.kind) {
+    case "word":
+      return {
+        label: `Palavra mostrada: ${wordOf.get(image.id)?.term ?? "não encontrada"}`,
+        picture: pictureOf("word", image.id),
+      };
+    case "scene":
+      return {
+        label: `Cena: ${sceneOf.get(image.id)?.description ?? "não encontrada"}`,
+        picture: pictureOf("scene", image.id),
+      };
+    case "new_scene":
+      return {
+        label: `Cena nova, a criar: ${image.description}`,
+        picture: null,
+      };
+    case "acted":
+      return { label: "Encenar na aula", picture: null };
+    case "none":
+      return { label: `Sem imagem: ${image.reason}`, picture: null };
+  }
+}
+
+/**
+ * One draft of Sugerir perguntas, as the model wrote it, with the words the
+ * point has not presented marked as in a saved question. Usar opens it in a
+ * form; Descartar takes it off the screen, and nothing was ever written.
+ */
+function SuggestionCardView({
+  card,
+  at,
+  checker,
+  wordOf,
+  sceneOf,
+  pictureOf,
+  busy,
+  onUse,
+  onDiscard,
+}: {
+  readonly card: SuggestionCard;
+  readonly at: Place;
+  readonly checker: Checker;
+  readonly wordOf: ReadonlyMap<string, PicturedWord>;
+  readonly sceneOf: ReadonlyMap<string, ScreenScene>;
+  readonly pictureOf: PictureOf;
+  readonly busy: boolean;
+  readonly onUse: () => void;
+  readonly onDiscard: () => void;
+}) {
+  const { question } = card;
+  const marks = marksOf(checker, draftToFields(question).fields, at);
+  const unpresented = summary([...marks.prompt, ...marks.answer], at);
+  const { label, picture } = proposedPicture(card, wordOf, sceneOf, pictureOf);
+  return (
+    <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+      {picture !== null && (
+        <Image
+          src={picture}
+          alt={label}
+          title={label}
+          width={40}
+          height={40}
+          className="border-rule size-10 shrink-0 rounded-sm border object-cover"
+        />
+      )}
+      <div className="flex min-w-0 flex-1 basis-64 flex-col gap-1">
+        <p className="font-semibold" lang="en">
+          <MarkedText text={question.prompt} marks={marks.prompt} at={at} />
+        </p>
+        <p
+          className="text-muted"
+          lang={question.answerLanguage === "pt" ? "pt-BR" : "en"}
+        >
+          <MarkedText
+            text={question.expectedAnswer}
+            marks={marks.answer}
+            at={at}
+          />
+        </p>
+        {unpresented !== "" && (
+          <p className="text-warning text-xs">
+            Ainda não apresentadas no ponto {at.point}: {unpresented}
+          </p>
+        )}
+        <p
+          className={
+            question.image.kind === "none"
+              ? "text-warning text-xs"
+              : "text-faint text-xs"
+          }
+        >
+          {label}
+        </p>
+        <p className="text-faint flex flex-wrap gap-x-3 text-xs">
+          <span>Sugestão, não gravada</span>
+          {question.answerLanguage === "pt" && (
+            <span>Resposta em português</span>
+          )}
+          {question.practises.trim() !== "" && (
+            <span lang="en">Pratica: {question.practises}</span>
+          )}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onUse}
+          className="border-rule hover:bg-background rounded-sm border px-2 py-1 text-xs font-semibold transition-colors disabled:opacity-50"
+        >
+          Usar
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onDiscard}
+          className="text-muted hover:text-foreground px-2 py-1 text-xs underline-offset-2 hover:underline disabled:opacity-50"
+        >
+          Descartar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A card in use: the new question form, filled with the draft. Saving adds
+ * the question with where it came from (0045) and takes the card away;
+ * closing the form puts the card back as the model wrote it.
+ */
+function SuggestionForm({
+  card,
+  onSubmit,
+  ...form
+}: {
+  readonly card: SuggestionCard;
+  readonly at: Place;
+  readonly lesson: number;
+  readonly checker: Checker;
+  readonly shownWords: readonly ShownWordOption[];
+  readonly wordOf: ReadonlyMap<string, PicturedWord>;
+  readonly scenes: readonly ScreenScene[];
+  readonly pictureOf: PictureOf;
+  readonly reportDraft: ReportDraft;
+  readonly busy: boolean;
+  readonly onCancel: () => void;
+  readonly onSubmit: (draft: QuestionFields) => Promise<boolean>;
+}) {
+  const { fields, sceneText } = draftToFields(card.question);
+  return (
+    <QuestionForm
+      {...form}
+      saved={null}
+      initial={fields}
+      sceneText={sceneText}
+      once
+      draftKey={card.key}
+      legend={`Nova pergunta do ponto ${form.at.point}, a partir da sugestão`}
+      submitLabel="Acrescentar"
+      onSubmit={(draft) => onSubmit(draft)}
+    />
+  );
+}
+
 /** A sentence with the words the point has not presented underlined. */
 function MarkedText({
   text,
@@ -739,6 +978,9 @@ function QuestionForm({
   scenes,
   pictureOf,
   saved,
+  initial,
+  sceneText,
+  once = false,
   draftKey,
   reportDraft,
   legend,
@@ -755,6 +997,15 @@ function QuestionForm({
   readonly scenes: readonly ScreenScene[];
   readonly pictureOf: PictureOf;
   readonly saved: QuestionFields | null;
+  /** What a new question opens filled with: a card of Sugerir perguntas. */
+  readonly initial?: QuestionFields;
+  /** What Criar cena starts with instead of sceneSuggestion: a new scene's description. */
+  readonly sceneText?: string | null;
+  /**
+   * A new question that closes once added, instead of staying open for the
+   * next: a card's form, whose provenance must not ride on the next question.
+   */
+  readonly once?: boolean;
   /** What the screen files this form's draft under: see reportDraft. */
   readonly draftKey: string;
   readonly reportDraft: ReportDraft;
@@ -776,7 +1027,9 @@ function QuestionForm({
    * this form was opened on, so that is what has to be sent.
    */
   const [loaded] = useState<QuestionFields>(saved ?? EMPTY);
-  const [draft, setDraft] = useState<QuestionFields>(loaded);
+  const [draft, setDraft] = useState<QuestionFields>(
+    saved === null && initial !== undefined ? initial : loaded,
+  );
   const promptInput = useRef<HTMLInputElement>(null);
   const id = useId();
 
@@ -816,7 +1069,8 @@ function QuestionForm({
 
   function send() {
     void onSubmit(draft, loaded).then((ok) => {
-      if (!ok || saved !== null) return;
+      // A card's form is gone once added: the point takes the card away.
+      if (!ok || saved !== null || once) return;
       // Added: the form stays open for the next one, in the same language,
       // with the same publish choice and the same image, since a picture is
       // often asked about more than once. The fields are read-only while the
@@ -902,7 +1156,7 @@ function QuestionForm({
           shownWords={shownWords}
           wordOf={wordOf}
           scenes={scenes}
-          suggestion={sceneSuggestion(draft)}
+          suggestion={sceneText ?? sceneSuggestion(draft)}
         />
 
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
