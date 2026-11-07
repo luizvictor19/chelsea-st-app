@@ -63,6 +63,45 @@ export function sceneFound(point: number): NoticeText {
   return success(point, "essa cena já existia e foi escolhida");
 }
 
+/**
+ * What Sugerir perguntas brought (#231). The model is asked for a number it
+ * cannot be held to (measured in #83), so fewer than asked is said with the
+ * reason. `returned` is what the model wrote, `added` what became a card:
+ * a draft equal to a card already on screen does not become a second one.
+ */
+export function questionsSuggested(
+  point: number,
+  counts: {
+    readonly asked: number;
+    readonly returned: number;
+    readonly added: number;
+  },
+): NoticeText {
+  const { asked, returned, added } = counts;
+  if (returned === 0) {
+    return success(point, "o modelo não sugeriu nenhuma pergunta");
+  }
+  if (added === 0) {
+    return success(point, "as perguntas sugeridas já estavam nos cartões");
+  }
+  const parts = [
+    returned < asked
+      ? `${returned} de ${asked} perguntas sugeridas: o modelo não achou mais perguntas naturais`
+      : returned === 1
+        ? "1 pergunta sugerida"
+        : `${returned} perguntas sugeridas`,
+  ];
+  const repeated = returned - added;
+  if (repeated > 0) {
+    parts.push(
+      repeated === 1
+        ? "1 já estava nos cartões"
+        : `${repeated} já estavam nos cartões`,
+    );
+  }
+  return success(point, parts.join(". "));
+}
+
 /** An action on one question that answered with ok false. */
 export function questionFailed(
   point: number,
