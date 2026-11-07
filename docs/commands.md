@@ -36,9 +36,17 @@ The lesson server always runs in Luiz's own terminal, never in a Claude Code ses
 
     gh pr merge NN --merge
     git pull
+    gh release create "$(date -u +%Y.%m.%d)-NN" \
+      --target "$(gh pr view NN --json mergeCommit --jq .mergeCommit.oid)" --generate-notes
     git worktree remove ../chelsea-st-app-NN
     git branch -d feat/NN-scope
     git push origin --delete feat/NN-scope
+
+One GitHub release per merge (#140): the tag is the UTC date of the merge and the PR number
+(`2026.11.07-245`), it points at that PR's merge commit, and its notes are the PR titles GitHub
+lists since the previous release. Nothing is committed for it, so parallel branches never
+conflict over a changelog. A Dependabot merge gets its release too. The history of what reached
+production is `gh release list`. `package.json` stays at `0.1.0`: its `version` is not used.
 
 ## Migrations (Luiz only)
 

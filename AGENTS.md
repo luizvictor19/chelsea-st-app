@@ -124,8 +124,10 @@ so it describes the Next that actually runs here.
 ### Merging
 
 - Merge only when Luiz asks, naming the PR number: `gh pr merge NN --merge`. Then, from the main
-  folder (never from inside the worktree being removed): pull, remove the worktree, delete the local
-  and the remote branch.
+  folder (never from inside the worktree being removed): pull, create the PR's GitHub release
+  (`docs/commands.md`), remove the worktree, delete the local and the remote branch.
+- The changelog is the GitHub releases, one per merge. There is no `CHANGELOG.md`, and the
+  `version` in `package.json` is not used.
 - A merge is a production deploy. In a PR with a migration, Luiz runs `supabase db push` before
   asking for the merge; do not merge such a PR before the migration is applied (query the MCP).
 - `git merge`, `git rebase` and force pushes stay blocked. Deploys are always Luiz's.
