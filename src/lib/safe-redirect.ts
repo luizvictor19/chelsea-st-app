@@ -65,3 +65,29 @@ export function safeNextPath(raw: string | null, origin: string): string {
 export function isSameHostPath(location: string): boolean {
   return /^\/(?![/\\])/.test(location);
 }
+
+/**
+ * A redirect with a relative Location, which the browser resolves against the
+ * address it is on, so the page it lands on is on the same host (#102, #172).
+ * Outside Vercel, nextUrl.origin names the server's host (localhost), not the
+ * one the request came to (127.0.0.1), and NextResponse.redirect only takes
+ * an absolute URL: built on that origin, it moved the browser to another
+ * host, where the session cookie does not exist.
+ *
+ * A plain Response, not a NextResponse: a route handler may return either,
+ * and Next merges the cookies set through cookies() into whatever Response it
+ * gets (app-route/module.js, appendMutableCookies). It also keeps this module
+ * loadable by node's test runner, which cannot resolve "next/server".
+ *
+ * The callers pass safeNextPath's result or a constant, and the shape is
+ * checked here again anyway, so a later caller handing it a raw parameter gets
+ * the root and not an open redirect. The status is the caller's: 307 keeps the
+ * method, 303 turns a POST into a GET.
+ */
+export function sameHostRedirect(
+  location: string,
+  status: 303 | 307,
+): Response {
+  const safe = isSameHostPath(location) ? location : "/";
+  return new Response(null, { status, headers: { location: safe } });
+}

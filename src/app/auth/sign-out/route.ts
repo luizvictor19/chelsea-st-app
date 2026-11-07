@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
-import { NextResponse, type NextRequest } from "next/server";
 
+import { sameHostRedirect } from "@/lib/safe-redirect";
 import { sessionCookieNames } from "@/lib/session-cookies";
 import { createClient } from "@/lib/supabase/server";
 
@@ -17,7 +17,7 @@ import { createClient } from "@/lib/supabase/server";
  * reached, the session cookies are deleted here anyway: on a shared computer,
  * "Sair da conta" must leave this browser signed out.
  */
-export async function POST(request: NextRequest): Promise<NextResponse> {
+export async function POST(): Promise<Response> {
   const supabase = await createClient();
   const { error } = await supabase.auth.signOut({ scope: "local" });
 
@@ -29,6 +29,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  // 303, so the browser follows with a GET.
-  return NextResponse.redirect(new URL("/login", request.nextUrl.origin), 303);
+  // 303, so the browser follows with a GET. Relative, so 127.0.0.1 stays
+  // 127.0.0.1 outside Vercel (#172), as the auth callback does since #102.
+  return sameHostRedirect("/login", 303);
 }

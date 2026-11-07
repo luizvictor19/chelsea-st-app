@@ -1,7 +1,7 @@
-import { NextResponse, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 
-import { isSameHostPath, safeNextPath } from "@/lib/safe-redirect";
+import { safeNextPath, sameHostRedirect } from "@/lib/safe-redirect";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -12,7 +12,7 @@ import { createClient } from "@/lib/supabase/server";
  * which one shows up is a dashboard setting and not something this route should
  * care about.
  */
-export async function GET(request: NextRequest): Promise<NextResponse> {
+export async function GET(request: NextRequest): Promise<Response> {
   const { searchParams, origin } = request.nextUrl;
 
   // Resolved once, here, before anything else happens. This is the one place
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      return redirectTo(next);
+      return sameHostRedirect(next, 307);
     }
   } else if (tokenHash && type) {
     const { error } = await supabase.auth.verifyOtp({
@@ -40,31 +40,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       token_hash: tokenHash,
     });
     if (!error) {
-      return redirectTo(next);
+      return sameHostRedirect(next, 307);
     }
   }
 
   // Expired, already used, or tampered with. All the same to the person holding
   // it: ask for a fresh one.
-  return redirectTo("/login?error=link");
-}
-
-/**
- * A redirect with a relative Location, which the browser resolves against the
- * address it opened the link at, so the session cookie set here and the page
- * it goes to are on the same host. NextResponse.redirect only takes an
- * absolute URL, and the only absolute URL this route has is built on
- * nextUrl.origin, which is localhost when the link was opened at 127.0.0.1.
- *
- * The cookies the sign-in set through cookies() still go out: Next merges
- * them into whatever Response a route handler returns.
- *
- * A Location starting with "//" would be another site. The callers pass
- * safeNextPath's result or a constant, and the shape is checked here again
- * anyway, so a later caller handing it a raw parameter gets the root and not
- * an open redirect.
- */
-function redirectTo(location: string): NextResponse {
-  const safe = isSameHostPath(location) ? location : "/";
-  return new NextResponse(null, { status: 307, headers: { location: safe } });
+  return sameHostRedirect("/login?error=link", 307);
 }
