@@ -10,8 +10,15 @@
 --
 -- A question written by hand has none of the three. Either all three are
 -- there or none is (questions_suggestion_whole): a model with no draft, or a
--- draft with no model, is a row nobody can read back. The model is never
--- empty text, so an id that failed to arrive cannot pass for one.
+-- draft with no model, is a row nobody can read back. None of the three is
+-- ever blank (questions_suggestion_not_blank), so a model id or a draft that
+-- failed to arrive cannot pass for one.
+--
+-- The draft is a record, written once, with the question. An update that
+-- changes or clears any of the three is refused (questions_suggestion_kept,
+-- a trigger): the teacher's edits go to prompt and expected_answer, and a
+-- form that one day sent the draft columns back would otherwise overwrite
+-- the original in silence and make every measure of her edits read zero.
 --
 -- Measured on 2026-11-07 through the MCP, before this migration: 10 rows in
 -- questions, all written by hand; the last migration applied is 0044. The
@@ -31,9 +38,32 @@ alter table questions
     (suggested_model is null and suggested_prompt is null and suggested_answer is null)
     or (suggested_model is not null and suggested_prompt is not null and suggested_answer is not null)
   ),
-  add constraint questions_suggested_model_named check (
-    suggested_model is null or btrim(suggested_model) <> ''
+  add constraint questions_suggestion_not_blank check (
+    (suggested_model is null or btrim(suggested_model) <> '')
+    and (suggested_prompt is null or btrim(suggested_prompt) <> '')
+    and (suggested_answer is null or btrim(suggested_answer) <> '')
   );
+
+create function questions_keep_suggestion() returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if new.suggested_model is distinct from old.suggested_model
+     or new.suggested_prompt is distinct from old.suggested_prompt
+     or new.suggested_answer is distinct from old.suggested_answer then
+    raise exception 'the draft a question was suggested from is kept as written'
+      using errcode = 'check_violation',
+            constraint = 'questions_suggestion_kept',
+            table = 'questions';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger questions_suggestion_kept
+  before update on questions
+  for each row execute function questions_keep_suggestion();
 
 comment on column questions.suggested_model is
   'The model whose draft this question was saved from (#67), as the app called it, such as claude-haiku-5-5. Null when written by hand.';

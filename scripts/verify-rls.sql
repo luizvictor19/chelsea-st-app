@@ -4372,54 +4372,77 @@ $$;
 
 -- A suggested question keeps its draft (0045) ---------------------------------------------
 --
--- Each check refuses on its own, and the two shapes 0045 allows are written:
--- a question by hand, with none of the three, and one from a suggestion,
--- with all three. Run as the owner: a check binds every role alike, and
--- who may write a question is the content policies' (0043), checked above.
+-- Each clause refuses on its own, by its own name, and the two shapes 0045
+-- allows are written: a question by hand, with none of the three, and one
+-- from a suggestion, with all three. Once written, the draft is kept: an
+-- update that changes or clears it is refused, and the teacher's own edit of
+-- the prompt goes through. Run as the owner: a check and a trigger bind every
+-- role alike, and who may write a question is the content policies' (0043),
+-- checked above.
 
 do $$
 declare
   v_point uuid := (select id from points where number = 54);
+  v_hand uuid;
+  v_suggested uuid;
   v_failures text;
-  c_cols constant text :=
-    'point_id, position, prompt, expected_answer, suggested_model, suggested_prompt, suggested_answer';
+  c_insert constant text :=
+    'insert into questions (point_id, position, prompt, expected_answer, suggested_model, suggested_prompt, suggested_answer) values (%L, %s, ''Where''''s the pen?'', ''The pen''''s on the table.'', %s, %s, %s)';
+  c_model constant text := '''claude-haiku-5-5''';
+  c_prompt constant text := '''Where is the pen?''';
+  c_answer constant text := '''The pen is on the table.''';
 begin
   delete from verify.failures;
 
-  perform verify.expect_refused('a model with no draft',
-    'questions_suggestion_whole',
-    format('insert into questions (%s) values (%L, 9001, ''Where''''s the pen?'', ''It''''s on the table.'', ''claude-haiku-5-5'', null, null)',
-      c_cols, v_point));
-  perform verify.expect_refused('a draft with no model',
-    'questions_suggestion_whole',
-    format('insert into questions (%s) values (%L, 9002, ''Where''''s the pen?'', ''It''''s on the table.'', null, ''Where is the pen?'', ''The pen is on the table.'')',
-      c_cols, v_point));
-  perform verify.expect_refused('a draft with a prompt and no answer',
-    'questions_suggestion_whole',
-    format('insert into questions (%s) values (%L, 9003, ''Where''''s the pen?'', ''It''''s on the table.'', ''claude-haiku-5-5'', ''Where is the pen?'', null)',
-      c_cols, v_point));
-  perform verify.expect_refused('a blank model',
-    'questions_suggested_model_named',
-    format('insert into questions (%s) values (%L, 9004, ''Where''''s the pen?'', ''It''''s on the table.'', ''  '', ''Where is the pen?'', ''The pen is on the table.'')',
-      c_cols, v_point));
+  -- questions_suggestion_whole, one missing column at a time.
+  perform verify.expect_refused('a model with neither prompt nor answer', 'questions_suggestion_whole',
+    format(c_insert, v_point, 9001, c_model, 'null', 'null'));
+  perform verify.expect_refused('a draft with no model', 'questions_suggestion_whole',
+    format(c_insert, v_point, 9002, 'null', c_prompt, c_answer));
+  perform verify.expect_refused('a model and a prompt with no answer', 'questions_suggestion_whole',
+    format(c_insert, v_point, 9003, c_model, c_prompt, 'null'));
+  perform verify.expect_refused('a model and an answer with no prompt', 'questions_suggestion_whole',
+    format(c_insert, v_point, 9004, c_model, 'null', c_answer));
 
-  if verify.refused_by(format(
-       'insert into questions (point_id, position, prompt, expected_answer) values (%L, 9005, ''Is this a pen?'', ''Yes, it''''s a pen.'')',
-       v_point)) is not null then
+  -- questions_suggestion_not_blank, one blank column at a time.
+  perform verify.expect_refused('a blank model', 'questions_suggestion_not_blank',
+    format(c_insert, v_point, 9005, '''  ''', c_prompt, c_answer));
+  perform verify.expect_refused('a blank prompt', 'questions_suggestion_not_blank',
+    format(c_insert, v_point, 9006, c_model, '''''', c_answer));
+  perform verify.expect_refused('a blank answer', 'questions_suggestion_not_blank',
+    format(c_insert, v_point, 9007, c_model, c_prompt, ''' '''));
+
+  -- The two shapes that go in.
+  if verify.refused_by(format(c_insert, v_point, 9008, 'null', 'null', 'null')) is not null then
     insert into verify.failures values ('a question written by hand: refused');
   end if;
-  if verify.refused_by(format(
-       'insert into questions (%s) values (%L, 9006, ''Where''''s the pen?'', ''The pen''''s on the table.'', ''claude-haiku-5-5'', ''Where is the pen?'', ''The pen is on the table.'')',
-       c_cols, v_point)) is not null then
+  if verify.refused_by(format(c_insert, v_point, 9009, c_model, c_prompt, c_answer)) is not null then
     insert into verify.failures values ('a question saved from a suggestion: refused');
   end if;
-  delete from questions where position between 9001 and 9006;
+  select id into v_hand from questions where point_id = v_point and position = 9008;
+  select id into v_suggested from questions where point_id = v_point and position = 9009;
+
+  -- questions_suggestion_kept: the draft never changes once written.
+  perform verify.expect_refused('a draft rewritten', 'questions_suggestion_kept',
+    format('update questions set suggested_prompt = ''Where''''s the pen?'' where id = %L', v_suggested));
+  perform verify.expect_refused('a draft cleared', 'questions_suggestion_kept',
+    format('update questions set suggested_model = null, suggested_prompt = null, suggested_answer = null where id = %L', v_suggested));
+  perform verify.expect_refused('a draft added to a question by hand', 'questions_suggestion_kept',
+    format('update questions set suggested_model = %s, suggested_prompt = %s, suggested_answer = %s where id = %L',
+      c_model, c_prompt, c_answer, v_hand));
+  if verify.refused_by(format(
+       'update questions set prompt = ''Where''''s the pencil?'', is_published = true, is_acted_out = true where id = %L',
+       v_suggested)) is not null then
+    insert into verify.failures values ('the teacher editing a suggested question: refused');
+  end if;
+
+  delete from questions where point_id = v_point and position between 9001 and 9009;
 
   select string_agg(what, '; ') into v_failures from verify.failures;
   if v_failures is not null then
     raise exception 'a suggested question keeps its draft: %', v_failures;
   end if;
-  raise notice 'a question by hand has none of the three, one from a suggestion has all three, and nothing in between';
+  raise notice 'a question by hand has none of the three, one from a suggestion has all three, none blank, and the draft is kept';
 end;
 $$;
 
