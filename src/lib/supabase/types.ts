@@ -1311,6 +1311,7 @@ export type Database = {
         Args: Record<PropertyKey, never>;
         Returns: {
           expires_at: string;
+          has_teacher: boolean;
           id: string;
           organization_id: string;
           organization_name: string;
