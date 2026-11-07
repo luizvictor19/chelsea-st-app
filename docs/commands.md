@@ -40,13 +40,18 @@ The lesson server always runs in Luiz's own terminal, never in a Claude Code ses
       --target "$(gh pr view NN --json mergeCommit --jq .mergeCommit.oid)" --generate-notes
     git worktree remove ../chelsea-st-app-NN
     git branch -d feat/NN-scope
-    git push origin --delete feat/NN-scope
+    gh api -X DELETE repos/luizvictor19/chelsea-st-app/git/refs/heads/feat/NN-scope
+
+The remote branch is deleted through the API: the hook in `.claude/settings.json` refuses every
+push made from `main`, including one that only deletes a branch (#262).
 
 One GitHub release per merge (#140): the tag is the UTC date of the merge and the PR number
 (`2026.11.07-245`), it points at that PR's merge commit, and its notes are the PR titles GitHub
 lists since the previous release. Nothing is committed for it, so parallel branches never
-conflict over a changelog. A Dependabot merge gets its release too. The history of what reached
-production is `gh release list`. `package.json` stays at `0.1.0`: its `version` is not used.
+conflict over a changelog. A Dependabot merge gets its release too. The release is the Claude's
+step, right after each merge: `gh release create` is allowed in Luiz's own permissions since
+07/11/2026. The history of what reached production is `gh release list`. `package.json` stays at
+`0.1.0`: its `version` is not used.
 
 ## Migrations (Luiz only)
 
@@ -301,7 +306,8 @@ Dependabot PR needs no issue of its own: the PR is its record.
 - A security PR (group `security`) goes ahead of the queue.
 - A Dependabot PR behind `main`: comment `@dependabot rebase` on the PR. Dependabot rewrites its
   own branch; no session rebases it.
-- A branch left behind after the merge: `git push origin --delete <branch>`.
+- A branch left behind after the merge:
+  `gh api -X DELETE repos/luizvictor19/chelsea-st-app/git/refs/heads/<branch>`.
 
 Repository settings (Luiz only, once, after #137 is merged), Settings > Advanced Security:
 
