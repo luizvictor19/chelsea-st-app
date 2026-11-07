@@ -11,7 +11,6 @@ import {
   MAX_REFERENCE_BYTES,
   REFERENCE_TOO_BIG,
 } from "@/lib/images/generation";
-import { uploadGenerated } from "@/lib/images/generated-upload";
 import { attemptPath, referencePath } from "@/lib/images/paths";
 import {
   modelCredits,
@@ -26,6 +25,12 @@ import {
 } from "@/lib/images/upload";
 
 import { failureMessage } from "../questions/draft";
+
+import {
+  failPending,
+  storeGeneratedImage,
+  type AttemptStore,
+} from "./attempt-close";
 
 /**
  * The half of an image attempt that does not care whose it is: opening a
@@ -116,23 +121,6 @@ function ownerColumn(
     : { scene_id: owner.id };
 }
 
-/**
- * The file extension to store an image under. Taken from the content type
- * rather than from the URL, because a generated image arrives from a signed
- * URL whose path says nothing about the format.
- */
-function extensionFor(contentType: string | null, fallback: string): string {
-  const known: Record<string, string> = {
-    "image/png": "png",
-    "image/jpeg": "jpg",
-    "image/webp": "webp",
-    "image/gif": "gif",
-    "image/svg+xml": "svg",
-  };
-  const type = (contentType ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
-  return known[type] ?? fallback;
-}
-
 /** The public URL of a reference, which the bucket serves without signing. */
 export function publicReferenceUrl(supabase: Supabase, path: string): string {
   return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
@@ -152,47 +140,38 @@ async function readReference(
 }
 
 /**
- * Mark an attempt as finished, whichever way it finished.
- *
- * completed_at is written here and nowhere else, so "when it stopped waiting"
- * has one meaning across every row: the moment it left 'pending', for an
- * image or for an error. That is the half of the measurement the old polling
- * loop never wrote down.
+ * The Supabase calls a close needs, bound to one owner. The rule, a close
+ * lands only on a row still 'pending', lives in attempt-close.ts (#151).
  */
-async function finish(
-  supabase: Supabase,
-  attemptId: string,
-  fields: {
-    status: "generated" | "failed";
-    error?: string;
-    storage_path?: string;
-    credits_spent?: number | null;
-  },
-): Promise<{ error: string | null }> {
-  const { error } = await supabase
-    .from("image_attempts")
-    .update({ ...fields, completed_at: new Date().toISOString() })
-    .eq("id", attemptId);
-  return { error: error?.message ?? null };
+function attemptStore(supabase: Supabase, owner: AttemptOwner): AttemptStore {
+  return {
+    update: (values) => supabase.from("image_attempts").update(values),
+    read: async (attemptId) => {
+      const { data, error } = await supabase
+        .from("image_attempts")
+        .select("status, storage_path")
+        .eq("id", attemptId)
+        .maybeSingle();
+      return { row: data, error: error?.message ?? null };
+    },
+    bucket: supabase.storage.from(BUCKET),
+    list: () => readAttempts(supabase, owner),
+    revalidate: () => revalidatePath(SCREEN),
+  };
 }
 
-/** Close an attempt with a reason, and answer with the list it leaves behind. */
+/**
+ * Close a pending attempt with a reason, and answer with the list it leaves
+ * behind. An attempt already closed by another poll stays as it is; see
+ * failPending.
+ */
 export async function recordFailure(
   supabase: Supabase,
   attemptId: string,
   owner: AttemptOwner,
   message: string,
 ): Promise<ActionResult> {
-  const { error } = await finish(supabase, attemptId, {
-    status: "failed",
-    error: message,
-  });
-  revalidatePath(SCREEN);
-  return {
-    ok: false,
-    error: error === null ? message : `${message} (${error})`,
-    attempts: await readAttempts(supabase, owner),
-  };
+  return failPending(attemptStore(supabase, owner), attemptId, message);
 }
 
 /**
@@ -333,7 +312,8 @@ export async function openGeneration(
  * This is the one poll that is not short: a PNG from Mystic has to come down
  * and go back up before the row can be called finished. It is seconds rather
  * than the tens of seconds the old shape held open, and it happens once per
- * generation rather than on every question.
+ * generation rather than on every question. A row another poll closed first
+ * is left as it is, and so is its file; see storeGeneratedImage (#151).
  */
 export async function storeGenerated(
   supabase: Supabase,
@@ -342,50 +322,13 @@ export async function storeGenerated(
   imageUrl: string,
   creditsSpent: number | undefined,
 ): Promise<ActionResult> {
-  const response = await fetch(imageUrl, { cache: "no-store" });
-  if (!response.ok) {
-    return recordFailure(
-      supabase,
-      attemptId,
-      owner,
-      `Não deu para baixar a imagem: ${response.status}`,
-    );
-  }
-  const contentType = response.headers.get("content-type");
-  const bytes = await response.arrayBuffer();
-  const path = attemptPath(owner, attemptId, extensionFor(contentType, "png"));
-
-  /*
-   * Over a file already there, if there is one: the same path is the same
-   * attempt and the same image, stored by an earlier poll whose row write
-   * failed, or by a poll from another tab. See uploadGenerated.
-   */
-  const { error: uploadError } = await uploadGenerated(
-    supabase.storage.from(BUCKET),
-    path,
-    bytes,
-    contentType,
+  return storeGeneratedImage(
+    attemptStore(supabase, owner),
+    attemptId,
+    owner,
+    () => fetch(imageUrl, { cache: "no-store" }),
+    creditsSpent,
   );
-  if (uploadError) {
-    return recordFailure(supabase, attemptId, owner, uploadError.message);
-  }
-
-  const { error: doneError } = await finish(supabase, attemptId, {
-    status: "generated",
-    storage_path: path,
-    /*
-     * Only if the provider ever starts reporting one. Today it does not, and
-     * the figure already on the row is ours, written when the task was
-     * accepted; overwriting it with null here would erase the only record of
-     * the charge. A provider figure, if one ever arrives, is the better
-     * source and wins.
-     */
-    ...(creditsSpent === undefined ? {} : { credits_spent: creditsSpent }),
-  });
-  if (doneError !== null) return { ok: false, error: doneError };
-
-  revalidatePath(SCREEN);
-  return { ok: true, attempts: await readAttempts(supabase, owner) };
 }
 
 /**
