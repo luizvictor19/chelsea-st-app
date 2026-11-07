@@ -75,10 +75,12 @@ function localDateKey(date: Date, timeZone: string): string {
 export const DEFAULT_TIME_ZONE = "America/Sao_Paulo";
 
 /**
- * The zone itself when it is one, the default otherwise. profiles.timezone
- * takes any text its owner writes (profiles_update_self), and Intl throws on
- * a zone it does not know: one employee's typo must not take down the
- * admin's screen. team_practice (0044) falls back the same way.
+ * The zone itself when it is one, the default otherwise. Since 0048 (#219)
+ * profiles.timezone takes only a zone the server's tzdata lists, but a row can
+ * still hold one this Intl does not know: a name the tzdata dropped after it
+ * was written, or one newer than this ICU. Intl throws on it, and one
+ * employee's zone must not take down the admin's screen. team_practice (0044)
+ * falls back the same way.
  */
 export function knownZone(timeZone: string | undefined): string {
   if (timeZone === undefined) return DEFAULT_TIME_ZONE;

@@ -169,3 +169,23 @@ export function scheduleLabel(
 ): string {
   return `${WEEKDAYS[weekday]}, ${hourLabel(startTime)} · ${durationMinutes} min`;
 }
+
+/** What the database said when a schedule was not written. */
+type ScheduleWriteFailure = {
+  readonly code?: string;
+  readonly message: string;
+};
+
+/**
+ * The teacher's sentence for a schedule the database refused. The zone is
+ * copied from her profile, and since 0048 (#219) a zone the server does not
+ * know is refused on write: a name its tzdata dropped after she set it.
+ * Anything else keeps the database's own message.
+ */
+export function scheduleWriteError(error: ScheduleWriteFailure): string {
+  if (error.code === "23505") return "Esse horário já existe.";
+  if (error.code === "23514" && error.message.includes("time zone")) {
+    return "O fuso horário do seu perfil não é reconhecido. Nada foi salvo.";
+  }
+  return error.message;
+}

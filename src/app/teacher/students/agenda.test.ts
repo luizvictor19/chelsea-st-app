@@ -10,6 +10,7 @@ import {
   scheduleLabel,
   slotOf,
   type AgendaLesson,
+  scheduleWriteError,
 } from "./agenda.ts";
 
 const SP = "America/Sao_Paulo";
@@ -163,5 +164,35 @@ describe("scheduleLabel", () => {
     assert.equal(scheduleLabel(1, "19:00:00", 45), "Segunda, 19h · 45 min");
     assert.equal(scheduleLabel(4, "19:30:00", 50), "Quinta, 19h30 · 50 min");
     assert.equal(scheduleLabel(0, "09:05:00", 45), "Domingo, 9h05 · 45 min");
+  });
+});
+
+describe("scheduleWriteError", () => {
+  test("a zone the database refuses is said in Portuguese, not as Postgres says it (#219)", () => {
+    assert.equal(
+      scheduleWriteError({
+        code: "23514",
+        message: "time zone not known: Not/A_Zone",
+      }),
+      "O fuso horário do seu perfil não é reconhecido. Nada foi salvo.",
+    );
+  });
+
+  test("a slot taken twice says so", () => {
+    assert.equal(
+      scheduleWriteError({ code: "23505", message: "duplicate key" }),
+      "Esse horário já existe.",
+    );
+  });
+
+  test("anything else keeps the database's message", () => {
+    assert.equal(
+      scheduleWriteError({ code: "42501", message: "permission denied" }),
+      "permission denied",
+    );
+    assert.equal(
+      scheduleWriteError({ code: "23514", message: "weekday check" }),
+      "weekday check",
+    );
   });
 });

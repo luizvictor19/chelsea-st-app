@@ -122,6 +122,13 @@ architecture question for Luiz.
   service role holds nothing on it. A number sent twice is two rows (history, nothing is
   overwritten); the latest send of each number is the view `leads_latest`, with no privilege for
   any API role. The number is stored with the 55 (`leads_whatsapp_br`).
+- A time zone is one both Postgres and the screen read (0048, #219): `profiles.timezone` and
+  `lesson_schedules.timezone` take only a name in `pg_timezone_names` that is not `posix/` and not
+  `Factory`. A trigger on each, `before insert or update of timezone` (`profiles_timezone_known`,
+  `lesson_schedules_timezone_known`), calls `is_known_time_zone` (executed by `authenticated`) and
+  refuses with 23514 under its own name. A trigger and not a check: a name the server's tzdata drops
+  later keeps its rows, the other columns of such a row still change, only writing the zone again
+  is refused, and a restore (`session_replication_role = replica`) skips it.
 - Every organization wears a brand since 0041: `organizations.brand`, `chelsea-st` or `grifoai`
   (`organizations_brand_known`), with no default, so a new organization names it. Only the
   platform admin changes it (`organizations_write`); a member reads her own organization's. The
@@ -159,8 +166,8 @@ architecture question for Luiz.
   a `security definer` function that refuses (42501) anyone but an admin of that organization or
   the platform admin, and `anon` holds no `execute` on it. Per person who has a row in `students`
   it returns the last day practised, the days practised in each of the last 1 to 12 weeks (Monday
-  to Sunday, in `profiles.timezone`, São Paulo when that is not a zone: #219) and the minutes
-  practised in the month; never what was said.
+  to Sunday, in `profiles.timezone`, São Paulo when that is not a zone, which since 0048 only a
+  name the tzdata dropped can be) and the minutes practised in the month; never what was said.
   The days come from `attempts` and the minutes are 0 until Robin v1 (#71) records sessions with a
   start and an end; #71 rewrites the body and keeps the signature. The policies of `attempts` and
   `review_schedule` did not change. The daily cap (15 min, both brands) lives in

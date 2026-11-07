@@ -1286,6 +1286,7 @@ export type Database = {
       dissolve_contrast_set: { Args: { p_set_id: string }; Returns: undefined };
       gen_random_uuid: { Args: Record<PropertyKey, never>; Returns: string };
       gen_salt: { Args: { "": string }; Returns: string };
+      is_known_time_zone: { Args: { p_zone: string }; Returns: boolean };
       is_organization_member: {
         Args: {
           p_organization: string;
