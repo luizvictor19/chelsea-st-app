@@ -114,7 +114,7 @@ function InviteRow({
         </div>
       ) : (
         <span className="text-faint text-sm">
-          Só o admin da escola reenvia ou cancela
+          Só o admin da organização reenvia ou cancela
         </span>
       )}
     </li>

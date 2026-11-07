@@ -86,7 +86,7 @@ export function InviteForm({
       {organizations.length > 1 ? (
         <div className="flex flex-col gap-2">
           <label htmlFor="invite-organization" className="font-semibold">
-            Escola
+            Organização
           </label>
           <select
             id="invite-organization"
