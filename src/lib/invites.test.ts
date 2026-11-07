@@ -67,6 +67,17 @@ describe("invites", () => {
     assert.equal(invitedAs({ ...school, role: "admin" }), "Admin da escola");
   });
 
+  test("an invite read from a database before 0046 keeps the school's names", () => {
+    assert.equal(
+      invitedAs({ role: "student", has_teacher: undefined }),
+      "Aluna",
+    );
+    assert.equal(
+      invitedAs({ role: "admin", has_teacher: null }),
+      "Admin da escola",
+    );
+  });
+
   test("sending again opens the invite for the full period", () => {
     const now = new Date("2026-10-24T12:00:00Z");
     assert.equal(renewedExpiry(now), "2026-11-08T12:00:00.000Z");

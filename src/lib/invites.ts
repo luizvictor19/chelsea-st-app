@@ -33,12 +33,21 @@ export function roleLabel(role: OrganizationRole, hasTeacher: boolean): string {
  * The role an open invite offers, named as its organization names it. The
  * invited person is not a member yet and cannot read organizations, so the
  * kind comes with the invite (my_open_organization_invites, 0046, #213).
+ *
+ * Read as unknown and not as the type says: a database still on 0040's
+ * function (the code merged before 0046 is pushed, or a schema cache behind)
+ * gives no has_teacher, and roleLabel would read that as a company and call
+ * a school's student "Funcionário". Without a boolean, the school's names,
+ * which is what the screen said before 0046.
  */
 export function invitedAs(invite: {
   readonly role: OrganizationRole;
-  readonly has_teacher: boolean;
+  readonly has_teacher: unknown;
 }): string {
-  return roleLabel(invite.role, invite.has_teacher);
+  return roleLabel(
+    invite.role,
+    typeof invite.has_teacher === "boolean" ? invite.has_teacher : true,
+  );
 }
 
 /**

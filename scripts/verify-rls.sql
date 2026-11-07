@@ -4468,6 +4468,7 @@ declare
   c_kind constant uuid := 'a2130000-0000-4000-8000-000000000213';
   v_school uuid;
   v_company uuid;
+  v_uid text := current_setting('test.uid', true);
   v_failures text;
 begin
   delete from verify.failures;
@@ -4480,6 +4481,12 @@ begin
   insert into organization_invites (organization_id, email, role)
     values (c_grifoai, 'kind@example.com', 'student')
     returning id into v_company;
+  -- Two she must not see, so the recreated function is checked for its
+  -- filters on its own: someone else's open invite, and one of hers expired.
+  insert into organization_invites (organization_id, email, role)
+    values (c_grifoai, 'not-kind@example.com', 'student');
+  insert into organization_invites (organization_id, email, role, expires_at)
+    values (c_chelsea, 'kind@example.com', 'teacher', now() - interval '1 day');
 
   set local role authenticated;
   perform set_config('test.uid', c_kind::text, false);
@@ -4490,12 +4497,14 @@ begin
     insert into verify.failures values ('an invite to an organization without a teacher did not say has_teacher false');
   end if;
   if (select count(*) from my_open_organization_invites()) <> 2 then
-    insert into verify.failures values ('my_open_organization_invites did not give her own two open invites');
+    insert into verify.failures values ('my_open_organization_invites did not give exactly her own two open invites');
   end if;
   reset role;
 
-  delete from organization_invites where id in (v_school, v_company);
+  delete from organization_invites where email in ('kind@example.com', 'not-kind@example.com');
   delete from auth.users where id = c_kind;
+  -- The uid of the blocks before, not of an account that is gone.
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
 
   select string_agg(what, '; ') into v_failures from verify.failures;
   if v_failures is not null then
