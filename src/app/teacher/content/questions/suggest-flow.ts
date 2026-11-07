@@ -17,6 +17,10 @@ import type { TextProvider } from "../../../../lib/text/provider.ts";
 import type { FailureWording } from "../images/claude-failure.ts";
 import { askModel, usdOrNull } from "../images/suggestion-call.ts";
 
+import { COUNT_RANGE, NO_NEW_WORDS } from "./suggest-texts.ts";
+
+export { COUNT_RANGE, NO_NEW_WORDS };
+
 /**
  * "Sugerir perguntas" for one point (#230, sub-issue of #67), apart from
  * Supabase and from the SDK, so the order that matters is tested under node:
@@ -84,11 +88,9 @@ export type SuggestDeps = {
   readonly log: (line: Record<string, unknown>) => void;
 };
 
-export const COUNT_RANGE = `Escolha de ${MIN_PAIRS} a ${MAX_PAIRS} perguntas.`;
 export const COMMON_ONLY =
   "Só quem edita o conteúdo comum pode pedir perguntas.";
 export const POINT_GONE = "Esse ponto não existe mais. Recarregue a página.";
-export const NO_NEW_WORDS = "Este ponto não tem palavras novas para perguntar.";
 export const UNREADABLE =
   "O modelo não devolveu perguntas legíveis. Tente de novo.";
 

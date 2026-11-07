@@ -21,6 +21,8 @@ import {
   stillLoaded,
   type PictureOf,
   type QuestionFields,
+  parseSuggestion,
+  suggestionColumns,
 } from "./draft.ts";
 import { approvedPicture } from "../../../../lib/questions/shown-word.ts";
 
@@ -542,5 +544,48 @@ describe("the forms open in a point", () => {
     opened(before, "b");
     closed(before, "a");
     assert.deepEqual([...before], ["a"]);
+  });
+});
+
+describe("parseSuggestion", () => {
+  const whole = {
+    model: "claude-haiku-5-5",
+    prompt: "Is it a pen?",
+    answer: "Yes, it's a pen.",
+  };
+
+  test("nothing sent is a question written by hand", () => {
+    assert.equal(parseSuggestion(undefined), null);
+    assert.equal(parseSuggestion(null), null);
+  });
+
+  test("all three parts are taken, and nothing else rides along", () => {
+    assert.deepEqual(parseSuggestion({ ...whole, is_published: true }), whole);
+  });
+
+  test("a part missing, blank, not text or too long is refused", () => {
+    for (const part of ["model", "prompt", "answer"] as const) {
+      assert.equal(parseSuggestion({ ...whole, [part]: undefined }), undefined);
+      assert.equal(parseSuggestion({ ...whole, [part]: "  " }), undefined);
+      assert.equal(parseSuggestion({ ...whole, [part]: 7 }), undefined);
+      assert.equal(
+        parseSuggestion({ ...whole, [part]: "x".repeat(1001) }),
+        undefined,
+      );
+    }
+    assert.equal(parseSuggestion("claude-haiku-5-5"), undefined);
+  });
+
+  test("the columns of the insert: all three, or all null by hand", () => {
+    assert.deepEqual(suggestionColumns(whole), {
+      suggested_model: "claude-haiku-5-5",
+      suggested_prompt: "Is it a pen?",
+      suggested_answer: "Yes, it's a pen.",
+    });
+    assert.deepEqual(suggestionColumns(null), {
+      suggested_model: null,
+      suggested_prompt: null,
+      suggested_answer: null,
+    });
   });
 });

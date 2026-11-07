@@ -8,6 +8,7 @@ import {
   questionDeleted,
   questionFailed,
   questionSaved,
+  questionsSuggested,
   sceneCreated,
   sceneFound,
 } from "./notice-texts.ts";
@@ -62,5 +63,46 @@ describe("a notice about a question starts with its point", () => {
 
   test("the header and the notices call a point the same thing", () => {
     assert.equal(pointLabel(7), "Ponto 7");
+  });
+});
+
+describe("questionsSuggested", () => {
+  test("what was asked for, in the cards", () => {
+    assert.deepEqual(
+      questionsSuggested(5, { asked: 6, returned: 6, added: 6 }),
+      {
+        kind: "success",
+        text: "Ponto 5: 6 perguntas sugeridas.",
+      },
+    );
+    assert.equal(
+      questionsSuggested(5, { asked: 1, returned: 1, added: 1 }).text,
+      "Ponto 5: 1 pergunta sugerida.",
+    );
+  });
+
+  test("fewer than asked says why", () => {
+    assert.equal(
+      questionsSuggested(7, { asked: 6, returned: 4, added: 4 }).text,
+      "Ponto 7: 4 de 6 perguntas sugeridas: o modelo não achou mais perguntas naturais.",
+    );
+  });
+
+  test("drafts already on a card are counted apart", () => {
+    assert.equal(
+      questionsSuggested(7, { asked: 6, returned: 6, added: 4 }).text,
+      "Ponto 7: 6 perguntas sugeridas. 2 já estavam nos cartões.",
+    );
+    assert.equal(
+      questionsSuggested(7, { asked: 6, returned: 6, added: 0 }).text,
+      "Ponto 7: as perguntas sugeridas já estavam nos cartões.",
+    );
+  });
+
+  test("none at all", () => {
+    assert.equal(
+      questionsSuggested(7, { asked: 6, returned: 0, added: 0 }).text,
+      "Ponto 7: o modelo não sugeriu nenhuma pergunta.",
+    );
   });
 });
