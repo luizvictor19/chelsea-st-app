@@ -309,6 +309,35 @@ Dependabot. Steps 2 and 3 from the command line, with Luiz's token:
     gh api -X PUT repos/luizvictor19/chelsea-st-app/vulnerability-alerts
     gh api -X PUT repos/luizvictor19/chelsea-st-app/automated-security-fixes
 
+## Secret scanning and push protection
+
+On since 07/11/2026 (#150), in Settings > Advanced Security. Only Luiz changes them. Check:
+
+    gh api repos/luizvictor19/chelsea-st-app --jq .security_and_analysis
+
+`secret_scanning` and `secret_scanning_push_protection` read `enabled`. Non-provider patterns and
+validity checks stay off.
+
+**A push refused with `GH013` ("Push cannot contain secrets").** The commit never reached GitHub.
+The session stops and tells Luiz. It never uses the bypass link in the message.
+
+- A real key: take it out of the file (the value goes to `.env.local`, only the name stays in the
+  code), undo the local commits that never left the machine, and commit again:
+
+      git reset --soft @{u}                                   # the branch was pushed before
+      git reset --soft $(git merge-base HEAD origin/main)     # the branch was never pushed
+
+  This rewrites only commits that never reached GitHub: it is not an amend, a rebase or a force
+  push. The refused push did not publish the key; rotate it at the provider only if it left the
+  machine some other way.
+
+- A false positive (a fixture, a test string): the call and the bypass are Luiz's, through the
+  link in the message.
+
+**An alert in Security > Secret scanning** (a key that got in before, or by another path): rotate
+the key at the provider first, then remove it from the code in a normal PR. Git history keeps the
+old value, so only the rotation closes the leak. Close the alert as "Revoked".
+
 ## Labels
 
 Type:
