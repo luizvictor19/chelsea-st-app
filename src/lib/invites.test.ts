@@ -155,13 +155,18 @@ describe("acceptRefusal", () => {
       }),
       /venceu ou já foi usado/,
     );
-    assert.match(
-      acceptRefusal({
-        code: "23514",
-        message: "this person already studies at another organization",
-      }),
-      /já estuda em outra escola/,
+    // One sentence for a school and a company alike (#239): the refusal also
+    // meets a school's student invited as a company's employee, where a
+    // sentence by the kind of the invite would be false.
+    const elsewhere = acceptRefusal({
+      code: "23514",
+      message: "this person already studies at another organization",
+    });
+    assert.equal(
+      elsewhere,
+      "Você já faz parte de outra organização como aluna ou funcionário. Cada pessoa participa de uma organização só nesse papel.",
     );
+    assert.doesNotMatch(elsewhere, /escola|estuda/);
   });
 
   test("an unknown failure is not dressed as one of the rules", () => {
