@@ -337,11 +337,11 @@ language plpgsql security definer as $$ begin end; $$;
 -- these functions as authenticated and fire every one of these triggers.
 \i supabase/migrations/0047_a_function_runs_only_for_who_needs_it.sql
 
--- 0048 adds a function and two checks, profiles_timezone_known and
+-- 0048 adds two functions and two triggers, profiles_timezone_known and
 -- lesson_schedules_timezone_known, and changes no row. Its block, "A time zone
 -- is one the screen reads (0048)", runs after the fixtures. The fixtures below
 -- write profiles and schedules with the default zone, so they already pass
--- through both checks.
+-- through both triggers.
 \i supabase/migrations/0048_a_time_zone_is_one_the_screen_reads.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
@@ -4114,19 +4114,18 @@ begin
   update profiles set timezone = c_london where id = c_f2;
   -- Before 0048 any text went in through profiles_update_self. Since 0048
   -- (#219) no write puts an unknown zone in, but a row can still hold one:
-  -- written before, or a name the server's tzdata dropped later. The check
-  -- is set aside for this one write and comes back after the block reads F5.
-  -- Only where it exists: with it cut, for the reversion of 0048, the
-  -- assertions of 0048's own block are the ones that must fail.
-  v_zone_check := exists (select 1 from pg_constraint
-                           where conname = 'profiles_timezone_known');
+  -- written before, or a name the server's tzdata dropped later. The trigger
+  -- is set aside for this one write, as a restore sets it aside. Only where
+  -- it exists: with it cut, for the reversion of 0048, the assertions of
+  -- 0048's own block are the ones that must fail.
+  v_zone_check := exists (select 1 from pg_trigger
+                           where tgname = 'profiles_timezone_known');
   if v_zone_check then
-    alter table profiles drop constraint profiles_timezone_known;
+    alter table profiles disable trigger profiles_timezone_known;
   end if;
   update profiles set timezone = 'Not/A_Zone' where id = c_f5;
   if v_zone_check then
-    alter table profiles add constraint profiles_timezone_known
-      check (public.is_known_time_zone(timezone)) not valid;
+    alter table profiles enable trigger profiles_timezone_known;
   end if;
   insert into organization_members (organization_id, user_id, role) values
     (v_f, c_admin_f, 'admin'),
@@ -4268,11 +4267,8 @@ begin
   end if;
 
   reset role;
-  -- F5 back in a known zone, and the check whole again, as 0048 left it.
+  -- F5 back in a known zone.
   update profiles set timezone = 'America/Sao_Paulo' where id = c_f5;
-  if v_zone_check then
-    alter table profiles validate constraint profiles_timezone_known;
-  end if;
   perform set_config('test.uid', '', false);
 
   -- 8. What comes out, and nothing of what was said.
@@ -4792,10 +4788,12 @@ $$;
 --
 -- profiles.timezone and lesson_schedules.timezone take only a zone in
 -- pg_timezone_names that is not posix/ and not Factory, the zones Node's Intl
--- reads too. Each refusal is asserted by the name of the check that refused
--- it, as the person who writes the row does through the API: the student her
--- own profile (profiles_update_self), the teacher a schedule
--- (lesson_schedules_write). Nothing written here is kept.
+-- reads too. A trigger on each, before insert or update of timezone, refuses
+-- with check_violation under the rule's name, and each refusal is asserted by
+-- that name, as the person who writes the row does through the API: the
+-- student her own profile (profiles_update_self), the teacher a schedule
+-- (lesson_schedules_write). A row holding a name the tzdata dropped keeps it,
+-- and a write to another of its columns passes. Nothing written here is kept.
 --
 -- The postgres:17 image this runs on (CI and local) lists 487 zones and no
 -- posix/ name, so here a posix/ name is refused by the list itself and the
@@ -4810,6 +4808,7 @@ declare
   v_rows bigint;
   v_zone text;
   v_minute integer;
+  v_name text := (select full_name from profiles where id = '22222222-2222-2222-2222-222222222222');
   v_failures text;
 begin
   delete from verify.failures;
@@ -4827,6 +4826,28 @@ begin
     insert into verify.failures values ('the student could not set her own zone to Europe/London');
   end if;
   update profiles set timezone = 'America/Sao_Paulo' where id = c_student;
+
+  -- A name the tzdata dropped after it was written, put there as a restore
+  -- would. Her name still changes; writing the zone again is refused.
+  reset role;
+  if exists (select 1 from pg_trigger where tgname = 'profiles_timezone_known') then
+    alter table profiles disable trigger profiles_timezone_known;
+    update profiles set timezone = 'Not/A_Zone' where id = c_student;
+    alter table profiles enable trigger profiles_timezone_known;
+  else
+    update profiles set timezone = 'Not/A_Zone' where id = c_student;
+  end if;
+  set local role authenticated;
+  begin
+    update profiles set full_name = 'Student, renamed' where id = c_student;
+  exception when others then
+    insert into verify.failures values (format(
+      'a profile whose zone left the list could not change its name: %s', sqlerrm));
+  end;
+  perform verify.expect_refused('a profile writing again a zone that left the list',
+    'profiles_timezone_known',
+    format('update profiles set timezone = %L where id = %L', 'Not/A_Zone', c_student));
+  update profiles set timezone = 'America/Sao_Paulo', full_name = v_name where id = c_student;
 
   perform set_config('test.uid', c_teacher::text, false);
   -- A start time each, so a zone wrongly accepted leaves a row that does not
@@ -4857,6 +4878,18 @@ begin
   if has_function_privilege('service_role', 'public.is_known_time_zone(text)', 'execute') then
     insert into verify.failures values ('service_role executes is_known_time_zone');
   end if;
+  if has_function_privilege('anon', 'public.a_time_zone_is_known()', 'execute')
+     or has_function_privilege('authenticated', 'public.a_time_zone_is_known()', 'execute')
+     or has_function_privilege('service_role', 'public.a_time_zone_is_known()', 'execute') then
+    insert into verify.failures values ('someone executes the trigger function a_time_zone_is_known');
+  end if;
+
+  -- This image lists no posix/ name (see above), so the clause is held by its
+  -- text: removing it would pass every case here and fail on the project.
+  if position($clause$name not like 'posix/%'$clause$
+               in pg_get_functiondef('public.is_known_time_zone(text)'::regprocedure)) = 0 then
+    insert into verify.failures values ('is_known_time_zone no longer leaves out the posix/ names');
+  end if;
 
   -- The uid of the blocks before.
   perform set_config('test.uid', coalesce(v_uid, ''), false);
@@ -4865,7 +4898,7 @@ begin
   if v_failures is not null then
     raise exception 'a time zone is one the screen reads: %', v_failures;
   end if;
-  raise notice 'a zone outside the list, posix/ or Factory is refused by profiles_timezone_known and lesson_schedules_timezone_known; Europe/London passes; only authenticated executes is_known_time_zone';
+  raise notice 'a zone outside the list, posix/ or Factory is refused by profiles_timezone_known and lesson_schedules_timezone_known; Europe/London passes; a row whose zone left the list still changes its other columns; only authenticated executes is_known_time_zone, nobody the trigger function';
 end;
 $$;
 

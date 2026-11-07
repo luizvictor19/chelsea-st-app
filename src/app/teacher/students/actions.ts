@@ -9,6 +9,7 @@ import {
   lessonsLeavingWith,
   parseMeetUrl,
   parseStartTime,
+  scheduleWriteError,
   WEEKS_AHEAD,
 } from "./agenda";
 import { teacherZone } from "./queries";
@@ -113,15 +114,7 @@ export async function addSchedule(
     timezone: await teacherZone(supabase, user.id),
     duration_minutes: durationMinutes,
   });
-  if (error) {
-    return {
-      ok: false,
-      error:
-        error.code === UNIQUE_VIOLATION
-          ? "Esse horário já existe."
-          : error.message,
-    };
-  }
+  if (error) return { ok: false, error: scheduleWriteError(error) };
   refresh();
 
   const created = await materialize(supabase, studentId);

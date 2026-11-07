@@ -124,9 +124,11 @@ architecture question for Luiz.
   any API role. The number is stored with the 55 (`leads_whatsapp_br`).
 - A time zone is one both Postgres and the screen read (0048, #219): `profiles.timezone` and
   `lesson_schedules.timezone` take only a name in `pg_timezone_names` that is not `posix/` and not
-  `Factory` (`profiles_timezone_known`, `lesson_schedules_timezone_known`, through
-  `is_known_time_zone`, executed by `authenticated`). The function is `stable`: a name the server's
-  tzdata drops later keeps its rows, and the next write to such a row is refused.
+  `Factory`. A trigger on each, `before insert or update of timezone` (`profiles_timezone_known`,
+  `lesson_schedules_timezone_known`), calls `is_known_time_zone` (executed by `authenticated`) and
+  refuses with 23514 under its own name. A trigger and not a check: a name the server's tzdata drops
+  later keeps its rows, the other columns of such a row still change, only writing the zone again
+  is refused, and a restore (`session_replication_role = replica`) skips it.
 - Every organization wears a brand since 0041: `organizations.brand`, `chelsea-st` or `grifoai`
   (`organizations_brand_known`), with no default, so a new organization names it. Only the
   platform admin changes it (`organizations_write`); a member reads her own organization's. The

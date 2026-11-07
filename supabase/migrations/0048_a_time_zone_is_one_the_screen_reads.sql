@@ -16,17 +16,30 @@
 -- rule made of `at time zone` alone would let through names that break the
 -- screen. The rule is the list, without those two.
 --
--- A check cannot hold a subquery, so the list is read by a function. Stable,
--- not immutable: the list is the server's tzdata, and it changes when
--- Supabase updates it. A check runs only on a write, so a name that left the
--- list keeps the rows that hold it; the next write to such a row is refused.
--- Every row passes today, so no data changes.
+-- The list is read by a function, stable and not immutable: it is the
+-- server's tzdata, and it changes when Supabase updates it.
 --
--- Since 0047 a function is born executable by its owner alone. A check runs
--- with the privileges of whoever writes the row, so authenticated, which
--- writes both tables (profiles_update_self, lesson_schedules_write), executes
--- it. The two triggers that make a profile on signup are security definer,
--- owned by postgres, so a signup needs no grant. anon writes neither table.
+-- A trigger on each table, `before insert or update of timezone`, and not a
+-- check, by Luiz's decision after the code review (#219). A check runs on
+-- every write of the row: once the tzdata drops a name, editing anything
+-- else on that row (a profile's name), or a later migration that updates
+-- every schedule, would be refused. And a check runs in a restore, where the
+-- local Postgres lists fewer zones (487 against 597); the restore in
+-- docs/commands.md runs with session_replication_role = replica, which skips
+-- triggers. The trigger refuses as a check would, check_violation (23514),
+-- under the name the rule had: profiles_timezone_known and
+-- lesson_schedules_timezone_known. A row whose name left the list stays as it
+-- is until its zone is written again. Every row passes today, so no data
+-- changes.
+--
+-- Since 0047 a function is born executable by its owner alone. The trigger
+-- function runs with the privileges of whoever writes the row, so
+-- authenticated, which writes both tables (profiles_update_self,
+-- lesson_schedules_write), executes is_known_time_zone. Nobody executes the
+-- trigger function itself: execute is checked when a trigger is created, not
+-- when it fires. The two triggers that make a profile on signup are security
+-- definer, owned by postgres, so a signup needs no grant. anon writes
+-- neither table.
 
 create function public.is_known_time_zone(p_zone text)
 returns boolean
@@ -48,10 +61,30 @@ comment on function public.is_known_time_zone(text) is
 
 grant execute on function public.is_known_time_zone(text) to authenticated;
 
-alter table public.profiles
-  add constraint profiles_timezone_known
-  check (public.is_known_time_zone(timezone));
+-- Refused under <table>_timezone_known, the name verify-rls.sql and the
+-- screen (scheduleWriteError) read.
+create function public.a_time_zone_is_known()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if not public.is_known_time_zone(new.timezone) then
+    raise exception 'time zone not known: %', new.timezone
+      using errcode = 'check_violation',
+            constraint = tg_table_name || '_timezone_known',
+            schema = tg_table_schema,
+            table = tg_table_name,
+            column = 'timezone';
+  end if;
+  return new;
+end;
+$$;
 
-alter table public.lesson_schedules
-  add constraint lesson_schedules_timezone_known
-  check (public.is_known_time_zone(timezone));
+create trigger profiles_timezone_known
+  before insert or update of timezone on public.profiles
+  for each row execute function public.a_time_zone_is_known();
+
+create trigger lesson_schedules_timezone_known
+  before insert or update of timezone on public.lesson_schedules
+  for each row execute function public.a_time_zone_is_known();
