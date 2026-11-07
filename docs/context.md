@@ -206,6 +206,30 @@ architecture question for Luiz.
 - Student personal data (name, email, audio) is processed under the privacy terms published on the
   landing. Never log it, never paste it into an issue.
 
+## Test accounts
+
+The phone screen test (the `phone-drive` skill, outside this repository) logs in with accounts
+that are aliases of Luiz's e-mail. Their e-mails and passwords live only in
+`~/.config/chelsea-test/credentials` (mode 600, never committed), one `<KEY>_EMAIL` and one
+`<KEY>_PASSWORD` per account, and `wd.py login <key>` picks one by its key.
+
+| Key       | Account                                                    | Can                                                                           |
+| --------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `TEACHER` | teacher of the Chelsea St organization, not platform admin | the teacher's screens; not the content screens, which redirect to `/teacher`  |
+| `STUDENT` | student of Chelsea St                                      | the student's screens; any write a test makes there goes only to this student |
+| `ADMIN`   | platform admin, in no organization (#237)                  | the content screens, and every organization's people                          |
+
+- **The test admin isolates nothing.** There is one database, production, so what it writes is
+  real common content, as Luiz's own account would. A test says what it will write before, checks
+  it through the MCP after, and leaves it unpublished for Luiz to keep or delete.
+- It sees the people of every organization: use it on the content screens only, and never copy a
+  student's name into an issue, a PR or a report.
+- It was made by Luiz in the Supabase dashboard (Authentication, then a row in `platform_admins`
+  from the SQL Editor), as 0029 allows, and not by a migration: it is one production account, and
+  its e-mail or id does not belong in this public repository. Taking it back is deleting that row.
+- The accounts of the Empresa Teste (an organization without a teacher: its admin and an employee)
+  come with #213.
+
 ## Content state
 
 - Book 1 is fully ingested (points 1 to 52). Book 2 is extracted but not re-ingested (points 53 to 128).
