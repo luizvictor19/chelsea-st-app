@@ -16,6 +16,10 @@
  * the prompt would be copied.
  */
 
+// Relative, with the extension: this module is imported by node:test files
+// and by a script, and node resolves neither the @/ alias nor a bare path.
+import { RULES, fold, words as splitWords, type Rule } from "./presented.ts";
+
 /** A vocabulary item, as the prompt needs it. */
 export type SuggestWord = {
   readonly point: number;
@@ -50,7 +54,73 @@ export type SuggestInput = {
    * what is over and cannot fill what is short.
    */
   readonly count?: number;
+  /**
+   * Terms of earlier points that no question uses yet (pendingTerms). Left
+   * out, or empty, the prompt has no such line, as in the #83 measurement.
+   */
+  readonly pending?: readonly string[];
 };
+
+/**
+ * The kinds a pending word can be: a word that can be shown, or a number.
+ * A word of usage, of metalanguage or of none is practised inside sentences
+ * or never asked, so it is not waiting for a question of its own.
+ */
+const PENDING_KINDS: ReadonlySet<string> = new Set([
+  "photo",
+  "pose",
+  "action",
+  "figure",
+  "symbol",
+]);
+
+/**
+ * The new words of earlier points that no question uses yet, in book order
+ * (#67, decided 03/10: a word with no natural question at its point waits
+ * and goes back to the generator at the points after it). Worked out from
+ * the questions there are, so a question written by hand takes a word out
+ * as well, and nothing is stored.
+ *
+ * A term is used when every word of it appears in the prompt or the English
+ * answer of a question at an earlier point, read with the validator's rules
+ * (case, punctuation, apostrophes): "in front of" needs all three.
+ */
+export function pendingTerms(
+  words: readonly Pick<SuggestWord, "point" | "term" | "kind">[],
+  questions: readonly {
+    readonly point: number;
+    readonly prompt: string;
+    readonly expectedAnswer: string;
+    readonly answerLanguage: "en" | "pt";
+  }[],
+  point: number,
+): readonly string[] {
+  const rules: ReadonlySet<Rule> = new Set(RULES);
+  const used = new Set<string>();
+  for (const question of questions) {
+    if (question.point >= point) continue;
+    const texts = [
+      question.prompt,
+      ...(question.answerLanguage === "en" ? [question.expectedAnswer] : []),
+    ];
+    for (const text of texts) {
+      for (const { word } of splitWords(text, rules)) {
+        used.add(fold(word, rules));
+      }
+    }
+  }
+  return words
+    .filter(
+      (word) =>
+        word.point < point &&
+        word.kind !== null &&
+        PENDING_KINDS.has(word.kind) &&
+        !splitWords(word.term, rules).every(({ word: part }) =>
+          used.has(fold(part, rules)),
+        ),
+    )
+    .map((word) => word.term);
+}
 
 /**
  * Pairs asked for per point when the teacher does not say. Six, so the quick
@@ -206,6 +276,7 @@ export function buildSuggestQuestionsPrompt(input: SuggestInput): {
   }
   const sets = presentedSets(input.words, input.point);
   const scenes = input.scenes.filter((scene) => scene.point <= input.point);
+  const pending = input.pending ?? [];
   const rules = SUGGEST_QUESTIONS_RULES.map(
     (rule, index) => `${index + 1}. ${rule}`,
   ).join("\n");
@@ -229,7 +300,13 @@ ${fresh.map(line).join("\n")}
 Shown side by side: ${sets.length === 0 ? "none" : sets.map((set) => set.join("/")).join("; ")}
 
 Existing scenes:
-${scenes.length === 0 ? "- none" : scenes.map((scene) => `- "${scene.description}"`).join("\n")}`,
+${scenes.length === 0 ? "- none" : scenes.map((scene) => `- "${scene.description}"`).join("\n")}${
+      pending.length === 0
+        ? ""
+        : `
+
+Words from earlier points that no question uses yet (use one when the words of this point now make a natural question for it; rule 4 still holds): ${pending.join(", ")}`
+    }`,
   };
 }
 
@@ -364,5 +441,54 @@ export function resolveImage<
         ? { kind: "word", word }
         : { kind: "invalid", reason: "word has no picture" };
     }
+  }
+}
+
+/** What a draft shows, in the terms the question form keeps (0030). */
+export type DraftImage =
+  | { readonly kind: "word"; readonly id: string }
+  | { readonly kind: "scene"; readonly id: string }
+  /** A scene still to be made: the form opens Criar cena with it. */
+  | { readonly kind: "new_scene"; readonly description: string }
+  | { readonly kind: "acted" }
+  /** What the model named does not exist; said on the card, in Portuguese. */
+  | { readonly kind: "none"; readonly reason: string };
+
+const NO_IMAGE_REASON: Readonly<Record<string, string>> = {
+  "no such word": "a palavra sugerida para a imagem não existe neste ponto",
+  "word has no picture": "a palavra sugerida ainda não tem imagem aprovada",
+  "no such scene": "a cena sugerida não existe",
+  "new scene with no description": "a cena nova veio sem descrição",
+};
+
+/**
+ * The draft's picture as ids: the word or the scene of the point it names,
+ * a scene to create, acted out, or none with the reason. Only the words
+ * presented by the point and the scenes in use are passed in.
+ */
+export function draftImage(
+  draft: Pick<DraftQuestion, "imageKind" | "image">,
+  words: readonly {
+    readonly id: string;
+    readonly term: string;
+    readonly picture: boolean;
+  }[],
+  scenes: readonly { readonly id: string; readonly description: string }[],
+): DraftImage {
+  const resolved = resolveImage(draft, words, scenes);
+  switch (resolved.kind) {
+    case "word":
+      return { kind: "word", id: resolved.word.id };
+    case "scene":
+      return { kind: "scene", id: resolved.scene.id };
+    case "new_scene":
+      return { kind: "new_scene", description: resolved.description };
+    case "acted_out":
+      return { kind: "acted" };
+    case "invalid":
+      return {
+        kind: "none",
+        reason: NO_IMAGE_REASON[resolved.reason] ?? resolved.reason,
+      };
   }
 }
