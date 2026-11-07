@@ -26,6 +26,10 @@ books he owns and used for his own lessons, are his material and may be
 stored here. Book page images are never committed to this repository.
 The wording of every generated practice sentence is original.
 
+The repository is public for reading only: `LICENSE` reserves every right to
+Luiz, for the code and the teaching material (#139), and `package.json` says
+`UNLICENSED`. Nothing here is offered under an open licence.
+
 ## Stack
 
 Next.js App Router, TypeScript in strict mode, Tailwind, Supabase for
