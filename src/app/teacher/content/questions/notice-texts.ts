@@ -1,6 +1,7 @@
 // Relative, with the extension: notice-texts.test.ts runs under node, which
 // resolves neither the @/ alias nor a missing extension.
 import { notices } from "../../notices.ts";
+import { leftOutList, type LeftOut } from "./publish-reviewed.ts";
 
 /**
  * Every sentence the questions screen puts in the teacher area's snackbar,
@@ -100,6 +101,41 @@ export function questionsSuggested(
     );
   }
   return success(point, parts.join(". "));
+}
+
+/**
+ * What "Publicar revisadas" did (#232): how many went, which drafts stayed
+ * and why, and the ones changed in another tab, which were not touched.
+ */
+export function draftsPublished(
+  point: number,
+  result: {
+    readonly published: number;
+    readonly changed: number;
+    readonly left: readonly LeftOut[];
+  },
+): NoticeText {
+  const parts = [
+    result.published === 0
+      ? "nenhuma pergunta publicada"
+      : result.published === 1
+        ? "1 pergunta publicada"
+        : `${result.published} perguntas publicadas`,
+  ];
+  if (result.left.length > 0) {
+    parts.push(`Ficaram como rascunho: ${leftOutList(result.left)}`);
+  }
+  if (result.changed > 0) {
+    parts.push(
+      result.changed === 1
+        ? "1 mudou em outro lugar e não foi tocada. Recarregue a página"
+        : `${result.changed} mudaram em outro lugar e não foram tocadas. Recarregue a página`,
+    );
+  }
+  return {
+    kind: result.changed > 0 ? "error" : "success",
+    text: `${pointLabel(point)}: ${sentence(parts.join(". "))}`,
+  };
 }
 
 /** An action on one question that answered with ok false. */

@@ -48,6 +48,7 @@ import { settle } from "../images/panel-state";
 import {
   addQuestion,
   deleteQuestion,
+  publishReviewed,
   reorderQuestions,
   saveQuestion,
   type QuestionResult,
@@ -67,6 +68,7 @@ import {
 import { ImageChoiceField, sceneSuggestion } from "./image-choice";
 import { LeaveGuardProvider, useUnsavedWarning } from "./leave-guard";
 import { segments, standing, summary } from "./marks";
+import { leftOutList, sortDrafts } from "./publish-reviewed";
 import { SuggestControls, useSuggestions } from "./suggest-controls";
 import {
   draftToFields,
@@ -74,6 +76,7 @@ import {
   type SuggestionCard,
 } from "./suggestion-cards";
 import {
+  draftsPublished,
   pointFailed,
   pointLabel,
   questionAdded,
@@ -338,6 +341,33 @@ function PointSection({
   const suggestions = useSuggestions(pointId, at.point);
 
   const published = questions.filter((q) => q.isPublished).length;
+  // The point's drafts, in its order, sorted by the pictures the screen
+  // shows; the action sorts them again by the database's (#232).
+  const drafts = questions.map((question, index) => ({
+    id: question.id,
+    number: index + 1,
+    fields: fieldsOf(question),
+  }));
+  const reviewed = sortDrafts(drafts, pictureOf);
+  const publishConfirm = useRef<HTMLDialogElement>(null);
+
+  /** "Publicar revisadas": every draft of the point goes, the action decides which publish. */
+  async function publishDrafts() {
+    if (busy) return;
+    setBusy(true);
+    const result = await settle(() =>
+      publishReviewed(
+        pointId,
+        drafts.filter((draft) => !draft.fields.isPublished),
+      ),
+    );
+    setBusy(false);
+    tell(
+      result.ok
+        ? draftsPublished(at.point, result)
+        : pointFailed(at.point, result.error),
+    );
+  }
 
   /** One action at a time in a point. True when it went through. */
   async function run(
@@ -608,6 +638,82 @@ function PointSection({
           })}
         </ol>
       )}
+
+      {reviewed.ready.length + reviewed.left.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <button
+            type="button"
+            disabled={busy || reviewed.ready.length === 0}
+            onClick={() => publishConfirm.current?.showModal()}
+            className="border-rule hover:bg-surface rounded-sm border px-3 py-1.5 text-sm font-semibold transition-colors disabled:opacity-40"
+          >
+            Publicar revisadas
+          </button>
+          <span className="text-faint text-xs">
+            {reviewed.ready.length === 0
+              ? "Nenhum rascunho pode ser publicado: falta imagem aprovada ou Encenar"
+              : reviewed.ready.length === 1
+                ? "1 rascunho pode ser publicado"
+                : `${reviewed.ready.length} rascunhos podem ser publicados`}
+            {reviewed.left.length > 0 &&
+              ` · ficam como rascunho: ${leftOutList(reviewed.left)}`}
+          </span>
+        </div>
+      )}
+
+      {/*
+        Publishing puts the drafts in front of the students, so it asks
+        first, naming the questions by number. It is undone by editing one
+        and unchecking Publicada; Cancelar takes the focus, so a stray Enter
+        publishes nothing.
+      */}
+      <dialog
+        ref={publishConfirm}
+        aria-labelledby={`${titleId}-publicar`}
+        className="border-rule bg-surface text-foreground m-auto max-w-sm rounded-sm border p-6 backdrop:bg-black/40"
+      >
+        <div className="flex flex-col gap-4">
+          <h2
+            id={`${titleId}-publicar`}
+            className="text-base font-extrabold tracking-tight"
+          >
+            Publicar{" "}
+            {reviewed.ready.length === 1
+              ? "1 pergunta"
+              : `${reviewed.ready.length} perguntas`}{" "}
+            do ponto {at.point}?
+          </h2>
+          <p className="text-muted text-sm">
+            {reviewed.ready.length === 1 ? "A pergunta" : "As perguntas"}{" "}
+            {reviewed.ready.map((draft) => draft.number).join(", ")}{" "}
+            {reviewed.ready.length === 1 ? "passa" : "passam"} a aparecer para
+            as alunas.
+            {reviewed.left.length > 0 &&
+              ` Ficam como rascunho: ${leftOutList(reviewed.left)}.`}
+          </p>
+          <div className="flex flex-wrap justify-end gap-2">
+            <form method="dialog">
+              <button
+                type="submit"
+                autoFocus
+                className="border-rule hover:bg-background rounded-sm border px-3 py-1.5 text-sm transition-colors"
+              >
+                Cancelar
+              </button>
+            </form>
+            <button
+              type="button"
+              onClick={() => {
+                publishConfirm.current?.close();
+                void publishDrafts();
+              }}
+              className="border-foreground bg-foreground text-background rounded-sm border px-3 py-1.5 text-sm font-semibold"
+            >
+              Publicar
+            </button>
+          </div>
+        </div>
+      </dialog>
 
       {adding ? (
         <div className="border-rule bg-surface rounded-sm border p-4">
