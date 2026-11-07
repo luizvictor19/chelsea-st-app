@@ -8,13 +8,15 @@
  * each rule, how many marks it takes away, and lists the marks that are left
  * so each can be read and called true or noise by eye.
  *
- * Three files, none of them in the repository (fixtures/ is ignored whole,
- * and two of them are the book's own sentences):
+ * Four files, none of them in the repository (fixtures/ is ignored whole,
+ * and they are the book's own sentences and tables):
  *
  *   vocabulary.tsv   point, term, contrast set: vocabulary_items as read
  *                    from the project on the day written in its header
  *   lesson1.tsv      point, question, answer: lesson 1 of book 1 as printed
  *   dictation1.tsv   point, sentence: Dictation 1 as stored in blocks
+ *   grammar.tsv      point, content: the grammar_table blocks of book 1,
+ *                    each line break written as \n (#233)
  *
  * The printed questions and answers are not in the database: the extractor
  * files no question and answer line as a block (criterion 7 of
@@ -30,6 +32,7 @@ import {
   RULES,
   comparePlaces,
   createChecker,
+  grammarTableTerms,
   presentationPlaces,
   type Mark,
   type Place,
@@ -63,7 +66,7 @@ function rows(file: string): readonly string[][] {
     .map((line) => line.split("\t"));
 }
 
-const vocabulary: readonly VocabularyWord[] = rows("vocabulary.tsv").map(
+const boxed: readonly VocabularyWord[] = rows("vocabulary.tsv").map(
   ([point, term, set]) => ({
     term,
     place: { book: BOOK, point: Number(point) },
@@ -82,6 +85,17 @@ const lesson1: readonly Sentence[] = rows("lesson1.tsv").flatMap(
     ];
   },
 );
+
+/** The words the grammar tables teach, which the checker counts since #233. */
+const tables = grammarTableTerms(
+  rows("grammar.tsv").map(([point, content]) => ({
+    content: content.replaceAll("\\n", "\n"),
+    place: { book: BOOK, point: Number(point) },
+  })),
+);
+
+/** What the screen hands the checker: the boxes and the tables. */
+const vocabulary: readonly VocabularyWord[] = [...boxed, ...tables];
 
 const dictation1: readonly Sentence[] = rows("dictation1.tsv").map(
   ([point, text]) => ({ text, at: { book: BOOK, point: Number(point) } }),
@@ -175,9 +189,31 @@ function report(name: string, sentences: readonly Sentence[]) {
     0,
   );
   console.log(`\n  "Brown" (sobrenome) nas frases: ${brown}`);
+
+  // What the grammar tables answer for (#233): the marks with the boxes
+  // alone, and which of them the tables take away.
+  const boxesOnly = createChecker(boxed, RULES);
+  const before = sentences.flatMap(({ text, at }) =>
+    boxesOnly.check(text, at).map((mark) => ({ ...mark, at })),
+  );
+  const taken = before.filter(
+    (mark) =>
+      !all.some(
+        (kept) =>
+          kept.word === mark.word &&
+          kept.start === mark.start &&
+          comparePlaces(kept.at, mark.at) === 0,
+      ),
+  );
+  console.log(
+    `\n  Tabelas de gramática (${tables.length} células): ${before.length} marcas sem elas, ${all.length} com elas`,
+  );
+  console.log(listed(taken) || "    nenhuma marca tirada");
 }
 
-console.log(`Vocabulário: ${vocabulary.length} itens`);
+console.log(
+  `Vocabulário: ${boxed.length} itens, mais ${tables.length} células de tabela de gramática`,
+);
 
 const places = presentationPlaces(vocabulary);
 const moved = vocabulary.filter(

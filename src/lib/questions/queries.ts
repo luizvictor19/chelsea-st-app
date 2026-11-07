@@ -4,6 +4,7 @@ import type { Database } from "@/lib/supabase/types";
 import { everyRow } from "./every-row";
 import type { SetRow } from "./point-words";
 import { imageOfColumns, type ImageChoice } from "./question-image";
+import type { GrammarTable } from "./presented";
 import type { PicturedWord } from "./shown-word";
 import type { UsageQuestion } from "./word-usage";
 
@@ -77,6 +78,11 @@ export type QuestionsScreen = {
   readonly words: readonly ScreenWord[];
   readonly sets: readonly SetRow[];
   /**
+   * Every common grammar table of the course, where it is: the words it
+   * teaches count as presented at its point (grammarTableTerms, #233).
+   */
+  readonly tables: readonly GrammarTable[];
+  /**
    * Every question of the lesson's book, in any lesson, for the usage count:
    * a word presented here may be asked about anywhere after.
    */
@@ -108,7 +114,7 @@ export async function loadQuestionsScreen(asked: {
   // The two the validator reads go through everyRow: a short answer there is
   // a word marked for no reason. Each is ordered by its key, so the pages of
   // one read never overlap.
-  const [lessonRows, sceneRows, wordRows, sets] = await Promise.all([
+  const [lessonRows, sceneRows, wordRows, sets, tableRows] = await Promise.all([
     supabase
       .from("lessons_content")
       .select("id, number, books!inner(id, position, title)"),
@@ -138,6 +144,21 @@ export async function loadQuestionsScreen(asked: {
         .from("contrast_set_items")
         .select("set_id, vocabulary_item_id, position", { count: "exact" })
         .order("vocabulary_item_id")
+        .range(from, from + PAGE - 1);
+      if (error) throw new Error(error.message);
+      return { rows: data, total: count ?? data.length };
+    }),
+    // Read by the validator too, so through everyRow: a table left out is a
+    // word marked for no reason.
+    everyRow(async (from) => {
+      const { data, count, error } = await supabase
+        .from("blocks")
+        .select("id, content, points!inner(number, books!inner(position))", {
+          count: "exact",
+        })
+        .eq("kind", "grammar_table")
+        .is("organization_id", null)
+        .order("id")
         .range(from, from + PAGE - 1);
       if (error) throw new Error(error.message);
       return { rows: data, total: count ?? data.length };
@@ -182,6 +203,11 @@ export async function loadQuestionsScreen(asked: {
     imageUrl: publicImageUrl(supabase, row.image_path),
   }));
 
+  const tables = tableRows.map((row) => ({
+    content: row.content,
+    place: { book: row.points.books.position, point: row.points.number },
+  }));
+
   if (lesson === null) {
     return {
       lessons,
@@ -190,6 +216,7 @@ export async function loadQuestionsScreen(asked: {
       questions: [],
       words,
       sets,
+      tables,
       bookQuestions: [],
       bookPoints: [],
       scenes,
@@ -260,6 +287,7 @@ export async function loadQuestionsScreen(asked: {
     })),
     words,
     sets,
+    tables,
     bookQuestions: bookQuestionRows.map((row) => ({
       prompt: row.prompt,
       expectedAnswer: row.expected_answer,

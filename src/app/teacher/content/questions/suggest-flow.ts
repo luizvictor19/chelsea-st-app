@@ -1,7 +1,10 @@
 // Relative, with the extension: suggest-flow.test.ts runs under node, which
 // resolves neither the @/ alias nor a missing extension.
 import { compareWords } from "../../../../lib/content/word-order.ts";
-import { createChecker } from "../../../../lib/questions/presented.ts";
+import {
+  createChecker,
+  grammarTableTerms,
+} from "../../../../lib/questions/presented.ts";
 import {
   MAX_PAIRS,
   MIN_PAIRS,
@@ -41,6 +44,14 @@ export type PointInputs = {
   readonly scenes: readonly {
     readonly id: string;
     readonly description: string;
+  }[];
+  /**
+   * The book's grammar tables: their words count as presented at their
+   * point for the validator (#233), and are not offered to the model.
+   */
+  readonly tables: readonly {
+    readonly point: number;
+    readonly content: string;
   }[];
   /** Every question of the book, written by hand or not, published or not. */
   readonly questions: readonly {
@@ -123,13 +134,19 @@ export async function proposeQuestions(
       { lessonNumber: null, pointNumber: b.point, term: b.term },
     ),
   );
-  const checker = createChecker(
-    words.map((word) => ({
+  const checker = createChecker([
+    ...words.map((word) => ({
       term: word.term,
       place: { book, point: word.point },
       setId: word.set,
     })),
-  );
+    ...grammarTableTerms(
+      inputs.tables.map((table) => ({
+        content: table.content,
+        place: { book, point: table.point },
+      })),
+    ),
+  ]);
   const at = { book, point };
   // A scene can be offered at a point once every word of it is presented.
   const scenes = inputs.scenes.filter(

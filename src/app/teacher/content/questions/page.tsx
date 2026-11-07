@@ -30,6 +30,7 @@ export default async function QuestionsPage({
     questions,
     words,
     sets,
+    tables,
     bookQuestions,
     bookPoints,
     scenes,
@@ -118,6 +119,7 @@ export default async function QuestionsPage({
             questions={questions}
             words={words}
             sets={sets}
+            tables={tables}
             bookQuestions={bookQuestions}
             bookPoints={bookPoints}
             scenes={scenes}

@@ -5,6 +5,7 @@ import {
   RULES,
   comparePlaces,
   createChecker,
+  grammarTableTerms,
   presentationPlaces,
   type Rule,
   type VocabularyWord,
@@ -251,5 +252,53 @@ describe("comparePlaces", () => {
     assert.ok(comparePlaces(at(52, 1), at(1, 2)) < 0);
     assert.ok(comparePlaces(at(3, 1), at(2, 1)) > 0);
     assert.equal(comparePlaces(at(3, 1), at(3, 1)), 0);
+  });
+});
+
+describe("grammar tables (#233)", () => {
+  // The table of point 8 of book 1 as stored, and one like point 37's and
+  // point 50's: punctuation, its names, and an empty cell.
+  const TABLES = [
+    {
+      content: "I am | I'm\nyou are | you're\nhe is | he's\nshe is | she's",
+      place: at(8),
+    },
+    { content: "question mark | ? | full stop | .\n | none", place: at(37) },
+  ];
+
+  test("every cell is a term at the table's point, and an empty cell is none", () => {
+    assert.deepEqual(
+      grammarTableTerms(TABLES).map((term) => [term.term, term.place.point]),
+      [
+        ["I am", 8],
+        ["I'm", 8],
+        ["you are", 8],
+        ["you're", 8],
+        ["he is", 8],
+        ["he's", 8],
+        ["she is", 8],
+        ["she's", 8],
+        ["question mark", 37],
+        ["?", 37],
+        ["full stop", 37],
+        [".", 37],
+        ["none", 37],
+      ],
+    );
+    assert.ok(grammarTableTerms(TABLES).every((term) => term.setId === null));
+  });
+
+  // Dictation 1 is at point 47 and printed "he" and "She’s": the 2 marks it
+  // had, both taught by the table of point 8.
+  test("a word only a table teaches is presented from the table's point on", () => {
+    const vocabulary = [...VOCABULARY, ...grammarTableTerms(TABLES)];
+    assert.deepEqual(
+      marked("Is he on the shelf? She’s there.", 47, RULES, vocabulary),
+      [],
+    );
+    assert.deepEqual(marked("Is he on the shelf?", 7, RULES, vocabulary), [
+      "he",
+    ]);
+    assert.deepEqual(marked("Is he on the shelf?", 47), ["he"]);
   });
 });

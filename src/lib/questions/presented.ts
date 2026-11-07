@@ -202,6 +202,39 @@ export function presentationPlaces(
   );
 }
 
+/** A grammar_table block of the course, where it is. */
+export type GrammarTable = {
+  /** As stored: a line per row, " | " between the cells. */
+  readonly content: string;
+  readonly place: Place;
+};
+
+/**
+ * The words a grammar table teaches, as vocabulary the checker can take:
+ * each cell of each table counts as presented at the table's point (Luiz,
+ * 2026-10-03, #67; #233). Words, not grammar, as everywhere here: every cell
+ * counts, the table's labels too ("full stop", "non-specific").
+ *
+ * Measured on 2026-11-07 with scripts/measure-question-validator.ts, over the
+ * vocabulary of 2026-10-01 and the 5 grammar tables of book 1 (points 8, 9,
+ * 37, 49 and 50): Dictation 1 (point 47) goes from 2 marks to 0, the two
+ * being he and She’s, both taught by the table at point 8 and boxed
+ * nowhere. Lesson 1 (points 1 to 7) stays at 7: its first table is at point
+ * 8, after it.
+ */
+export function grammarTableTerms(
+  tables: readonly GrammarTable[],
+): readonly VocabularyWord[] {
+  return tables.flatMap((table) =>
+    table.content
+      .split("\n")
+      .flatMap((line) => line.split("|"))
+      .map((cell) => cell.trim())
+      .filter((cell) => cell !== "")
+      .map((term) => ({ term, place: table.place, setId: null })),
+  );
+}
+
 export function createChecker(
   vocabulary: readonly VocabularyWord[],
   rules: readonly Rule[] = RULES,
@@ -266,8 +299,9 @@ export function createChecker(
  *   marked, and the teacher decides.
  * - Other contractions (n't, 're, 'm). Lesson 1 prints only isn't, which is
  *   in a vocabulary item. Nothing to remove.
- * - The words only a grammar table teaches (he, she, I, am, are). They are
- *   in blocks and not in vocabulary_items, so they are marked: 2 of the 80
- *   words of Dictation 1 (he, She's), the only marks it has. Ending that is
- *   a decision about where those words are stored, not a normalisation.
+ * - The words only a grammar table teaches (he, she, I, am, are) were
+ *   marked until #233: 2 of the 80 words of Dictation 1 (he, She's). They
+ *   now count from the table's point (grammarTableTerms), read from the
+ *   grammar_table blocks where they are stored, with no copy in
+ *   vocabulary_items.
  */
