@@ -140,7 +140,9 @@ export function acceptRefusal(error: DatabaseError): string {
     return "Esse convite venceu ou já foi usado. Peça um novo a quem convidou você.";
   }
   if (error.code === "23514" && message.includes("another organization")) {
-    return "Você já estuda em outra escola. Uma aluna estuda em uma escola só.";
+    // Neutral on purpose (#239): a school's student invited as a company's
+    // employee meets this refusal too, and the role is student in both.
+    return "Você já faz parte de outra organização como aluna ou funcionário. Cada pessoa participa de uma organização só nesse papel.";
   }
   return "Não foi possível aceitar o convite agora. Tente de novo em alguns instantes.";
 }
