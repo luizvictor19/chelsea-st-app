@@ -139,6 +139,37 @@ describe("parseContrastSuggestions", () => {
     assert.equal(parsed.tooSmall, 1);
   });
 
+  // Haiku 5.5, lesson 1, batch contrast-first of 2026-11-06 (#225): every
+  // member came back as the term ("large", "small") and not the id, so every
+  // one was dropped and the screen said there was nothing to propose.
+  test("a member given by its term is the sent word with that term", () => {
+    const parsed = parseContrastSuggestions(
+      answer([
+        { members: ["large", "Small"], reason: "size" },
+        { members: ["boy", "1"], reason: "mixed forms" },
+      ]),
+      sent,
+    );
+    assert.deepEqual(
+      parsed.sets.map((s) => s.members),
+      [
+        ["l", "s"],
+        ["b", "1"],
+      ],
+    );
+    assert.equal(parsed.unknown, 0);
+  });
+
+  test("a term two sent words share names neither, and is counted as unknown", () => {
+    const twins = [LARGE, SMALL, word("l2", "large", 4, "figure")];
+    const parsed = parseContrastSuggestions(
+      answer([{ members: ["large", "s"], reason: "size" }]),
+      twins,
+    );
+    assert.deepEqual(parsed.sets, []);
+    assert.equal(parsed.unknown, 1);
+  });
+
   test("a missing reason is empty rather than a guess, and a fence is unwrapped", () => {
     const parsed = parseContrastSuggestions(
       "```json\n" + answer([{ members: ["l", "s"] }]) + "\n```",

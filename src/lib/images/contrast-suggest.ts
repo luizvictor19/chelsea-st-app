@@ -121,9 +121,16 @@ List the members of each set in the order they should be shown. Use only ids fro
 
 /**
  * The model behind Sugerir conjuntos since #225 (2026-11-06), when DeepSeek
- * left the app; the 90% and 98% above are DeepSeek's. Not measured on Claude
- * yet: phase 2 of #225 measures Haiku 5.5 against Sonnet 5.5 on the 25 sets
- * of lessons 1 to 4, and the result is written here.
+ * left the app; the 90% and 98% above are DeepSeek's. Haiku only, by Luiz's
+ * decision; kept by him on 2026-11-06 from the measurement
+ * (scripts/measure-claude-suggestions.ts, batch
+ * contrast-first@2026-11-06T23:52:18.654Z, lesson mode, the 25 sets of book 1
+ * lessons 1 to 4, 1 pass): 78.5% precision and 96.0% recall by pair, read
+ * with the term repair in parseContrastSuggestions; 4 calls, median 6047 ms,
+ * worst 6990 ms, US$ 0.0027 in all. The precision is lesson 3's: eleven to
+ * twenty came back as one set where Luiz keeps two. Missed: door/window,
+ * putting on/taking from (DeepSeek missed it too) and wall from
+ * ceiling/floor/wall; added: Mr/Mrs.
  */
 export const CONTRAST_MODEL = "claude-haiku-5-5";
 
@@ -202,6 +209,12 @@ const UNREADABLE: ParsedContrast = {
  * lesson and every word in a set, so that one check refuses both. A word
  * named twice keeps its first place, and a proposal left with one member is
  * dropped. Everything dropped is counted; nothing is repaired by guessing.
+ *
+ * One repair is not a guess: a member that is no sent id but is the term of
+ * exactly one sent word, compared without case, is that word. Haiku 5.5
+ * answered lesson 1 that way in batch contrast-first of 2026-11-06 (#225),
+ * every member a term, and lessons 2 to 4 with ids. A term two sent words
+ * share names neither and stays unknown.
  */
 export function parseContrastSuggestions(
   text: string,
@@ -224,6 +237,16 @@ export function parseContrastSuggestions(
   if (!Array.isArray(raw)) return UNREADABLE;
 
   const allowed = new Set(sent.map((word) => word.id));
+  const byTerm = new Map<string, string | null>();
+  for (const word of sent) {
+    const key = word.term.trim().toLowerCase();
+    byTerm.set(key, byTerm.has(key) ? null : word.id);
+  }
+  const idOf = (member: unknown): string | null => {
+    if (typeof member !== "string") return null;
+    if (allowed.has(member)) return member;
+    return byTerm.get(member.trim().toLowerCase()) ?? null;
+  };
   const placed = new Set<string>();
   const sets: ProposedSet[] = [];
   let unknown = 0;
@@ -240,8 +263,9 @@ export function parseContrastSuggestions(
       continue;
     }
     const kept: string[] = [];
-    for (const id of members) {
-      if (typeof id !== "string" || !allowed.has(id)) {
+    for (const member of members) {
+      const id = idOf(member);
+      if (id === null) {
         unknown += 1;
       } else if (placed.has(id) || kept.includes(id)) {
         repeated += 1;
