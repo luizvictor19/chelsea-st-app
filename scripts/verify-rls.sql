@@ -337,6 +337,13 @@ language plpgsql security definer as $$ begin end; $$;
 -- these functions as authenticated and fire every one of these triggers.
 \i supabase/migrations/0047_a_function_runs_only_for_who_needs_it.sql
 
+-- 0048 adds a function and two checks, profiles_timezone_known and
+-- lesson_schedules_timezone_known, and changes no row. Its block, "A time zone
+-- is one the screen reads (0048)", runs after the fixtures. The fixtures below
+-- write profiles and schedules with the default zone, so they already pass
+-- through both checks.
+\i supabase/migrations/0048_a_time_zone_is_one_the_screen_reads.sql
+
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
   ('22222222-2222-2222-2222-222222222222', 'student@example.com', null);
@@ -4059,6 +4066,7 @@ $$;
 
 do $$
 declare
+  v_zone_check boolean;
   c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
   c_teacher_b constant uuid := '33333333-3333-3333-3333-333333333333';
   c_admin_f constant uuid := 'f0f0f0f0-f0f0-f0f0-f0f0-f0f0f0f0f0f0';
@@ -4104,8 +4112,22 @@ begin
     (c_admin_g, 'admin-g@example.com', '{"full_name":"Admin G"}'),
     (c_g1, 'g1@example.com', '{"full_name":"G1"}');
   update profiles set timezone = c_london where id = c_f2;
-  -- Any text goes in through profiles_update_self.
+  -- Before 0048 any text went in through profiles_update_self. Since 0048
+  -- (#219) no write puts an unknown zone in, but a row can still hold one:
+  -- written before, or a name the server's tzdata dropped later. The check
+  -- is set aside for this one write and comes back after the block reads F5.
+  -- Only where it exists: with it cut, for the reversion of 0048, the
+  -- assertions of 0048's own block are the ones that must fail.
+  v_zone_check := exists (select 1 from pg_constraint
+                           where conname = 'profiles_timezone_known');
+  if v_zone_check then
+    alter table profiles drop constraint profiles_timezone_known;
+  end if;
   update profiles set timezone = 'Not/A_Zone' where id = c_f5;
+  if v_zone_check then
+    alter table profiles add constraint profiles_timezone_known
+      check (public.is_known_time_zone(timezone)) not valid;
+  end if;
   insert into organization_members (organization_id, user_id, role) values
     (v_f, c_admin_f, 'admin'),
     (v_f, c_f1, 'student'), (v_f, c_f2, 'student'),
@@ -4246,6 +4268,11 @@ begin
   end if;
 
   reset role;
+  -- F5 back in a known zone, and the check whole again, as 0048 left it.
+  update profiles set timezone = 'America/Sao_Paulo' where id = c_f5;
+  if v_zone_check then
+    alter table profiles validate constraint profiles_timezone_known;
+  end if;
   perform set_config('test.uid', '', false);
 
   -- 8. What comes out, and nothing of what was said.
@@ -4760,6 +4787,87 @@ begin
 end;
 $$;
 
+
+-- A time zone is one the screen reads (0048) ---------------------------------------------
+--
+-- profiles.timezone and lesson_schedules.timezone take only a zone in
+-- pg_timezone_names that is not posix/ and not Factory, the zones Node's Intl
+-- reads too. Each refusal is asserted by the name of the check that refused
+-- it, as the person who writes the row does through the API: the student her
+-- own profile (profiles_update_self), the teacher a schedule
+-- (lesson_schedules_write). Nothing written here is kept.
+--
+-- The postgres:17 image this runs on (CI and local) lists 487 zones and no
+-- posix/ name, so here a posix/ name is refused by the list itself and the
+-- posix/ clause cannot be seen failing. The project lists 598 posix/ names:
+-- that clause was shown on it, through the MCP, before the push (#219).
+
+do $$
+declare
+  c_teacher constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  v_uid text := current_setting('test.uid', true);
+  v_rows bigint;
+  v_zone text;
+  v_minute integer;
+  v_failures text;
+begin
+  delete from verify.failures;
+  set local role authenticated;
+
+  perform set_config('test.uid', c_student::text, false);
+  foreach v_zone in array array['x', 'posix/America/Sao_Paulo', 'Factory', '+03', ''] loop
+    perform verify.expect_refused(format('a profile with the zone %L', v_zone),
+      'profiles_timezone_known',
+      format('update profiles set timezone = %L where id = %L', v_zone, c_student));
+  end loop;
+  update profiles set timezone = 'Europe/London' where id = c_student;
+  get diagnostics v_rows = row_count;
+  if v_rows <> 1 then
+    insert into verify.failures values ('the student could not set her own zone to Europe/London');
+  end if;
+  update profiles set timezone = 'America/Sao_Paulo' where id = c_student;
+
+  perform set_config('test.uid', c_teacher::text, false);
+  -- A start time each, so a zone wrongly accepted leaves a row that does not
+  -- collide with the next one, and every case is reported.
+  v_minute := 0;
+  foreach v_zone in array array['x', 'posix/America/Sao_Paulo', 'Factory'] loop
+    v_minute := v_minute + 5;
+    perform verify.expect_refused(format('a schedule with the zone %L', v_zone),
+      'lesson_schedules_timezone_known',
+      format('insert into lesson_schedules (student_id, weekday, start_time, timezone) values (%L, 3, %L, %L)',
+             c_student, time '11:00' + make_interval(mins => v_minute), v_zone));
+  end loop;
+  insert into lesson_schedules (student_id, weekday, start_time, timezone)
+    values (c_student, 3, '11:00', 'Europe/London');
+  get diagnostics v_rows = row_count;
+  if v_rows <> 1 then
+    insert into verify.failures values ('the teacher could not write a schedule in Europe/London');
+  end if;
+  delete from lesson_schedules where student_id = c_student and weekday = 3;
+  reset role;
+
+  if not has_function_privilege('authenticated', 'public.is_known_time_zone(text)', 'execute') then
+    insert into verify.failures values ('authenticated cannot execute is_known_time_zone, so it cannot write a profile');
+  end if;
+  if has_function_privilege('anon', 'public.is_known_time_zone(text)', 'execute') then
+    insert into verify.failures values ('anon executes is_known_time_zone');
+  end if;
+  if has_function_privilege('service_role', 'public.is_known_time_zone(text)', 'execute') then
+    insert into verify.failures values ('service_role executes is_known_time_zone');
+  end if;
+
+  -- The uid of the blocks before.
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a time zone is one the screen reads: %', v_failures;
+  end if;
+  raise notice 'a zone outside the list, posix/ or Factory is refused by profiles_timezone_known and lesson_schedules_timezone_known; Europe/London passes; only authenticated executes is_known_time_zone';
+end;
+$$;
 
 -- Nobody truncates what RLS guards (0037) ----------------------------------------------
 --
