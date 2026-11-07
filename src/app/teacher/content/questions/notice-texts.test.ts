@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  draftsPublished,
   pointFailed,
   pointLabel,
   questionAdded,
@@ -103,6 +104,53 @@ describe("questionsSuggested", () => {
     assert.equal(
       questionsSuggested(7, { asked: 6, returned: 0, added: 0 }).text,
       "Ponto 7: o modelo não sugeriu nenhuma pergunta.",
+    );
+  });
+});
+
+describe("draftsPublished", () => {
+  test("how many went", () => {
+    assert.deepEqual(
+      draftsPublished(27, { published: 3, changed: 0, left: [] }),
+      { kind: "success", text: "Ponto 27: 3 perguntas publicadas." },
+    );
+    assert.equal(
+      draftsPublished(27, { published: 1, changed: 0, left: [] }).text,
+      "Ponto 27: 1 pergunta publicada.",
+    );
+  });
+
+  test("the drafts left, by number and reason", () => {
+    assert.equal(
+      draftsPublished(27, {
+        published: 2,
+        changed: 0,
+        left: [
+          { number: 3, reason: "sem imagem decidida" },
+          { number: 5, reason: "a cena não tem imagem aprovada" },
+        ],
+      }).text,
+      "Ponto 27: 2 perguntas publicadas. Ficaram como rascunho: 3 (sem imagem decidida), 5 (a cena não tem imagem aprovada).",
+    );
+  });
+
+  test("a draft changed elsewhere is an error that asks for a reload", () => {
+    const notice = draftsPublished(27, { published: 1, changed: 1, left: [] });
+    assert.equal(notice.kind, "error");
+    assert.equal(
+      notice.text,
+      "Ponto 27: 1 pergunta publicada. 1 mudou em outro lugar e não foi tocada. Recarregue a página.",
+    );
+  });
+
+  test("none at all", () => {
+    assert.equal(
+      draftsPublished(27, {
+        published: 0,
+        changed: 0,
+        left: [{ number: 1, reason: "sem imagem decidida" }],
+      }).text,
+      "Ponto 27: nenhuma pergunta publicada. Ficaram como rascunho: 1 (sem imagem decidida).",
     );
   });
 });

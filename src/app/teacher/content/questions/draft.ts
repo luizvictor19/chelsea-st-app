@@ -180,7 +180,7 @@ export function publishRefusal(
 const ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 /** Shaped like the uuid the column holds. Whether it exists, the database says. */
-function isId(value: unknown): value is string {
+export function isId(value: unknown): value is string {
   return typeof value === "string" && ID.test(value);
 }
 

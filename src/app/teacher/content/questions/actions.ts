@@ -11,6 +11,7 @@ import {
   cleaned,
   deleteError,
   failureMessage,
+  isId,
   parseFields,
   parseSuggestion,
   publishRefusal,
@@ -22,6 +23,7 @@ import {
   type PictureOf,
   type QuestionFields,
 } from "./draft";
+import { sortDrafts, type Draft, type LeftOut } from "./publish-reviewed";
 
 /** What every action on this screen answers with. */
 export type QuestionResult =
@@ -209,6 +211,155 @@ export async function saveQuestion(
     return { ok: true };
   } catch (cause) {
     return failure(cause);
+  }
+}
+
+/** What "Publicar revisadas" answers with (#232). */
+export type PublishResult =
+  | {
+      readonly ok: true;
+      /** Published now. */
+      readonly published: number;
+      /** Ready on screen, but changed or published in another tab since: not touched. */
+      readonly changed: number;
+      /** Left drafts, by the pictures the database holds. */
+      readonly left: readonly LeftOut[];
+    }
+  | { readonly ok: false; readonly error: string };
+
+/** More drafts than a point ever holds: a request this long is not the screen's. */
+const PUBLISH_MAX = 200;
+
+/** The drafts as the screen sent them, checked, or null. */
+function parseDrafts(value: unknown): Draft[] | null {
+  if (!Array.isArray(value) || value.length > PUBLISH_MAX) return null;
+  const drafts: Draft[] = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) return null;
+    const { id, number, fields } = item as Record<string, unknown>;
+    const parsed = parseFields(fields);
+    if (!isId(id) || !Number.isInteger(number) || parsed === null) return null;
+    drafts.push({ id, number: number as number, fields: parsed });
+  }
+  return drafts;
+}
+
+/**
+ * The approved pictures of every word and scene the drafts show, read from
+ * their rows as storedPictureOf reads one: a word's by approvedPicture, a
+ * scene's image_path while it is in use.
+ */
+async function storedPicturesOf(
+  supabase: Client,
+  drafts: readonly Draft[],
+): Promise<PictureOf> {
+  const wordIds = new Set<string>();
+  const sceneIds = new Set<string>();
+  for (const { fields } of drafts) {
+    if (fields.image.kind === "word" && fields.image.id !== null) {
+      wordIds.add(fields.image.id);
+    }
+    if (fields.image.kind === "scene" && fields.image.id !== null) {
+      sceneIds.add(fields.image.id);
+    }
+  }
+  const words = new Map<string, string | null>();
+  const scenes = new Map<string, string | null>();
+  if (wordIds.size > 0) {
+    const { data, error } = await supabase
+      .from("vocabulary_items")
+      .select("id, representation, image_path")
+      .in("id", [...wordIds]);
+    if (error) throw new Error(error.message);
+    for (const row of data) {
+      words.set(
+        row.id,
+        approvedPicture({
+          representation: row.representation,
+          imageUrl: row.image_path,
+        }),
+      );
+    }
+  }
+  if (sceneIds.size > 0) {
+    const { data, error } = await supabase
+      .from("scenes")
+      .select("id, image_path")
+      .in("id", [...sceneIds])
+      .is("archived_at", null);
+    if (error) throw new Error(error.message);
+    for (const row of data) scenes.set(row.id, row.image_path);
+  }
+  return (kind, id) =>
+    (kind === "word" ? words.get(id) : scenes.get(id)) ?? null;
+}
+
+/**
+ * "Publicar revisadas" for one point (#232): publishes the drafts that can
+ * be published and leaves the others as drafts.
+ *
+ * `drafts` is the point's unpublished questions as the screen loaded them.
+ * Which ones go is decided again here, with the pictures the database holds
+ * (sortDrafts, publishRefusal's rule), not the screen's. Each one is
+ * published only while its row still holds every column as loaded
+ * (stillLoaded) and is still in this point: one edited, moved or published
+ * in another tab since is not touched and is counted as changed, so nothing
+ * is published that the teacher did not see. Only is_published is written.
+ *
+ * One update per question, not one transaction: each is whole on its own,
+ * and the answer says how many went.
+ */
+export async function publishReviewed(
+  pointId: string,
+  drafts: unknown,
+): Promise<PublishResult> {
+  try {
+    const { supabase } = await requireContentWriter();
+    const parsed = parseDrafts(drafts);
+    if (!isId(pointId) || parsed === null) {
+      return { ok: false, error: UNREADABLE };
+    }
+    const { ready, left } = sortDrafts(
+      parsed,
+      await storedPicturesOf(supabase, parsed),
+    );
+
+    let published = 0;
+    let changed = 0;
+    for (const draft of ready) {
+      const matches = stillLoaded(draft.fields);
+      // sortDrafts let through only rows imageColumns can write.
+      if (matches === null) {
+        changed += 1;
+        continue;
+      }
+      let update = supabase
+        .from("questions")
+        .update({ is_published: true })
+        .eq("id", draft.id)
+        .eq("point_id", pointId);
+      for (const match of matches) {
+        update =
+          match.op === "is"
+            ? update.is(match.column, null)
+            : update.eq(match.column, match.value);
+      }
+      const { data, error } = await update.select("id");
+      if (error) {
+        if (published > 0) revalidatePath(SCREEN);
+        return {
+          ok: false,
+          error: `${questionError(error.message, error.code)}. ${published === 1 ? "1 pergunta já foi publicada" : `${published} perguntas já foram publicadas`} antes do erro`,
+        };
+      }
+      if (data.length === 0) changed += 1;
+      else published += 1;
+    }
+
+    revalidatePath(SCREEN);
+    return { ok: true, published, changed, left };
+  } catch (cause) {
+    return { ok: false, error: failureMessage(cause) };
   }
 }
 
