@@ -45,7 +45,7 @@ async function pointInputs(
   if (error) throw new Error(error.message);
   if (point === null) return null;
 
-  const [rows, sets, scenes, questions] = await Promise.all([
+  const [rows, sets, scenes, questions, tables] = await Promise.all([
     everyRow(async (from) => {
       const {
         data,
@@ -100,6 +100,24 @@ async function pointInputs(
       if (e) throw new Error(e.message);
       return { rows: data, total: count ?? data.length };
     }),
+    everyRow(async (from) => {
+      const {
+        data,
+        count,
+        error: e,
+      } = await supabase
+        .from("blocks")
+        .select("id, content, points!inner(number, book_id)", {
+          count: "exact",
+        })
+        .eq("kind", "grammar_table")
+        .eq("points.book_id", point.book_id)
+        .is("organization_id", null)
+        .order("id")
+        .range(from, from + PAGE - 1);
+      if (e) throw new Error(e.message);
+      return { rows: data, total: count ?? data.length };
+    }),
   ]);
   if (scenes.error) throw new Error(scenes.error.message);
 
@@ -127,6 +145,10 @@ async function pointInputs(
     scenes: scenes.data.map((scene) => ({
       id: scene.id,
       description: scene.description,
+    })),
+    tables: tables.map((row) => ({
+      point: row.points.number,
+      content: row.content,
     })),
     questions: questions.map((row) => ({
       point: row.points.number,

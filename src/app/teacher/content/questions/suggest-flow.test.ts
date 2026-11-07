@@ -63,6 +63,11 @@ const INPUTS: PointInputs = {
     { id: "s-pen", description: "the pen on the table" },
     { id: "s-cup", description: "the cup behind the box" },
   ],
+  // One table before the point asked about, one after.
+  tables: [
+    { point: 3, content: "he is | he's\nshe is | she's" },
+    { point: 9, content: "they are | they're" },
+  ],
   questions: [
     {
       point: 2,
@@ -192,6 +197,21 @@ describe("proposeQuestions", () => {
     assert.match(asked[0]?.user ?? "", /no question uses yet .*one/u);
     assert.equal(logs.at(-1)?.outcome, "ok");
     assert.equal(typeof logs.at(-1)?.usd, "number");
+  });
+
+  test("a word a grammar table taught by the point is not marked, one taught later is (#233)", async () => {
+    const { provider } = answering([
+      {
+        ...DRAFT,
+        prompt: "Where's she?",
+        expected_answer: "She's in the box. They're on the table.",
+      },
+    ]);
+    const { all } = deps({ provider: () => provider });
+    const result = await proposeQuestions(all, 1);
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.deepEqual(result.questions[0]?.marks, ["They're"]);
   });
 
   test("what is over the count is cut", async () => {

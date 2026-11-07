@@ -18,7 +18,9 @@ import {
 } from "@/lib/questions/point-words";
 import {
   createChecker,
+  grammarTableTerms,
   type Checker,
+  type GrammarTable,
   type Mark,
   type Place,
 } from "@/lib/questions/presented";
@@ -130,6 +132,7 @@ export function LessonQuestions({
   questions,
   words,
   sets,
+  tables,
   bookQuestions,
   bookPoints,
   scenes,
@@ -140,6 +143,8 @@ export function LessonQuestions({
   readonly questions: readonly Question[];
   readonly words: readonly ScreenWord[];
   readonly sets: readonly SetRow[];
+  /** The grammar tables: their words count as presented at their point (#233). */
+  readonly tables: readonly GrammarTable[];
   readonly bookQuestions: readonly UsageQuestion[];
   readonly bookPoints: readonly BookPoint[];
   readonly scenes: readonly ScreenScene[];
@@ -148,14 +153,15 @@ export function LessonQuestions({
     const setOf = new Map(
       sets.map((row) => [row.vocabulary_item_id, row.set_id]),
     );
-    return createChecker(
-      words.map((word) => ({
+    return createChecker([
+      ...words.map((word) => ({
         term: word.term,
         place: word.place,
         setId: setOf.get(word.id) ?? null,
       })),
-    );
-  }, [words, sets]);
+      ...grammarTableTerms(tables),
+    ]);
+  }, [words, sets, tables]);
   const groups = useMemo(() => wordsByPoint(words, sets), [words, sets]);
   const wordOf = useMemo(
     () => new Map(words.map((word) => [word.id, word])),
