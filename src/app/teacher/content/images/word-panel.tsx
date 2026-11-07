@@ -262,10 +262,12 @@ export function WordPanel({
   }
 
   /*
-   * A generation took 8 to 21 seconds on 2026-09-19, which is long enough
-   * that the wait is counted out loud. The clock ticks only while something
-   * is running, and the count is worked out from the row's created_at, so it
-   * reads right on a generation started before this page was loaded.
+   * A generation takes 13 to 37 seconds at the median and up to 341.7 seconds
+   * at worst, depending on the model (measured in #91; the table is in
+   * src/lib/images/generation.ts), which is long enough that the wait is
+   * counted out loud. The clock ticks only while something is running, and
+   * the count is worked out from the row's created_at, so it reads right on a
+   * generation started before this page was loaded.
    */
   useEffect(() => {
     if (runningId === null) return;
