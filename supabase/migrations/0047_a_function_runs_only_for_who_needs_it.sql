@@ -43,10 +43,18 @@
 --
 -- Last, the default: postgres's default ACL in public is {postgres=X/postgres},
 -- which a default per schema cannot narrow (Postgres adds a schema's default
--- to the global one, and the global one gives PUBLIC execute). A function
--- created after this is born with execute for its owner alone, in any schema,
--- and the migration that creates it grants execute to who calls it. Only
--- privileges and one policy change; no row of data does.
+-- to the global one, and the global one gives PUBLIC execute). So the default
+-- changed here is the global one of postgres: a function postgres creates
+-- after this, in public, is born with execute for its owner alone, and the
+-- migration that creates it grants execute to who calls it. Two limits,
+-- measured on 2026-11-07. storage has a default of its own that adds anon,
+-- authenticated and service_role, so a function created there is born open to
+-- them. And an extension created or updated later by postgres may give its
+-- new functions to postgres alone: check their execute after the push.
+-- rls_auto_enable is Supabase's: if the platform creates it again, as
+-- supabase_admin, whose default in public grants execute to anon, it comes
+-- back open, and only a query on the project shows it. Only privileges and
+-- one policy change; no row of data does.
 
 revoke execute on function
   public.a_teacher_needs_a_teaching_organization(),

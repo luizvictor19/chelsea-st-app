@@ -102,10 +102,14 @@ architecture question for Luiz.
   production's default ACL from before 0001 and checks this in its last block, for every table.
   The `supabase_admin` default in `public` is Supabase's and still gives every privilege; on
   2026-11-04 no relation of `public` was owned by it.
-- Every function of `public` says who executes it (0047, #148). Since 0047 a function created by
-  `postgres`, in any schema, is born executable by its owner alone (a global default: a default
-  per schema cannot narrow what the global one gives PUBLIC), so the migration that creates a
-  function grants `execute` to who calls it: `authenticated` for what policies, checks and the
+- Every function of `public` says who executes it (0047, #148). Since 0047 a function `postgres`
+  creates in `public` is born executable by its owner alone (the global default of `postgres`: a
+  default per schema cannot narrow what the global one gives PUBLIC). Not in `storage`, whose own
+  default adds `anon`, `authenticated` and `service_role`; and an extension created or updated
+  later may give its new functions to `postgres` alone, so check their `execute` after the push.
+  If Supabase creates `rls_auto_enable` again (as `supabase_admin`, whose default in `public`
+  grants `anon`), it comes back open; only a query on the project shows it. The migration that
+  creates a function grants `execute` to who calls it: `authenticated` for what policies, checks and the
   app call; `anon` only for the site's door (`submit_lead`). A trigger function, and
   `rls_auto_enable` behind the event trigger `ensure_rls`, is executable by nobody: execute is
   checked when a trigger is created, not when it fires. `service_role` gets none (it bypasses
