@@ -7,10 +7,11 @@ export const INVITE_DAYS = 15;
 const ROLE_ORDER: readonly OrganizationRole[] = ["student", "teacher", "admin"];
 
 /**
- * A role as an organization with a teacher names it. Where the organization
- * is not known (an invite to someone not yet a member), this is the name.
+ * A role as an organization with a teacher names it. Not exported: a role is
+ * named through roleLabel, with the organization's kind, never from this
+ * table alone (the bug of #213).
  */
-export const ROLE_LABEL: Record<OrganizationRole, string> = {
+const ROLE_LABEL: Record<OrganizationRole, string> = {
   student: "Aluna",
   teacher: "Professor",
   admin: "Admin da escola",
@@ -26,6 +27,18 @@ const COMPANY_ROLE_LABEL: Record<OrganizationRole, string> = {
 /** The name of a role in an organization with or without a teacher. */
 export function roleLabel(role: OrganizationRole, hasTeacher: boolean): string {
   return (hasTeacher ? ROLE_LABEL : COMPANY_ROLE_LABEL)[role];
+}
+
+/**
+ * The role an open invite offers, named as its organization names it. The
+ * invited person is not a member yet and cannot read organizations, so the
+ * kind comes with the invite (my_open_organization_invites, 0046, #213).
+ */
+export function invitedAs(invite: {
+  readonly role: OrganizationRole;
+  readonly has_teacher: boolean;
+}): string {
+  return roleLabel(invite.role, invite.has_teacher);
 }
 
 /**
