@@ -1888,6 +1888,7 @@ export type Database = {
         };
         Returns: number;
       };
+      credit_grant_started: { Args: { p_person: string }; Returns: undefined };
       credit_live_lots: {
         Args: { p_person: string };
         Returns: {
