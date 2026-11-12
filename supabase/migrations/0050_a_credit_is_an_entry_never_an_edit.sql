@@ -12,29 +12,38 @@
 -- "credit" in its name (plans.monthly_credits, plans.trial_credits and
 -- image_attempts.credits_spent are columns, the last one Freepik's); 0 rows in
 -- plans, billing_customers, subscriptions, payments and billing_events, so
--- subscriptions.monthly_credits is added not null with nothing to fill; three
--- organizations, chelsea-st (brand chelsea-st), grifoai and empresa-teste
--- (brand grifoai). No row is touched.
+-- the columns added to plans and subscriptions are not null with nothing to
+-- fill; three organizations, chelsea-st (brand chelsea-st), grifoai and
+-- empresa-teste (brand grifoai). No row is touched.
 --
 -- The ledger (credit_entries) only takes new rows. A grant opens a lot: a row
--- with a positive amount and expires_at (trial, plan, carryover, and a refund
--- whose lot is gone). Every other row points at its lot: a debit, the refund
--- of a debit, the expire that closes a lot past its day, the void of a lot
--- whose charge was refunded or deleted. A lot is alive while expires_at is in
--- the future, and the balance is the sum of the live lots' rows, so a lot
--- past its day leaves the balance at once, whether the daily routine ran or
--- not. Once the routine closes a lot (an expire with what was left), the sum
--- of all of a person's rows equals her balance.
+-- with an amount (trial, plan, and a refund whose lot is gone). Every other
+-- row points at its lot: a debit, the refund of a debit, the expire that
+-- closes a lot past its end, the void of a lot whose charge was refunded,
+-- charged back or deleted. The balance is the sum of the live lots' rows.
+--
+-- When a credit ends (Luiz, 12/11, after the first review of PR #304; it
+-- replaces the end of the cycle and the capped carryover): while her
+-- subscription is alive a month's credits never end, and a lot of the plan is
+-- born without expires_at. The month grants only up to a ceiling, a number of
+-- months of the plan's credits (plans.credit_ceiling_months). Once she cancels,
+-- her live lots end a number of days after the end of what she paid for
+-- (plans.credit_days_after_cancel); subscribing again before that brings
+-- back the lots that remain, without an end. The trial's lot ends when the
+-- trial does. Because a row is never edited, that end is not written on the
+-- lot: it is read from her subscriptions (credit_deadline), so a lot past it
+-- leaves the balance at once, whether the daily routine ran or not; the
+-- routine then closes it with an expire, and a closed lot never comes back.
 --
 -- No number of the offer enters here (ADR 0006): what each action costs, the
--- credits of a plan and its carryover cap are rows the platform admin writes
--- on /teacher/plans.
+-- credits of a plan, its ceiling and its days after a cancel are rows the
+-- platform admin writes on /teacher/plans.
 --
 -- Who writes (as 0049): nobody through the API. The webhook and the routine
 -- call three functions only service_role executes; the debit and the refund
 -- are executed by nobody, and the function that needs them (the booking of
 -- #276) is another security definer of postgres that calls them inside its
--- own transaction. A person reads her own rows.
+-- own transaction. A person reads her own rows and her own balance.
 --
 -- Every function that writes to the ledger first takes the person's advisory
 -- lock, the pattern of accept_my_organization_invite (0040): two debits of
@@ -46,17 +55,22 @@
 -- passes the message on and not the constraint.
 
 
--- What a plan carries over, and what a subscription grants each month ------
+-- What a plan holds back, and what a subscription grants each month --------
 
--- Q4 of the #273 plan: the carryover cap lives on the plan, as a percent of
--- the month's credits. 0, the default, carries nothing over until the admin
--- says otherwise.
+-- The ceiling of the balance, in months of the plan's credits: the grant of
+-- a month stops at it. And the days her credits still last once she
+-- cancels, counted from the end of what she paid for. No default: each plan
+-- says both, written by the platform admin.
 alter table public.plans
-  add column carryover_percent smallint not null default 0
-    constraint plans_carryover_percent_range check (carryover_percent between 0 and 100);
+  add column credit_ceiling_months smallint not null
+    constraint plans_credit_ceiling_months_range check (credit_ceiling_months between 1 and 60),
+  add column credit_days_after_cancel smallint not null
+    constraint plans_credit_days_after_cancel_range check (credit_days_after_cancel between 0 and 365);
 
-comment on column public.plans.carryover_percent is
-  'The most of a month''s credits left over that passes to the next month, as a percent of that month''s credits (0 to 100). Written by the platform admin; read when a month''s lot closes.';
+comment on column public.plans.credit_ceiling_months is
+  'The most credits a person of this plan holds alive, in months of its monthly credits; a month grants only up to it. Written by the platform admin.';
+comment on column public.plans.credit_days_after_cancel is
+  'How many days after the end of what she paid for her credits still last once the subscription is canceled. Written by the platform admin.';
 
 -- Q5: the credits of the month are kept on the subscription, copied from the
 -- plan when it is born, like value_cents. A plan changed later applies to new
@@ -134,18 +148,24 @@ grant insert, update on public.credit_costs to authenticated;
 
 create table public.credit_entries (
   id uuid primary key default gen_random_uuid(),
+  -- The order rows were written in: among lots that end together (or never),
+  -- the oldest is spent first.
+  seq bigint generated always as identity
+    constraint credit_entries_one_seq unique,
   -- The organization of the subscription that granted the lot (ADR 0004).
   organization_id uuid not null references public.organizations on delete restrict,
   person_id uuid not null references public.profiles on delete restrict,
   kind text not null
     constraint credit_entries_kind_known
-      check (kind in ('trial', 'plan', 'carryover', 'refund', 'debit', 'expire', 'void')),
+      check (kind in ('trial', 'plan', 'refund', 'debit', 'expire', 'void')),
   amount integer not null,
   -- The lot a row belongs to; null on a lot itself.
   lot_id uuid references public.credit_entries on delete restrict,
-  -- When a lot stops counting; null on every row that is not a lot.
+  -- When a lot ends on its own: the trial's at its first charge, a refund's
+  -- lot when she has no subscription alive. Null on a month's lot, which ends
+  -- only after a cancel (credit_deadline), and on every row that is not a lot.
   expires_at timestamptz,
-  -- A carryover names the lot it came from; a refund names the debit.
+  -- A refund names the debit it gives back.
   refers_to uuid references public.credit_entries on delete restrict,
   -- On a debit and its refund: what was paid for, and the caller's key for it
   -- ('session:<id>:minute:<n>', a booking's id).
@@ -160,19 +180,23 @@ create table public.credit_entries (
   -- On the trial's and the month's lot.
   subscription_id uuid references public.subscriptions on delete restrict,
   created_at timestamptz not null default now(),
+  -- A month's lot may be 0: the month was decided at the ceiling, and is not
+  -- granted again.
   constraint credit_entries_amount_sign check (
-    (kind not in ('trial', 'plan', 'carryover', 'refund') or amount > 0)
+    (kind not in ('trial', 'refund') or amount > 0)
+    and (kind <> 'plan' or amount >= 0)
     and (kind not in ('debit', 'void') or amount < 0)
     and (kind <> 'expire' or amount <= 0)),
   constraint credit_entries_lot_shape check (
-    (kind not in ('trial', 'plan', 'carryover') or (lot_id is null and expires_at is not null))
+    (kind <> 'trial' or (lot_id is null and expires_at is not null))
+    and (kind <> 'plan' or (lot_id is null and expires_at is null))
     and (kind not in ('debit', 'expire', 'void') or (lot_id is not null and expires_at is null))
-    and (kind <> 'refund' or ((lot_id is null) = (expires_at is not null)))),
+    and (kind <> 'refund' or lot_id is null or expires_at is null)),
   constraint credit_entries_source_shape check (
     (kind = 'plan') = (asaas_payment_id is not null)
     and (kind = 'plan') = (period is not null)
     and (kind in ('trial', 'plan')) = (subscription_id is not null)
-    and (kind in ('carryover', 'refund')) = (refers_to is not null)
+    and (kind = 'refund') = (refers_to is not null)
     and (kind in ('debit', 'refund')) = (action is not null)
     and (kind in ('debit', 'refund')) = (reference is not null))
 );
@@ -184,18 +208,18 @@ create unique index credit_entries_one_grant_per_period
   on public.credit_entries (asaas_payment_id, period) where kind = 'plan';
 create unique index credit_entries_one_trial_per_subscription
   on public.credit_entries (subscription_id) where kind = 'trial';
--- One carryover per lot closed, one refund per debit.
+-- One refund per debit.
 create unique index credit_entries_once_per_entry
   on public.credit_entries (kind, refers_to) where refers_to is not null;
--- A lot closes once when it expires, and is voided once.
+-- A lot closes once when it ends, and is voided once.
 create unique index credit_entries_one_close_per_lot
   on public.credit_entries (kind, lot_id) where kind in ('expire', 'void');
 
-create index credit_entries_by_person on public.credit_entries (person_id, expires_at);
+create index credit_entries_by_person on public.credit_entries (person_id, seq);
 create index credit_entries_by_lot on public.credit_entries (lot_id);
 
 comment on table public.credit_entries is
-  'The credit ledger of a person: only new rows, never an edit (credit_entries_append_only). A lot (trial, plan, carryover, a refund whose lot is gone) has an amount and expires_at; every other row (debit, refund, expire, void) points at its lot. The balance is the sum of the live lots'' rows (credits_balance). Written only by the credit functions of 0050.';
+  'The credit ledger of a person: only new rows, never an edit (credit_entries_append_only). A lot (trial, plan, a refund whose lot is gone) has an amount; every other row (debit, refund, expire, void) points at its lot. A month''s lot has no end while her subscription is alive, and ends a number of days after a cancel (credit_deadline). The balance is the sum of the live lots'' rows (credits_balance). Written only by the credit functions of 0050.';
 
 alter table public.credit_entries enable row level security;
 
@@ -303,7 +327,7 @@ as $$
 $$;
 
 comment on function public.credit_month_starts(date, integer) is
-  'Midnight in São Paulo of the due day plus that many months: where month k of a charge starts and month k - 1 ends.';
+  'Midnight in São Paulo of the due day plus that many months: where month k of a charge starts.';
 
 -- A charge that grants: paid, not deleted, nothing refunded. The paid
 -- statuses are PAID_STATUSES in src/lib/billing/provider.ts
@@ -323,65 +347,195 @@ $$;
 comment on function public.credit_payment_grants(public.payments) is
   'Whether a charge grants its months: a cycle charge, paid, not deleted, nothing refunded.';
 
--- The live lots a charge paid for: its months, and the carryover of each.
+-- A charge whose money went back: deleted, refunded (a refund the provider
+-- calls done), or charged back on the card. A chargeback the person wins
+-- later does not bring the lots back (no adjustment exists yet).
+create function public.credit_payment_taken_back(p_payment public.payments)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select p_payment.deleted
+      or p_payment.refunded_cents > 0
+      or p_payment.asaas_status in ('REFUNDED', 'CHARGEBACK_REQUESTED',
+                                    'CHARGEBACK_DISPUTE', 'AWAITING_CHARGEBACK_REVERSAL');
+$$;
+
+comment on function public.credit_payment_taken_back(public.payments) is
+  'Whether a charge''s money went back: deleted, refunded, or charged back. Its lots are voided.';
+
+-- Whether she has a subscription running (with or without a trial, paid,
+-- or overdue but not canceled yet, Q6). A checkout not finished is not one.
+create function public.credit_alive(p_person uuid)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select exists (select 1 from public.subscriptions s
+                  where s.person_id = p_person
+                    and s.status in ('trialing', 'awaiting', 'active', 'past_due'));
+$$;
+
+comment on function public.credit_alive(uuid) is
+  'Whether the person has a subscription running: trialing, awaiting, active or past_due.';
+
+-- Where her credits end: never while a subscription of hers is alive (null);
+-- once the last one that ran is canceled, at midnight in São Paulo of the
+-- day after what she paid for ended, plus that plan's
+-- credit_days_after_cancel. A checkout that never ran (replaced, expired, a
+-- trial refused) moves nothing. Null too for a person who never subscribed:
+-- only an end written on the lot applies.
+create function public.credit_deadline(p_person uuid)
+returns timestamptz
+language sql
+stable
+set search_path = ''
+as $$
+  select case
+    when public.credit_alive(p_person) then null
+    else (select ((coalesce(s.paid_through, (s.canceled_at at time zone 'America/Sao_Paulo')::date - 1)
+                   + 1 + p.credit_days_after_cancel)::timestamp) at time zone 'America/Sao_Paulo'
+            from public.subscriptions s
+            join public.plans p on p.id = s.plan_id
+           where s.person_id = p_person
+             and s.status = 'canceled'
+             and s.cancel_reason not in ('replaced', 'checkout_expired', 'trial_used')
+           order by s.canceled_at desc, s.created_at desc
+           limit 1)
+  end;
+$$;
+
+comment on function public.credit_deadline(uuid) is
+  'When the person''s credits end: null while a subscription of hers is alive; after a cancel, midnight in São Paulo of the day after her paid period plus the plan''s credit_days_after_cancel.';
+
+-- Her live lots: not closed, and not past their end, which is the earlier of
+-- the lot's own (the trial's) and hers (credit_deadline). The nearest end
+-- first, the lots without an end last, the oldest first.
+create function public.credit_lots_of(p_person uuid)
+returns table (
+  lot_id uuid, kind text, remaining integer, expires_at timestamptz,
+  organization_id uuid, seq bigint)
+language sql
+stable
+set search_path = ''
+as $$
+  with her as (select public.credit_deadline(p_person) as deadline)
+  select l.id, l.kind,
+         (select sum(e.amount) from public.credit_entries e
+           where e.person_id = p_person and (e.id = l.id or e.lot_id = l.id))::integer,
+         least(l.expires_at, her.deadline),
+         l.organization_id, l.seq
+    from public.credit_entries l
+   cross join her
+   where l.person_id = p_person
+     and l.lot_id is null
+     and not exists (select 1 from public.credit_entries x
+                      where x.lot_id = l.id and x.kind = 'expire')
+     and (least(l.expires_at, her.deadline) is null
+          or least(l.expires_at, her.deadline) > now())
+   order by least(l.expires_at, her.deadline) nulls last, l.seq;
+$$;
+
+comment on function public.credit_lots_of(uuid) is
+  'The person''s live lots, each with what is left and when it ends (null: not while her subscription is alive), the nearest end first and the oldest first. Read by every credit function; the screen reads it through credit_live_lots.';
+
+create function public.credit_balance_of(p_person uuid)
+returns integer
+language sql
+stable
+set search_path = ''
+as $$
+  select coalesce(sum(l.remaining), 0)::integer from public.credit_lots_of(p_person) l;
+$$;
+
+comment on function public.credit_balance_of(uuid) is
+  'The person''s balance, the sum of her live lots. Read by the credit functions; the screen reads it through credits_balance.';
+
+-- The live lots a charge paid for, each with what is left.
 create function public.credit_payment_lots(p_payment_id text)
 returns table (lot_id uuid, organization_id uuid, person_id uuid, remaining integer)
 language sql
 stable
 set search_path = ''
 as $$
-  select l.id, l.organization_id, l.person_id,
-         (select sum(e.amount) from public.credit_entries e
-           where e.id = l.id or e.lot_id = l.id)::integer
-    from public.credit_entries l
-   where l.lot_id is null
-     and l.expires_at > now()
-     and (l.asaas_payment_id = p_payment_id
-          or (l.kind = 'carryover'
-              and l.refers_to in (select o.id from public.credit_entries o
-                                   where o.asaas_payment_id = p_payment_id)));
+  select l.lot_id, l.organization_id, p.person_id, l.remaining
+    from public.payments p
+   cross join lateral public.credit_lots_of(p.person_id) l
+    join public.credit_entries g on g.id = l.lot_id
+   where p.asaas_payment_id = p_payment_id
+     and g.asaas_payment_id = p_payment_id;
 $$;
 
 comment on function public.credit_payment_lots(text) is
-  'The live lots a charge paid for (its months and their carryovers), each with what is left.';
+  'The live lots a charge paid for (its months), each with what is left.';
+
+-- A person reads her own credits; the platform admin and service_role
+-- (no person signed in) read anyone's. Another person's is refused: with
+-- the Founder seal (#292) a cost would say who is a founder, and a balance
+-- is hers.
+create function public.credit_check_reader(p_person uuid)
+returns void
+language plpgsql
+stable
+set search_path = ''
+as $$
+begin
+  if (select auth.uid()) is not null
+     and (select auth.uid()) <> p_person
+     and not public.is_platform_admin() then
+    raise exception 'the credits of another person are not yours to read'
+      using errcode = 'insufficient_privilege';
+  end if;
+end;
+$$;
+
+comment on function public.credit_check_reader(uuid) is
+  'Refuses (42501) anyone signed in but the person herself and the platform admin.';
 
 
 -- What she has ------------------------------------------------------------------
 --
--- security invoker: row level security already keeps a person to her own
--- rows, so another person's lots read as none and her balance as 0.
+-- security definer: the end of her lots is read from her subscriptions and
+-- from her plan, which she may no longer read once it is off sale. So each
+-- refuses another person (credit_check_reader) instead of leaning on row
+-- level security.
 
 create function public.credit_live_lots(p_person uuid)
 returns table (lot_id uuid, kind text, remaining integer, expires_at timestamptz)
-language sql
+language plpgsql
 stable
+security definer
 set search_path = ''
 as $$
-  select l.id, l.kind, sum(e.amount)::integer, l.expires_at
-    from public.credit_entries l
-    join public.credit_entries e
-      on e.person_id = l.person_id and coalesce(e.lot_id, e.id) = l.id
-   where l.person_id = p_person
-     and l.lot_id is null
-     and l.expires_at > now()
-   group by l.id, l.kind, l.expires_at
-   order by l.expires_at, l.id;
+begin
+  perform public.credit_check_reader(p_person);
+  return query
+    select l.lot_id, l.kind, l.remaining, l.expires_at
+      from public.credit_lots_of(p_person) l
+     order by l.expires_at nulls last, l.seq;
+end;
 $$;
 
 comment on function public.credit_live_lots(uuid) is
-  'Each live lot of the person (expires_at in the future), what is left in it and when it expires, the nearest first. Under her own row level security: another person''s lots read as none.';
+  'Each live lot of the person, what is left in it and when it ends (null: not while her subscription is alive), the nearest end first. Refuses another person (42501) to anyone but the platform admin and service_role.';
 
 create function public.credits_balance(p_person uuid)
 returns integer
-language sql
+language plpgsql
 stable
+security definer
 set search_path = ''
 as $$
-  select coalesce(sum(l.remaining), 0)::integer from public.credit_live_lots(p_person) l;
+begin
+  perform public.credit_check_reader(p_person);
+  return public.credit_balance_of(p_person);
+end;
 $$;
 
 comment on function public.credits_balance(uuid) is
-  'The person''s balance: the sum of her live lots. A lot past its day leaves it at once, whether the routine closed it or not. Under her own row level security: another person''s balance reads as 0.';
+  'The person''s balance: the sum of her live lots. A lot past its end leaves it at once, whether the routine closed it or not. Refuses another person (42501) to anyone but the platform admin and service_role.';
 
 
 -- What an action costs -------------------------------------------------------------
@@ -419,8 +573,6 @@ $$;
 comment on function public.credit_price(uuid, text) is
   'What one unit of the action costs the person, from credit_costs in the brand of her organization. Refuses an action without a cost there (credit_cost_known). Called by credit_cost and credit_debit only.';
 
--- The cost as the app reads it. Another person's is refused: with the
--- Founder seal (#292) it would say who is a founder.
 create function public.credit_cost(p_person uuid, p_action text)
 returns integer
 language plpgsql
@@ -429,12 +581,7 @@ security definer
 set search_path = ''
 as $$
 begin
-  if (select auth.uid()) is not null
-     and (select auth.uid()) <> p_person
-     and not public.is_platform_admin() then
-    raise exception 'the cost of another person''s action is not yours to read'
-      using errcode = 'insufficient_privilege';
-  end if;
+  perform public.credit_check_reader(p_person);
   return public.credit_price(p_person, p_action);
 end;
 $$;
@@ -443,100 +590,73 @@ comment on function public.credit_cost(uuid, text) is
   'What one unit of the action costs the person, in credits. She reads her own; another person''s is refused (42501) to anyone but the platform admin and service_role. Refuses an action without a cost in her brand (credit_cost_known).';
 
 
--- Closing what expired ---------------------------------------------------------------
+-- Closing what ended ---------------------------------------------------------------
 
--- Closes each lot of the person past its day: an expire with what was left
--- (zero too, to mark it closed). From a month's lot, a carryover of the least
--- of what was left and the plan's cap, expiring a month after it, while the
--- subscription is alive or what she paid covers the next month. A carryover,
--- a trial and a refund pass nothing on. Its caller holds the person's lock.
-create function public.credit_close_expired(
-  p_person uuid, out closed integer, out carried integer)
+-- Closes each lot of the person past its end: an expire with what was left
+-- (zero too, to mark it closed). A closed lot never comes back, not even when
+-- she subscribes again. Its caller holds the person's lock.
+create function public.credit_close_expired(p_person uuid, out closed integer)
 language plpgsql
 set search_path = ''
 as $$
 declare
+  v_deadline timestamptz := public.credit_deadline(p_person);
   v_lot record;
   v_rows integer;
-  v_due date;
-  v_status text;
-  v_paid_through date;
-  v_percent smallint;
-  v_carry integer;
 begin
   closed := 0;
-  carried := 0;
   for v_lot in
-    select l.id, l.organization_id, l.kind, l.amount, l.expires_at, l.asaas_payment_id, l.period,
+    select l.id, l.organization_id,
            (select sum(e.amount) from public.credit_entries e
              where e.id = l.id or e.lot_id = l.id)::integer as remaining
       from public.credit_entries l
      where l.person_id = p_person
        and l.lot_id is null
-       and l.expires_at <= now()
+       and least(l.expires_at, v_deadline) <= now()
        and not exists (select 1 from public.credit_entries x
                         where x.lot_id = l.id and x.kind = 'expire')
-     order by l.expires_at, l.created_at, l.id
+     order by l.seq
   loop
     insert into public.credit_entries (organization_id, person_id, kind, amount, lot_id)
       values (v_lot.organization_id, p_person, 'expire', -v_lot.remaining, v_lot.id)
       on conflict (kind, lot_id) where kind in ('expire', 'void') do nothing;
     get diagnostics v_rows = row_count;
-    continue when v_rows = 0;
-    closed := closed + 1;
-
-    continue when v_lot.kind <> 'plan' or v_lot.remaining <= 0;
-    select p.due_on, s.status, s.paid_through, pl.carryover_percent
-      into v_due, v_status, v_paid_through, v_percent
-      from public.payments p
-      join public.subscriptions s on s.id = p.subscription_id
-      join public.plans pl on pl.id = s.plan_id
-     where p.asaas_payment_id = v_lot.asaas_payment_id;
-    -- The cap is a whole number of credits, rounded down: it never passes
-    -- the plan's percent.
-    v_carry := least(v_lot.remaining, (v_lot.amount * coalesce(v_percent, 0)) / 100);
-    continue when v_carry <= 0;
-    continue when v_status = 'canceled'
-              and (v_paid_through is null
-                   or v_paid_through < (v_lot.expires_at at time zone 'America/Sao_Paulo')::date);
-    insert into public.credit_entries
-      (organization_id, person_id, kind, amount, expires_at, refers_to)
-      values (v_lot.organization_id, p_person, 'carryover', v_carry,
-              public.credit_month_starts(v_due, v_lot.period + 2), v_lot.id)
-      on conflict (kind, refers_to) where refers_to is not null do nothing;
-    get diagnostics v_rows = row_count;
-    carried := carried + v_rows;
+    closed := closed + v_rows;
   end loop;
 end;
 $$;
 
 comment on function public.credit_close_expired(uuid) is
-  'Closes each lot of the person past its day with an expire of what was left, and from a month''s lot opens the carryover: the least of what was left and the plan''s carryover_percent of the month, while the subscription is alive or paid through the next month. Returns how many lots closed and how many carryovers opened. Its caller holds the person''s lock.';
+  'Closes each lot of the person past its end (its own, or hers after a cancel) with an expire of what was left. Returns how many it closed. Its caller holds the person''s lock.';
 
 
 -- Granting and taking back a charge's months --------------------------------------------
 
--- The month a paid charge is in, once (credit_entries_one_grant_per_period),
--- and only once it started: a Pix paid ahead grants on its due day, so the
--- next month never adds to the current one. The credits come from the
--- subscription (Q5). A charge refunded, charged back or deleted has what is
+-- Every month of a paid charge that started, once
+-- (credit_entries_one_grant_per_period), without an end: a Pix paid ahead
+-- grants on its due day, so the next month never adds to the current one. The
+-- credits come from the subscription (Q5), and stop at the plan's ceiling:
+-- what would pass it is not granted, and the month is decided (a lot of 0
+-- when the ceiling is reached). A charge whose money went back has what is
 -- left of its live lots voided: what was spent stays spent, and its later
--- months are never granted. A chargeback the person wins later does not
--- bring the lots back (no adjustment exists yet). Anything else (pending,
--- overdue, a refund on its way) does nothing. Takes the person's lock.
+-- months are never granted. Anything else (pending, overdue, a refund on its
+-- way) does nothing. Takes the person's lock.
 create function public.credit_settle(
-  p_payment_id text, out granted integer, out voided integer)
+  p_payment_id text, out granted integer, out granted_lots integer, out voided integer)
 language plpgsql
 set search_path = ''
 as $$
 declare
   v_payment public.payments;
   v_sub public.subscriptions;
+  v_ceiling bigint;
+  v_amount integer;
   v_month integer;
   v_lot record;
   v_rows integer;
 begin
   granted := 0;
+  granted_lots := 0;
   voided := 0;
   select * into v_payment from public.payments where asaas_payment_id = p_payment_id;
   if not found or v_payment.kind <> 'cycle' then
@@ -549,21 +669,25 @@ begin
     if v_sub.monthly_credits = 0 then
       return;
     end if;
+    select p.credit_ceiling_months::bigint * v_sub.monthly_credits into v_ceiling
+      from public.plans p where p.id = v_sub.plan_id;
     for v_month in 0 .. (case v_sub.cycle when 'annual' then 11 else 0 end) loop
-      continue when public.credit_month_starts(v_payment.due_on, v_month) > now()
-                 or public.credit_month_starts(v_payment.due_on, v_month + 1) <= now();
+      continue when public.credit_month_starts(v_payment.due_on, v_month) > now();
+      continue when exists (select 1 from public.credit_entries g
+                             where g.kind = 'plan' and g.asaas_payment_id = p_payment_id
+                               and g.period = v_month);
+      v_amount := greatest(0, least(v_sub.monthly_credits::bigint,
+                                    v_ceiling - public.credit_balance_of(v_sub.person_id)));
       insert into public.credit_entries
-        (organization_id, person_id, kind, amount, expires_at, asaas_payment_id, period, subscription_id)
-        values (v_sub.organization_id, v_sub.person_id, 'plan', v_sub.monthly_credits,
-                public.credit_month_starts(v_payment.due_on, v_month + 1),
+        (organization_id, person_id, kind, amount, asaas_payment_id, period, subscription_id)
+        values (v_sub.organization_id, v_sub.person_id, 'plan', v_amount,
                 p_payment_id, v_month, v_sub.id)
         on conflict (asaas_payment_id, period) where kind = 'plan' do nothing;
       get diagnostics v_rows = row_count;
-      granted := granted + v_rows * v_sub.monthly_credits;
+      granted := granted + v_rows * v_amount;
+      granted_lots := granted_lots + v_rows;
     end loop;
-  elsif v_payment.deleted or v_payment.refunded_cents > 0
-        or v_payment.asaas_status in ('REFUNDED', 'CHARGEBACK_REQUESTED',
-                                      'CHARGEBACK_DISPUTE', 'AWAITING_CHARGEBACK_REVERSAL') then
+  elsif public.credit_payment_taken_back(v_payment) then
     for v_lot in select * from public.credit_payment_lots(p_payment_id) loop
       continue when v_lot.remaining <= 0;
       insert into public.credit_entries (organization_id, person_id, kind, amount, lot_id)
@@ -577,7 +701,7 @@ end;
 $$;
 
 comment on function public.credit_settle(text) is
-  'Grants the month a paid charge is in, once, or voids what is left of the live lots of a charge refunded, charged back or deleted. Returns the credits granted and voided. Called by credit_settle_payment, credit_daily and credit_grant_started.';
+  'Grants every month a paid charge has started, once, up to the plan''s ceiling, or voids what is left of the live lots of a charge whose money went back. Returns the credits and lots granted and the credits voided. Called by credit_settle_payment, credit_daily and credit_grant_started.';
 
 -- For the webhook, after it wrote the charge as the provider has it now.
 create function public.credit_settle_payment(p_payment_id text)
@@ -590,61 +714,7 @@ as $$
 $$;
 
 comment on function public.credit_settle_payment(text) is
-  'What a charge, as last read, means for the credits: grants the month it is in once it started (once by charge and month), or voids what is left of its lots when it was refunded or deleted. Returns the credits granted minus the credits voided. For the webhook, executed by service_role.';
-
--- The daily routine: every charge that may still grant or be taken back is
--- settled (an annual one month by month, and anything the webhook missed),
--- then every lot past its day is closed, with its carryover. A charge's lots
--- end at most 13 months after its due day (an annual charge's last month and
--- its carryover), so older charges are not read. One transaction: each
--- person's lock is held until it ends, which is short at this size.
-create function public.credit_daily(out granted integer, out closed integer, out carried integer)
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-  v_payment_id text;
-  v_person uuid;
-  v_settled record;
-  v_closed record;
-begin
-  granted := 0;
-  closed := 0;
-  carried := 0;
-  for v_payment_id in
-    select p.asaas_payment_id
-      from public.payments p
-     where p.due_on > (now() at time zone 'America/Sao_Paulo')::date - 430
-       and (public.credit_payment_grants(p)
-            or exists (select 1 from public.credit_payment_lots(p.asaas_payment_id)))
-     order by p.due_on, p.asaas_payment_id
-  loop
-    select * into v_settled from public.credit_settle(v_payment_id);
-    if v_settled.granted > 0 then
-      granted := granted + 1;
-    end if;
-  end loop;
-
-  for v_person in
-    select distinct l.person_id
-      from public.credit_entries l
-     where l.lot_id is null
-       and l.expires_at <= now()
-       and not exists (select 1 from public.credit_entries x
-                        where x.lot_id = l.id and x.kind = 'expire')
-  loop
-    perform public.credit_lock_person(v_person);
-    select * into v_closed from public.credit_close_expired(v_person);
-    closed := closed + v_closed.closed;
-    carried := carried + v_closed.carried;
-  end loop;
-end;
-$$;
-
-comment on function public.credit_daily() is
-  'The daily step of the credits: grants the months that started (an annual charge month by month, and any grant the webhook missed), voids what a refunded or deleted charge left, and closes every lot past its day with its carryover. Returns how many lots it granted, closed and carried over. Executed by service_role.';
-
+  'What a charge, as last read, means for the credits: grants the months it started (once by charge and month, up to the ceiling), or voids what is left of its lots when its money went back. Returns the credits granted minus the credits voided. For the webhook, executed by service_role.';
 
 -- The months of her paid charges that already started, granted now rather
 -- than at the routine: a month paid ahead starts at midnight, the routine
@@ -662,7 +732,7 @@ begin
     select p.asaas_payment_id
       from public.payments p
      where p.person_id = p_person
-       and p.due_on > (now() at time zone 'America/Sao_Paulo')::date - 430
+       and p.due_on > (now() at time zone 'America/Sao_Paulo')::date - 400
        and p.due_on <= (now() at time zone 'America/Sao_Paulo')::date
        and public.credit_payment_grants(p)
      order by p.due_on, p.asaas_payment_id
@@ -675,16 +745,68 @@ $$;
 comment on function public.credit_grant_started(uuid) is
   'Grants the months of the person''s paid charges that already started and were not granted yet (a charge paid ahead, before the routine runs). Called by credit_debit and credit_refund, which hold her lock.';
 
+-- The daily routine: every paid charge of the last 400 days (an annual one
+-- month by month, and anything the webhook missed) and every charge whose
+-- money went back with a lot still open is settled; then every lot past its
+-- end is closed. One transaction: each person's lock is held until it ends,
+-- which is short at this size.
+create function public.credit_daily(out granted integer, out closed integer)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_payment_id text;
+  v_person uuid;
+  v_settled record;
+  v_closed record;
+begin
+  granted := 0;
+  closed := 0;
+  for v_payment_id in
+    select p.asaas_payment_id
+      from public.payments p
+     where (public.credit_payment_grants(p)
+            and p.due_on > (now() at time zone 'America/Sao_Paulo')::date - 400
+            and p.due_on <= (now() at time zone 'America/Sao_Paulo')::date)
+        or (public.credit_payment_taken_back(p)
+            and exists (select 1 from public.credit_entries g
+                         where g.kind = 'plan' and g.asaas_payment_id = p.asaas_payment_id
+                           and not exists (select 1 from public.credit_entries x
+                                            where x.lot_id = g.id and x.kind in ('void', 'expire'))))
+     order by p.due_on, p.asaas_payment_id
+  loop
+    select * into v_settled from public.credit_settle(v_payment_id);
+    granted := granted + v_settled.granted_lots;
+  end loop;
+
+  for v_person in
+    select distinct l.person_id
+      from public.credit_entries l
+     where l.lot_id is null
+       and least(l.expires_at, public.credit_deadline(l.person_id)) <= now()
+       and not exists (select 1 from public.credit_entries x
+                        where x.lot_id = l.id and x.kind = 'expire')
+  loop
+    perform public.credit_lock_person(v_person);
+    select * into v_closed from public.credit_close_expired(v_person);
+    closed := closed + v_closed.closed;
+  end loop;
+end;
+$$;
+
+comment on function public.credit_daily() is
+  'The daily step of the credits: grants the months that started (an annual charge month by month, and any grant the webhook missed), voids what a charge whose money went back left, and closes every lot past its end. Returns how many lots it granted and closed. Executed by service_role.';
+
 
 -- Spending and giving back ------------------------------------------------------------------
 
 -- The debit, server side only (Q3: whole credits; the live session debits a
 -- minute at its start and checks every 10 s). Takes the person's lock,
--- grants her months that started and closes what expired (so neither a month
--- paid ahead nor a carryover misses for whoever spends between midnight and
--- the routine), and writes one row per lot it touches, the lot that expires
--- first first. Executed by nobody: the security definer
--- function that needs it (the booking of #276) calls it in its transaction.
+-- grants her months that started and closes what ended, and writes one row
+-- per lot it touches: the lot that ends first first, the lots without an end
+-- last, the oldest first. Executed by nobody: the security definer function
+-- that needs it (the booking of #276) calls it in its transaction.
 create function public.credit_debit(
   p_person uuid, p_action text, p_quantity integer, p_reference text)
 returns integer
@@ -716,7 +838,7 @@ begin
   end if;
 
   v_total := v_cost::bigint * p_quantity;
-  v_balance := public.credits_balance(p_person);
+  v_balance := public.credit_balance_of(p_person);
   if v_balance < v_total then
     raise exception 'credits_not_negative: % costs %, and person % has %', p_action, v_total, p_person, v_balance
       using errcode = 'check_violation', constraint = 'credits_not_negative';
@@ -724,11 +846,10 @@ begin
 
   v_left := v_total;
   for v_lot in
-    select l.lot_id, l.remaining, e.organization_id
-      from public.credit_live_lots(p_person) l
-      join public.credit_entries e on e.id = l.lot_id
+    select l.lot_id, l.remaining, l.organization_id
+      from public.credit_lots_of(p_person) l
      where l.remaining > 0
-     order by l.expires_at, e.created_at, l.lot_id
+     order by l.expires_at nulls last, l.seq
   loop
     exit when v_left = 0;
     v_take := least(v_lot.remaining, v_left);
@@ -737,20 +858,20 @@ begin
       values (v_lot.organization_id, p_person, 'debit', -v_take, v_lot.lot_id, p_action, p_reference);
     v_left := v_left - v_take;
   end loop;
-  return public.credits_balance(p_person);
+  return public.credit_balance_of(p_person);
 end;
 $$;
 
 comment on function public.credit_debit(uuid, text, integer, text) is
-  'Spends the cost of p_quantity units of the action from the person''s live lots, the nearest to expire first, and returns her balance. Refuses a reference already debited (credit_debit_reference_used), an action without a cost in her brand (credit_cost_known) and a balance that does not cover it (credits_not_negative). Takes her lock first, so two debits of hers wait for each other. Executed by nobody: called by other security definer functions.';
+  'Spends the cost of p_quantity units of the action from the person''s live lots (the nearest end first, the lots without an end last, the oldest first) and returns her balance. Refuses a reference already debited (credit_debit_reference_used), an action without a cost in her brand (credit_cost_known) and a balance that does not cover it (credits_not_negative). Takes her lock first, so two debits of hers wait for each other. Executed by nobody: called by other security definer functions.';
 
 -- The refund of a debit (a lesson canceled, #276), once per debit row. It
--- goes back to the lot it came from while that lot is alive; once that lot is
--- gone, it opens a lot that expires with her current month's lot, or in a
--- month when she has none (Q8), so a lesson booked at the end of a cycle and
--- canceled at the start of the next keeps its credits. A debit from a lot
--- that was voided (its charge refunded or charged back) is not given back:
--- those credits left with the money. Executed by nobody, like the debit.
+-- goes back to the lot it came from while that lot is alive. Once that lot
+-- is gone (closed), it opens a lot of its own (Q8): without an end while
+-- she has a subscription alive, ending in a month otherwise (and never after
+-- her own end). A debit from a lot that was voided (its charge's money went
+-- back) is not given back: those credits left with the money. Executed by
+-- nobody, like the debit.
 create function public.credit_refund(p_person uuid, p_reference text)
 returns integer
 language plpgsql
@@ -759,7 +880,6 @@ set search_path = ''
 as $$
 declare
   v_debit record;
-  v_until timestamptz;
   v_rows integer;
   v_back integer := 0;
 begin
@@ -768,31 +888,27 @@ begin
   perform public.credit_close_expired(p_person);
   for v_debit in
     select d.id, d.organization_id, d.amount, d.lot_id, d.action, d.reference,
-           l.expires_at as lot_expires_at,
            exists (select 1 from public.credit_entries v
-                    where v.lot_id = d.lot_id and v.kind = 'void') as lot_voided
+                    where v.lot_id = d.lot_id and v.kind = 'void') as lot_voided,
+           exists (select 1 from public.credit_lots_of(p_person) l
+                    where l.lot_id = d.lot_id) as lot_alive
       from public.credit_entries d
-      join public.credit_entries l on l.id = d.lot_id
      where d.person_id = p_person and d.kind = 'debit' and d.reference = p_reference
-     order by d.created_at, d.id
+     order by d.seq
   loop
     continue when v_debit.lot_voided;
-    if v_debit.lot_expires_at > now() then
+    if v_debit.lot_alive then
       insert into public.credit_entries
         (organization_id, person_id, kind, amount, lot_id, refers_to, action, reference)
         values (v_debit.organization_id, p_person, 'refund', -v_debit.amount, v_debit.lot_id,
                 v_debit.id, v_debit.action, v_debit.reference)
         on conflict (kind, refers_to) where refers_to is not null do nothing;
     else
-      select max(l.expires_at) into v_until
-        from public.credit_entries l
-       where l.person_id = p_person and l.kind = 'plan' and l.expires_at > now()
-         and not exists (select 1 from public.credit_entries v
-                          where v.lot_id = l.id and v.kind = 'void');
       insert into public.credit_entries
         (organization_id, person_id, kind, amount, expires_at, refers_to, action, reference)
         values (v_debit.organization_id, p_person, 'refund', -v_debit.amount,
-                coalesce(v_until, now() + interval '1 month'),
+                case when public.credit_alive(p_person) then null
+                     else now() + interval '1 month' end,
                 v_debit.id, v_debit.action, v_debit.reference)
         on conflict (kind, refers_to) where refers_to is not null do nothing;
     end if;
@@ -804,17 +920,17 @@ end;
 $$;
 
 comment on function public.credit_refund(uuid, text) is
-  'Gives back every debit of the person under the reference, once each (credit_entries_once_per_entry): to its lot while it is alive, as a new lot expiring with her current month''s lot that was not voided (or in a month) once it is gone. A debit from a voided lot is not given back. Returns the credits given back, 0 when there is nothing to give. Executed by nobody: called by other security definer functions.';
+  'Gives back every debit of the person under the reference, once each (credit_entries_once_per_entry): to its lot while it is alive, as a new lot once it is gone (without an end while her subscription is alive, in a month otherwise). A debit from a voided lot is not given back. Returns the credits given back, 0 when there is nothing to give. Executed by nobody: called by other security definer functions.';
 
 
 -- The proportional refund (CDC art. 49) ------------------------------------------------------
 
 -- What a charge paid for and did not use: what is left in its live lots,
--- plus its months not granted and not over yet (an annual charge's months
--- ahead). The value back is rounded up to the cent, never against the
--- person. A charge whose plan grants no credits had nothing to use: all of
--- it. A charge that does not grant (not paid, refunded, deleted) is worth 0.
--- Q7: who triggers the refund is #297.
+-- plus its months not granted yet (an annual charge's months ahead). The
+-- value back is rounded up to the cent, never against the person. A charge
+-- whose plan grants no credits had nothing to use: all of it. A charge that
+-- does not grant (not paid, refunded, deleted) is worth 0. Q7: who triggers
+-- the refund is #297.
 create function public.credit_refund_quote(
   p_payment_id text,
   out payment_credits integer,
@@ -849,10 +965,9 @@ begin
   select coalesce(sum(l.remaining), 0) into unused_credits
     from public.credit_payment_lots(p_payment_id) l;
   for v_month in 0 .. v_months - 1 loop
-    if public.credit_month_starts(v_payment.due_on, v_month + 1) > now()
-       and not exists (select 1 from public.credit_entries e
-                        where e.kind = 'plan' and e.asaas_payment_id = p_payment_id
-                          and e.period = v_month) then
+    if not exists (select 1 from public.credit_entries e
+                    where e.kind = 'plan' and e.asaas_payment_id = p_payment_id
+                      and e.period = v_month) then
       unused_credits := unused_credits + v_sub.monthly_credits;
     end if;
   end loop;
@@ -863,13 +978,13 @@ end;
 $$;
 
 comment on function public.credit_refund_quote(text) is
-  'The proportional refund of a paid charge: the credits it paid for, the ones not used (left in its live lots, plus its months not granted and not over), and the value back in cents, rounded up. 0 for a charge that does not grant. Executed by service_role.';
+  'The proportional refund of a paid charge: the credits it paid for, the ones not used (left in its live lots, plus its months not granted yet), and the value back in cents, rounded up. 0 for a charge that does not grant. Executed by service_role.';
 
 
--- The trial's credits -------------------------------------------------------------------------
+-- The subscription's side ----------------------------------------------------------------------
 
 -- When a subscription with a trial starts running (as 0049 marks the trial
--- used), its plan's trial_credits open a lot that expires at midnight in São
+-- used), its plan's trial_credits open a lot that ends at midnight in São
 -- Paulo of first_due_on, the day of the first charge. Once per subscription
 -- (credit_entries_one_trial_per_subscription). A first_due_on already passed
 -- (events that came late) grants nothing. The billing functions of 0049 do
@@ -909,6 +1024,29 @@ create trigger subscriptions_grant_trial_credits
   after insert or update of status on public.subscriptions
   for each row execute function public.credit_grant_trial();
 
+-- Before a subscription of hers starts running, the lots that already ended
+-- are closed: once it runs, her lots have no end again, and one that ended
+-- must not come back with them. Before, so the end is still read from the
+-- subscriptions as they were.
+create function public.credit_close_before_alive()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.status in ('trialing', 'awaiting', 'active', 'past_due')
+     and (tg_op = 'INSERT' or old.status not in ('trialing', 'awaiting', 'active', 'past_due')) then
+    perform public.credit_lock_person(new.person_id);
+    perform public.credit_close_expired(new.person_id);
+  end if;
+  return new;
+end;
+$$;
+
+create trigger subscriptions_close_ended_credits
+  before insert or update of status on public.subscriptions
+  for each row execute function public.credit_close_before_alive();
+
 
 -- Who executes what ----------------------------------------------------------------------------
 
@@ -916,28 +1054,33 @@ revoke all on function public.credit_subscription_copies_plan() from public, ano
 revoke all on function public.credit_entries_refuse_edit() from public, anon, authenticated;
 revoke all on function public.credit_entries_check_lot() from public, anon, authenticated;
 revoke all on function public.credit_grant_trial() from public, anon, authenticated;
+revoke all on function public.credit_close_before_alive() from public, anon, authenticated;
 revoke all on function public.credit_lock_person(uuid) from public, anon, authenticated;
 revoke all on function public.credit_month_starts(date, integer) from public, anon, authenticated;
 revoke all on function public.credit_payment_grants(public.payments) from public, anon, authenticated;
+revoke all on function public.credit_payment_taken_back(public.payments) from public, anon, authenticated;
+revoke all on function public.credit_alive(uuid) from public, anon, authenticated;
+revoke all on function public.credit_deadline(uuid) from public, anon, authenticated;
+revoke all on function public.credit_lots_of(uuid) from public, anon, authenticated;
+revoke all on function public.credit_balance_of(uuid) from public, anon, authenticated;
 revoke all on function public.credit_payment_lots(text) from public, anon, authenticated;
+revoke all on function public.credit_check_reader(uuid) from public, anon, authenticated;
 revoke all on function public.credit_live_lots(uuid) from public, anon, authenticated;
 revoke all on function public.credits_balance(uuid) from public, anon, authenticated;
 revoke all on function public.credit_price(uuid, text) from public, anon, authenticated;
 revoke all on function public.credit_cost(uuid, text) from public, anon, authenticated;
 revoke all on function public.credit_close_expired(uuid) from public, anon, authenticated;
 revoke all on function public.credit_settle(text) from public, anon, authenticated;
-revoke all on function public.credit_grant_started(uuid) from public, anon, authenticated;
 revoke all on function public.credit_settle_payment(text) from public, anon, authenticated;
+revoke all on function public.credit_grant_started(uuid) from public, anon, authenticated;
 revoke all on function public.credit_daily() from public, anon, authenticated;
 revoke all on function public.credit_debit(uuid, text, integer, text) from public, anon, authenticated;
 revoke all on function public.credit_refund(uuid, text) from public, anon, authenticated;
 revoke all on function public.credit_refund_quote(text) from public, anon, authenticated;
 
--- Her screen reads her lots and her balance under her own row level
--- security; service_role holds no privilege on the ledger, so these two,
--- security invoker, are not its.
-grant execute on function public.credit_live_lots(uuid) to authenticated;
-grant execute on function public.credits_balance(uuid) to authenticated;
+-- Her screen reads her lots, her balance and her costs; service_role too.
+grant execute on function public.credit_live_lots(uuid) to authenticated, service_role;
+grant execute on function public.credits_balance(uuid) to authenticated, service_role;
 grant execute on function public.credit_cost(uuid, text) to authenticated, service_role;
 -- The webhook and the daily routine (as the billing functions of 0049).
 grant execute on function public.credit_settle_payment(text) to service_role;
