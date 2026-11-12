@@ -17,8 +17,8 @@ Read this before writing code in this repository.
 
 ## Content and licensing
 
-The teaching material in this product is written by Luiz and is common to
-every organization on the platform, written only by the platform admin
+The teaching material in this product is written by Luiz, belongs to GrifoAI
+(ADR 0006) and is common to every organization on the platform, written only by the platform admin
 (ADR 0004, ADR 0005); no organization holds content of its own. This
 platform does not serve published course books or their page images.
 Extraction targets and the teacher's own working notes, derived from
@@ -27,7 +27,8 @@ stored here. Book page images are never committed to this repository.
 The wording of every generated practice sentence is original.
 
 The repository is public for reading only: `LICENSE` reserves every right to
-Luiz, for the code and the teaching material (#139), and `package.json` says
+Luiz, for the code and the teaching material (#139), until GrifoAI's legal
+entity exists (ADR 0006), and `package.json` says
 `UNLICENSED`. Nothing here is offered under an open licence.
 
 ## Stack

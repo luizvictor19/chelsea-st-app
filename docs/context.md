@@ -5,12 +5,19 @@ architecture question for Luiz.
 
 ## The product
 
-- Two brands on one app and one database (ADR 0005, 05/11/2026):
-  - Chelsea St: Luiz's personal brand, an English school. Two parts: live 45-min lessons with Luiz
-    (one trial class given on 02/10/2026; no students yet) and Robin, a voice tutor for daily
-    practice (not built yet).
-  - GrifoAI: AI automation for companies. Its employees practise English with Robin only, with no
-    teacher and no teacher tools, under the GrifoAI brand (griffin mascot).
+- One company, two lines, on one app and one database (ADR 0005, ADR 0006 of 12/11/2026):
+  - GrifoAI is the company. Its B2B line sells AI automation to companies; their employees practise
+    English with the tutor (Grifo) only, with no teacher and no teacher tools, under the GrifoAI
+    brand (griffin mascot), billed on the automation contract.
+  - "Chelsea St by GrifoAI" is the B2C line, sold to people: Robin, a voice tutor for daily practice
+    (not built yet), and lessons with a teacher booked and paid with credits (one trial class given
+    on 02/10/2026; no students yet).
+  - The teaching material belongs to GrifoAI and serves both lines.
+- Three levels of practice on one engine (ADR 0006): the trail (Robin v1, minutes per day, no
+  credit), live voice (a voice question inside the trail, free conversation) and video (the same
+  engine with an avatar). The plan opens the doors, credits pay for what goes through them; a
+  question by chat spends none. Chelsea St pays through Asaas (#72). Robin always leads the trail:
+  the reviewer mode of 07/11 is withdrawn.
 - English schools are not customers. Each tenant is an organization: Chelsea St, or one company.
 - Today only Luiz uses the platform, as teacher. Students will sign in later.
 - Offer and prices live outside this repository and do not drive code decisions without an issue.
@@ -90,7 +97,7 @@ architecture question for Luiz.
 
 - DDL only through a migration in `supabase/migrations`, applied by Luiz with `supabase db push`
   from the worktree that holds the file. The SQL Editor is for reads only.
-- Migration numbers: 0023 is reserved for payments; 0024 must never be used; the next free number
+- Migration numbers: 0023 and 0024 stay unused (0023 was reserved for payments until ADR 0006); the next free number
   is the lowest one above the highest file on disk. Luiz gives the number in the prompt; a session
   never picks it.
 - Every migration appears in `scripts/verify-rls.sql`, or in `LEFT_OUT` of
