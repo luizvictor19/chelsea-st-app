@@ -26,20 +26,28 @@ architecture question for Luiz.
 
 - **One environment.** The single Supabase project is production. There is no staging, by
   decision. Every migration, RLS change, function change or data write is a production change.
-- Supabase Pro, Postgres 17. Backups, checked against the Supabase docs and the dashboard on
-  2026-10-24:
-  - Daily physical backups, the last 7 days, taken around 09:15 UTC (the dashboard listed 17 to 23
-    October). PITR is off (about US$ 100/month plus Small compute); revisit when students arrive
-    (#68).
-  - A backup holds the database only. Storage files are not in it (185 objects, 156 MB in
-    `vocabulary-images`, measured 2026-10-24): a deleted file never comes back from a restore.
-  - Restoring in place overwrites production and takes the project offline. "Restore to a new
-    project" copies the database and `auth`, not Storage or keys, and is billed by the hour while
-    the new project exists (Micro, about US$ 0.013/hour). Tested on 2026-10-24 with the 23 October
-    backup: every row count matched production; the new project was deleted the same day.
+- Supabase Free, Postgres 17, by Luiz's decision on 2026-11-12 (#286). What Free gives and does
+  not give, as the dashboard showed on 2026-11-12:
+  - No daily backup and no PITR.
+  - The project is paused after 7 days without activity, which takes `app.chelsea-st.com` down.
+    Luiz unpauses it in the dashboard, within 90 days. Using the app every week avoids it.
+  - The quota is for the whole organization, shared with prediction-radar: 0.5 GB of database,
+    1 GB of Storage, 5 GB of egress. On 2026-11-12 (cycle 10/11 to 10/12) the organization was at
+    0.286 GB of database (57%) and 0.508 GB of Storage (51%); chelsea-st itself had a 15 MB
+    database and 220 MB in 247 Storage objects (MCP). The over-quota warning came from the
+    previous cycle, caused by prediction-radar; the grace period ends on 2026-12-11, and the
+    organization is restricted only if it is still over then.
+  - What to watch: the Storage, before Robin's pre-generated audio (#252) and the person's audio
+    kept for 30 days (#256); the pause, while nobody uses the app every day.
+- Backups: the logical copy is the only copy.
   - Before every large migration, Luiz takes a logical copy (`supabase db dump`) and the Storage
     files, and restores the copy on a local stack. Commands in `docs/commands.md`. First rehearsal
     on 2026-10-24: every row count matched production, and the 185 Storage files were copied.
+  - A copy holds the database only. Storage files are copied apart: a deleted file never comes
+    back from a database restore.
+  - History: until 2026-11-12 these docs described the Pro plan. Checked on 2026-10-24, it kept
+    daily physical backups for 7 days, and a "Restore to a new project" of the 23 October backup
+    matched every production row count. None of that exists on Free.
 - The platform runs at `app.chelsea-st.com` on Vercel (#68), set up by Luiz:
   - Hobby plan, by Luiz's decision on 2026-10-25. Vercel restricts Hobby to non-commercial use;
     if Vercel pauses the project for that, the way out is Pro or another host.
