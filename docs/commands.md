@@ -77,7 +77,9 @@ Settings > Environment Variables, by name only (values live in Vercel and in `.e
 
 `NEXT_PUBLIC_TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` (#275), Production only, the second
 as a Secret: the widget of `/cadastro`, created in the Cloudflare dashboard (Turnstile, Add widget,
-hostname `app.chelsea-st.com`, mode Managed). Without both the signup stays closed ("As inscrições
+hostname `app.chelsea-st.com` and no other, mode Managed). The server does not compare the
+hostname siteverify returns: the widget's list is what keeps a token solved elsewhere out, so
+`localhost` or a preview never enters it. Without both the signup stays closed ("As inscrições
 abrem em breve"), as it does while there is no Asaas key; a preview never has the page. Locally,
 Cloudflare's test keys stand in: site key `1x00000000000000000000AA` and secret
 `1x0000000000000000000000000000000AA` always pass, and a real secret refuses their token.

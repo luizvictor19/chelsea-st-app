@@ -242,8 +242,14 @@ architecture question for Luiz.
   on the first confirmation, after the open invites, `join_by_signup` makes the account a student
   of the one organization with `organizations.open_signup`, only `chelsea-st` with a teacher
   (`organizations_open_signup_chelsea`), only one (`organizations_one_open_signup`), changed by
-  the platform admin alone. Nothing when she already has a `students` row (a company's student
-  invite wins), and nothing on a later confirmation or for metadata she writes once signed in.
+  the platform admin alone. Nothing when she is already a member anywhere (an invite accepted in
+  the same confirmation wins, in any role), and nothing on a later confirmation or for metadata
+  she writes once signed in. Two limits of the design, known on 2026-11-12: the first `/cadastro`
+  for an address sets its metadata and its name for good (GoTrue keeps them on every resend), so
+  someone who passes the challenge with another person's address writes the name her profile
+  starts with (`profiles.full_name`); and a signup for an address with an invite not yet accepted mails that invite again
+  with a new token, so the link of the earlier email stops working ("Esqueci minha senha" or the
+  new email still work).
 
 ## Sensitive data and secrets
 
