@@ -1,10 +1,12 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 
 import { magicLinkOptions, recoveryOptions } from "@/lib/auth-links";
 import { looksLikeEmail, normalizeEmail } from "@/lib/credentials";
 import { currentSite } from "@/lib/current-site";
+import { requestLink } from "@/lib/link-request";
 import { magicLinkStep } from "@/lib/magic-link";
 import { createClient } from "@/lib/supabase/server";
 
@@ -74,49 +76,44 @@ export async function signInWithPassword(
 /**
  * Sends the magic link.
  *
- * The reply is the same whether or not the address already has an account.
- * Answering differently would turn this form into a way of asking "does this
- * person study here?", and the answer is nobody's business.
+ * The screen says "sent" for every valid address, at once, and the email goes
+ * out after the response (src/lib/link-request.ts, #110): the time of the
+ * answer and every error GoTrue gives once it finds the account would say
+ * whether the address has one, and that is nobody's business. A failure goes
+ * to the server log only, without the address.
  *
  * Nobody gets an account without an invite (0031), so an unknown address gets
- * no link and no account: shouldCreateUser is off, and Supabase refuses. That
- * refusal reads as sent, and an invite not yet accepted gets the recovery link
- * instead (magicLinkStep), so the error below never depends on the address
- * existing.
+ * no link and no account: shouldCreateUser is off, and Supabase refuses. An
+ * invite not yet accepted gets the recovery link instead (magicLinkStep).
+ *
+ * The site and the client are read before the answer: inside `after` the
+ * request is over, and the token_hash link the templates send needs no
+ * cookie set there.
  */
 export async function sendMagicLink(
   _previous: LoginState,
   formData: FormData,
 ): Promise<LoginState> {
   const email = normalizeEmail(formData.get("email"));
-
-  if (!looksLikeEmail(email)) {
-    return { status: "error", message: "Digite um e-mail válido." };
-  }
-
   const site = await currentSite();
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithOtp({
+
+  return requestLink({
     email,
-    options: magicLinkOptions(site),
+    flow: "magic_link",
+    send: async () => {
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: magicLinkOptions(site),
+      });
+      if (magicLinkStep(error) !== "recover") {
+        return error;
+      }
+      const { error: recoveryError } =
+        await supabase.auth.resetPasswordForEmail(email, recoveryOptions(site));
+      return recoveryError;
+    },
+    schedule: after,
+    log: console,
   });
-
-  let step = magicLinkStep(error);
-  if (step === "recover") {
-    const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(
-      email,
-      recoveryOptions(site),
-    );
-    step = recoveryError ? "error" : "sent";
-  }
-
-  if (step === "error") {
-    return {
-      status: "error",
-      message:
-        "Não foi possível enviar o link agora. Tente de novo em alguns instantes.",
-    };
-  }
-
-  return { status: "sent", email };
 }
