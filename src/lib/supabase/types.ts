@@ -174,6 +174,74 @@ export type Database = {
           },
         ];
       };
+      billing_customers: {
+        Row: {
+          cpf_hmac: string;
+          created_at: string;
+          organization_id: string;
+          person_id: string;
+          trial_used_at: string | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          cpf_hmac: string;
+          created_at?: string;
+          organization_id: string;
+          person_id: string;
+          trial_used_at?: string | null;
+        };
+        Update: {
+          cpf_hmac?: string;
+          created_at?: string;
+          organization_id?: string;
+          person_id?: string;
+          trial_used_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "billing_customers_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "billing_customers_person_id_fkey";
+            columns: ["person_id"];
+            isOneToOne: true;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      billing_events: {
+        Row: {
+          error: string | null;
+          event_id: string;
+          event_type: string;
+          payload: NonNullable<Json>;
+          processed_at: string | null;
+          received_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          error?: string | null;
+          event_id: string;
+          event_type: string;
+          payload: NonNullable<Json>;
+          processed_at?: string | null;
+          received_at?: string;
+        };
+        Update: {
+          error?: string | null;
+          event_id?: string;
+          event_type?: string;
+          payload?: NonNullable<Json>;
+          processed_at?: string | null;
+          received_at?: string;
+        };
+        Relationships: [];
+      };
       blocks: {
         Row: {
           based_on_id: string | null;
@@ -771,6 +839,185 @@ export type Database = {
         };
         Relationships: [];
       };
+      overdue_steps: {
+        Row: {
+          asaas_payment_id: string;
+          created_at: string;
+          day: number;
+          emailed_at: string | null;
+          outcome: string | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          asaas_payment_id: string;
+          created_at?: string;
+          day: number;
+          emailed_at?: string | null;
+          outcome?: string | null;
+        };
+        Update: {
+          asaas_payment_id?: string;
+          created_at?: string;
+          day?: number;
+          emailed_at?: string | null;
+          outcome?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "overdue_steps_asaas_payment_id_fkey";
+            columns: ["asaas_payment_id"];
+            isOneToOne: false;
+            referencedRelation: "payments";
+            referencedColumns: ["asaas_payment_id"];
+          },
+        ];
+      };
+      payments: {
+        Row: {
+          asaas_payment_id: string;
+          asaas_status: string;
+          created_at: string;
+          deleted: boolean;
+          due_on: string;
+          invoice_url: string | null;
+          kind: string;
+          organization_id: string;
+          paid_at: string | null;
+          person_id: string;
+          refunded_cents: number;
+          subscription_id: string | null;
+          updated_at: string;
+          value_cents: number;
+        };
+        ComputedFields: never;
+        Insert: {
+          asaas_payment_id: string;
+          asaas_status: string;
+          created_at?: string;
+          deleted?: boolean;
+          due_on: string;
+          invoice_url?: string | null;
+          kind: string;
+          organization_id: string;
+          paid_at?: string | null;
+          person_id: string;
+          refunded_cents?: number;
+          subscription_id?: string | null;
+          updated_at?: string;
+          value_cents: number;
+        };
+        Update: {
+          asaas_payment_id?: string;
+          asaas_status?: string;
+          created_at?: string;
+          deleted?: boolean;
+          due_on?: string;
+          invoice_url?: string | null;
+          kind?: string;
+          organization_id?: string;
+          paid_at?: string | null;
+          person_id?: string;
+          refunded_cents?: number;
+          subscription_id?: string | null;
+          updated_at?: string;
+          value_cents?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "payments_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "payments_person_id_fkey";
+            columns: ["person_id"];
+            isOneToOne: false;
+            referencedRelation: "billing_customers";
+            referencedColumns: ["person_id"];
+          },
+          {
+            foreignKeyName: "payments_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: false;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      plans: {
+        Row: {
+          annual_price_cents: number;
+          brand: string;
+          created_at: string;
+          id: string;
+          is_active: boolean;
+          key: string;
+          monthly_credits: number;
+          monthly_price_cents: number;
+          name: string;
+          opens_free_conversation: boolean;
+          opens_video: boolean;
+          opens_voice_question: boolean;
+          organization_id: string | null;
+          position: number;
+          trail_minutes_per_day: number;
+          trial_credits: number;
+          trial_days: number;
+          updated_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          annual_price_cents: number;
+          brand: string;
+          created_at?: string;
+          id?: string;
+          is_active?: boolean;
+          key: string;
+          monthly_credits: number;
+          monthly_price_cents: number;
+          name: string;
+          opens_free_conversation: boolean;
+          opens_video: boolean;
+          opens_voice_question: boolean;
+          organization_id?: string | null;
+          position?: number;
+          trail_minutes_per_day: number;
+          trial_credits: number;
+          trial_days: number;
+          updated_at?: string;
+        };
+        Update: {
+          annual_price_cents?: number;
+          brand?: string;
+          created_at?: string;
+          id?: string;
+          is_active?: boolean;
+          key?: string;
+          monthly_credits?: number;
+          monthly_price_cents?: number;
+          name?: string;
+          opens_free_conversation?: boolean;
+          opens_video?: boolean;
+          opens_voice_question?: boolean;
+          organization_id?: string | null;
+          position?: number;
+          trail_minutes_per_day?: number;
+          trial_credits?: number;
+          trial_days?: number;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "plans_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       platform_admins: {
         Row: {
           created_at: string;
@@ -1141,6 +1388,95 @@ export type Database = {
           },
         ];
       };
+      subscriptions: {
+        Row: {
+          asaas_checkout_id: string | null;
+          asaas_customer_id: string | null;
+          asaas_subscription_id: string | null;
+          billing_type: string;
+          cancel_reason: string | null;
+          canceled_at: string | null;
+          created_at: string;
+          cycle: string;
+          first_due_on: string;
+          id: string;
+          organization_id: string;
+          paid_through: string | null;
+          past_due_since: string | null;
+          person_id: string;
+          plan_id: string;
+          status: string;
+          updated_at: string;
+          value_cents: number;
+          with_trial: boolean;
+        };
+        ComputedFields: never;
+        Insert: {
+          asaas_checkout_id?: string | null;
+          asaas_customer_id?: string | null;
+          asaas_subscription_id?: string | null;
+          billing_type: string;
+          cancel_reason?: string | null;
+          canceled_at?: string | null;
+          created_at?: string;
+          cycle: string;
+          first_due_on: string;
+          id?: string;
+          organization_id: string;
+          paid_through?: string | null;
+          past_due_since?: string | null;
+          person_id: string;
+          plan_id: string;
+          status: string;
+          updated_at?: string;
+          value_cents: number;
+          with_trial: boolean;
+        };
+        Update: {
+          asaas_checkout_id?: string | null;
+          asaas_customer_id?: string | null;
+          asaas_subscription_id?: string | null;
+          billing_type?: string;
+          cancel_reason?: string | null;
+          canceled_at?: string | null;
+          created_at?: string;
+          cycle?: string;
+          first_due_on?: string;
+          id?: string;
+          organization_id?: string;
+          paid_through?: string | null;
+          past_due_since?: string | null;
+          person_id?: string;
+          plan_id?: string;
+          status?: string;
+          updated_at?: string;
+          value_cents?: number;
+          with_trial?: boolean;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "subscriptions_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "subscriptions_person_id_fkey";
+            columns: ["person_id"];
+            isOneToOne: false;
+            referencedRelation: "billing_customers";
+            referencedColumns: ["person_id"];
+          },
+          {
+            foreignKeyName: "subscriptions_plan_id_fkey";
+            columns: ["plan_id"];
+            isOneToOne: false;
+            referencedRelation: "plans";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       vocabulary_items: {
         Row: {
           approved_attempt_id: string | null;
@@ -1266,6 +1602,114 @@ export type Database = {
         Returns: undefined;
       };
       belongs_anywhere: { Args: Record<PropertyKey, never>; Returns: boolean };
+      billing_apply_subscription: {
+        Args: {
+          p_cancel_reason: string;
+          p_customer_id: string;
+          p_id: string;
+          p_paid_through: string;
+          p_past_due_since: string;
+          p_status: string;
+          p_subscription_id: string;
+        };
+        Returns: undefined;
+      };
+      billing_customer: {
+        Args: { p_cpf_hmac: string; p_person: string };
+        Returns: string;
+      };
+      billing_find_subscription: {
+        Args: { p_checkout_id: string; p_subscription_id: string };
+        Returns: {
+          asaas_checkout_id: string | null;
+          asaas_customer_id: string | null;
+          asaas_subscription_id: string | null;
+          billing_type: string;
+          cancel_reason: string | null;
+          canceled_at: string | null;
+          created_at: string;
+          cycle: string;
+          first_due_on: string;
+          id: string;
+          organization_id: string;
+          paid_through: string | null;
+          past_due_since: string | null;
+          person_id: string;
+          plan_id: string;
+          status: string;
+          updated_at: string;
+          value_cents: number;
+          with_trial: boolean;
+        }[];
+        SetofOptions: {
+          from: "*";
+          to: "subscriptions";
+          isOneToOne: false;
+          isSetofReturn: true;
+        };
+      };
+      billing_finish_event: {
+        Args: { p_error: string; p_event_id: string };
+        Returns: undefined;
+      };
+      billing_finish_overdue_step: {
+        Args: {
+          p_day: number;
+          p_emailed: boolean;
+          p_outcome: string;
+          p_payment_id: string;
+        };
+        Returns: undefined;
+      };
+      billing_open_subscription: {
+        Args: {
+          p_billing_type: string;
+          p_checkout_id: string;
+          p_customer_id: string;
+          p_cycle: string;
+          p_first_due_on: string;
+          p_person: string;
+          p_plan: string;
+          p_subscription_id: string;
+          p_value_cents: number;
+          p_with_trial: boolean;
+        };
+        Returns: string;
+      };
+      billing_overdue_payments: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          asaas_payment_id: string;
+          billing_type: string;
+          due_on: string;
+          invoice_url: string;
+          person_id: string;
+          subscription_id: string;
+        }[];
+      };
+      billing_record_event: {
+        Args: { p_event_id: string; p_event_type: string; p_payload: Json };
+        Returns: boolean;
+      };
+      billing_save_payment: {
+        Args: {
+          p_asaas_status: string;
+          p_deleted: boolean;
+          p_due_on: string;
+          p_invoice_url: string;
+          p_kind: string;
+          p_paid_at: string;
+          p_payment_id: string;
+          p_refunded_cents: number;
+          p_subscription: string;
+          p_value_cents: number;
+        };
+        Returns: undefined;
+      };
+      billing_take_overdue_step: {
+        Args: { p_day: number; p_payment_id: string };
+        Returns: boolean;
+      };
       can_invite: {
         Args: {
           p_organization: string;

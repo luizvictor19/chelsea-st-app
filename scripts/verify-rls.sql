@@ -344,6 +344,11 @@ language plpgsql security definer as $$ begin end; $$;
 -- through both triggers.
 \i supabase/migrations/0048_a_time_zone_is_one_the_screen_reads.sql
 
+-- 0049 creates the billing tables and the functions only service_role
+-- executes, and touches no older row. Its block, "A plan is paid through Asaas
+-- (0049)", runs after the fixtures, which give it a Chelsea St student.
+\i supabase/migrations/0049_a_plan_is_paid_through_asaas.sql
+
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
   ('22222222-2222-2222-2222-222222222222', 'student@example.com', null);
@@ -4899,6 +4904,363 @@ begin
     raise exception 'a time zone is one the screen reads: %', v_failures;
   end if;
   raise notice 'a zone outside the list, posix/ or Factory is refused by profiles_timezone_known and lesson_schedules_timezone_known; Europe/London passes; a row whose zone left the list still changes its other columns; only authenticated executes is_known_time_zone, nobody the trigger function';
+end;
+$$;
+
+-- A plan is paid through Asaas (0049) -------------------------------------------------
+--
+-- The billing tables are read by their owner and the platform admin, written
+-- by nobody but the ten billing functions, and those are executed by
+-- service_role alone. Billing reaches a Chelsea St student only, never a
+-- company's. One person per CPF, one CPF per person, one trial per person,
+-- one subscription alive per person; a pending one is replaced, a canceled
+-- one stays canceled; an event and an overdue step are taken once; a charge
+-- never moves to another subscription. Every refusal is named: the SQLSTATE
+-- and the constraint, by verify.named_refusal, which unlike verify.refused_by also
+-- names a unique or privilege refusal.
+
+-- The block records its failures as anon and service_role too.
+grant insert, select on verify.failures to anon, service_role;
+
+create function verify.named_refusal(p_sql text) returns text
+language plpgsql as $$
+declare
+  v_name text;
+begin
+  execute p_sql;
+  return null;
+exception when others then
+  get stacked diagnostics v_name = constraint_name;
+  return sqlstate || coalesce(' ' || nullif(v_name, ''), '');
+end;
+$$;
+
+create function verify.expect_named_refusal(p_what text, p_expected text, p_sql text)
+returns void
+language plpgsql as $$
+declare
+  v_by text := verify.named_refusal(p_sql);
+begin
+  if v_by is null then
+    insert into verify.failures values (format('%s: accepted', p_what));
+  elsif v_by <> p_expected then
+    insert into verify.failures
+      values (format('%s: refused by %s, expected %s', p_what, v_by, p_expected));
+  else
+    raise notice '%: refused by %', p_what, v_by;
+  end if;
+end;
+$$;
+
+do $$
+declare
+  c_teacher constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  c_other constant uuid := 'b0490000-0000-4000-8000-000000000001';
+  c_employee constant uuid := 'b0490000-0000-4000-8000-000000000002';
+  c_hmac_a constant text := repeat('a', 64);
+  c_hmac_b constant text := repeat('b', 64);
+  c_hmac_c constant text := repeat('c', 64);
+  c_tables constant text[] := array['plans', 'billing_customers', 'subscriptions',
+                                    'payments', 'billing_events', 'overdue_steps'];
+  c_functions constant regprocedure[] := array[
+    'public.billing_customer(uuid, text)',
+    'public.billing_open_subscription(uuid, uuid, text, text, integer, boolean, date, text, text, text)',
+    'public.billing_apply_subscription(uuid, text, text, text, date, date, text)',
+    'public.billing_find_subscription(text, text)',
+    'public.billing_save_payment(text, uuid, text, integer, text, boolean, date, timestamptz, integer, text)',
+    'public.billing_record_event(text, text, jsonb)',
+    'public.billing_finish_event(text, text)',
+    'public.billing_overdue_payments()',
+    'public.billing_take_overdue_step(text, smallint)',
+    'public.billing_finish_overdue_step(text, smallint, text, boolean)']::regprocedure[];
+  v_uid text := current_setting('test.uid', true);
+  v_plan uuid;
+  v_inactive uuid;
+  v_grifo uuid;
+  v_sub uuid;
+  v_other_sub uuid;
+  v_pending uuid;
+  v_fn regprocedure;
+  v_table text;
+  v_privilege text;
+  v_role text;
+  v_rows bigint;
+  v_trial timestamptz;
+  v_bool boolean;
+  v_status text;
+  v_failures text;
+  c_plan_cols constant text :=
+    'brand, key, name, monthly_price_cents, annual_price_cents, monthly_credits, '
+    'trail_minutes_per_day, opens_voice_question, opens_free_conversation, opens_video, '
+    'trial_days, trial_credits';
+begin
+  delete from verify.failures;
+
+  -- Another Chelsea St student, and a company's employee.
+  insert into auth.users (id, email, raw_user_meta_data) values
+    (c_other, 'other-0049@example.com', '{"full_name":"Other"}'),
+    (c_employee, 'employee-0049@example.com', '{"full_name":"Employee"}');
+  insert into organization_members (organization_id, user_id, role) values
+    ((select id from organizations where slug = 'chelsea-st'), c_other, 'student'),
+    ((select id from organizations where slug = 'grifoai'), c_employee, 'student');
+
+  -- The catalog, as the platform admin writes it. Made-up numbers.
+  perform set_config('test.uid', c_teacher::text, false);
+  set local role authenticated;
+  execute format('insert into plans (%s) values (%s) returning id', c_plan_cols,
+    $v$'chelsea-st', 'one', 'One', 1000, 10000, 10, 15, true, false, false, 14, 5$v$)
+    into v_plan;
+  execute format('insert into plans (%s, is_active) values (%s, false) returning id', c_plan_cols,
+    $v$'chelsea-st', 'old', 'Old', 1000, 10000, 10, 15, true, false, false, 14, 5$v$)
+    into v_inactive;
+  execute format('insert into plans (%s) values (%s) returning id', c_plan_cols,
+    $v$'grifoai', 'seat', 'Seat', 1000, 10000, 10, 15, true, false, false, 0, 0$v$)
+    into v_grifo;
+  update plans set name = 'One plan' where id = v_plan;
+  get diagnostics v_rows = row_count;
+  if v_rows <> 1 then
+    insert into verify.failures values ('the platform admin could not change a plan');
+  end if;
+  perform verify.expect_named_refusal('a plan of an organization', '23514 plans_is_common',
+    format('insert into plans (%s, organization_id) values (%s, %L)', c_plan_cols,
+      $v$'chelsea-st', 'org', 'Org', 1000, 10000, 10, 15, true, false, false, 14, 5$v$,
+      (select id from organizations where slug = 'chelsea-st')));
+
+  -- A student reads the active plans and writes none.
+  perform set_config('test.uid', c_student::text, false);
+  if (select count(*) from plans) <> 2 then
+    insert into verify.failures values (format(
+      'a student reads %s plans, expected the 2 active', (select count(*) from plans)));
+  end if;
+  insert into verify.failures select 'a student wrote a plan'
+   where verify.named_refusal(format('insert into plans (%s) values (%s)', c_plan_cols,
+     $v$'chelsea-st', 'mine', 'Mine', 1, 1, 1, 15, true, true, true, 60, 999$v$)) is null;
+  update plans set monthly_price_cents = 1 where id = v_plan;
+  get diagnostics v_rows = row_count;
+  if v_rows <> 0 then
+    insert into verify.failures values ('a student changed the price of a plan');
+  end if;
+  reset role;
+
+  -- anon reads the active plans, and nothing else of billing.
+  set local role anon;
+  if (select count(*) from plans) <> 2 then
+    insert into verify.failures values ('anon does not read exactly the 2 active plans');
+  end if;
+  reset role;
+
+  -- Who holds what. service_role holds no privilege on any of the six: the
+  -- functions are its only door.
+  foreach v_table in array c_tables loop
+    foreach v_privilege in array array['select', 'insert', 'update', 'delete'] loop
+      if has_table_privilege('service_role', 'public.' || v_table, v_privilege) then
+        insert into verify.failures values (format('service_role has %s on %s', v_privilege, v_table));
+      end if;
+      if v_table <> 'plans'
+         and has_table_privilege('anon', 'public.' || v_table, v_privilege) then
+        insert into verify.failures values (format('anon has %s on %s', v_privilege, v_table));
+      end if;
+      if v_table <> 'plans' and v_privilege <> 'select'
+         and has_table_privilege('authenticated', 'public.' || v_table, v_privilege) then
+        insert into verify.failures values (format('authenticated has %s on %s', v_privilege, v_table));
+      end if;
+    end loop;
+  end loop;
+  foreach v_table in array array['billing_events', 'overdue_steps'] loop
+    if has_table_privilege('authenticated', 'public.' || v_table, 'select') then
+      insert into verify.failures values (format('authenticated reads %s', v_table));
+    end if;
+  end loop;
+  if has_table_privilege('anon', 'public.plans', 'insert')
+     or has_table_privilege('anon', 'public.plans', 'update') then
+    insert into verify.failures values ('anon writes plans');
+  end if;
+  foreach v_fn in array c_functions loop
+    if not has_function_privilege('service_role', v_fn, 'execute') then
+      insert into verify.failures values (format('service_role does not execute %s', v_fn));
+    end if;
+    foreach v_role in array array['anon', 'authenticated'] loop
+      if has_function_privilege(v_role, v_fn, 'execute') then
+        insert into verify.failures values (format('%s executes %s', v_role, v_fn));
+      end if;
+    end loop;
+  end loop;
+
+  -- The functions, as service_role calls them.
+  set local role service_role;
+  perform verify.expect_named_refusal('billing for a company''s employee', '42501',
+    format('select billing_customer(%L, %L)', c_employee, c_hmac_c));
+  v_trial := billing_customer(c_student, c_hmac_a);
+  if v_trial is not null then
+    insert into verify.failures values ('a new billing row says her trial was used');
+  end if;
+  perform billing_customer(c_student, c_hmac_a);
+  perform verify.expect_named_refusal('a second CPF for the same person',
+    '23514 billing_customers_one_cpf_per_person',
+    format('select billing_customer(%L, %L)', c_student, c_hmac_b));
+  perform verify.expect_named_refusal('the same CPF for another person',
+    '23505 billing_customers_one_person_per_cpf',
+    format('select billing_customer(%L, %L)', c_other, c_hmac_a));
+  perform verify.expect_named_refusal('a CPF HMAC that is not one',
+    '23514 billing_customers_cpf_hmac_shape',
+    format('select billing_customer(%L, %L)', c_other, 'not-a-hmac'));
+  if verify.named_refusal(format('select billing_customer(%L, %L)', c_other, c_hmac_b)) is not null then
+    insert into verify.failures values ('the other student could not start billing with her own CPF');
+  end if;
+
+  v_sub := billing_open_subscription(c_student, v_plan, 'monthly', 'pix', 1000, true,
+    current_date + 14, null, 'cus_1', 'sub_1');
+  reset role;
+  select status into v_status from subscriptions where id = v_sub;
+  if v_status is distinct from 'trialing'
+     or (select trial_used_at from billing_customers where person_id = c_student) is null then
+    insert into verify.failures values ('a Pix subscription with a trial did not start trialing and mark the trial');
+  end if;
+  set local role service_role;
+  perform verify.expect_named_refusal('a second subscription alive',
+    '23505 subscriptions_one_alive_per_person',
+    format('select billing_open_subscription(%L, %L, %L, %L, 1000, false, current_date, null, %L, %L)',
+      c_student, v_plan, 'monthly', 'pix', 'cus_1', 'sub_2'));
+  perform verify.expect_named_refusal('a second trial',
+    '23514 billing_one_trial_per_person',
+    format('select billing_open_subscription(%L, %L, %L, %L, 1000, true, current_date + 14, null, %L, %L)',
+      c_student, v_plan, 'monthly', 'pix', 'cus_1', 'sub_3'));
+  perform verify.expect_named_refusal('an inactive plan', '23514 billing_plan_active',
+    format('select billing_open_subscription(%L, %L, %L, %L, 1000, false, current_date, null, %L, %L)',
+      c_other, v_inactive, 'monthly', 'pix', 'cus_2', 'sub_4'));
+  perform verify.expect_named_refusal('a GrifoAI plan', '23514 billing_plan_active',
+    format('select billing_open_subscription(%L, %L, %L, %L, 1000, false, current_date, null, %L, %L)',
+      c_other, v_grifo, 'monthly', 'pix', 'cus_2', 'sub_5'));
+  -- A plan wrongly accepted above leaves a subscription; none is left for
+  -- the cases below either way.
+  reset role;
+  delete from subscriptions where person_id = c_other;
+  set local role service_role;
+  perform verify.expect_named_refusal('a person with no billing row', '23503',
+    format('select billing_open_subscription(%L, %L, %L, %L, 1000, false, current_date, null, %L, %L)',
+      c_teacher, v_plan, 'monthly', 'pix', 'cus_3', 'sub_6'));
+  perform verify.expect_named_refusal('a Pix subscription at a checkout',
+    '23514 subscriptions_checkout_is_card',
+    format('select billing_open_subscription(%L, %L, %L, %L, 1000, true, current_date + 14, %L, null, null)',
+      c_other, v_plan, 'monthly', 'pix', 'chk_x'));
+
+  -- A pending checkout left behind is replaced by the next one, and does not
+  -- use the trial.
+  v_pending := billing_open_subscription(c_other, v_plan, 'monthly', 'card', 1000, true,
+    current_date + 14, 'chk_1', null, null);
+  begin
+    v_other_sub := billing_open_subscription(c_other, v_plan, 'annual', 'card', 10000, true,
+      current_date + 14, 'chk_2', null, null);
+  exception when unique_violation then
+    reset role;
+    select string_agg(what, '; ') into v_failures from verify.failures;
+    raise exception 'a plan is paid through asaas: a pending checkout was not replaced by the next one (%)',
+      coalesce(v_failures, 'nothing else failed');
+  end;
+  reset role;
+  if (select status || '/' || cancel_reason from subscriptions where id = v_pending)
+     is distinct from 'canceled/replaced' then
+    insert into verify.failures values ('a pending subscription was not replaced by the next checkout');
+  end if;
+  if (select trial_used_at from billing_customers where person_id = c_other) is not null then
+    insert into verify.failures values ('a checkout that did not finish used the trial');
+  end if;
+  set local role service_role;
+  if (select count(*) from billing_find_subscription(null, 'chk_2')) <> 1
+     or (select id from billing_find_subscription('sub_1', null)) <> v_sub then
+    insert into verify.failures values ('billing_find_subscription does not find by checkout or by subscription');
+  end if;
+  perform billing_apply_subscription(v_other_sub, 'sub_7', 'cus_4', 'trialing', null, null, null);
+  reset role;
+  if (select trial_used_at from billing_customers where person_id = c_other) is null then
+    insert into verify.failures values ('a checkout that became a trialing subscription did not use the trial');
+  end if;
+  set local role service_role;
+  perform verify.expect_named_refusal('past due without since',
+    '23514 subscriptions_past_due_says_since',
+    format('select billing_apply_subscription(%L, null, null, %L, null, null, null)', v_other_sub, 'past_due'));
+  perform verify.expect_named_refusal('canceled without a reason',
+    '23514 subscriptions_canceled_says_when',
+    format('select billing_apply_subscription(%L, null, null, %L, null, null, null)', v_other_sub, 'canceled'));
+  perform billing_apply_subscription(v_other_sub, null, null, 'canceled', null, null, 'person');
+  perform billing_apply_subscription(v_other_sub, null, null, 'active', current_date, null, null);
+  reset role;
+  if (select status from subscriptions where id = v_other_sub) <> 'canceled' then
+    insert into verify.failures values ('a canceled subscription came back alive');
+  end if;
+
+  -- Charges, events and overdue steps.
+  set local role service_role;
+  perform billing_save_payment('pay_1', v_sub, 'cycle', 1000, 'PENDING', false,
+    current_date + 14, null, 0, 'https://example.com/i/1');
+  perform billing_save_payment('pay_1', v_sub, 'cycle', 1000, 'OVERDUE', false,
+    current_date + 14, null, 0, 'https://example.com/i/1');
+  perform verify.expect_named_refusal('a charge moved to another subscription',
+    '23514 billing_payment_keeps_its_subscription',
+    format('select billing_save_payment(%L, %L, %L, 1000, %L, false, current_date, null, 0, null)',
+      'pay_1', v_other_sub, 'cycle', 'PENDING'));
+  perform verify.expect_named_refusal('a refund larger than the charge',
+    '23514 payments_refund_within_value',
+    format('select billing_save_payment(%L, %L, %L, 1000, %L, false, current_date, null, 1001, null)',
+      'pay_2', v_sub, 'cycle', 'REFUNDED'));
+  if (select count(*) from billing_overdue_payments()) <> 1 then
+    insert into verify.failures values ('the overdue charge of an alive subscription is not listed');
+  end if;
+  if not billing_take_overdue_step('pay_1', 1::smallint)
+     or billing_take_overdue_step('pay_1', 1::smallint) then
+    insert into verify.failures values ('an overdue step was not taken exactly once');
+  end if;
+  perform verify.expect_named_refusal('an overdue step on day 2', '23514 overdue_steps_day_known',
+    $q$select billing_take_overdue_step('pay_1', 2::smallint)$q$);
+  if not billing_record_event('evt_1', 'PAYMENT_CREATED', '{}')
+     or not billing_record_event('evt_1', 'PAYMENT_CREATED', '{}') then
+    insert into verify.failures values ('an event not finished is not handled again');
+  end if;
+  perform billing_finish_event('evt_1', null);
+  if billing_record_event('evt_1', 'PAYMENT_CREATED', '{}') then
+    insert into verify.failures values ('a finished event is handled again');
+  end if;
+  reset role;
+  if (select count(*) from billing_events) <> 1 then
+    insert into verify.failures values ('an event redelivered was kept twice');
+  end if;
+
+  -- Each person reads her own; the platform admin reads all.
+  set local role authenticated;
+  perform set_config('test.uid', c_student::text, false);
+  if (select count(*) from subscriptions) <> 1 or (select count(*) from payments) <> 1
+     or (select count(*) from billing_customers) <> 1 then
+    insert into verify.failures values ('a student does not read exactly her own billing rows');
+  end if;
+  perform set_config('test.uid', c_other::text, false);
+  if (select count(*) from payments) <> 0
+     or exists (select 1 from subscriptions where person_id <> c_other) then
+    insert into verify.failures values ('a student reads another person''s billing rows');
+  end if;
+  perform set_config('test.uid', c_teacher::text, false);
+  if (select count(*) from subscriptions) <> 3 then
+    insert into verify.failures values (format(
+      'the platform admin reads %s subscriptions, expected 3', (select count(*) from subscriptions)));
+  end if;
+  reset role;
+
+  -- Leave nothing behind for the blocks after, nor for the types.
+  delete from overdue_steps;
+  delete from payments;
+  delete from subscriptions;
+  delete from billing_customers;
+  delete from billing_events;
+  delete from plans;
+  delete from organization_members where user_id in (c_other, c_employee);
+  delete from auth.users where id in (c_other, c_employee);
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a plan is paid through asaas: %', v_failures;
+  end if;
+  raise notice 'billing rows are read by their person and the platform admin, written only through the ten billing functions, which service_role alone executes; billing reaches Chelsea St students only; one CPF per person and person per CPF, one trial, one subscription alive; a pending checkout is replaced, a canceled subscription stays canceled; an event and an overdue step are taken once; a charge keeps its subscription';
 end;
 $$;
 
