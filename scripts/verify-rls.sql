@@ -5296,19 +5296,23 @@ begin
 end;
 $$;
 
--- A restored copy gets back what the dump leaves out (#101) ---------------------------
+-- A restored copy gets back what the dump leaves out (#101, #104) --------------------
 --
 -- supabase db dump writes the schemas of the project, not storage or auth, so
--- a copy restored by docs/commands.md comes back without the policies the
--- migrations create there. scripts/restore-outside-public.sql recreates them,
--- and this block holds that file to what the migrations above leave: it
--- records every policy of storage and auth, in the fields
--- scripts/catalog-fingerprint.sql prints, drops them all, runs the file, and
--- compares both ways, by policy name. A migration that changes such a policy
--- and forgets the file fails here.
+-- a copy restored by docs/commands.md comes back without what the migrations
+-- create there: the policies of storage and auth (#101), and the triggers of
+-- auth and storage that call a function of public (#104), on which a new
+-- account gets its profile and an invite its yes. The functions themselves are
+-- in public and come with the dump. scripts/restore-outside-public.sql
+-- recreates the rest, and this block holds that file to what the migrations
+-- above leave: it records every such policy and trigger, in the fields
+-- scripts/catalog-fingerprint.sql prints (a trigger by pg_get_triggerdef and
+-- tgenabled), drops them all, runs the file, and compares both ways, by name.
+-- A migration that changes one of them and forgets the file fails here.
 
-create temporary view restore_policies as
-  select pol.polname::text as name,
+create temporary view restore_objects as
+  select 'policy'::text as kind,
+         pol.polname::text as name,
          format('%s.%s|cmd=%s|roles=%s|permissive=%s|using=%s|check=%s',
                 n.nspname, c.relname, pol.polcmd,
                 (select string_agg(g.name, ',' order by g.name)
@@ -5323,19 +5327,34 @@ create temporary view restore_policies as
     from pg_policy pol
     join pg_class c on c.oid = pol.polrelid
     join pg_namespace n on n.oid = c.relnamespace
-   where n.nspname in ('storage', 'auth');
+   where n.nspname in ('storage', 'auth')
+  union all
+  select 'trigger',
+         t.tgname::text,
+         format('%s|enabled=%s', pg_get_triggerdef(t.oid), t.tgenabled),
+         n.nspname::text,
+         c.relname::text
+    from pg_trigger t
+    join pg_class c on c.oid = t.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    join pg_proc p on p.oid = t.tgfoid
+   where n.nspname in ('storage', 'auth')
+     and p.pronamespace = 'public'::regnamespace
+     and not t.tgisinternal;
 
-create temporary table restore_expected as select name, shape from restore_policies;
+create temporary table restore_expected as select kind, name, shape from restore_objects;
 
 do $$
 declare
-  v_policy record;
+  v_object record;
 begin
-  if (select count(*) from restore_expected) = 0 then
-    raise exception 'restore: the migrations left no policy in storage or auth to compare with';
+  if (select count(*) from restore_expected where kind = 'policy') = 0
+     or (select count(*) from restore_expected where kind = 'trigger') = 0 then
+    raise exception 'restore: the migrations left no policy or no trigger outside public to compare with';
   end if;
-  for v_policy in select name, schema_name, table_name from restore_policies loop
-    execute format('drop policy %I on %I.%I', v_policy.name, v_policy.schema_name, v_policy.table_name);
+  for v_object in select kind, name, schema_name, table_name from restore_objects loop
+    execute format('drop %s %I on %I.%I',
+                   v_object.kind, v_object.name, v_object.schema_name, v_object.table_name);
   end loop;
 end;
 $$;
@@ -5347,25 +5366,25 @@ declare
   v_failures text;
 begin
   with
-  missing as (select name, shape from restore_expected
-              except select name, shape from restore_policies),
-  extra as (select name, shape from restore_policies
-            except select name, shape from restore_expected)
+  missing as (select kind, name, shape from restore_expected
+              except select kind, name, shape from restore_objects),
+  extra as (select kind, name, shape from restore_objects
+            except select kind, name, shape from restore_expected)
   select string_agg(what, '; ' order by what) into v_failures
-    from (select format('the file does not restore policy %s as the migrations leave it (%s)',
-                        name, shape) as what from missing
+    from (select format('the file does not restore %s %s as the migrations leave it (%s)',
+                        kind, name, shape) as what from missing
           union all
-          select format('the file restores policy %s, which the migrations do not leave (%s)',
-                        name, shape) from extra) f;
+          select format('the file restores %s %s, which the migrations do not leave (%s)',
+                        kind, name, shape) from extra) f;
   if v_failures is not null then
     raise exception 'restore: %', v_failures;
   end if;
-  raise notice 'scripts/restore-outside-public.sql gives back every policy of storage and auth the migrations leave, and no other';
+  raise notice 'scripts/restore-outside-public.sql gives back every policy of storage and auth, and every trigger there on a function of public, that the migrations leave, and no other';
 end;
 $$;
 
 drop table restore_expected;
-drop view restore_policies;
+drop view restore_objects;
 
 -- Nobody truncates what RLS guards (0037) ----------------------------------------------
 --
