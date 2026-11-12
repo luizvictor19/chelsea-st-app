@@ -48,6 +48,9 @@ export function TurnstileWidget({
   const container = useRef<HTMLDivElement>(null);
   const widget = useRef<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // A blocker or a network that stops challenges.cloudflare.com: said, so
+  // the greyed-out button is not left without a reason.
+  const [failed, setFailed] = useState(false);
   const [token, setToken] = useState("");
 
   useEffect(() => {
@@ -56,6 +59,9 @@ export function TurnstileWidget({
       return;
     }
     const set = (value: string) => {
+      if (value !== "") {
+        setFailed(false);
+      }
       setToken(value);
       onToken(value !== "");
     };
@@ -63,7 +69,10 @@ export function TurnstileWidget({
       sitekey: siteKey,
       callback: set,
       "expired-callback": () => set(""),
-      "error-callback": () => set(""),
+      "error-callback": () => {
+        set("");
+        setFailed(true);
+      },
       "response-field": false,
     });
     return () => {
@@ -88,9 +97,15 @@ export function TurnstileWidget({
       <Script
         src={SCRIPT}
         onReady={() => setLoaded(true)}
-        onError={() => setLoaded(false)}
+        onError={() => setFailed(true)}
       />
       <div ref={container} className="min-h-[65px]" />
+      {failed && (
+        <p role="alert" className="text-accent text-sm">
+          A verificação anti-robô não funcionou. Se você usa um bloqueador de
+          anúncios, libere esta página e recarregue.
+        </p>
+      )}
       <input type="hidden" name={TOKEN_FIELD} value={token} />
     </>
   );
