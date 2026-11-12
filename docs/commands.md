@@ -394,3 +394,21 @@ on that host (#102). Signing out stays on it too (#172).
 
 The CLI fetches the project's API keys through the management API and keeps none. The database
 password is not kept in `.env.local`: when a command needs it, the CLI asks.
+
+## Asaas (#72)
+
+The environment is read as the app reads it (`@next/env`), so `ASAAS_API_KEY=\$aact_...` in
+`.env.local` works for the scripts too. The address follows the key's prefix.
+
+    node scripts/asaas-sandbox-smoke.ts        # the adapter through the real sandbox; JSONL in fixtures/asaas/
+    node scripts/asaas-webhook.ts --url https://<host>/api/asaas/webhook --email <alerts>
+
+End to end with the sandbox, never against production (the database is production):
+
+    supabase start                             # the local stack; stop it with supabase stop, never --no-backup
+    cloudflared tunnel --url http://localhost:3100
+    node scripts/asaas-webhook.ts --url https://<tunnel>.trycloudflare.com/api/asaas/webhook --email <alerts>
+
+The daily overdue routine by hand (Vercel Cron calls it at 12h UTC in production):
+
+    curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3100/api/billing/daily

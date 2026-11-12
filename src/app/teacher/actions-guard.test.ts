@@ -26,12 +26,16 @@ import ts from "typescript";
 const ROOT = join(import.meta.dirname);
 const INVITE_ACTIONS = join("invites", "actions.ts");
 const ORGANIZATION_ACTIONS = join("organizations", "actions.ts");
+/** The catalog of plans (#72): the platform admin alone, like the companies. */
+const PLAN_ACTIONS = join("plans", "actions.ts");
 const CONTENT = "content";
 
 /** The guards that count for a file, by where it sits under /teacher. */
 function guardsFor(where: string): readonly string[] {
   if (where === INVITE_ACTIONS) return ["requireTeacher", "requireInviter"];
-  if (where === ORGANIZATION_ACTIONS) return ["requirePlatformAdmin"];
+  if (where === ORGANIZATION_ACTIONS || where === PLAN_ACTIONS) {
+    return ["requirePlatformAdmin"];
+  }
   if (where.split(sep)[0] === CONTENT) return ["requireContentWriter"];
   return ["requireTeacher"];
 }

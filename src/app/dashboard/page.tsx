@@ -130,6 +130,10 @@ export default async function DashboardPage() {
       )}
 
       <DailyChallenge />
+
+      <Link href="/dashboard/plano" className="text-muted text-sm underline">
+        Plano e pagamento
+      </Link>
     </main>
   );
 }

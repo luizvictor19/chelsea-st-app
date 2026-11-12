@@ -124,6 +124,14 @@ architecture question for Luiz.
   open door. `scripts/verify-rls.sql` holds it: no function of `public` executable by PUBLIC, no
   `security definer` executable by `anon` but `submit_lead`. The image bucket's write policy is
   `to authenticated`, so `anon` reading the bucket never reaches `is_platform_admin()`.
+- Billing follows 0049 (#72, `docs/spec-pagamento.md`): `plans` (the catalog, every number of the
+  offer, written by the platform admin on `/teacher/plans`; active plans read by `anon` too),
+  `billing_customers`, `subscriptions`, `payments`, `billing_events` and `overdue_steps`. A person
+  reads her own rows, the platform admin all; nobody writes them but ten `security definer`
+  functions that only `service_role` executes, the one exception to "service_role gets none" above.
+  Billing reaches a student of a `chelsea-st` organization only, never a company. One CPF per person,
+  one person per CPF (an HMAC), one trial per person, one subscription alive per person. The state
+  of a subscription is always read back from Asaas, never taken from a webhook's body.
 - `leads` receives rows only through `submit_lead` (0038), executed by `anon` alone: the site's
   function calls it with the publishable key. Nobody reads `leads` through the API, and the
   service role holds nothing on it. A number sent twice is two rows (history, nothing is
@@ -213,8 +221,17 @@ architecture question for Luiz.
 
 - `.env.local` is never read, printed or committed. Worktrees get a copy with `cp`.
 - API keys are server-only, never `NEXT_PUBLIC_`.
-- `SUPABASE_SERVICE_ROLE_KEY` is read only by `src/lib/supabase/admin.ts`, to send invite emails
-  (#96). It passes every policy: never use it to read or write tables.
+- `SUPABASE_SERVICE_ROLE_KEY` is read by `src/lib/supabase/admin.ts`, to send invite emails (#96),
+  and by `src/lib/billing/supabase-store.ts` (#72, Q2), which calls only the ten `billing_*`
+  functions of 0049 and reads a person's e-mail from auth for the overdue e-mails. It passes every
+  policy: never use it to read or write a table directly; it holds no privilege on the billing
+  tables, only `execute` on their functions.
+- Asaas (#72, `docs/spec-pagamento.md`): `ASAAS_API_KEY` (the address follows its prefix; written
+  `\$aact_...` in `.env.local`, or Next reads it empty; the app runs the sandbox key only against a
+  local Supabase, never the production one `.env.local` points at, and never in Vercel
+  Production), `ASAAS_WEBHOOK_TOKEN`, `BILLING_CPF_KEY` (the HMAC of a CPF; the digits stay at
+  Asaas), `RESEND_API_KEY` (the billing e-mails, a key of its own) and `CRON_SECRET` (the daily
+  routine). Production has no Asaas key until the CNPJ's account exists.
 - Supabase API keys are the new kind only (#149). The variable names stayed, the formats changed:
   `NEXT_PUBLIC_SUPABASE_ANON_KEY` holds a publishable key (`sb_publishable_`, the one named
   `default`) and `SUPABASE_SERVICE_ROLE_KEY` holds a secret key (`sb_secret_`). The app's Vercel
@@ -272,7 +289,8 @@ that are aliases of Luiz's e-mail. Their e-mails and passwords live only in
 
 ## Known traps
 
-- Specs live only in `docs/` (`spec-ingestao.md`, `spec-imagens.md`, `spec-f1.md`). The Cowork
+- Specs live only in `docs/` (`spec-ingestao.md`, `spec-imagens.md`, `spec-f1.md`,
+  `spec-pagamento.md`). The Cowork
   project keeps no copy; a version found anywhere else is stale.
 - `gh pr edit` fails in this repository. Change a PR base with
   `gh api -X PATCH repos/luizvictor19/chelsea-st-app/pulls/N -f base=main`.
