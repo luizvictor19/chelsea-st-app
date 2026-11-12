@@ -272,7 +272,7 @@ that are aliases of Luiz's e-mail. Their e-mails and passwords live only in
 
 ## Known traps
 
-- Specs live only in `docs/` (`spec-ingestao.md`, `spec-imagens.md`, `spec-f1.md`). The Cowork
+- Specs live only in `docs/` (`spec-ingestao.md`, `spec-imagens.md`, `spec-f1.md`, `spec-robin.md`). The Cowork
   project keeps no copy; a version found anywhere else is stale.
 - `gh pr edit` fails in this repository. Change a PR base with
   `gh api -X PATCH repos/luizvictor19/chelsea-st-app/pulls/N -f base=main`.
