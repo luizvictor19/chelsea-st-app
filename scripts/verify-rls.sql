@@ -5668,14 +5668,6 @@ begin
   perform verify.expect_named_refusal('a debit of no unit', '23514 credit_debit_quantity_positive',
     format('select credit_debit(%L, %L, 0, %L)', c_student, 'voice_minute', 'voice:0'));
 
-  -- 4. Only new rows, even for postgres.
-  perform verify.expect_named_refusal('an entry changed', '23001 credit_entries_append_only',
-    format('update credit_entries set amount = 0 where person_id = %L', c_student));
-  perform verify.expect_named_refusal('an entry removed', '23001 credit_entries_append_only',
-    format('delete from credit_entries where person_id = %L', c_student));
-  perform verify.expect_named_refusal('the ledger truncated', '23001 credit_entries_append_only',
-    'truncate credit_entries');
-
   -- 10. The lot's trigger, past every function, and the shapes.
   perform verify.expect_named_refusal('a debit larger than its lot', '23514 credit_entries_lot_not_negative',
     format($q$insert into credit_entries (organization_id, person_id, kind, amount, lot_id, action, reference)
@@ -5862,6 +5854,15 @@ begin
     insert into verify.failures values ('service_role does not read a person''s cost');
   end if;
   reset role;
+
+  -- 4. Only new rows, even for postgres. Last, so that without the trigger
+  -- the rows taken away leave nothing else to fail on.
+  perform verify.expect_named_refusal('an entry changed', '23001 credit_entries_append_only',
+    format('update credit_entries set amount = 0 where person_id = %L', c_student));
+  perform verify.expect_named_refusal('an entry removed', '23001 credit_entries_append_only',
+    format('delete from credit_entries where person_id = %L', c_student));
+  perform verify.expect_named_refusal('the ledger truncated', '23001 credit_entries_append_only',
+    'truncate credit_entries');
 
   -- Leave nothing behind for the blocks after, nor for the types. The ledger
   -- goes past the trigger that refuses a delete, as a restore passes it.
