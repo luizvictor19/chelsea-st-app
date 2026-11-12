@@ -148,8 +148,9 @@ the 2026-10-25 one: without `on_auth_user_created` a new account gets no `profil
 `on_auth_user_email_confirmed` a confirmed email accepts no invite. Their functions are in `public`
 and come with the dump. `scripts/restore-outside-public.sql` recreates both kinds, last,
 inside the same transaction, as `$R` below. CI holds the file to the migrations. A copy takes the
-file of its own commit, saved with it in `$B/commit` (a copy without it, taken before #101, takes
-the file of the last commit on `main` that day):
+file of its own commit, saved with it in `$B/commit`. A copy without it, or whose commit is older
+than the merge of #104, takes the file of `main` instead: the objects in it have not changed since
+0047 (2026-11-07), only the file grew to cover them.
 
     git show "$(cat "$B/commit")":scripts/restore-outside-public.sql > "$B/restore-outside-public.sql"
     R="$B/restore-outside-public.sql"
@@ -180,8 +181,8 @@ line missing from the copy.
     done
 
 Rehearse a migration on the copy (first for 0040, #199), from the worktree that holds it. Three
-read-only outputs, before and after: the row counts, the catalog of `public` and the policies of
-`storage` (`scripts/catalog-fingerprint.sql`), and how many rows each account sees in each table
+read-only outputs, before and after: the row counts, the catalog of `public`, the policies of
+`storage` and the triggers that call a function of `public` (`scripts/catalog-fingerprint.sql`), and how many rows each account sees in each table
 (`scripts/rls-visibility.sql`, local copy only: accounts by number, no email). Ask Claude to run
 the first two on production through the MCP and compare them with the copy before the migration:
 equal means the copy is production. A migration that changes behaviour states, in its plan, the

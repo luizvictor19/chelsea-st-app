@@ -5305,10 +5305,12 @@ $$;
 -- account gets its profile and an invite its yes. The functions themselves are
 -- in public and come with the dump. scripts/restore-outside-public.sql
 -- recreates the rest, and this block holds that file to what the migrations
--- above leave: it records every such policy and trigger, in the fields
--- scripts/catalog-fingerprint.sql prints (a trigger by pg_get_triggerdef and
--- tgenabled), drops them all, runs the file, and compares both ways, by name.
--- A migration that changes one of them and forgets the file fails here.
+-- above leave: it records every such policy and trigger, by the same catalog
+-- fields scripts/catalog-fingerprint.sql reads (a trigger by pg_get_triggerdef,
+-- which names its table, and tgenabled), drops them all, runs the file, and
+-- compares both ways, by name. A migration that changes one of them and
+-- forgets the file fails here. Then the order: Postgres fires the triggers of
+-- a table by name, and the profile must exist before an invite is accepted.
 
 create temporary view restore_objects as
   select 'policy'::text as kind,
@@ -5379,7 +5381,15 @@ begin
   if v_failures is not null then
     raise exception 'restore: %', v_failures;
   end if;
-  raise notice 'scripts/restore-outside-public.sql gives back every policy of storage and auth, and every trigger there on a function of public, that the migrations leave, and no other';
+  if (select t.tgname from pg_trigger t
+       where t.tgrelid = 'auth.users'::regclass and not t.tgisinternal
+       order by t.tgname limit 1) is distinct from
+     (select t.tgname from pg_trigger t
+       where t.tgrelid = 'auth.users'::regclass
+         and t.tgfoid = 'public.handle_new_user()'::regprocedure) then
+    raise exception 'restore: the trigger that creates the profile does not fire first on auth.users';
+  end if;
+  raise notice 'scripts/restore-outside-public.sql gives back every policy of storage and auth, and every trigger there on a function of public, that the migrations leave, and no other; on auth.users the profile comes first';
 end;
 $$;
 
