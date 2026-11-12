@@ -1542,6 +1542,8 @@ export type Database = {
           cancel_reason: string | null;
           canceled_at: string | null;
           created_at: string;
+          credit_ceiling_months: number;
+          credit_days_after_cancel: number;
           cycle: string;
           first_due_on: string;
           id: string;
@@ -1565,6 +1567,8 @@ export type Database = {
           cancel_reason?: string | null;
           canceled_at?: string | null;
           created_at?: string;
+          credit_ceiling_months: number;
+          credit_days_after_cancel: number;
           cycle: string;
           first_due_on: string;
           id?: string;
@@ -1587,6 +1591,8 @@ export type Database = {
           cancel_reason?: string | null;
           canceled_at?: string | null;
           created_at?: string;
+          credit_ceiling_months?: number;
+          credit_days_after_cancel?: number;
           cycle?: string;
           first_due_on?: string;
           id?: string;
@@ -1776,6 +1782,8 @@ export type Database = {
           cancel_reason: string | null;
           canceled_at: string | null;
           created_at: string;
+          credit_ceiling_months: number;
+          credit_days_after_cancel: number;
           cycle: string;
           first_due_on: string;
           id: string;
