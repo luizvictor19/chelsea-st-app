@@ -6,8 +6,8 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-import { env, serviceRoleKey } from "@/lib/env";
-import type { Database } from "@/lib/supabase/types";
+import { env, serviceRoleKey } from "../env.ts";
+import type { Database } from "../supabase/types.ts";
 
 import {
   StoreError,

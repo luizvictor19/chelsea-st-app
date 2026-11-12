@@ -178,6 +178,18 @@ falhas seguidas, a fila para (os eventos ficam guardados por até 14 dias).
   dia, com a conta aprovada e uma chave Pix aleatória ativa, ela voltou como Pix, com o QR da
   cobrança, e a cobrança avulsa por Pix também. A causa da primeira vez não ficou clara; se acontecer,
   o app apaga a assinatura na Asaas e recusa, para nunca vender boleto como Pix.
+- De ponta a ponta, com o webhook passando por um túnel até o servidor local e um Supabase local:
+  - **Pix:** a assinatura com teste nasceu em teste; a confirmação do sandbox chegou pelo webhook em
+    cerca de 2 s e a fez ativa, paga até o dia antes do próximo vencimento; o cancelamento a apagou
+    na Asaas e manteve os dias pagos.
+  - **Cartão:** o checkout pago com o cartão de teste criou a assinatura; o webhook a ligou à linha
+    pelo checkout (`checkoutSession`) e a fez em teste, com a primeira cobrança pendente no 15º dia e
+    o token do cartão nela. O cliente que o checkout criou tem endereço completo.
+  - Todo webhook respondeu 200, entre 10 e 744 ms.
+- O estorno logo depois da confirmação é recusado ("tente novamente em alguns instantes"). Pedido
+  depois, ele é aceito e fica em `AWAITING_CRITICAL_ACTION_AUTHORIZATION`: a Asaas pede que alguém
+  autorize no painel o estorno feito pela API (evento crítico). O app conta um estorno só quando ele
+  chega a `DONE`.
 
 ## Pendências
 
@@ -187,5 +199,8 @@ falhas seguidas, a fila para (os eventos ficam guardados por até 14 dias).
   tentativa no cartão do atraso e o upgrade em um toque (#274) não funcionam em produção.
 - **Nota fiscal:** automática pela Asaas na conta de pessoa jurídica, configurada quando ela existir.
 - **A taxa do Pix:** conferir no menu Taxas da conta; o regulamento e a página de preços divergem.
+- **Estorno pela API:** fica esperando a autorização de evento crítico no painel. Antes do reembolso
+  proporcional da #273, decidir na conta de produção se essa autorização fica (cada estorno passa por
+  alguém) ou se a API é liberada nas configurações de segurança.
 - **Sem resposta oficial (central de ajuda fechada à leitura automática):** se a Asaas tenta de novo
   sozinha depois do cartão recusado, e o prazo do estorno.
