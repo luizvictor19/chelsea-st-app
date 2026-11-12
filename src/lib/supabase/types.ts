@@ -1940,6 +1940,15 @@ export type Database = {
           remaining: number;
         }[];
       };
+      credit_payment_open_lots: {
+        Args: { p_payment_id: string };
+        Returns: {
+          lot_id: string;
+          organization_id: string;
+          person_id: string;
+          remaining: number;
+        }[];
+      };
       credit_payment_taken_back: {
         Args: {
           p_payment: Omit<
