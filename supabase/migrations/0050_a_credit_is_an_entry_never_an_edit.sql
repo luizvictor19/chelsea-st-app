@@ -519,10 +519,11 @@ comment on function public.credit_close_expired(uuid) is
 -- The month a paid charge is in, once (credit_entries_one_grant_per_period),
 -- and only once it started: a Pix paid ahead grants on its due day, so the
 -- next month never adds to the current one. The credits come from the
--- subscription (Q5). A charge refunded or deleted has what is left of its
--- live lots voided: what was spent stays spent, and its later months are
--- never granted. Anything else (pending, overdue, a refund on its way) does
--- nothing. Takes the person's lock.
+-- subscription (Q5). A charge refunded, charged back or deleted has what is
+-- left of its live lots voided: what was spent stays spent, and its later
+-- months are never granted. A chargeback the person wins later does not
+-- bring the lots back (no adjustment exists yet). Anything else (pending,
+-- overdue, a refund on its way) does nothing. Takes the person's lock.
 create function public.credit_settle(
   p_payment_id text, out granted integer, out voided integer)
 language plpgsql
@@ -560,7 +561,9 @@ begin
       get diagnostics v_rows = row_count;
       granted := granted + v_rows * v_sub.monthly_credits;
     end loop;
-  elsif v_payment.deleted or v_payment.refunded_cents > 0 or v_payment.asaas_status = 'REFUNDED' then
+  elsif v_payment.deleted or v_payment.refunded_cents > 0
+        or v_payment.asaas_status in ('REFUNDED', 'CHARGEBACK_REQUESTED',
+                                      'CHARGEBACK_DISPUTE', 'AWAITING_CHARGEBACK_REVERSAL') then
     for v_lot in select * from public.credit_payment_lots(p_payment_id) loop
       continue when v_lot.remaining <= 0;
       insert into public.credit_entries (organization_id, person_id, kind, amount, lot_id)
@@ -574,7 +577,7 @@ end;
 $$;
 
 comment on function public.credit_settle(text) is
-  'Grants the month a paid charge is in, once, or voids what is left of the live lots of a charge refunded or deleted. Returns the credits granted and voided. Called by credit_settle_payment and credit_daily.';
+  'Grants the month a paid charge is in, once, or voids what is left of the live lots of a charge refunded, charged back or deleted. Returns the credits granted and voided. Called by credit_settle_payment, credit_daily and credit_grant_started.';
 
 -- For the webhook, after it wrote the charge as the provider has it now.
 create function public.credit_settle_payment(p_payment_id text)
@@ -591,7 +594,10 @@ comment on function public.credit_settle_payment(text) is
 
 -- The daily routine: every charge that may still grant or be taken back is
 -- settled (an annual one month by month, and anything the webhook missed),
--- then every lot past its day is closed, with its carryover.
+-- then every lot past its day is closed, with its carryover. A charge's lots
+-- end at most 13 months after its due day (an annual charge's last month and
+-- its carryover), so older charges are not read. One transaction: each
+-- person's lock is held until it ends, which is short at this size.
 create function public.credit_daily(out granted integer, out closed integer, out carried integer)
 language plpgsql
 security definer
@@ -609,9 +615,9 @@ begin
   for v_payment_id in
     select p.asaas_payment_id
       from public.payments p
-     where (public.credit_payment_grants(p)
-            and p.due_on > (now() at time zone 'America/Sao_Paulo')::date - 400)
-        or exists (select 1 from public.credit_payment_lots(p.asaas_payment_id))
+     where p.due_on > (now() at time zone 'America/Sao_Paulo')::date - 430
+       and (public.credit_payment_grants(p)
+            or exists (select 1 from public.credit_payment_lots(p.asaas_payment_id)))
      order by p.due_on, p.asaas_payment_id
   loop
     select * into v_settled from public.credit_settle(v_payment_id);
@@ -640,13 +646,44 @@ comment on function public.credit_daily() is
   'The daily step of the credits: grants the months that started (an annual charge month by month, and any grant the webhook missed), voids what a refunded or deleted charge left, and closes every lot past its day with its carryover. Returns how many lots it granted, closed and carried over. Executed by service_role.';
 
 
+-- The months of her paid charges that already started, granted now rather
+-- than at the routine: a month paid ahead starts at midnight, the routine
+-- runs in the morning, and a debit in between must see it. Its caller holds
+-- the person's lock.
+create function public.credit_grant_started(p_person uuid)
+returns void
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_payment_id text;
+begin
+  for v_payment_id in
+    select p.asaas_payment_id
+      from public.payments p
+     where p.person_id = p_person
+       and p.due_on > (now() at time zone 'America/Sao_Paulo')::date - 430
+       and p.due_on <= (now() at time zone 'America/Sao_Paulo')::date
+       and public.credit_payment_grants(p)
+     order by p.due_on, p.asaas_payment_id
+  loop
+    perform public.credit_settle(v_payment_id);
+  end loop;
+end;
+$$;
+
+comment on function public.credit_grant_started(uuid) is
+  'Grants the months of the person''s paid charges that already started and were not granted yet (a charge paid ahead, before the routine runs). Called by credit_debit and credit_refund, which hold her lock.';
+
+
 -- Spending and giving back ------------------------------------------------------------------
 
 -- The debit, server side only (Q3: whole credits; the live session debits a
 -- minute at its start and checks every 10 s). Takes the person's lock,
--- closes what expired (so a carryover never misses for whoever spends between
--- midnight and the routine), and writes one row per lot it touches, the lot
--- that expires first first. Executed by nobody: the security definer
+-- grants her months that started and closes what expired (so neither a month
+-- paid ahead nor a carryover misses for whoever spends between midnight and
+-- the routine), and writes one row per lot it touches, the lot that expires
+-- first first. Executed by nobody: the security definer
 -- function that needs it (the booking of #276) calls it in its transaction.
 create function public.credit_debit(
   p_person uuid, p_action text, p_quantity integer, p_reference text)
@@ -664,6 +701,7 @@ declare
   v_lot record;
 begin
   perform public.credit_lock_person(p_person);
+  perform public.credit_grant_started(p_person);
   perform public.credit_close_expired(p_person);
 
   if p_quantity is null or p_quantity < 1 then
@@ -710,8 +748,9 @@ comment on function public.credit_debit(uuid, text, integer, text) is
 -- goes back to the lot it came from while that lot is alive; once that lot is
 -- gone, it opens a lot that expires with her current month's lot, or in a
 -- month when she has none (Q8), so a lesson booked at the end of a cycle and
--- canceled at the start of the next keeps its credits. Executed by nobody,
--- like the debit.
+-- canceled at the start of the next keeps its credits. A debit from a lot
+-- that was voided (its charge refunded or charged back) is not given back:
+-- those credits left with the money. Executed by nobody, like the debit.
 create function public.credit_refund(p_person uuid, p_reference text)
 returns integer
 language plpgsql
@@ -725,15 +764,19 @@ declare
   v_back integer := 0;
 begin
   perform public.credit_lock_person(p_person);
+  perform public.credit_grant_started(p_person);
   perform public.credit_close_expired(p_person);
   for v_debit in
     select d.id, d.organization_id, d.amount, d.lot_id, d.action, d.reference,
-           l.expires_at as lot_expires_at
+           l.expires_at as lot_expires_at,
+           exists (select 1 from public.credit_entries v
+                    where v.lot_id = d.lot_id and v.kind = 'void') as lot_voided
       from public.credit_entries d
       join public.credit_entries l on l.id = d.lot_id
      where d.person_id = p_person and d.kind = 'debit' and d.reference = p_reference
      order by d.created_at, d.id
   loop
+    continue when v_debit.lot_voided;
     if v_debit.lot_expires_at > now() then
       insert into public.credit_entries
         (organization_id, person_id, kind, amount, lot_id, refers_to, action, reference)
@@ -743,7 +786,9 @@ begin
     else
       select max(l.expires_at) into v_until
         from public.credit_entries l
-       where l.person_id = p_person and l.kind = 'plan' and l.expires_at > now();
+       where l.person_id = p_person and l.kind = 'plan' and l.expires_at > now()
+         and not exists (select 1 from public.credit_entries v
+                          where v.lot_id = l.id and v.kind = 'void');
       insert into public.credit_entries
         (organization_id, person_id, kind, amount, expires_at, refers_to, action, reference)
         values (v_debit.organization_id, p_person, 'refund', -v_debit.amount,
@@ -759,7 +804,7 @@ end;
 $$;
 
 comment on function public.credit_refund(uuid, text) is
-  'Gives back every debit of the person under the reference, once each (credit_entries_once_per_entry): to its lot while it is alive, as a new lot expiring with her current month''s lot (or in a month) once it is gone. Returns the credits given back, 0 when there is nothing to give. Executed by nobody: called by other security definer functions.';
+  'Gives back every debit of the person under the reference, once each (credit_entries_once_per_entry): to its lot while it is alive, as a new lot expiring with her current month''s lot that was not voided (or in a month) once it is gone. A debit from a voided lot is not given back. Returns the credits given back, 0 when there is nothing to give. Executed by nobody: called by other security definer functions.';
 
 
 -- The proportional refund (CDC art. 49) ------------------------------------------------------
@@ -881,6 +926,7 @@ revoke all on function public.credit_price(uuid, text) from public, anon, authen
 revoke all on function public.credit_cost(uuid, text) from public, anon, authenticated;
 revoke all on function public.credit_close_expired(uuid) from public, anon, authenticated;
 revoke all on function public.credit_settle(text) from public, anon, authenticated;
+revoke all on function public.credit_grant_started(uuid) from public, anon, authenticated;
 revoke all on function public.credit_settle_payment(text) from public, anon, authenticated;
 revoke all on function public.credit_daily() from public, anon, authenticated;
 revoke all on function public.credit_debit(uuid, text, integer, text) from public, anon, authenticated;

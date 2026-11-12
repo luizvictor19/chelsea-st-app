@@ -5344,8 +5344,9 @@ declare
   c_quote constant uuid := 'b0500000-0000-4000-8000-000000000006';
   c_late constant uuid := 'b0500000-0000-4000-8000-000000000007';
   c_employee constant uuid := 'b0500000-0000-4000-8000-000000000008';
+  c_ahead constant uuid := 'b0500000-0000-4000-8000-000000000009';
   c_people constant uuid[] := array[c_monthly, c_annual, c_refunded, c_carry,
-                                    c_canceled, c_quote, c_late];
+                                    c_canceled, c_quote, c_late, c_ahead];
   c_plan_cols constant text :=
     'brand, key, name, monthly_price_cents, annual_price_cents, monthly_credits, '
     'trail_minutes_per_day, opens_voice_question, opens_free_conversation, opens_video, '
@@ -5359,6 +5360,7 @@ declare
     'public.credit_refund(uuid, text)',
     'public.credit_price(uuid, text)',
     'public.credit_settle(text)',
+    'public.credit_grant_started(uuid)',
     'public.credit_close_expired(uuid)',
     'public.credit_lock_person(uuid)',
     'public.credit_payment_lots(text)',
@@ -5380,6 +5382,7 @@ declare
   v_sub6 uuid;
   v_sub7 uuid;
   v_sub8 uuid;
+  v_sub9 uuid;
   v_due_old date := (v_today - interval '1 month' - interval '2 days')::date;
   v_due3 date := (v_today - interval '2 months' - interval '5 days')::date;
   v_trial_lot uuid;
@@ -5522,6 +5525,7 @@ begin
   perform billing_customer(c_canceled, repeat('6', 64));
   perform billing_customer(c_quote, repeat('7', 64));
   perform billing_customer(c_late, repeat('8', 64));
+  perform billing_customer(c_ahead, repeat('a', 64));
   v_sub1 := billing_open_subscription(c_student, v_plan, 'monthly', 'pix', 1000, true,
     v_today + 14, null, 'cus_c1', 'sub_c1');
   -- Events that came late: her first charge is already due.
@@ -5539,6 +5543,8 @@ begin
     v_due_old, null, 'cus_c6', 'sub_c6');
   v_sub8 := billing_open_subscription(c_quote, v_small, 'monthly', 'pix', 1000, false,
     v_today - 3, null, 'cus_c8', 'sub_c8');
+  v_sub9 := billing_open_subscription(c_ahead, v_plan, 'monthly', 'pix', 1000, false,
+    v_today - 1, null, 'cus_c9', 'sub_c9');
   perform billing_apply_subscription(v_sub6, null, null, 'active', v_today + 20, null, null);
   perform billing_apply_subscription(v_sub7, null, null, 'canceled',
     (v_due_old + interval '1 month' - interval '1 day')::date, null, 'person');
@@ -5588,6 +5594,9 @@ begin
   perform billing_save_payment('pay_c6', v_sub6, 'cycle', 1000, 'RECEIVED', false, v_due_old, now(), 0, null);
   perform billing_save_payment('pay_c7', v_sub7, 'cycle', 1000, 'RECEIVED', false, v_due_old, now(), 0, null);
   perform billing_save_payment('pay_c8', v_sub8, 'cycle', 1000, 'CONFIRMED', false, v_today - 3, now(), 0, null);
+  -- Paid ahead: its month started at midnight, and nothing settled it since.
+  perform billing_save_payment('pay_c9', v_sub9, 'cycle', 1000, 'RECEIVED', false, v_today - 1, now(), 0, null);
+  perform billing_save_payment('pay_c4_old', v_sub4, 'cycle', 1000, 'RECEIVED', false, v_due_old, now(), 0, null);
 
   -- 5. A charge settled twice grants its month once; 15, with the credits the
   -- subscription kept; 17, in the subscription's organization.
@@ -5739,6 +5748,44 @@ begin
      or not exists (select 1 from credit_entries where person_id = c_refunded and kind = 'debit')
      or (select count(*) from credit_entries where person_id = c_refunded and kind = 'plan') <> 1 then
     insert into verify.failures values ('a refunded charge left credits, lost its debit or granted again');
+  end if;
+
+  -- A debit from a lot that was voided is not given back: those credits left
+  -- with the money.
+  v_int := credit_refund(c_refunded, 'lesson:r');
+  if v_int <> 0 or credits_balance(c_refunded) <> 0 then
+    insert into verify.failures values ('a debit from a voided lot was given back');
+  end if;
+  -- Q8 with her only month voided: the refund of a debit whose lot is gone
+  -- lives a month, not as long as the voided month.
+  insert into credit_entries (organization_id, person_id, kind, amount, expires_at, asaas_payment_id, period, subscription_id)
+    values (v_chelsea, c_refunded, 'plan', 10,
+            (v_due_old + interval '1 month') at time zone 'America/Sao_Paulo', 'pay_c4_old', 0, v_sub4)
+    returning id into v_lot;
+  insert into credit_entries (organization_id, person_id, kind, amount, lot_id, action, reference)
+    values (v_chelsea, c_refunded, 'debit', -4, v_lot, 'teacher_lesson', 'lesson:r_old');
+  v_int := credit_refund(c_refunded, 'lesson:r_old');
+  if v_int <> 4
+     or (select expires_at from credit_entries
+          where kind = 'refund' and reference = 'lesson:r_old' and lot_id is null)
+        is distinct from now() + interval '1 month' then
+    insert into verify.failures values ('a refund whose lot is gone took the expiry of a voided month');
+  end if;
+
+  -- 8. A month paid ahead started at midnight, before the routine: the debit
+  -- grants it first, and spends from it.
+  v_int := credit_debit(c_ahead, 'teacher_lesson', 1, 'lesson:ahead');
+  if v_int <> 6 then
+    insert into verify.failures values (format(
+      'a debit did not grant the month paid ahead that started: left %s, expected 6', v_int));
+  end if;
+  -- 7. A chargeback voids what is left, as a refund does.
+  set local role service_role;
+  perform billing_save_payment('pay_c9', v_sub9, 'cycle', 1000, 'CHARGEBACK_REQUESTED', false, v_today - 1, now(), 0, null);
+  v_int := credit_settle_payment('pay_c9');
+  reset role;
+  if v_int <> -6 or credits_balance(c_ahead) <> 0 then
+    insert into verify.failures values ('a charge charged back did not void the 6 left');
   end if;
 
   -- 12. Expiry and carryover, by the routine. Lots past their day, written as
