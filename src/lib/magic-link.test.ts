@@ -8,7 +8,7 @@ describe("magicLinkStep", () => {
     assert.equal(magicLinkStep(null), "sent");
   });
 
-  test("an address without an account reads as sent, like any other", () => {
+  test("an address without an account is expected, like a link sent", () => {
     // shouldCreateUser: false, and no account behind the address.
     assert.equal(magicLinkStep({ code: "otp_disabled" }), "sent");
   });
@@ -19,7 +19,7 @@ describe("magicLinkStep", () => {
     assert.equal(magicLinkStep({ code: "signup_disabled" }), "recover");
   });
 
-  test("a real failure is said as one", () => {
+  test("a real failure is one to log", () => {
     assert.equal(
       magicLinkStep({ code: "over_email_send_rate_limit" }),
       "error",
