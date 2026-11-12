@@ -5307,8 +5307,9 @@ $$;
 -- An account whose metadata says signup (the invite /cadastro asks for, #275)
 -- joins, on the first confirmation of its email, the one organization with
 -- open_signup, as a student: Chelsea St since 0051. Without signup nobody
--- joins by it, and the invite path stays as it was. A student invite accepted
--- in the same confirmation wins: she stays in the company alone. Metadata
+-- joins by it, and the invite path stays as it was. An invite accepted in the
+-- same confirmation wins, in any role: a company's student stays in the
+-- company alone, a teacher or an admin gets no student role beside hers. Metadata
 -- changed after the confirmation, and a second confirmation, make nobody a
 -- member. With the door closed a signup joins nothing, and fails nothing.
 -- The door: only an organization of the brand chelsea-st with a teacher, each
@@ -5327,8 +5328,10 @@ declare
   c_later constant uuid := 'b0510000-0000-4000-8000-000000000005';
   c_closed constant uuid := 'b0510000-0000-4000-8000-000000000006';
   c_chelsea_admin constant uuid := 'b0510000-0000-4000-8000-000000000007';
+  c_teacher constant uuid := 'b0510000-0000-4000-8000-000000000008';
+  c_company_admin constant uuid := 'b0510000-0000-4000-8000-000000000009';
   c_people constant uuid[] := array[c_new, c_plain, c_false, c_employee, c_later,
-                                    c_closed, c_chelsea_admin];
+                                    c_closed, c_chelsea_admin, c_teacher, c_company_admin];
   v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
   v_b uuid := (select id from organizations where slug = 'escola-b');
   v_company uuid;
@@ -5408,6 +5411,31 @@ begin
   end if;
   if (select count(*) from verify.failures) = v_before then
     raise notice 'a student invite of a company, accepted in the same confirmation, wins over the signup';
+  end if;
+
+  -- 3b. So does an invite in another role: a teacher of Chelsea St, the admin
+  -- of a company. The signup adds no student beside it.
+  v_before := (select count(*) from verify.failures);
+  insert into organization_invites (organization_id, email, role, invited_by) values
+    (v_chelsea, 'teacher-0051@example.com', 'teacher', c_platform_admin),
+    (v_company, 'company-admin-0051@example.com', 'admin', c_platform_admin);
+  insert into auth.users (id, email, raw_user_meta_data) values
+    (c_teacher, 'teacher-0051@example.com', '{"signup": true}'),
+    (c_company_admin, 'company-admin-0051@example.com', '{"signup": true}');
+  update auth.users set email_confirmed_at = now() where id in (c_teacher, c_company_admin);
+  if not exists (select 1 from organization_members
+                  where user_id = c_teacher and organization_id = v_chelsea and role = 'teacher')
+     or not exists (select 1 from organization_members
+                     where user_id = c_company_admin and organization_id = v_company and role = 'admin') then
+    insert into verify.failures values ('a teacher or admin invite was not accepted for a signup');
+  end if;
+  if exists (select 1 from organization_members
+              where user_id in (c_teacher, c_company_admin) and role = 'student')
+     or exists (select 1 from students where id in (c_teacher, c_company_admin)) then
+    insert into verify.failures values ('a teacher or admin invite accepted with a signup also made a student');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a teacher or admin invite, accepted in the same confirmation, wins over the signup too';
   end if;
 
   -- 6. Only the first confirmation counts.

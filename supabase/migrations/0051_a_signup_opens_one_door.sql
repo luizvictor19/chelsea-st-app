@@ -15,10 +15,11 @@
 --     admin changes it, through organizations_write, which already exists.
 --   - On the first confirmation of the email, after the open invites are
 --     accepted, join_by_signup makes an account whose metadata says signup a
---     student of that organization. Nothing when she already has a students
---     row: one organization per student, and an invite accepted first (of a
---     company or of Chelsea St itself) wins. Nothing when no organization has
---     the door open.
+--     student of that organization. Nothing when she is already a member of
+--     any organization, in any role: an invite accepted first, in the same
+--     confirmation (of a company or of Chelsea St itself, as student, teacher
+--     or admin), wins, and the signup adds no second role beside it. Nothing
+--     when no organization has the door open.
 --   - Only the first confirmation counts, as for the invites: metadata the
 --     person changes later, signed in, makes nobody a member.
 --
@@ -71,7 +72,7 @@ begin
   if coalesce(p_meta ->> 'signup', '') <> 'true' then
     return;
   end if;
-  if exists (select 1 from students where id = p_user) then
+  if exists (select 1 from organization_members where user_id = p_user) then
     return;
   end if;
 
