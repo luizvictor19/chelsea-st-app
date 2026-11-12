@@ -136,10 +136,27 @@ architecture question for Luiz.
   offer, written by the platform admin on `/teacher/plans`; active plans read by `anon` too),
   `billing_customers`, `subscriptions`, `payments`, `billing_events` and `overdue_steps`. A person
   reads her own rows, the platform admin all; nobody writes them but ten `security definer`
-  functions that only `service_role` executes, the one exception to "service_role gets none" above.
-  Billing reaches a student of a `chelsea-st` organization only, never a company. One CPF per person,
-  one person per CPF (an HMAC), one trial per person, one subscription alive per person. The state
-  of a subscription is always read back from Asaas, never taken from a webhook's body.
+  functions that only `service_role` executes, the one exception to "service_role gets none" above
+  (with the three credit functions below). Billing reaches a student of a `chelsea-st` organization
+  only, never a company. One CPF per person, one person per CPF (an HMAC), one trial per person, one
+  subscription alive per person. The state of a subscription is always read back from Asaas, never
+  taken from a webhook's body.
+- Credits follow 0050 (#273, `docs/spec-creditos.md`): a ledger, `credit_entries`, that only takes
+  new rows (`credit_entries_append_only` refuses update, delete and truncate to every role,
+  `postgres` included; a restore with `session_replication_role = replica` passes it). A grant opens
+  a lot (amount and `expires_at`); every other row (debit, refund, expire, void) points at its lot,
+  and no row takes a lot below zero. The balance is the sum of the live lots (`credits_balance`,
+  `credit_live_lots`, `security invoker`, so a person sums only her own rows); it is never stored
+  and never edited, and a correction is a new entry. A person reads her own rows, the platform admin
+  all; no API role writes them. `credit_settle_payment`, `credit_daily` and `credit_refund_quote`
+  are executed by `service_role` alone (the webhook, the daily routine); `credit_debit` and
+  `credit_refund` by nobody: another `security definer` function calls them inside its transaction,
+  never the browser. Every function that writes a person's ledger first takes her advisory lock. The
+  cost of each action is a row of `credit_costs` per brand, written by the platform admin on
+  `/teacher/plans` and read through `credit_cost` alone; its actions equal `CREDIT_ACTIONS`
+  (`actions.test.ts`). The credits of a month are kept on the subscription
+  (`subscriptions.monthly_credits`), the carryover cap on the plan (`plans.carryover_percent`). No
+  number of the offer enters the repository.
 - `leads` receives rows only through `submit_lead` (0038), executed by `anon` alone: the site's
   function calls it with the publishable key. Nobody reads `leads` through the API, and the
   service role holds nothing on it. A number sent twice is two rows (history, nothing is
@@ -238,9 +255,10 @@ architecture question for Luiz.
 - API keys are server-only, never `NEXT_PUBLIC_`.
 - `SUPABASE_SERVICE_ROLE_KEY` is read by `src/lib/supabase/admin.ts`, to send invite emails (#96),
   and by `src/lib/billing/supabase-store.ts` (#72, Q2), which calls only the ten `billing_*`
-  functions of 0049 and reads a person's e-mail from auth for the overdue e-mails. It passes every
-  policy: never use it to read or write a table directly; it holds no privilege on the billing
-  tables, only `execute` on their functions.
+  functions of 0049 and `credit_settle_payment` and `credit_daily` of 0050 (#273), and reads a
+  person's e-mail from auth for the overdue e-mails. It passes every policy: never use it to read or
+  write a table directly; it holds no privilege on the billing tables or the ledger, only `execute`
+  on their functions.
 - Asaas (#72, `docs/spec-pagamento.md`): `ASAAS_API_KEY` (the address follows its prefix; written
   `\$aact_...` in `.env.local`, or Next reads it empty; the app runs the sandbox key only against a
   local Supabase, never the production one `.env.local` points at, and never in Vercel
@@ -305,7 +323,7 @@ that are aliases of Luiz's e-mail. Their e-mails and passwords live only in
 ## Known traps
 
 - Specs live only in `docs/` (`spec-ingestao.md`, `spec-imagens.md`, `spec-f1.md`,
-  `spec-pagamento.md`). The Cowork
+  `spec-pagamento.md`, `spec-creditos.md`). The Cowork
   project keeps no copy; a version found anywhere else is stale.
 - `gh pr edit` fails in this repository. Change a PR base with
   `gh api -X PATCH repos/luizvictor19/chelsea-st-app/pulls/N -f base=main`.

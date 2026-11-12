@@ -17,7 +17,8 @@ banco, escritos pelo admin da plataforma em `/teacher/plans`, e ficam fora do re
   automação (#274), até a #282. A cobrança recusa quem não é aluna de uma organização da marca
   `chelsea-st`.
 - Ficam com as sub-issues:
-  - créditos, pacote avulso e reembolso proporcional: #273;
+  - créditos e o cálculo do reembolso proporcional: #273, em `docs/spec-creditos.md`; pacote
+    avulso: #298; botão do reembolso: #297;
   - cadeado, upgrade, downgrade e degustação: #274;
   - cadastro sem convite: #275;
   - Pix Automático: #281.
@@ -93,8 +94,9 @@ Recalculados a cada evento a partir do que a Asaas guarda agora, nunca do corpo 
   assinatura".
 - Na Asaas, a assinatura é apagada, e com ela as cobranças pendentes e vencidas. As pagas ficam.
 - No teste, nada foi cobrado. Depois do teste, o acesso vai até `paid_through`.
-- O reembolso proporcional ao saldo de créditos (CDC art. 49) é da #273, pelo estorno parcial que o
-  provedor já tem (`refund`).
+- O reembolso proporcional ao saldo de créditos (CDC art. 49): o cálculo é da #273
+  (`credit_refund_quote`, `docs/spec-creditos.md`), e o botão, pelo estorno parcial que o provedor já
+  tem (`refund`), é da #297.
 
 ## Atraso (Q5)
 
@@ -114,7 +116,8 @@ A rotina diária `/api/billing/daily` roda pelo Vercel Cron às 12h UTC (09h BRT
   e-mail avisa.
 - Os e-mails saem pela Resend, com a chave própria do app (`RESEND_API_KEY`), separada da do SMTP do
   Supabase.
-- Cobrança em atraso não concede créditos. A paga no atraso concede uma vez, quando confirma (#273).
+- Cobrança em atraso não concede créditos. A paga no atraso concede uma vez, quando confirma
+  (`docs/spec-creditos.md`).
 
 ## O webhook
 
@@ -148,7 +151,8 @@ falhas seguidas, a fila para (os eventos ficam guardados por até 14 dias).
 | `overdue_steps`     | os passos da rotina de atraso                   | ninguém pela API            |
 
 - O CPF em claro fica só na Asaas.
-- `payments.asaas_payment_id` é a chave pela qual a #273 concede os créditos de um ciclo, uma vez.
+- `payments.asaas_payment_id` é a chave pela qual os créditos de um ciclo são concedidos, uma vez
+  por mês (`docs/spec-creditos.md`).
 - Um preço mudado em `plans` vale para assinaturas novas; a que existe guarda o valor dela na Asaas.
 - Um plano sai de venda, nunca é apagado.
 
@@ -200,7 +204,7 @@ falhas seguidas, a fila para (os eventos ficam guardados por até 14 dias).
 - **Nota fiscal:** automática pela Asaas na conta de pessoa jurídica, configurada quando ela existir.
 - **A taxa do Pix:** conferir no menu Taxas da conta; o regulamento e a página de preços divergem.
 - **Estorno pela API:** fica esperando a autorização de evento crítico no painel. Antes do reembolso
-  proporcional da #273, decidir na conta de produção se essa autorização fica (cada estorno passa por
+  proporcional (#297), decidir na conta de produção se essa autorização fica (cada estorno passa por
   alguém) ou se a API é liberada nas configurações de segurança.
 - **Sem resposta oficial (central de ajuda fechada à leitura automática):** se a Asaas tenta de novo
   sozinha depois do cartão recusado, e o prazo do estorno.
