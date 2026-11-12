@@ -224,6 +224,13 @@ architecture question for Luiz.
   With sign-ups off, GoTrue refuses the magic link to an invite not yet accepted (an unconfirmed
   account goes through Signup), so the login action sends that one the recovery link, which
   confirms the email and accepts the invite.
+  The magic link and "Esqueci minha senha" answer "Link enviado" for every valid address, before
+  the email is sent (#110, `src/lib/link-request.ts`, through `after`): the time of the answer and
+  every error GoTrue returns once it finds the account would tell whether the address has one. A
+  failed send goes only to the server log (`link request failed`, `link request rate limited`),
+  without the address. On the plans of 2026-11-12 those traces are short: the Vercel runtime log
+  of Hobby keeps 1 hour, the Supabase logs of Free keep 1 day. A "the link never arrived" told
+  later has no trace left; the query in `docs/commands.md` is for the same day.
 
 ## Sensitive data and secrets
 

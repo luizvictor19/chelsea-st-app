@@ -305,6 +305,26 @@ of each (#196; the ones before named Chelsea St and used `{{ .SiteURL }}` alone)
     <p><a href="{{ $origem }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/set-password">Escolher nova senha</a></p>
     <p>O link vale por 24 horas. Se não foi você que pediu, ignore esta mensagem: a sua senha continua a mesma.</p>
 
+### "O link não chegou" (#110)
+
+The two link screens say "Link enviado" whatever happens, so a failed send shows only in the logs.
+Ask Claude to run this through the MCP (`query_logs`, at most the last 24 hours, the Free plan's
+retention), and look in the Vercel runtime log of the same hour for `link request failed`:
+
+    select timestamp, log_attributes['request.path'] as path,
+           log_attributes['response.status_code'] as status
+      from logs
+     where source = 'edge_logs'
+       and log_attributes['request.path'] in ('/auth/v1/otp', '/auth/v1/recover')
+       and toInt32OrZero(log_attributes['response.status_code']) >= 400
+     order by timestamp desc
+
+A 429 has three causes, and the Vercel log line of the same minute tells them apart: the limit of
+one email per address per minute (`link request rate limited`, a warning: the person asked twice,
+and the first link is the one to use); the project's cap of emails per hour (`link request failed`
+with "email rate limit exceeded": nothing goes out for anyone until the hour turns); or the limit
+of requests per IP, which every request from Vercel shares (`over_request_rate_limit`).
+
 ## GitHub quirks
 
     gh api -X PATCH repos/luizvictor19/chelsea-st-app/pulls/NN -f base=main     # change PR base
