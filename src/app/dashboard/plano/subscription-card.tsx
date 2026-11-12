@@ -56,7 +56,7 @@ export function SubscriptionCard({
       {status === "pending" && (
         <p className="text-muted text-sm">
           Assim que o pagamento confirmar o cartão, a assinatura aparece aqui.
-          Saiu da página sem terminar? Assine de novo.
+          Saiu da página sem terminar? Assine de novo abaixo.
         </p>
       )}
       {status === "trialing" && (

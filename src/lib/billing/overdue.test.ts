@@ -227,6 +227,34 @@ describe("runOverdue", () => {
   });
 });
 
+// Review of #72, finding 2: a step that failed was never taken again, so a
+// provider out on day 7 left the subscription running for good.
+describe("runOverdue after a failure", () => {
+  test("day 7 with the provider out is taken again on the next run and cancels", async () => {
+    const { rowId, subscriptionId } = await overdue("card");
+    provider.payAgainAnswer = "OVERDUE";
+    provider.failOnce.set("deleteSubscription", new Error("503"));
+    const first = await runOverdue(deps("2026-12-03"));
+    assert.deepEqual(first.outcomes, { error: 1 });
+    assert.notEqual(store.rows.get(rowId)!.status, "canceled");
+    const second = await runOverdue(deps("2026-12-04"));
+    assert.deepEqual(second.outcomes, { canceled: 1 });
+    assert.equal(provider.subscriptions.get(subscriptionId)!.deleted, true);
+    assert.equal(store.rows.get(rowId)!.status, "canceled");
+    assert.equal(store.rows.get(rowId)!.cancelReason, "overdue");
+  });
+
+  test("day 7 whose deletion went through and whose writing did not still cancels here", async () => {
+    const { rowId, subscriptionId } = await overdue("pix");
+    // The provider already deleted it, and with it the overdue charge.
+    await provider.deleteSubscription(subscriptionId);
+    const report = await runOverdue(deps("2026-12-03"));
+    assert.deepEqual(report.outcomes, { canceled: 1 });
+    assert.equal(store.rows.get(rowId)!.status, "canceled");
+    assert.match(sent[0].subject, /cancelada/);
+  });
+});
+
 describe("overdueEmail", () => {
   test("one day left is singular, and the plan link stands in for a missing invoice", () => {
     const email = overdueEmail({

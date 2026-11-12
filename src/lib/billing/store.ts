@@ -26,6 +26,7 @@ export type StoredSubscription = {
   readonly asaasCustomerId: string | null;
   readonly asaasSubscriptionId: string | null;
   readonly paidThrough: string | null;
+  readonly cancelReason: string | null;
 };
 
 export type CancelReason =
@@ -59,6 +60,24 @@ export class StoreRefusal extends Error {
     super(message);
     this.name = "StoreRefusal";
     this.constraint = constraint;
+  }
+}
+
+/**
+ * Any other failure of a billing function, with the SQLSTATE the database
+ * gave. `passing` tells a failure the next try may not meet (no SQLSTATE: the
+ * connection; a cancel, a lock, a lack of resources) from one it will meet
+ * again (a check, a unique key, a raise, a type or a privilege refused).
+ */
+export class StoreError extends Error {
+  readonly code: string;
+  readonly passing: boolean;
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "StoreError";
+    this.code = code;
+    // 22 data, 23 integrity, 42 syntax and privilege, P0 a raise.
+    this.passing = !/^(22|23|42|P0)/.test(code);
   }
 }
 

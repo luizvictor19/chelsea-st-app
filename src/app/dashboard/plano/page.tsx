@@ -74,6 +74,9 @@ export default async function PlanPage() {
   );
   const today = billingDay(new Date());
   const alive = current !== null && current.status !== "canceled";
+  // A checkout left unfinished does not hold the door: subscribing again
+  // replaces it, and a checkout paid after that is undone by the webhook.
+  const canSubscribe = !alive || current?.status === "pending";
   const plan = plans.find((each) => each.id === current?.planId);
 
   return (
@@ -102,7 +105,16 @@ export default async function PlanPage() {
           </p>
         )}
 
-      {!alive &&
+      {current?.status === "canceled" &&
+        current.cancelReason === "trial_used" && (
+          <p role="alert" className="text-accent">
+            O pagamento no cartão foi feito com outro CPF, ou sem CPF, e a
+            assinatura não foi criada. Nada foi cobrado. Assine de novo e use no
+            pagamento o mesmo CPF informado aqui.
+          </p>
+        )}
+
+      {canSubscribe &&
         (!billingOpen() || plans.length === 0 ? (
           <p className="text-muted">
             A assinatura ainda não abriu. Fale com a gente.

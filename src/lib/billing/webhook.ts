@@ -21,7 +21,7 @@
 import { timingSafeEqual } from "node:crypto";
 
 import { ProviderError } from "./provider.ts";
-import type { BillingStore } from "./store.ts";
+import { StoreError, StoreRefusal, type BillingStore } from "./store.ts";
 import { syncSubscription, type SyncDeps } from "./sync.ts";
 
 export type WebhookResult = {
@@ -51,13 +51,24 @@ function text(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
 }
 
-/** A failure the next delivery may not meet: the provider or the database. */
+/**
+ * A failure the next delivery may not meet: the provider or the database out,
+ * a dropped connection, a timeout. Anything else (a refusal of the database,
+ * a 4xx of the provider, an answer that cannot be read) meets every delivery
+ * the same, and answering 500 to it would only stop the queue after 15.
+ */
 function isPassing(cause: unknown): boolean {
   if (cause instanceof ProviderError) {
     return cause.status >= 500 || cause.status === 429;
   }
-  // A timeout, a dropped connection, the database refusing: all passing.
-  return true;
+  if (cause instanceof StoreError) return cause.passing;
+  if (cause instanceof StoreRefusal) return false;
+  // fetch's own failures: no connection (TypeError), a timeout or an abort.
+  if (cause instanceof TypeError) return true;
+  if (cause instanceof Error) {
+    return cause.name === "TimeoutError" || cause.name === "AbortError";
+  }
+  return false;
 }
 
 class NotOurs extends Error {}

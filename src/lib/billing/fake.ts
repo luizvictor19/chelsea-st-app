@@ -30,6 +30,8 @@ export type FakeProvider = BillingProvider & {
   payAgainAnswer: string;
   /** When set, every call fails with this error. */
   failWith: Error | null;
+  /** Calls by name that fail with their error, once each. */
+  readonly failOnce: Map<string, Error>;
 };
 
 export function createFakeProvider(): FakeProvider {
@@ -42,6 +44,7 @@ export function createFakeProvider(): FakeProvider {
     calls: [],
     payAgainAnswer: "CONFIRMED",
     failWith: null,
+    failOnce: new Map(),
 
     async createCustomer({ name, cpf, email }) {
       track("createCustomer");
@@ -149,6 +152,11 @@ export function createFakeProvider(): FakeProvider {
   function track(name: string): void {
     fake.calls.push(name);
     if (fake.failWith !== null) throw fake.failWith;
+    const once = fake.failOnce.get(name);
+    if (once !== undefined) {
+      fake.failOnce.delete(name);
+      throw once;
+    }
   }
 
   function found<T>(value: T | undefined, what: string): T {
@@ -326,7 +334,7 @@ export function createFakeStore(): FakeStore {
           ? "pending"
           : input.withTrial
             ? "trialing"
-            : "active";
+            : "awaiting";
       const id = `row_${next++}`;
       store.rows.set(id, {
         id,
@@ -359,7 +367,11 @@ export function createFakeStore(): FakeStore {
         asaasSubscriptionId: reading.subscriptionId ?? row.asaasSubscriptionId,
         asaasCustomerId: reading.customerId ?? row.asaasCustomerId,
         status: reading.status,
-        paidThrough: reading.paidThrough ?? row.paidThrough,
+        // As 0049: a reading replaces it, a cancel by the app keeps it.
+        paidThrough:
+          reading.status === "canceled"
+            ? (reading.paidThrough ?? row.paidThrough)
+            : reading.paidThrough,
         pastDueSince:
           reading.status === "past_due" ? reading.pastDueSince : null,
         cancelReason:
@@ -367,7 +379,7 @@ export function createFakeStore(): FakeStore {
       });
       const customer = store.customers.get(row.personId);
       if (
-        reading.status === "trialing" &&
+        reading.status !== "canceled" &&
         row.withTrial &&
         customer !== undefined
       ) {
@@ -452,7 +464,10 @@ export function createFakeStore(): FakeStore {
     async takeOverdueStep(paymentId, day: OverdueDay) {
       check();
       const key = `${paymentId}|${day}`;
-      if (store.steps.has(key)) return false;
+      // As 0049: a step that ended in error is taken again.
+      if (store.steps.has(key) && store.steps.get(key)?.outcome !== "error") {
+        return false;
+      }
       store.steps.set(key, { outcome: null, emailed: false });
       return true;
     },

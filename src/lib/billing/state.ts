@@ -15,7 +15,7 @@ import {
 } from "./provider.ts";
 
 export type SubscriptionStatus =
-  "pending" | "trialing" | "active" | "past_due" | "canceled";
+  "pending" | "trialing" | "awaiting" | "active" | "past_due" | "canceled";
 
 export type Reading = {
   readonly status: Exclude<SubscriptionStatus, "pending">;
@@ -30,9 +30,10 @@ export type Reading = {
  *
  *   canceled   the provider deleted it or no longer runs it.
  *   past_due   a charge of it is overdue (the routine works on it, Q5).
- *   active     a charge of it is paid, or there is no trial to be in.
+ *   active     a charge of it is paid.
  *   trialing   it has a trial and no charge of it is paid yet: before the
  *              first due day, and on that day until the charge confirms.
+ *   awaiting   it has no trial and its first charge is not paid yet.
  */
 export function readSubscription(input: {
   withTrial: boolean;
@@ -68,8 +69,14 @@ export function readSubscription(input: {
   if (overdueDays.length > 0) {
     return { status: "past_due", paidThrough, pastDueSince: overdueDays[0] };
   }
-  if (paidThrough !== null || !withTrial) {
+  if (paidThrough !== null) {
     return { status: "active", paidThrough, pastDueSince: null };
   }
-  return { status: "trialing", paidThrough: null, pastDueSince: null };
+  // Nothing paid yet: in the trial, or, with no trial, waiting for the
+  // first charge. Never active before a payment.
+  return {
+    status: withTrial ? "trialing" : "awaiting",
+    paidThrough: null,
+    pastDueSince: null,
+  };
 }

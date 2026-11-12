@@ -58,13 +58,16 @@ async function takeStep(
 ): Promise<{ outcome: OverdueOutcome; emailed: boolean }> {
   const { provider, store } = deps;
   let payment = await provider.getPayment(overdue.paymentId);
-  if (payment.deleted || PAID_STATUSES.has(payment.status)) {
+  const last = day === LAST_OVERDUE_DAY;
+  if (PAID_STATUSES.has(payment.status) || (payment.deleted && !last)) {
     // Paid or gone since the last reading; the webhook brings the state.
     return { outcome: "already_paid", emailed: false };
   }
+  // Gone on day 7: a run before deleted it at the provider and failed after
+  // (review of #72, finding 2). The cancel here still has to happen.
 
   let outcome: OverdueOutcome = "pix_reminder";
-  if (overdue.billingType === "card") {
+  if (overdue.billingType === "card" && !payment.deleted) {
     outcome = "refused";
     if (payment.cardToken !== null) {
       try {
@@ -82,9 +85,10 @@ async function takeStep(
     }
   }
 
-  const last = day === LAST_OVERDUE_DAY;
-  if (last && payment.subscriptionId !== null) {
-    await provider.deleteSubscription(payment.subscriptionId);
+  if (last) {
+    if (!payment.deleted && payment.subscriptionId !== null) {
+      await provider.deleteSubscription(payment.subscriptionId);
+    }
     await store.applySubscription(overdue.subscriptionId, {
       subscriptionId: null,
       customerId: null,

@@ -18,6 +18,7 @@ export function formatDay(day: string): string {
 export const STATUS_LABEL: Readonly<Record<string, string>> = {
   pending: "Aguardando o pagamento no cartão",
   trialing: "Em teste grátis",
+  awaiting: "Aguardando o primeiro pagamento",
   active: "Ativa",
   past_due: "Pagamento em atraso",
   canceled: "Cancelada",

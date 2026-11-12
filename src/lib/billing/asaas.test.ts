@@ -130,6 +130,40 @@ describe("asaas", () => {
     assert.equal(body.billingType, "PIX");
   });
 
+  // Review of #72, finding 3: the boleto subscription Asaas made stayed
+  // there, billing every cycle, with no row in the database.
+  test("a Pix subscription made as boleto is deleted before it is refused", async () => {
+    const sent: Sent[] = [];
+    const provider = createAsaasProvider(
+      CONFIG,
+      fakeFetch(
+        200,
+        {
+          id: "sub_b",
+          customer: "cus_1",
+          status: "ACTIVE",
+          nextDueDate: "2026-11-26",
+          value: 10,
+          billingType: "BOLETO",
+        },
+        sent,
+      ),
+    );
+    await assert.rejects(
+      provider.createPixSubscription({
+        customerId: "cus_1",
+        valueCents: 1000,
+        cycle: "monthly",
+        firstDueOn: "2026-11-26",
+        description: "x",
+        reference: "r",
+      }),
+      /Pix key/,
+    );
+    assert.equal(sent[1]?.init.method, "DELETE");
+    assert.match(sent[1]?.url ?? "", /\/subscriptions\/sub_b$/);
+  });
+
   test("a Pix subscription made as boleto is refused", async () => {
     const provider = createAsaasProvider(
       CONFIG,

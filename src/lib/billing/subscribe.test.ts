@@ -95,7 +95,7 @@ describe("startSubscription", () => {
     const second = [...store.rows.values()][1];
     assert.equal(second.withTrial, false);
     assert.equal(second.firstDueOn, "2026-11-12");
-    assert.equal(second.status, "active");
+    assert.equal(second.status, "awaiting");
   });
 
   test("a plan with no trial days charges today", async () => {

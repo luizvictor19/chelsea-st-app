@@ -10,6 +10,7 @@ import { env, serviceRoleKey } from "@/lib/env";
 import type { Database } from "@/lib/supabase/types";
 
 import {
+  StoreError,
   StoreRefusal,
   type BillingStore,
   type StoredSubscription,
@@ -51,6 +52,7 @@ export function toStored(row: Row): StoredSubscription {
     asaasCustomerId: row.asaas_customer_id,
     asaasSubscriptionId: row.asaas_subscription_id,
     paidThrough: row.paid_through,
+    cancelReason: row.cancel_reason,
   };
 }
 
@@ -84,7 +86,10 @@ export function createSupabaseBillingStore(
           error.details?.includes(constraint),
       );
       if (named !== undefined) throw new StoreRefusal(named, error.message);
-      throw new Error(`${name} failed: ${error.code} ${error.message}`);
+      throw new StoreError(
+        error.code ?? "",
+        `${name} failed: ${error.code} ${error.message}`,
+      );
     }
     return data as Functions[N]["Returns"];
   }

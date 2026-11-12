@@ -102,12 +102,18 @@ describe("readSubscription", () => {
     );
   });
 
-  test("with no trial an unpaid first charge is active, paid through nothing", () => {
+  test("with no trial an unpaid first charge is awaiting, never active", () => {
+    // Review of #72: active before paying gave a Pix subscriber about eight
+    // days of access, and a new subscription gave eight more, with nothing paid.
     assert.deepEqual(read([payment({})], {}, false), {
-      status: "active",
+      status: "awaiting",
       paidThrough: null,
       pastDueSince: null,
     });
+    assert.equal(
+      read([payment({ status: "CONFIRMED" })], {}, false).status,
+      "active",
+    );
   });
 
   test("a charge of another subscription is not read", () => {

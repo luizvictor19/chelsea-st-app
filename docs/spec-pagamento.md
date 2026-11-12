@@ -70,13 +70,21 @@ Recalculados a cada evento a partir do que a Asaas guarda agora, nunca do corpo 
 | ---------- | --------------------------------------------------------------------------------------- |
 | `pending`  | o checkout do cartão foi aberto e não terminou                                          |
 | `trialing` | tem teste e nenhuma cobrança paga ainda, inclusive no dia da primeira até ela confirmar |
-| `active`   | uma cobrança foi confirmada ou recebida, ou não há teste                                |
+| `awaiting` | sem teste, e a primeira cobrança ainda não foi paga; nada abre antes do pagamento       |
+| `active`   | uma cobrança foi confirmada ou recebida                                                 |
 | `past_due` | uma cobrança venceu sem pagamento; conta da mais antiga                                 |
 | `canceled` | apagada ou inativada na Asaas, cancelada pela pessoa, pelo atraso ou pelo checkout      |
 
 - `paid_through` é o último dia que as cobranças pagas cobrem: o vencimento da última paga mais um
   ciclo, menos um dia. O mês mais curto segura o dia (31/01 vai a 28/02).
+- Uma leitura da Asaas troca `paid_through`: uma cobrança estornada leva os dias dela. Só o
+  cancelamento feito pelo app (por ela, pelo atraso) mantém os dias já pagos.
 - Uma assinatura cancelada nunca volta. Uma pessoa tem no máximo uma assinatura viva.
+- Uma assinatura cancelada aqui nunca roda na Asaas. Se um checkout deixado aberto for pago depois que
+  a linha dele foi cancelada (por ela, ou trocada por outra assinatura), o webhook estorna o que ele
+  cobrou e apaga a assinatura na Asaas.
+- O teste conta como usado assim que a assinatura com teste roda na Asaas, qualquer que seja a
+  primeira leitura (em teste, já paga ou já em atraso, quando os eventos chegam tarde).
 - Cobrança estornada ou apagada não paga nada.
 
 ## Cancelar
@@ -96,7 +104,9 @@ A rotina diária `/api/billing/daily` roda pelo Vercel Cron às 12h UTC (09h BRT
 - O dia 1 do atraso é o dia seguinte ao vencimento. Os passos são nos dias 1, 3, 5 e 7.
 - Um dia que a rotina perde não se perde: ela dá o passo mais recente que ainda não deu.
 - Cada passo de uma cobrança é reservado no banco antes de agir (`overdue_steps`), então a rotina
-  rodando duas vezes não cobra nem escreve duas vezes.
+  rodando duas vezes não cobra nem escreve duas vezes. Um passo que terminou em erro (a Asaas, o
+  banco ou o e-mail fora) é dado de novo na próxima rodada; ele começa lendo a cobrança, então uma
+  cobrança paga no meio do caminho não é cobrada de novo.
 - **Cartão:** cobra de novo a mesma cobrança com o cartão salvo dela
   (`POST /v3/payments/{id}/payWithCreditCard` com `creditCardToken`). Passou: sem e-mail.
 - **Pix:** não há o que cobrar; o passo é o e-mail com o link da fatura.
@@ -119,8 +129,10 @@ falhas seguidas, a fila para (os eventos ficam guardados por até 14 dias).
   elas dizem. Um evento atrasado, repetido ou forjado não muda o estado.
 - O que não é nosso, ou não se lê, fica guardado com o motivo e responde 200: assim não conta para as
   15 falhas.
-- Só a falha passageira (a Asaas ou o banco fora) responde 500, sem terminar o evento, para a Asaas
-  entregar de novo.
+- Só a falha passageira responde 500, sem terminar o evento, para a Asaas entregar de novo: a Asaas
+  com 5xx ou 429, a conexão caída, o tempo esgotado, um erro do banco que não é recusa. Uma recusa do
+  banco (constraint, raise), um 4xx da Asaas ou uma resposta ilegível encontram a mesma coisa em toda
+  reentrega: ficam guardados com o motivo e respondem 200.
 - A fila é `SEQUENTIALLY` (ordem preservada), cadastrada por `scripts/asaas-webhook.ts`.
 - O proxy que exige login não roda nas rotas de `/api/asaas/` e `/api/billing/`.
 

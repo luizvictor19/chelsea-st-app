@@ -196,6 +196,12 @@ export function createAsaasProvider(
         externalReference: input.reference,
       });
       if (record(body).billingType !== "PIX") {
+        // Asaas made it, as something else: undo it before refusing, or it
+        // bills the person every cycle with no row of ours behind it.
+        const made = text(record(body).id);
+        if (made !== null) {
+          await call("DELETE", `/subscriptions/${encodeURIComponent(made)}`);
+        }
         throw new ProviderError(
           `Asaas made the subscription as ${String(record(body).billingType)}, not PIX: the account needs a Pix key`,
           200,

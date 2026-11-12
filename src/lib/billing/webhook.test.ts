@@ -11,6 +11,7 @@ import {
   type FakeStore,
 } from "./fake.ts";
 import { ProviderError } from "./provider.ts";
+import { StoreError, StoreRefusal } from "./store.ts";
 import { handleWebhook, type WebhookDeps } from "./webhook.ts";
 
 const TOKEN = "t".repeat(64);
@@ -342,5 +343,92 @@ describe("handleWebhook", () => {
     await send("SUBSCRIPTION_DELETED", { id: subscriptionId });
     assert.equal(store.rows.get(rowId)!.status, "canceled");
     assert.equal(store.rows.get(rowId)!.cancelReason, "provider");
+  });
+
+  // Review of #72, finding 1: a checkout left open after its row was
+  // canceled (by her, or replaced by another subscription) could still be
+  // paid, and the subscription it made ran with no row alive.
+  test("a checkout finished after its row was canceled is undone at the provider", async () => {
+    await store.customer(PERSON, cpfHmac(CPF, KEY));
+    const rowId = await store.openSubscription({
+      personId: PERSON,
+      planId: "plan",
+      cycle: "monthly",
+      billingType: "card",
+      valueCents: 1000,
+      withTrial: false,
+      firstDueOn: "2026-11-12",
+      checkoutId: "chk_late",
+      customerId: null,
+      subscriptionId: null,
+    });
+    await store.applySubscription(rowId, {
+      subscriptionId: null,
+      customerId: null,
+      status: "canceled",
+      paidThrough: null,
+      pastDueSince: null,
+      cancelReason: "person",
+    });
+    const made = finishCheckout(provider, {
+      checkoutId: "chk_late",
+      cpf: CPF,
+      valueCents: 1000,
+      firstDueOn: "2026-11-12",
+    });
+    // No trial: the checkout charged at once.
+    setPayment(provider, made.paymentId, { status: "CONFIRMED" });
+    const result = await send("SUBSCRIPTION_CREATED", {
+      id: made.subscriptionId,
+    });
+    assert.equal(result.status, 200);
+    assert.equal(
+      provider.subscriptions.get(made.subscriptionId)!.deleted,
+      true,
+    );
+    assert.equal(provider.payments.get(made.paymentId)!.refundedCents, 1000);
+    assert.equal(store.rows.get(rowId)!.status, "canceled");
+    assert.deepEqual(confirmed, []);
+  });
+
+  // Finding 4: a failure every delivery meets again must not answer 500,
+  // or one bad event stops the whole queue after 15.
+  test("a refusal of the database or of the provider is set aside, not retried", async () => {
+    const { subscriptionId, paymentId } = await pixRow();
+    for (const cause of [
+      new StoreRefusal("billing_payment_keeps_its_subscription", "moved"),
+      new StoreError("23514", "billing_save_payment failed: check"),
+      new ProviderError("bad request", 400, ["invalid"]),
+      new Error("Asaas answered without a due date"),
+    ]) {
+      // Thrown in the middle of the handling, after the event was kept.
+      provider.failWith = cause;
+      const result = await send("PAYMENT_UPDATED", {
+        id: paymentId,
+        subscription: subscriptionId,
+      });
+      assert.equal(result.status, 200, cause.message);
+    }
+  });
+
+  test("a network or connection failure is retried", async () => {
+    const { subscriptionId, paymentId } = await pixRow();
+    for (const cause of [
+      new TypeError("fetch failed"),
+      new StoreError(
+        "",
+        "billing_find_subscription failed: TypeError: fetch failed",
+      ),
+      Object.assign(new Error("The operation was aborted due to timeout"), {
+        name: "TimeoutError",
+      }),
+    ]) {
+      provider.failWith = cause;
+      const result = await send("PAYMENT_UPDATED", {
+        id: paymentId,
+        subscription: subscriptionId,
+      });
+      assert.equal(result.status, 500, cause.message);
+    }
   });
 });

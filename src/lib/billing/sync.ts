@@ -62,8 +62,30 @@ export async function syncSubscription(
 ): Promise<void> {
   const { provider, store } = deps;
   const subscription = await provider.getSubscription(providerSubscriptionId);
+  const running = !subscription.deleted && subscription.status === "ACTIVE";
 
-  if (row.status === "pending" && row.withTrial && !subscription.deleted) {
+  if (row.status === "canceled") {
+    // A canceled row never has a subscription running behind it. One that
+    // runs came from a checkout left open after the row was canceled (by
+    // her, or replaced by another subscription) and finished later: undo it,
+    // and give back what it already charged (review of #72, finding 1).
+    if (running) {
+      const charges = await provider.listSubscriptionPayments(subscription.id);
+      for (const charge of charges) {
+        if (
+          !charge.deleted &&
+          PAID_STATUSES.has(charge.status) &&
+          charge.refundedCents < charge.valueCents
+        ) {
+          await provider.refund(charge.id);
+        }
+      }
+      await provider.deleteSubscription(subscription.id);
+    }
+    return;
+  }
+
+  if (row.status === "pending" && row.withTrial && running) {
     if (!(await sameCpf(deps, row, subscription.customerId))) {
       // Nothing was charged yet: the first charge falls at the end of the
       // trial. Deleting the subscription takes that charge with it.
@@ -81,19 +103,22 @@ export async function syncSubscription(
   }
 
   const payments = await provider.listSubscriptionPayments(subscription.id);
-  for (const payment of payments) {
-    await store.savePayment({
-      paymentId: payment.id,
-      subscriptionId: row.id,
-      valueCents: payment.valueCents,
-      asaasStatus: payment.status,
-      deleted: payment.deleted,
-      dueOn: payment.dueOn,
-      paidAt: payment.paidOn,
-      refundedCents: payment.refundedCents,
-      invoiceUrl: payment.invoiceUrl,
-    });
-  }
+  // Side by side, not one after another: the webhook has 10 s in all.
+  await Promise.all(
+    payments.map((payment) =>
+      store.savePayment({
+        paymentId: payment.id,
+        subscriptionId: row.id,
+        valueCents: payment.valueCents,
+        asaasStatus: payment.status,
+        deleted: payment.deleted,
+        dueOn: payment.dueOn,
+        paidAt: payment.paidOn,
+        refundedCents: payment.refundedCents,
+        invoiceUrl: payment.invoiceUrl,
+      }),
+    ),
+  );
 
   const reading = readSubscription({
     withTrial: row.withTrial,
