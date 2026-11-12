@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   requestLink,
+  type LinkFlow,
   type LinkLog,
   type LinkTask,
   type SendOutcome,
@@ -54,7 +55,7 @@ const OUTCOMES: ReadonlyArray<[string, () => Promise<SendOutcome>]> = [
 ];
 
 describe("requestLink: the answer never depends on the account", () => {
-  for (const flow of ["magic_link", "recovery"] as const) {
+  for (const flow of ["magic_link", "recovery", "signup"] as const) {
     for (const [name, send] of OUTCOMES) {
       test(`${flow}, ${name}: sent`, async () => {
         const h = harness();
@@ -108,11 +109,14 @@ describe("requestLink: the answer never depends on the account", () => {
 });
 
 describe("requestLink: what reaches the server log", () => {
-  async function logOf(send: () => Promise<SendOutcome>) {
+  async function logOf(
+    send: () => Promise<SendOutcome>,
+    flow: LinkFlow = "magic_link",
+  ) {
     const h = harness();
     requestLink({
       email: EMAIL,
-      flow: "magic_link",
+      flow,
       send,
       schedule: h.schedule,
       log: h.log,
@@ -182,6 +186,17 @@ describe("requestLink: what reaches the server log", () => {
     const logged = await logOf(() => Promise.reject("socket hang up"));
     assert.equal(logged.length, 1);
     assert.match(JSON.stringify(logged[0].args), /socket hang up/);
+  });
+
+  test("a failed signup names its flow, and not the address", async () => {
+    const logged = await logOf(
+      async () => ({ code: "unexpected_failure", message: `no ${EMAIL}` }),
+      "signup",
+    );
+    assert.equal(logged.length, 1);
+    const text = JSON.stringify(logged[0].args);
+    assert.match(text, /"flow":"signup"/);
+    assert.equal(text.includes(EMAIL), false, text);
   });
 
   test("the address never reaches the log, even inside a message", async () => {

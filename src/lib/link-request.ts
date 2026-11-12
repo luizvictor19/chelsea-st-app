@@ -1,6 +1,7 @@
 /**
- * The answer of the two screens that send a link by email: the magic link
- * (/login) and "Esqueci minha senha" (/forgot-password), #110.
+ * The answer of the screens that send a link by email: the magic link
+ * (/login), "Esqueci minha senha" (/forgot-password), #110, and the signup
+ * (/cadastro), #275.
  *
  * Whatever depends on the account must not reach the screen. GoTrue refuses an
  * address without an account in 1 to 8 ms and spends 1539 to 1630 ms sending
@@ -18,7 +19,7 @@
 
 import { looksLikeEmail } from "./credentials.ts";
 
-export type LinkFlow = "magic_link" | "recovery";
+export type LinkFlow = "magic_link" | "recovery" | "signup";
 
 /** GoTrue's error, as supabase-js returns it, or null when the call went through. */
 export type SendOutcome = {

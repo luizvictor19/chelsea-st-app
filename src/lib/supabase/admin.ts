@@ -15,9 +15,13 @@ if (typeof window !== "undefined") {
 /**
  * The client that sends invite emails, and does nothing else.
  *
- * Only Supabase's own invite endpoint needs it: the invite row is written
- * before, with the inviter's own client, so RLS has already decided whether
- * this person may invite. Never use it to read or write tables.
+ * Only Supabase's own invite endpoint needs it. For an organization's invite
+ * the row is written before, with the inviter's own client, so RLS has
+ * already decided whether this person may invite. The signup of Chelsea St
+ * (#275) sends the same invite email, asked for by the person herself, after
+ * the anti-robot challenge: GoTrue's own signup stays off, and the database
+ * decides which organization she joins (0051). Never use it to read or write
+ * tables.
  */
 export function createInviteMailer() {
   const client = createClient<Database>(
