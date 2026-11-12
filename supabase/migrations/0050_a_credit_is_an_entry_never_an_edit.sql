@@ -26,10 +26,13 @@
 -- replaces the end of the cycle and the capped carryover): while her
 -- subscription is alive a month's credits never end, and a lot of the plan is
 -- born without expires_at. The month grants only up to a ceiling, a number of
--- months of the plan's credits (plans.credit_ceiling_months). Once she cancels,
+-- months of the plan's credits (credit_ceiling_months). Once she cancels,
 -- her live lots end a number of days after the end of what she paid for
--- (plans.credit_days_after_cancel); subscribing again before that brings
--- back the lots that remain, without an end. The trial's lot ends when the
+-- (credit_days_after_cancel); subscribing again before that brings back the
+-- lots that remain, without an end. Both numbers are the plan's, copied onto
+-- the subscription when it is born, as its monthly credits are (Q5; Luiz,
+-- question 9 on PR #304): a plan changed later reaches new subscriptions
+-- only. The trial's lot ends when the
 -- trial does. Because a row is never edited, that end is not written on the
 -- lot: it is read from her subscriptions (credit_deadline), so a lot past it
 -- leaves the balance at once, whether the daily routine ran or not; the
@@ -60,7 +63,8 @@
 -- The ceiling of the balance, in months of the plan's credits: the grant of
 -- a month stops at it. And the days her credits still last once she
 -- cancels, counted from the end of what she paid for. No default: each plan
--- says both, written by the platform admin.
+-- says both, written by the platform admin. A subscription keeps the ones it
+-- was born with (below).
 alter table public.plans
   add column credit_ceiling_months smallint not null
     constraint plans_credit_ceiling_months_range check (credit_ceiling_months between 1 and 60),
@@ -68,19 +72,29 @@ alter table public.plans
     constraint plans_credit_days_after_cancel_range check (credit_days_after_cancel between 0 and 365);
 
 comment on column public.plans.credit_ceiling_months is
-  'The most credits a person of this plan holds alive, in months of its monthly credits; a month grants only up to it. Written by the platform admin.';
+  'The most credits a person of this plan holds alive, in months of its monthly credits; a month grants only up to it. Written by the platform admin; copied onto each new subscription.';
 comment on column public.plans.credit_days_after_cancel is
-  'How many days after the end of what she paid for her credits still last once the subscription is canceled. Written by the platform admin.';
+  'How many days after the end of what she paid for her credits still last once the subscription is canceled. Written by the platform admin; copied onto each new subscription.';
 
--- Q5: the credits of the month are kept on the subscription, copied from the
--- plan when it is born, like value_cents. A plan changed later applies to new
--- subscriptions only.
+-- Q5, and question 9 on PR #304 (Luiz, 12/11): the credits of the month, the
+-- ceiling and the days after a cancel are kept on the subscription, copied
+-- from the plan when it is born, like value_cents. A plan changed later
+-- applies to new subscriptions only: what she bought does not change under
+-- her. The ranges are the plan's.
 alter table public.subscriptions
   add column monthly_credits integer not null
-    constraint subscriptions_monthly_credits_not_negative check (monthly_credits >= 0);
+    constraint subscriptions_monthly_credits_not_negative check (monthly_credits >= 0),
+  add column credit_ceiling_months smallint not null
+    constraint subscriptions_credit_ceiling_months_range check (credit_ceiling_months between 1 and 60),
+  add column credit_days_after_cancel smallint not null
+    constraint subscriptions_credit_days_after_cancel_range check (credit_days_after_cancel between 0 and 365);
 
 comment on column public.subscriptions.monthly_credits is
-  'The credits each month of this subscription grants, copied from its plan when the row is made (subscriptions_monthly_credits_from_plan). A change to the plan later does not reach it.';
+  'The credits each month of this subscription grants, copied from its plan when the row is made (subscriptions_credits_from_plan). A change to the plan later does not reach it.';
+comment on column public.subscriptions.credit_ceiling_months is
+  'The ceiling of her balance in months of monthly_credits, copied from the plan when the row is made (subscriptions_credits_from_plan). A change to the plan later does not reach it.';
+comment on column public.subscriptions.credit_days_after_cancel is
+  'How many days after paid_through her credits last once this subscription is canceled, copied from the plan when the row is made (subscriptions_credits_from_plan). A change to the plan later does not reach it.';
 
 create function public.credit_subscription_copies_plan()
 returns trigger
@@ -88,14 +102,15 @@ language plpgsql
 set search_path = ''
 as $$
 begin
-  select p.monthly_credits into new.monthly_credits
+  select p.monthly_credits, p.credit_ceiling_months, p.credit_days_after_cancel
+    into new.monthly_credits, new.credit_ceiling_months, new.credit_days_after_cancel
     from public.plans p
    where p.id = new.plan_id;
   return new;
 end;
 $$;
 
-create trigger subscriptions_monthly_credits_from_plan
+create trigger subscriptions_credits_from_plan
   before insert on public.subscriptions
   for each row execute function public.credit_subscription_copies_plan();
 
@@ -383,8 +398,8 @@ comment on function public.credit_alive(uuid) is
 
 -- Where her credits end: never while a subscription of hers is alive (null).
 -- Otherwise, the latest end any canceled subscription of hers paid for: at
--- midnight in São Paulo of the day after its paid_through, plus that plan's
--- credit_days_after_cancel. The latest, so a short subscription after a
+-- midnight in São Paulo of the day after its paid_through, plus that
+-- subscription's credit_days_after_cancel (copied from its plan at birth). The latest, so a short subscription after a
 -- long one never cuts what the long one paid for; and only one that was
 -- paid, so a subscription opened and never paid does not push the end
 -- forward. When none of hers was paid (or a refund took its days back), the
@@ -400,17 +415,15 @@ as $$
   select case
     when public.credit_alive(p_person) then null
     else coalesce(
-      (select max(((s.paid_through + 1 + p.credit_days_after_cancel)::timestamp)
+      (select max(((s.paid_through + 1 + s.credit_days_after_cancel)::timestamp)
                   at time zone 'America/Sao_Paulo')
          from public.subscriptions s
-         join public.plans p on p.id = s.plan_id
         where s.person_id = p_person
           and s.status = 'canceled'
           and s.paid_through is not null),
       (select (((s.canceled_at at time zone 'America/Sao_Paulo')::date
-                + p.credit_days_after_cancel)::timestamp) at time zone 'America/Sao_Paulo'
+                + s.credit_days_after_cancel)::timestamp) at time zone 'America/Sao_Paulo'
          from public.subscriptions s
-         join public.plans p on p.id = s.plan_id
         where s.person_id = p_person
           and s.status = 'canceled'
           and s.cancel_reason not in ('replaced', 'checkout_expired', 'trial_used')
@@ -420,7 +433,7 @@ as $$
 $$;
 
 comment on function public.credit_deadline(uuid) is
-  'When the person''s credits end: null while a subscription of hers is alive; after a cancel, the latest end a canceled subscription of hers paid for (midnight in São Paulo of the day after its paid_through, plus its plan''s credit_days_after_cancel), or the last cancel''s day plus those days when none was paid.';
+  'When the person''s credits end: null while a subscription of hers is alive; after a cancel, the latest end a canceled subscription of hers paid for (midnight in São Paulo of the day after its paid_through, plus its credit_days_after_cancel), or the last cancel''s day plus those days when none was paid.';
 
 -- Her live lots: not closed, and not past their end, which is the earlier of
 -- the lot's own (the trial's) and hers (credit_deadline). The nearest end
@@ -669,7 +682,7 @@ comment on function public.credit_close_expired(uuid) is
 -- Every month of a paid charge that started, once
 -- (credit_entries_one_grant_per_period), without an end: a Pix paid ahead
 -- grants on its due day, so the next month never adds to the current one. The
--- credits come from the subscription (Q5), and stop at the plan's ceiling:
+-- credits come from the subscription (Q5), and stop at its ceiling (also kept on it):
 -- what would pass it is not granted, and the month is decided (a lot of 0
 -- when the ceiling is reached). A charge whose money went back has what is
 -- left of its live lots voided: what was spent stays spent, and its later
@@ -703,8 +716,7 @@ begin
     if v_sub.monthly_credits = 0 then
       return;
     end if;
-    select p.credit_ceiling_months::bigint * v_sub.monthly_credits into v_ceiling
-      from public.plans p where p.id = v_sub.plan_id;
+    v_ceiling := v_sub.credit_ceiling_months::bigint * v_sub.monthly_credits;
     for v_month in 0 .. (case v_sub.cycle when 'annual' then 11 else 0 end) loop
       continue when public.credit_month_starts(v_payment.due_on, v_month) > now();
       continue when exists (select 1 from public.credit_entries g
@@ -736,7 +748,7 @@ end;
 $$;
 
 comment on function public.credit_settle(text) is
-  'Grants every month a paid charge has started, once, up to the plan''s ceiling, or voids what is left of the live lots of a charge whose money went back. Returns the credits and lots granted and the credits voided. Called by credit_settle_payment, credit_daily and credit_grant_started.';
+  'Grants every month a paid charge has started, once, up to the subscription''s ceiling, or voids what is left of the live lots of a charge whose money went back. Returns the credits and lots granted and the credits voided. Called by credit_settle_payment, credit_daily and credit_grant_started.';
 
 -- For the webhook, after it wrote the charge as the provider has it now.
 create function public.credit_settle_payment(p_payment_id text)

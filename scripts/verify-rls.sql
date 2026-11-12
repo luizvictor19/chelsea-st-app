@@ -5569,15 +5569,20 @@ begin
     v_today - 1, null, 'cus_c9', 'sub_c9');
   reset role;
 
-  -- 15. The credits of the month were kept on the subscription: a change to
-  -- the plan afterwards does not reach them.
+  -- 15. The credits of the month, the ceiling and the days after a cancel
+  -- were kept on the subscription (Q5, question 9 on PR #304): a change to
+  -- the plan afterwards does not reach them. Every grant and every end below
+  -- reads the subscription's 10 credits, 3 months and 30 days, not the
+  -- plan's 99, 1 and 0.
   perform set_config('test.uid', c_teacher::text, false);
   set local role authenticated;
-  update plans set monthly_credits = 99 where id = v_plan;
+  update plans set monthly_credits = 99, credit_ceiling_months = 1, credit_days_after_cancel = 0
+   where id = v_plan;
   reset role;
   perform set_config('test.uid', '', false);
-  if (select monthly_credits from subscriptions where id = v_sub2) <> 10 then
-    insert into verify.failures values ('a subscription did not keep its plan''s credits of the month');
+  if (select (monthly_credits, credit_ceiling_months, credit_days_after_cancel)::text
+        from subscriptions where id = v_sub2) is distinct from '(10,3,30)' then
+    insert into verify.failures values ('a subscription did not keep its plan''s credits, ceiling and days after a cancel');
   end if;
 
   -- 13. The trial: a lot when a subscription with a trial starts running,
@@ -5855,6 +5860,9 @@ begin
   if credit_balance_of(c_window) <> 10 then
     insert into verify.failures values ('a trial lot past its end still counts');
   end if;
+
+  -- The plan back to the numbers the subscriptions below are born with.
+  update plans set credit_ceiling_months = 3, credit_days_after_cancel = 30 where id = v_plan;
 
   -- The end after a cancel is the latest one a paid subscription bought: a
   -- subscription opened and never paid, or one paid for less, does not move
