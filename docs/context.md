@@ -219,7 +219,7 @@ architecture question for Luiz.
   whether or not the email has an account (a mail that failed is still said as failed). Never insert into `organization_members` or `students` from the app. An organization's admin
   invites any role, its teacher students only; a student belongs to one organization, checked on
   acceptance.
-  No account is created without an invite (#109): the magic link asks with
+  No account is created without an invite or the signup of #275: the magic link asks with
   `shouldCreateUser: false`, and "Allow new users to sign up" is off in the Auth dashboard.
   With sign-ups off, GoTrue refuses the magic link to an invite not yet accepted (an unconfirmed
   account goes through Signup), so the login action sends that one the recovery link, which
@@ -231,12 +231,26 @@ architecture question for Luiz.
   without the address. On the plans of 2026-11-12 those traces are short: the Vercel runtime log
   of Hobby keeps 1 hour, the Supabase logs of Free keep 1 day. A "the link never arrived" told
   later has no trace left; the query in `docs/commands.md` is for the same day.
+- The signup follows 0051 (#275). `/cadastro` exists only on the Chelsea St site (a 404 on GrifoAI
+  and on any other host) and is open only while billing is open and both Turnstile keys are set.
+  The account is born from `inviteUserByEmail`, called by the server with the service role after
+  Cloudflare Turnstile passed, with the metadata `{ signup: true, full_name }`; the screen says
+  "Confira o seu e-mail" for every valid address, before the send, as the link screens do. A
+  confirmed account gets the magic link instead (GoTrue answers `email_exists`); an unconfirmed
+  one gets its email again with the metadata it already had (measured on 2026-11-12), so an
+  account born from an invite never becomes a signup. The metadata never names an organization:
+  on the first confirmation, after the open invites, `join_by_signup` makes the account a student
+  of the one organization with `organizations.open_signup`, only `chelsea-st` with a teacher
+  (`organizations_open_signup_chelsea`), only one (`organizations_one_open_signup`), changed by
+  the platform admin alone. Nothing when she already has a `students` row (a company's student
+  invite wins), and nothing on a later confirmation or for metadata she writes once signed in.
 
 ## Sensitive data and secrets
 
 - `.env.local` is never read, printed or committed. Worktrees get a copy with `cp`.
 - API keys are server-only, never `NEXT_PUBLIC_`.
-- `SUPABASE_SERVICE_ROLE_KEY` is read by `src/lib/supabase/admin.ts`, to send invite emails (#96),
+- `SUPABASE_SERVICE_ROLE_KEY` is read by `src/lib/supabase/admin.ts`, to send invite emails (#96)
+  and the signup's (#275),
   and by `src/lib/billing/supabase-store.ts` (#72, Q2), which calls only the ten `billing_*`
   functions of 0049 and reads a person's e-mail from auth for the overdue e-mails. It passes every
   policy: never use it to read or write a table directly; it holds no privilege on the billing
@@ -247,6 +261,9 @@ architecture question for Luiz.
   Production), `ASAAS_WEBHOOK_TOKEN`, `BILLING_CPF_KEY` (the HMAC of a CPF; the digits stay at
   Asaas), `RESEND_API_KEY` (the billing e-mails, a key of its own) and `CRON_SECRET` (the daily
   routine). Production has no Asaas key until the CNPJ's account exists.
+- Cloudflare Turnstile (#275): `TURNSTILE_SECRET_KEY` (server only, Vercel Production as a Secret)
+  and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (public by design). `src/lib/turnstile.ts` refuses every
+  signup without the secret; locally Cloudflare's test keys stand in (`docs/commands.md`).
 - Supabase API keys are the new kind only (#149). The variable names stayed, the formats changed:
   `NEXT_PUBLIC_SUPABASE_ANON_KEY` holds a publishable key (`sb_publishable_`, the one named
   `default`) and `SUPABASE_SERVICE_ROLE_KEY` holds a secret key (`sb_secret_`). The app's Vercel
