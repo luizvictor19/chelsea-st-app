@@ -129,6 +129,7 @@ installed once per Node version (`nvm use`, then `npm i -g supabase`):
 
     B=~/backups/chelsea-st/$(date +%F)
     mkdir -p "$B"
+    git fetch -q && git rev-parse origin/main > "$B/commit"   # whose restore file fits this copy
     supabase db dump --linked --role-only -f "$B/roles.sql"
     supabase db dump --linked -f "$B/schema.sql"
     supabase db dump --linked --data-only --use-copy -f "$B/data.sql"
@@ -143,9 +144,12 @@ restore runs in one transaction, so any other error leaves the local database em
 The dump writes the schemas of the project, not `storage` or `auth`, so the copy comes back
 without the objects the migrations create there: the policies of `storage.objects` (#101), found
 missing in the 2026-10-24 rehearsal. `scripts/restore-outside-public.sql` recreates them, last,
-inside the same transaction. Run the restore from the repository folder, at the commit of the
-copy's day: an older copy takes the file of its own day
-(`git show <commit>:scripts/restore-outside-public.sql`). CI holds the file to the migrations.
+inside the same transaction, as `$R` below. CI holds the file to the migrations. A copy takes the
+file of its own commit, saved with it in `$B/commit` (a copy without it, taken before #101, takes
+the file of the last commit on `main` that day):
+
+    git show "$(cat "$B/commit")":scripts/restore-outside-public.sql > "$B/restore-outside-public.sql"
+    R="$B/restore-outside-public.sql"
 
     S=~/backups/chelsea-st/stack
     supabase init --workdir "$S"   # once
@@ -157,16 +161,19 @@ copy's day: an older copy takes the file of its own day
       --file "$B/roles-local.sql" --file "$B/schema.sql" \
       --command 'SET session_replication_role = replica' \
       --file "$B/data-local.sql" \
-      --file scripts/restore-outside-public.sql \
+      --file "$R" \
       --dbname postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
 Compare: run `scripts/row-counts.sql` and `scripts/catalog-fingerprint.sql` on the copy, and ask
-Claude to run both on production through the MCP. Every line must match; the fingerprint is what
-shows a `policy|storage.objects|...` line missing from the copy.
+Claude to run both on production through the MCP and write the output, one line per row, to
+`$B/row-counts.production` and `$B/catalog-fingerprint.production`. Both `diff` must print
+nothing; the fingerprint is what shows a `policy|storage.objects|...` line missing from the copy.
 
     DB=postgresql://postgres:postgres@127.0.0.1:54322/postgres
-    psql -P pager=off "$DB" --file scripts/row-counts.sql
-    psql -X -q -At -v ON_ERROR_STOP=1 -f scripts/catalog-fingerprint.sql "$DB" > "$B/catalog-fingerprint.copy"
+    for f in row-counts catalog-fingerprint; do
+      psql -X -q -At -v ON_ERROR_STOP=1 -f scripts/$f.sql "$DB" > "$B/$f.copy"
+      diff "$B/$f.production" "$B/$f.copy"
+    done
 
 Rehearse a migration on the copy (first for 0040, #199), from the worktree that holds it. Three
 read-only outputs, before and after: the row counts, the catalog of `public` and the policies of

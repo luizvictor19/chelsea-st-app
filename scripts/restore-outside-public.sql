@@ -16,9 +16,9 @@
 -- which on production names storage.objects and auth.users for postgres
 -- (measured through the MCP on 2026-11-12).
 --
--- A copy older than the commit that changed this file needs the file of its
--- own day: git show <commit>:scripts/restore-outside-public.sql. A copy from
--- before 0043 has no public.is_platform_admin(), and the restore fails on it.
+-- A copy takes the file of its own commit, saved with it in $B/commit
+-- (docs/commands.md). A copy from before 0043 has no
+-- public.is_platform_admin(), and the restore fails on it.
 
 -- The policies of the vocabulary-images bucket.
 
