@@ -22,7 +22,6 @@ const PERSON = "person-1";
 
 let provider: FakeProvider;
 let store: FakeStore;
-let confirmed: string[];
 let logged: string[];
 
 function deps(): WebhookDeps {
@@ -32,9 +31,6 @@ function deps(): WebhookDeps {
     cpfKey: KEY,
     token: TOKEN,
     log: (line) => logged.push(line),
-    onPaymentConfirmed: async (paymentId) => {
-      confirmed.push(paymentId);
-    },
   };
 }
 
@@ -92,7 +88,6 @@ async function pixRow() {
 beforeEach(() => {
   provider = createFakeProvider();
   store = createFakeStore();
-  confirmed = [];
   logged = [];
 });
 
@@ -110,7 +105,7 @@ describe("handleWebhook", () => {
     assert.equal(store.events.size, 0);
   });
 
-  test("a confirmed charge makes the subscription active and is passed on", async () => {
+  test("a confirmed charge makes the subscription active and is settled for credits", async () => {
     const { rowId, subscriptionId, paymentId } = await pixRow();
     setPayment(provider, paymentId, {
       status: "CONFIRMED",
@@ -124,7 +119,7 @@ describe("handleWebhook", () => {
     const row = store.rows.get(rowId)!;
     assert.equal(row.status, "active");
     assert.equal(row.paidThrough, "2026-12-25");
-    assert.deepEqual(confirmed, [paymentId]);
+    assert.deepEqual(store.settled, [paymentId]);
     assert.equal(store.payments.get(paymentId)?.asaasStatus, "CONFIRMED");
   });
 
@@ -138,7 +133,9 @@ describe("handleWebhook", () => {
     });
     assert.equal(result.status, 200);
     assert.equal(store.rows.get(rowId)!.status, "trialing");
-    assert.deepEqual(confirmed, []);
+    // Settled as the provider has it, pending: the database grants nothing.
+    assert.deepEqual(store.settled, [paymentId]);
+    assert.equal(store.payments.get(paymentId)?.asaasStatus, "PENDING");
   });
 
   test("an event delivered again is handled once", async () => {
@@ -158,7 +155,7 @@ describe("handleWebhook", () => {
     );
     assert.equal(again.status, 200);
     assert.equal(again.note, "already handled");
-    assert.equal(confirmed.length, 1);
+    assert.equal(store.settled.length, 1);
   });
 
   test("events out of order end in the same state", async () => {
@@ -388,7 +385,7 @@ describe("handleWebhook", () => {
     );
     assert.equal(provider.payments.get(made.paymentId)!.refundedCents, 1000);
     assert.equal(store.rows.get(rowId)!.status, "canceled");
-    assert.deepEqual(confirmed, []);
+    assert.deepEqual(store.settled, []);
   });
 
   // Finding 4: a failure every delivery meets again must not answer 500,
@@ -409,6 +406,77 @@ describe("handleWebhook", () => {
       });
       assert.equal(result.status, 200, cause.message);
     }
+  });
+
+  // #273: every charge read is settled for credits, after it is written,
+  // paid or not; the database decides between granting, voiding and nothing.
+  test("every charge read is settled for credits after it is written, paid, pending or refunded", async () => {
+    const { subscriptionId, paymentId } = await pixRow();
+    setPayment(provider, paymentId, {
+      status: "RECEIVED",
+      paidOn: "2026-11-26",
+    });
+    const sub = provider.subscriptions.get(subscriptionId)!;
+    provider.payments.set("pay_next", {
+      ...provider.payments.get(paymentId)!,
+      id: "pay_next",
+      status: "PENDING",
+      paidOn: null,
+      dueOn: "2026-12-26",
+    });
+    provider.payments.set("pay_back", {
+      ...provider.payments.get(paymentId)!,
+      id: "pay_back",
+      status: "REFUNDED",
+      refundedCents: sub.valueCents,
+      dueOn: "2026-10-26",
+    });
+    const result = await send("PAYMENT_UPDATED", {
+      id: paymentId,
+      subscription: subscriptionId,
+    });
+    assert.equal(result.status, 200);
+    assert.deepEqual(
+      [...store.settled].sort(),
+      [paymentId, "pay_back", "pay_next"].sort(),
+    );
+    // Written before it was settled: the fake refuses a charge not written.
+    assert.equal(store.payments.get("pay_back")?.refundedCents, 1000);
+  });
+
+  test("an event about the same charge sent again settles it again; the database grants once", async () => {
+    const { subscriptionId, paymentId } = await pixRow();
+    setPayment(provider, paymentId, { status: "CONFIRMED" });
+    await send("PAYMENT_CONFIRMED", {
+      id: paymentId,
+      subscription: subscriptionId,
+    });
+    await send("PAYMENT_RECEIVED", {
+      id: paymentId,
+      subscription: subscriptionId,
+    });
+    assert.deepEqual(store.settled, [paymentId, paymentId]);
+  });
+
+  test("a refusal of the credits is set aside with 200, a passing failure answers 500", async () => {
+    const { subscriptionId, paymentId } = await pixRow();
+    setPayment(provider, paymentId, { status: "CONFIRMED" });
+    store.settleFailWith = new StoreRefusal(
+      "credits_not_negative",
+      "credits_not_negative: refused",
+    );
+    const refused = await send("PAYMENT_CONFIRMED", {
+      id: paymentId,
+      subscription: subscriptionId,
+    });
+    assert.equal(refused.status, 200);
+    assert.match(refused.note, /set aside/);
+    store.settleFailWith = new StoreError("", "credit_settle_payment failed");
+    const passing = await send("PAYMENT_RECEIVED", {
+      id: paymentId,
+      subscription: subscriptionId,
+    });
+    assert.equal(passing.status, 500);
   });
 
   test("a network or connection failure is retried", async () => {

@@ -17,15 +17,6 @@ export type SyncDeps = {
   readonly provider: BillingProvider;
   readonly store: BillingStore;
   readonly cpfKey: string;
-  /**
-   * Called for every charge of the subscription that is paid, each time it
-   * is read. #273 grants the cycle's credits here, once per charge by its id;
-   * until then it does nothing.
-   */
-  readonly onPaymentConfirmed: (
-    paymentId: string,
-    row: StoredSubscription,
-  ) => Promise<void>;
 };
 
 /**
@@ -133,9 +124,11 @@ export async function syncSubscription(
     cancelReason: reading.status === "canceled" ? "provider" : null,
   });
 
-  for (const payment of payments) {
-    if (!payment.deleted && PAID_STATUSES.has(payment.status)) {
-      await deps.onPaymentConfirmed(payment.id, row);
-    }
-  }
+  // What each charge read means for the credits (#273), every charge, paid
+  // or not, once it is written: the database reads the charge it just kept
+  // and grants the month a paid one is in (once by charge and month), voids
+  // what a refunded or deleted one left, or does nothing. Never from the
+  // body of the event. Each call takes the person's lock in the database, so
+  // side by side is safe.
+  await Promise.all(payments.map((payment) => store.settleCredits(payment.id)));
 }

@@ -1,9 +1,10 @@
 /**
  * What the billing writes and reads with no person signed in: the webhook
- * and the overdue routine. Every call is one of the billing functions of
- * 0049, which only service_role executes; this module never names a table
- * (Q2 of the #72 plan, docs/context.md). A person reads her own billing rows
- * with her own client, through row level security, elsewhere.
+ * and the daily routine. Every call is one of the billing functions of 0049
+ * or the credit functions of 0050 that only service_role executes; this
+ * module never names a table (Q2 of the #72 plan, docs/context.md). A person
+ * reads her own billing rows with her own client, through row level
+ * security, elsewhere.
  *
  * An interface, so the webhook and the routine are tested against a store in
  * memory (fake-store.ts) with the same contract.
@@ -52,6 +53,16 @@ export type OverdueOutcome =
 /** The days of Q5 (Luiz, 12/11/2026): a new charge and an email on each. */
 export const OVERDUE_DAYS = [1, 3, 5, 7] as const;
 export type OverdueDay = (typeof OVERDUE_DAYS)[number];
+
+/** What the daily step of the credits did (credit_daily, 0050), in lots. */
+export type CreditDailyReport = {
+  /** Months granted: an annual charge's next month, or a grant missed. */
+  readonly granted: number;
+  /** Lots past their day closed. */
+  readonly closed: number;
+  /** Carryovers opened from the months closed. */
+  readonly carried: number;
+};
 
 /** A refusal of the database the app turns into a sentence, by its name. */
 export class StoreRefusal extends Error {
@@ -132,4 +143,12 @@ export interface BillingStore {
     outcome: OverdueOutcome,
     emailed: boolean,
   ): Promise<void>;
+  /**
+   * What a charge, as last written, means for the credits (0050): the
+   * database grants the month a paid one is in, once, voids what is left of a
+   * refunded or deleted one, and does nothing for the rest.
+   */
+  settleCredits(paymentId: string): Promise<void>;
+  /** The daily step of the credits: grant, void, close and carry over. */
+  creditDaily(): Promise<CreditDailyReport>;
 }
