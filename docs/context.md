@@ -158,8 +158,11 @@ architecture question for Luiz.
   calls them inside its transaction, never the browser. Every function that writes a person's
   ledger first takes her advisory lock. The cost of each action is a row of `credit_costs` per
   brand, written by the platform admin on `/teacher/plans` and read through `credit_cost` alone; its
-  actions equal `CREDIT_ACTIONS` (`actions.test.ts`). The credits of a month are kept on the
-  subscription (`subscriptions.monthly_credits`). No number of the offer enters the repository.
+  actions equal `CREDIT_ACTIONS` (`actions.test.ts`). The credits of a month, the ceiling and the
+  days after a cancel are copied from the plan onto the subscription when it is born
+  (`subscriptions.monthly_credits`, `credit_ceiling_months`, `credit_days_after_cancel`), and every
+  grant and end reads the subscription's copy: a plan changed later reaches new subscriptions only.
+  No number of the offer enters the repository.
 - `leads` receives rows only through `submit_lead` (0038), executed by `anon` alone: the site's
   function calls it with the publishable key. Nobody reads `leads` through the API, and the
   service role holds nothing on it. A number sent twice is two rows (history, nothing is

@@ -38,7 +38,9 @@ banco, escritos pelo admin da plataforma em `/teacher/plans`, e ficam fora do re
 - **Q4, substituída na mesma noite:** não há sobra nem vencimento no fim do ciclo. Entram o teto do
   saldo e o prazo depois do cancelamento (abaixo). `carryover_percent` saiu.
 - **Q5 · Os créditos do mês ficam gravados na assinatura:** `subscriptions.monthly_credits`, copiado
-  do plano quando a assinatura nasce. Mudar o plano depois vale só para as assinaturas novas.
+  do plano quando a assinatura nasce, e com ele o teto e os dias depois do cancelamento
+  (`subscriptions.credit_ceiling_months`, `subscriptions.credit_days_after_cancel`). Mudar o plano
+  depois vale só para as assinaturas novas.
 - **Q6 · O atraso não congela o saldo.** Assinatura em atraso continua viva: os créditos não vencem,
   e a cobrança paga no atraso concede o mês uma vez.
 - **Q7 · O reembolso:** esta parte entrega o cálculo e a anulação quando a Asaas diz que o estorno
@@ -84,8 +86,10 @@ nem pelo `postgres` (`credit_entries_append_only`).
 - Como nenhuma linha é editada, esse vencimento não fica escrito no lote: ele é lido das assinaturas
   dela (`credit_deadline`). O lote só guarda o vencimento próprio (o do teste, o do estorno sem
   assinatura).
-- O teto e o prazo são lidos do plano na hora (na concessão e no vencimento): mudá-los em
-  `/teacher/plans` vale também para quem já assina.
+- O teto e o prazo são do plano, copiados para a assinatura quando ela nasce, como os créditos do
+  mês (Q5; resposta do Luiz à pergunta 9 da PR #304): mudá-los em `/teacher/plans` vale só para as
+  assinaturas novas. A concessão lê o teto da assinatura, e o vencimento lê os dias da assinatura
+  cancelada.
 
 ## O custo de cada ação
 
@@ -163,13 +167,14 @@ cobrança de plano sem créditos devolve o valor inteiro; uma cobrança que não
 
 ## O que se grava (0050)
 
-| Tabela / coluna                  | O quê                                                   | Quem lê                     |
-| -------------------------------- | ------------------------------------------------------- | --------------------------- |
-| `credit_entries`                 | o razão: lotes e as linhas de cada lote                 | ela e o admin da plataforma |
-| `credit_costs`                   | o custo de cada ação, por marca                         | todos; escreve o admin      |
-| `plans.credit_ceiling_months`    | o teto do saldo, em meses de créditos do plano          | como `plans`                |
-| `plans.credit_days_after_cancel` | quantos dias os créditos valem depois do fim do período | como `plans`                |
-| `subscriptions.monthly_credits`  | os créditos do mês, copiados do plano                   | como `subscriptions`        |
+| Tabela / coluna                                                                 | O quê                                                   | Quem lê                     |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------- |
+| `credit_entries`                                                                | o razão: lotes e as linhas de cada lote                 | ela e o admin da plataforma |
+| `credit_costs`                                                                  | o custo de cada ação, por marca                         | todos; escreve o admin      |
+| `plans.credit_ceiling_months`                                                   | o teto do saldo, em meses de créditos do plano          | como `plans`                |
+| `plans.credit_days_after_cancel`                                                | quantos dias os créditos valem depois do fim do período | como `plans`                |
+| `subscriptions.monthly_credits`                                                 | os créditos do mês, copiados do plano                   | como `subscriptions`        |
+| `subscriptions.credit_ceiling_months`, `subscriptions.credit_days_after_cancel` | o teto e os dias, copiados do plano                     | como `subscriptions`        |
 
 As funções:
 
@@ -210,7 +215,4 @@ Saldo, lotes e custo recusam (42501) quem pede os de outra pessoa, salvo o admin
   depois, mesmo que gaste.
 - A rotina roda numa transação só, e a trava de cada pessoa fica presa até ela terminar: um débito
   dessa pessoa espera esses instantes.
-- O teto e o prazo são lidos do plano na hora, não copiados para a assinatura como os créditos do mês
-  (Q5): baixar o prazo em `/teacher/plans` encurta também o de quem já cancelou, e o que a rotina
-  fechar não volta se o prazo subir de novo. Pergunta aberta para o Luiz.
 - O teste de débito concorrente usa `dblink`, criado só no banco do teste, nunca por migration.

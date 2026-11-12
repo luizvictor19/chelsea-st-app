@@ -67,9 +67,9 @@ export default async function PlansPage() {
         <p className="text-muted max-w-prose text-sm">
           O preço mudado aqui vale para as assinaturas novas; quem já assina
           continua com o valor que assinou. Um plano sai de venda, nunca é
-          apagado. Os créditos não vencem enquanto a assinatura está viva; o
-          teto do saldo e os dias depois do cancelamento mudados aqui valem
-          também para quem já assina.
+          apagado. Os créditos não vencem enquanto a assinatura está viva. Os
+          créditos do mês, o teto do saldo e os dias depois do cancelamento
+          mudados aqui também valem só para as assinaturas novas.
         </p>
       </div>
       {(data ?? []).map((plan) => (
