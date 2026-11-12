@@ -11,9 +11,11 @@
  * Read from Cloudflare's docs on 2026-11-12 (developers.cloudflare.com/turnstile,
  * "Server-side validation"): POST, form encoded, secret and response, remoteip
  * optional; a token lasts 300 s and is meant for one validation; it is at
- * most 2048 characters; the answer is JSON with success and error-codes. Not
- * measured against the real endpoint: locally the test keys of the same docs
- * stand in (.env.example).
+ * most 2048 characters; the answer is JSON with success and error-codes.
+ * Checked against the real endpoint the same day with the docs' test secrets
+ * and dummy token: the passing one passed, the failing one answered
+ * invalid-input-response, the duplicate one timeout-or-duplicate. Locally
+ * those test keys stand in for the real ones (.env.example).
  *
  * Pure apart from the fetch, which is passed in, so node:test runs it.
  */

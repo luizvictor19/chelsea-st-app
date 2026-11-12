@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { billingOpen } from "@/lib/billing/server";
 import { pageMetadata } from "@/lib/brand";
 import { currentSite } from "@/lib/current-site";
+import { signupDoor } from "@/lib/signup";
 
 import { BrandMark } from "../brand-mark";
 import { PasswordForm } from "./password-form";
@@ -11,11 +13,19 @@ export async function generateMetadata(): Promise<Metadata> {
   return pageMetadata(await currentSite(), "Entrar", "/login");
 }
 
-export default function LoginPage({
+export default async function LoginPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
+  // The way to /cadastro, only where it takes people (#275).
+  const signup =
+    signupDoor(await currentSite(), {
+      billing: billingOpen(),
+      siteKey: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
+      secretKey: process.env.TURNSTILE_SECRET_KEY,
+    }) === "open";
+
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 p-6">
       <div className="flex flex-col gap-3">
@@ -34,6 +44,16 @@ export default function LoginPage({
         </Link>
         .
       </p>
+
+      {signup && (
+        <p className="text-muted text-sm">
+          Ainda não tem conta?{" "}
+          <Link href="/cadastro" className="text-foreground underline">
+            Cadastre-se
+          </Link>
+          .
+        </p>
+      )}
     </main>
   );
 }
