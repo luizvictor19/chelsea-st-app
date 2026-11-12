@@ -4980,6 +4980,7 @@ declare
   v_grifo uuid;
   v_sub uuid;
   v_other_sub uuid;
+  v_awaiting uuid;
   v_pending uuid;
   v_fn regprocedure;
   v_table text;
@@ -5171,11 +5172,22 @@ begin
      or (select id from billing_find_subscription('sub_1', null)) <> v_sub then
     insert into verify.failures values ('billing_find_subscription does not find by checkout or by subscription');
   end if;
-  perform billing_apply_subscription(v_other_sub, 'sub_7', 'cus_4', 'trialing', null, null, null);
+  -- Its first reading comes late, already paid: the trial still counts as used.
+  perform billing_apply_subscription(v_other_sub, 'sub_7', 'cus_4', 'active', current_date + 30, null, null);
   reset role;
   if (select trial_used_at from billing_customers where person_id = c_other) is null then
-    insert into verify.failures values ('a checkout that became a trialing subscription did not use the trial');
+    insert into verify.failures values ('a checkout read first as already paid did not use the trial');
   end if;
+  -- A reading replaces paid_through: a refund takes its days back.
+  set local role service_role;
+  perform billing_apply_subscription(v_other_sub, null, null, 'active', null, null, null);
+  reset role;
+  if (select paid_through from subscriptions where id = v_other_sub) is not null then
+    insert into verify.failures values ('a reading with nothing paid left paid_through in place');
+  end if;
+  set local role service_role;
+  perform billing_apply_subscription(v_other_sub, null, null, 'active', current_date + 30, null, null);
+  reset role;
   set local role service_role;
   perform verify.expect_named_refusal('past due without since',
     '23514 subscriptions_past_due_says_since',
@@ -5188,6 +5200,18 @@ begin
   reset role;
   if (select status from subscriptions where id = v_other_sub) <> 'canceled' then
     insert into verify.failures values ('a canceled subscription came back alive');
+  end if;
+  if (select paid_through from subscriptions where id = v_other_sub) is distinct from current_date + 30 then
+    insert into verify.failures values ('her cancel took away the days she had paid for');
+  end if;
+
+  -- With no trial, nothing opens before the first charge is paid.
+  set local role service_role;
+  v_awaiting := billing_open_subscription(c_other, v_plan, 'monthly', 'pix', 1000, false,
+    current_date, null, 'cus_5', 'sub_8');
+  reset role;
+  if (select status from subscriptions where id = v_awaiting) is distinct from 'awaiting' then
+    insert into verify.failures values ('a subscription with no trial and nothing paid is not awaiting');
   end if;
 
   -- Charges, events and overdue steps.
@@ -5210,6 +5234,14 @@ begin
   if not billing_take_overdue_step('pay_1', 1::smallint)
      or billing_take_overdue_step('pay_1', 1::smallint) then
     insert into verify.failures values ('an overdue step was not taken exactly once');
+  end if;
+  perform billing_finish_overdue_step('pay_1', 1::smallint, 'error', false);
+  if not billing_take_overdue_step('pay_1', 1::smallint) then
+    insert into verify.failures values ('an overdue step that ended in error is not taken again');
+  end if;
+  perform billing_finish_overdue_step('pay_1', 1::smallint, 'refused', true);
+  if billing_take_overdue_step('pay_1', 1::smallint) then
+    insert into verify.failures values ('an overdue step that ended is taken again');
   end if;
   perform verify.expect_named_refusal('an overdue step on day 2', '23514 overdue_steps_day_known',
     $q$select billing_take_overdue_step('pay_1', 2::smallint)$q$);
@@ -5239,9 +5271,9 @@ begin
     insert into verify.failures values ('a student reads another person''s billing rows');
   end if;
   perform set_config('test.uid', c_teacher::text, false);
-  if (select count(*) from subscriptions) <> 3 then
+  if (select count(*) from subscriptions) <> 4 then
     insert into verify.failures values (format(
-      'the platform admin reads %s subscriptions, expected 3', (select count(*) from subscriptions)));
+      'the platform admin reads %s subscriptions, expected 4', (select count(*) from subscriptions)));
   end if;
   reset role;
 

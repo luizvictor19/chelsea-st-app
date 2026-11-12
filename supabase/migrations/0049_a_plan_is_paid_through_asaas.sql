@@ -151,7 +151,7 @@ create table public.subscriptions (
     constraint subscriptions_one_asaas_subscription unique,
   status text not null
     constraint subscriptions_status_known
-      check (status in ('pending', 'trialing', 'active', 'past_due', 'canceled')),
+      check (status in ('pending', 'trialing', 'awaiting', 'active', 'past_due', 'canceled')),
   -- The last day the paid cycle covers; null until a charge is confirmed.
   paid_through date,
   -- The due day of the oldest charge left unpaid; null when none is.
@@ -180,7 +180,7 @@ create unique index subscriptions_one_alive_per_person
   on public.subscriptions (person_id) where status <> 'canceled';
 
 comment on table public.subscriptions is
-  'A Chelsea St subscription and the app''s last reading of it at the provider: pending (checkout not finished), trialing, active, past_due, canceled. At most one alive per person. Written only by the billing functions, executed by service_role.';
+  'A Chelsea St subscription and the app''s last reading of it at the provider: pending (checkout not finished), trialing, awaiting (no trial and its first charge not paid yet), active (a charge paid), past_due, canceled. At most one alive per person. Written only by the billing functions, executed by service_role.';
 
 alter table public.subscriptions enable row level security;
 
@@ -373,7 +373,8 @@ begin
   v_status := case
     when p_checkout_id is not null then 'pending'
     when p_with_trial then 'trialing'
-    else 'active'
+    -- No trial: nothing opens until the first charge is paid.
+    else 'awaiting'
   end;
 
   insert into public.subscriptions (
@@ -428,14 +429,22 @@ begin
      set asaas_subscription_id = coalesce(p_subscription_id, asaas_subscription_id),
          asaas_customer_id = coalesce(p_customer_id, asaas_customer_id),
          status = p_status,
-         paid_through = coalesce(p_paid_through, paid_through),
+         -- A reading of the provider says what is paid now, so a charge
+         -- refunded takes its days back. Only a cancel made by the app (by
+         -- her, by the overdue routine) reads nothing and keeps what was paid.
+         paid_through = case when p_status = 'canceled'
+                             then coalesce(p_paid_through, paid_through)
+                             else p_paid_through end,
          past_due_since = case when p_status = 'past_due' then p_past_due_since end,
          canceled_at = case when p_status = 'canceled' then now() end,
          cancel_reason = case when p_status = 'canceled' then p_cancel_reason end,
          updated_at = now()
    where id = p_id;
 
-  if p_status = 'trialing' and v_row.with_trial then
+  -- A subscription with a trial that the provider runs has used it, whatever
+  -- the first reading says: trialing, or already paid or overdue when the
+  -- events came late. Only a cancel before it ran leaves the trial unused.
+  if v_row.with_trial and p_status in ('trialing', 'awaiting', 'active', 'past_due') then
     update public.billing_customers
        set trial_used_at = coalesce(trial_used_at, now())
      where person_id = v_row.person_id;
@@ -444,7 +453,7 @@ end;
 $$;
 
 comment on function public.billing_apply_subscription(uuid, text, text, text, date, date, text) is
-  'Writes the app''s reading of a subscription at the provider: ids, status, paid_through, past_due_since, and the reason when it is canceled. A canceled row never comes back. Trialing marks the person''s trial as used.';
+  'Writes the app''s reading of a subscription at the provider: ids, status, paid_through, past_due_since, and the reason when it is canceled. A canceled row never comes back; a cancel keeps paid_through, a reading replaces it. Any running state of a subscription with a trial marks the person''s trial as used.';
 
 -- The subscription the provider's ids point at, for the webhook and the
 -- routine, which read nothing else.
@@ -570,7 +579,7 @@ as $$
     join public.subscriptions s on s.id = p.subscription_id
    where p.asaas_status = 'OVERDUE'
      and not p.deleted
-     and s.status in ('trialing', 'active', 'past_due')
+     and s.status in ('trialing', 'awaiting', 'active', 'past_due')
    order by p.due_on, p.asaas_payment_id;
 $$;
 
@@ -578,7 +587,11 @@ comment on function public.billing_overdue_payments() is
   'The unpaid charges past due of an alive subscription, for the daily overdue routine.';
 
 -- One step of the routine on a charge and day: true the first time, false
--- when the routine already took it, so nothing is charged or sent twice.
+-- when the routine already took it, so nothing is charged or sent twice. A
+-- step that ended in error is taken again on the next run: a provider or a
+-- mail server out on day 7 must not leave the subscription uncanceled. The
+-- step starts by reading the charge, so a charge paid in between is not
+-- charged again.
 create function public.billing_take_overdue_step(p_payment_id text, p_day smallint)
 returns boolean
 language plpgsql
@@ -586,9 +599,11 @@ security definer
 set search_path = ''
 as $$
 begin
-  insert into public.overdue_steps (asaas_payment_id, day)
+  insert into public.overdue_steps as s (asaas_payment_id, day)
     values (p_payment_id, p_day)
-    on conflict do nothing;
+    on conflict (asaas_payment_id, day) do update
+       set outcome = null, emailed_at = null, created_at = now()
+     where s.outcome = 'error';
   return found;
 end;
 $$;
@@ -607,7 +622,7 @@ as $$
 $$;
 
 comment on function public.billing_take_overdue_step(text, smallint) is
-  'Claims the overdue step of a charge for a day (1, 3, 5 or 7): true the first time only.';
+  'Claims the overdue step of a charge for a day (1, 3, 5 or 7): true the first time, and again only after the step ended in error.';
 comment on function public.billing_finish_overdue_step(text, smallint, text, boolean) is
   'Writes what came of an overdue step and whether its email went.';
 
