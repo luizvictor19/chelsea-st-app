@@ -5296,6 +5296,77 @@ begin
 end;
 $$;
 
+-- A restored copy gets back what the dump leaves out (#101) ---------------------------
+--
+-- supabase db dump writes the schemas of the project, not storage or auth, so
+-- a copy restored by docs/commands.md comes back without the policies the
+-- migrations create there. scripts/restore-outside-public.sql recreates them,
+-- and this block holds that file to what the migrations above leave: it
+-- records every policy of storage and auth, in the fields
+-- scripts/catalog-fingerprint.sql prints, drops them all, runs the file, and
+-- compares both ways, by policy name. A migration that changes such a policy
+-- and forgets the file fails here.
+
+create temporary view restore_policies as
+  select pol.polname::text as name,
+         format('%s.%s|cmd=%s|roles=%s|permissive=%s|using=%s|check=%s',
+                n.nspname, c.relname, pol.polcmd,
+                (select string_agg(g.name, ',' order by g.name)
+                   from unnest(pol.polroles) r
+                   cross join lateral (select case when r = 0 then 'PUBLIC'
+                                                   else pg_get_userbyid(r)::text end as name) g),
+                pol.polpermissive,
+                coalesce(pg_get_expr(pol.polqual, pol.polrelid), '-'),
+                coalesce(pg_get_expr(pol.polwithcheck, pol.polrelid), '-')) as shape,
+         n.nspname::text as schema_name,
+         c.relname::text as table_name
+    from pg_policy pol
+    join pg_class c on c.oid = pol.polrelid
+    join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname in ('storage', 'auth');
+
+create temporary table restore_expected as select name, shape from restore_policies;
+
+do $$
+declare
+  v_policy record;
+begin
+  if (select count(*) from restore_expected) = 0 then
+    raise exception 'restore: the migrations left no policy in storage or auth to compare with';
+  end if;
+  for v_policy in select name, schema_name, table_name from restore_policies loop
+    execute format('drop policy %I on %I.%I', v_policy.name, v_policy.schema_name, v_policy.table_name);
+  end loop;
+end;
+$$;
+
+\i scripts/restore-outside-public.sql
+
+do $$
+declare
+  v_failures text;
+begin
+  with
+  missing as (select name, shape from restore_expected
+              except select name, shape from restore_policies),
+  extra as (select name, shape from restore_policies
+            except select name, shape from restore_expected)
+  select string_agg(what, '; ' order by what) into v_failures
+    from (select format('the file does not restore policy %s as the migrations leave it (%s)',
+                        name, shape) as what from missing
+          union all
+          select format('the file restores policy %s, which the migrations do not leave (%s)',
+                        name, shape) from extra) f;
+  if v_failures is not null then
+    raise exception 'restore: %', v_failures;
+  end if;
+  raise notice 'scripts/restore-outside-public.sql gives back every policy of storage and auth the migrations leave, and no other';
+end;
+$$;
+
+drop table restore_expected;
+drop view restore_policies;
+
 -- Nobody truncates what RLS guards (0037) ----------------------------------------------
 --
 -- Holds for every relation public has now and any a migration adds later: the
