@@ -26,6 +26,10 @@
 -- The state comes from the provider, read back by the app after every event,
 -- never from the body of the event (#72 plan). These tables keep what the app
 -- last read; subscriptions.status is the app's reading of it.
+--
+-- A refusal raised here names its constraint twice: in the error, for
+-- scripts/verify-rls.sql, and at the start of the message, because the API
+-- passes the message on and not the constraint.
 
 
 -- The catalog ----------------------------------------------------------------
@@ -312,7 +316,7 @@ begin
   select cpf_hmac, trial_used_at into v_hmac, v_trial
     from public.billing_customers where person_id = p_person;
   if v_hmac <> p_cpf_hmac then
-    raise exception 'person % already pays with another CPF', p_person
+    raise exception 'billing_customers_one_cpf_per_person: person % already pays with another CPF', p_person
       using errcode = 'check_violation', constraint = 'billing_customers_one_cpf_per_person';
   end if;
   return v_trial;
@@ -353,12 +357,12 @@ begin
       using errcode = 'foreign_key_violation';
   end if;
   if p_with_trial and v_customer.trial_used_at is not null then
-    raise exception 'person % already had her trial', p_person
+    raise exception 'billing_one_trial_per_person: person % already had her trial', p_person
       using errcode = 'check_violation', constraint = 'billing_one_trial_per_person';
   end if;
   if not exists (select 1 from public.plans
                   where id = p_plan and is_active and brand = 'chelsea-st') then
-    raise exception 'plan % is not an active Chelsea St plan', p_plan
+    raise exception 'billing_plan_active: plan % is not an active Chelsea St plan', p_plan
       using errcode = 'check_violation', constraint = 'billing_plan_active';
   end if;
 
@@ -503,7 +507,7 @@ begin
          updated_at = now()
    where payments.subscription_id = excluded.subscription_id;
   if not found then
-    raise exception 'payment % belongs to another subscription', p_payment_id
+    raise exception 'billing_payment_keeps_its_subscription: payment % belongs to another subscription', p_payment_id
       using errcode = 'check_violation', constraint = 'billing_payment_keeps_its_subscription';
   end if;
 end;
