@@ -140,6 +140,13 @@ both found in the 2026-10-24 rehearsal: a grant on `log_min_messages` to the Rea
 the `storage.buckets_vectors` and `storage.vector_indexes` tables (empty in production). The
 restore runs in one transaction, so any other error leaves the local database empty.
 
+The dump writes the schemas of the project, not `storage` or `auth`, so the copy comes back
+without the objects the migrations create there: the policies of `storage.objects` (#101), found
+missing in the 2026-10-24 rehearsal. `scripts/restore-outside-public.sql` recreates them, last,
+inside the same transaction. Run the restore from the repository folder, at the commit of the
+copy's day: an older copy takes the file of its own day
+(`git show <commit>:scripts/restore-outside-public.sql`). CI holds the file to the migrations.
+
     S=~/backups/chelsea-st/stack
     supabase init --workdir "$S"   # once
     supabase start --workdir "$S"
@@ -150,12 +157,16 @@ restore runs in one transaction, so any other error leaves the local database em
       --file "$B/roles-local.sql" --file "$B/schema.sql" \
       --command 'SET session_replication_role = replica' \
       --file "$B/data-local.sql" \
+      --file scripts/restore-outside-public.sql \
       --dbname postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
-Compare: run `scripts/row-counts.sql` on the copy and ask Claude to run it on production through
-the MCP. Every line must match.
+Compare: run `scripts/row-counts.sql` and `scripts/catalog-fingerprint.sql` on the copy, and ask
+Claude to run both on production through the MCP. Every line must match; the fingerprint is what
+shows a `policy|storage.objects|...` line missing from the copy.
 
-    psql -P pager=off postgresql://postgres:postgres@127.0.0.1:54322/postgres --file scripts/row-counts.sql
+    DB=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+    psql -P pager=off "$DB" --file scripts/row-counts.sql
+    psql -X -q -At -v ON_ERROR_STOP=1 -f scripts/catalog-fingerprint.sql "$DB" > "$B/catalog-fingerprint.copy"
 
 Rehearse a migration on the copy (first for 0040, #199), from the worktree that holds it. Three
 read-only outputs, before and after: the row counts, the catalog of `public` and the policies of
