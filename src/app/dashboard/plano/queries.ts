@@ -81,8 +81,9 @@ export async function readPlanForSale(
 }
 
 /**
- * Her live lots, read with her own client: credit_live_lots runs under her
- * row level security (0050), so it sums her rows and nobody else's.
+ * Her live lots, read with her own client. credit_live_lots is security
+ * definer (0050): what keeps it to her is credit_check_reader, which refuses
+ * anyone signed in asking for another person, not row level security.
  */
 export async function readCredits(personId: string): Promise<CreditSummary> {
   const supabase = await createClient();

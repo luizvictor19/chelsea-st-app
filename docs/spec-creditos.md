@@ -72,9 +72,11 @@ nem pelo `postgres` (`credit_entries_append_only`).
   concessão do mês concede só até o teto: o que passaria dele não é concedido, e o mês fica decidido
   (um lote de 0 quando o saldo já está no teto).
 - **Depois do cancelamento:** os lotes vivos vencem à 0h (São Paulo) do dia seguinte ao fim do
-  período pago (`paid_through`) mais `plans.credit_days_after_cancel` dias (de 0 a 365), do plano da
-  última assinatura que rodou. Um checkout que nunca rodou (trocado, expirado, teste recusado) não
-  mexe nesse prazo.
+  período pago (`paid_through`) mais `plans.credit_days_after_cancel` dias (de 0 a 365). Vale o fim
+  mais tardio entre as assinaturas canceladas que foram pagas: uma assinatura aberta e nunca paga, ou
+  uma mais curta depois de uma longa, não mexe no prazo. Sem nenhuma paga (ou com os dias tomados de
+  volta por um estorno), conta o dia do último cancelamento de uma que rodou. Um checkout que nunca
+  rodou (trocado, expirado, teste recusado) não mexe nesse prazo.
 - **Voltar a assinar dentro do prazo** devolve o vencimento indefinido aos lotes que restam. Depois
   do prazo, o que venceu fica vencido: antes de uma assinatura nova passar a rodar, os lotes vencidos
   dela são fechados (`subscriptions_close_ended_credits`).
@@ -137,12 +139,13 @@ nem pelo `postgres` (`credit_entries_append_only`).
 - Para a aula cancelada (#276): `credit_refund(pessoa, referência)` devolve cada débito daquela
   referência, uma vez (`credit_entries_once_per_entry`). Não havendo o que devolver, devolve 0.
 - Volta para o lote de onde saiu, enquanto ele vive. Se o lote já venceu, abre um lote novo (Q8).
-- O débito de um lote anulado (cobrança estornada ou contestada) não volta: aqueles créditos saíram
-  com o dinheiro.
+- O débito de um lote anulado, ou cuja cobrança foi estornada ou contestada (mesmo que o lote tenha
+  vencido antes), não volta: aqueles créditos saíram com o dinheiro.
 
 ## Cobrança estornada, contestada ou apagada
 
-- O que resta de cada lote vivo da cobrança é anulado (`void`), uma vez.
+- O que resta de cada lote da cobrança ainda não fechado é anulado (`void`), uma vez, mesmo que o
+  cancelamento que veio com o estorno já o tenha feito vencer.
 - O que já foi gasto fica gasto, e os meses que ainda não começaram não são concedidos.
 - Um estorno pedido e ainda não feito não anula nada: só o estorno que a Asaas dá como feito, a
   cobrança `REFUNDED`, a contestação no cartão (`CHARGEBACK_REQUESTED`, `CHARGEBACK_DISPUTE`,
@@ -154,7 +157,7 @@ nem pelo `postgres` (`credit_entries_append_only`).
 ## O reembolso proporcional (CDC art. 49)
 
 `credit_refund_quote(cobrança)` dá os créditos que a cobrança pagou, os não usados (o que resta nos
-lotes vivos dela, mais os meses ainda não concedidos) e o valor em centavos:
+lotes vivos dela, o que o teto cortou dos meses dela, mais os meses ainda não concedidos) e o valor em centavos:
 `ceil(valor × não usados ÷ créditos da cobrança)`. O arredondamento nunca vai contra a pessoa. Uma
 cobrança de plano sem créditos devolve o valor inteiro; uma cobrança que não concede devolve 0.
 
@@ -207,4 +210,7 @@ Saldo, lotes e custo recusam (42501) quem pede os de outra pessoa, salvo o admin
   depois, mesmo que gaste.
 - A rotina roda numa transação só, e a trava de cada pessoa fica presa até ela terminar: um débito
   dessa pessoa espera esses instantes.
+- O teto e o prazo são lidos do plano na hora, não copiados para a assinatura como os créditos do mês
+  (Q5): baixar o prazo em `/teacher/plans` encurta também o de quem já cancelou, e o que a rotina
+  fechar não volta se o prazo subir de novo. Pergunta aberta para o Luiz.
 - O teste de débito concorrente usa `dblink`, criado só no banco do teste, nunca por migration.

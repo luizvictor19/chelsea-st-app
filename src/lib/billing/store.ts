@@ -56,7 +56,10 @@ export type OverdueDay = (typeof OVERDUE_DAYS)[number];
 
 /** What the daily step of the credits did (credit_daily, 0050), in lots. */
 export type CreditDailyReport = {
-  /** Months granted: an annual charge's next month, or a grant missed. */
+  /**
+   * Months granted with credits: an annual charge's next month, or a grant
+   * missed. A month decided at 0 by the ceiling is not counted.
+   */
   readonly granted: number;
   /** Lots past their end closed. */
   readonly closed: number;
