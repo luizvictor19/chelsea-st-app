@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { destinationFor, manages, practicesOnly, studies } from "@/lib/access";
 import { readAccess } from "@/lib/auth";
+import { billingOpen } from "@/lib/billing/server";
 import { currentSite } from "@/lib/current-site";
 import { createClient } from "@/lib/supabase/server";
 
@@ -14,6 +15,7 @@ import { AccountPending } from "./account-pending";
 import { DailyChallenge } from "./daily-challenge";
 import { NextLessonCard } from "./next-lesson-card";
 import { RobinPractice } from "./robin-practice";
+import { StartTrialCard } from "./start-trial-card";
 
 export const metadata: Metadata = {
   title: "Minha aula",
@@ -79,14 +81,17 @@ export default async function DashboardPage() {
     now.getTime() - LONGEST_PLAUSIBLE_LESSON_MINUTES * 60_000,
   );
 
-  const { data: lessons } = await supabase
-    .from("lessons")
-    .select("id, scheduled_at, duration_minutes, meet_url")
-    .eq("student_id", user.id)
-    .eq("status", "scheduled")
-    .gte("scheduled_at", earliest.toISOString())
-    .order("scheduled_at", { ascending: true })
-    .limit(10);
+  const [{ data: lessons }, startsTrial] = await Promise.all([
+    supabase
+      .from("lessons")
+      .select("id, scheduled_at, duration_minutes, meet_url")
+      .eq("student_id", user.id)
+      .eq("status", "scheduled")
+      .gte("scheduled_at", earliest.toISOString())
+      .order("scheduled_at", { ascending: true })
+      .limit(10),
+    neverSubscribedAtChelsea(supabase, user.id),
+  ]);
 
   // The next lesson is the first one that has not finished. Reaching back by the
   // duration rather than cutting at now() is what keeps a lesson that is already
@@ -103,6 +108,8 @@ export default async function DashboardPage() {
       <Greeting name={profile.full_name} team={manages(access)} />
 
       <PendingInvites />
+
+      {startsTrial && <StartTrialCard />}
 
       {nextLesson ? (
         <NextLessonCard
@@ -136,6 +143,35 @@ export default async function DashboardPage() {
       </Link>
     </main>
   );
+}
+
+/**
+ * A student of a chelsea-st organization with no row in subscriptions, while
+ * the subscription is open: the one the trial card is for (#275). Her own
+ * client reads both: her memberships, and her subscriptions under 0049.
+ */
+async function neverSubscribedAtChelsea(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  personId: string,
+): Promise<boolean> {
+  if (!billingOpen()) {
+    return false;
+  }
+  const [{ data: chelsea }, { count, error }] = await Promise.all([
+    supabase
+      .from("organization_members")
+      .select("organizations!inner(brand)")
+      .eq("user_id", personId)
+      .eq("role", "student")
+      .eq("organizations.brand", "chelsea-st")
+      .limit(1),
+    supabase
+      .from("subscriptions")
+      .select("id", { count: "exact", head: true })
+      .eq("person_id", personId),
+  ]);
+  // A read that failed shows no card: never offer a trial on a guess.
+  return (chelsea ?? []).length > 0 && error === null && count === 0;
 }
 
 /** The brand, "Sair da conta" and her name, on top of either dashboard. */
