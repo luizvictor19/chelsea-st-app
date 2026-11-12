@@ -3,19 +3,15 @@
 import { headers } from "next/headers";
 import { after } from "next/server";
 
-import { billingOpen } from "@/lib/billing/server";
 import { normalizeEmail } from "@/lib/credentials";
 import { currentSite } from "@/lib/current-site";
 import type { LinkRequestState } from "@/lib/link-request";
-import {
-  requestSignup,
-  signupDoor,
-  signupName,
-  signupSend,
-} from "@/lib/signup";
+import { requestSignup, signupName, signupSend } from "@/lib/signup";
 import { createInviteMailer } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { TOKEN_FIELD, verifyChallenge } from "@/lib/turnstile";
+
+import { signupDoorHere } from "./door";
 
 // The name and the address go back to the form on an error: React resets the
 // fields when the action ends.
@@ -42,11 +38,7 @@ export async function signUp(
   formData: FormData,
 ): Promise<SignupState> {
   const site = await currentSite();
-  const door = signupDoor(site, {
-    billing: billingOpen(),
-    siteKey: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
-    secretKey: process.env.TURNSTILE_SECRET_KEY,
-  });
+  const door = signupDoorHere(site);
   const name = signupName(formData.get("name"));
   const email = normalizeEmail(formData.get("email"));
   if (door !== "open") {

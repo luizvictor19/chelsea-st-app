@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { billingOpen } from "@/lib/billing/server";
 import { pageMetadata } from "@/lib/brand";
 import { currentSite } from "@/lib/current-site";
-import { signupDoor } from "@/lib/signup";
 
 import { BrandMark } from "../brand-mark";
+import { signupDoorHere } from "../cadastro/door";
 import { PasswordForm } from "./password-form";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -19,12 +18,7 @@ export default async function LoginPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   // The way to /cadastro, only where it takes people (#275).
-  const signup =
-    signupDoor(await currentSite(), {
-      billing: billingOpen(),
-      siteKey: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
-      secretKey: process.env.TURNSTILE_SECRET_KEY,
-    }) === "open";
+  const signup = signupDoorHere(await currentSite()) === "open";
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 p-6">

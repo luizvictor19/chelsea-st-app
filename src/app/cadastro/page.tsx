@@ -2,12 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { billingOpen } from "@/lib/billing/server";
 import { pageMetadata } from "@/lib/brand";
 import { currentSite } from "@/lib/current-site";
-import { signupDoor } from "@/lib/signup";
 
 import { BrandMark } from "../brand-mark";
+import { signupDoorHere } from "./door";
 import { SignupForm } from "./signup-form";
 
 /** The privacy terms, published on the landing (luizvictor19/chelsea-st-site). */
@@ -25,11 +24,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function SignupPage() {
   const site = await currentSite();
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
-  const door = signupDoor(site, {
-    billing: billingOpen(),
-    siteKey,
-    secretKey: process.env.TURNSTILE_SECRET_KEY,
-  });
+  const door = signupDoorHere(site);
   if (door === "absent") {
     notFound();
   }
