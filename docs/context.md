@@ -227,7 +227,8 @@ architecture question for Luiz.
   policy: never use it to read or write a table directly; it holds no privilege on the billing
   tables, only `execute` on their functions.
 - Asaas (#72, `docs/spec-pagamento.md`): `ASAAS_API_KEY` (the address follows its prefix; written
-  `\$aact_...` in `.env.local`, or Next reads it empty; the sandbox key is refused in Vercel
+  `\$aact_...` in `.env.local`, or Next reads it empty; the app runs the sandbox key only against a
+  local Supabase, never the production one `.env.local` points at, and never in Vercel
   Production), `ASAAS_WEBHOOK_TOKEN`, `BILLING_CPF_KEY` (the HMAC of a CPF; the digits stay at
   Asaas), `RESEND_API_KEY` (the billing e-mails, a key of its own) and `CRON_SECRET` (the daily
   routine). Production has no Asaas key until the CNPJ's account exists.

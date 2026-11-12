@@ -157,8 +157,10 @@ falhas seguidas, a fila para (os eventos ficam guardados por até 14 dias).
 - O endereço da Asaas sai do prefixo da chave: `$aact_hmlg_` é o sandbox, `$aact_prod_` a produção.
   No `.env.local`, a chave vai como `ASAAS_API_KEY=\$aact_...`: sem a barra, o Next lê `$aact_` como
   variável e a chave fica vazia (medido em 12/11). O app diz isso no erro.
-- A Vercel Production recusa a chave do sandbox: o banco é um só, o de produção, e evento de sandbox
-  não entra nele.
+- A chave do sandbox só roda contra um Supabase local (`localhost` ou `127.0.0.1`): o `.env.local`
+  aponta para o banco de produção, e um `npm run dev` comum com ela gravaria assinaturas de teste
+  nele. Também é recusada na Vercel Production. O banco é um só, e evento de sandbox não entra nele.
+  Os scripts, que não gravam banco, não passam por essa trava.
 - O teste de ponta a ponta com o sandbox roda no Supabase local (`supabase start`), com um túnel
   (`cloudflared`) até o servidor local, e o webhook do sandbox apontado para o túnel.
 - A preview da Vercel não tem chave paga.
@@ -172,8 +174,10 @@ falhas seguidas, a fila para (os eventos ficam guardados por até 14 dias).
   cobrança `PENDING` no dia e o token do cartão nela (`creditCard.creditCardToken`).
 - O Checkout com um cliente já criado exige o endereço inteiro desse cliente. Sem cliente, a página
   pede tudo. Por isso o app abre o checkout sem cliente.
-- Uma assinatura Pix numa conta sem chave Pix volta como boleto. O app recusa isso, para nunca vender
-  boleto como Pix: a conta precisa de uma chave Pix cadastrada.
+- Uma assinatura Pix voltou como boleto uma vez, no primeiro teste de 12/11. Feita de novo no mesmo
+  dia, com a conta aprovada e uma chave Pix aleatória ativa, ela voltou como Pix, com o QR da
+  cobrança, e a cobrança avulsa por Pix também. A causa da primeira vez não ficou clara; se acontecer,
+  o app apaga a assinatura na Asaas e recusa, para nunca vender boleto como Pix.
 
 ## Pendências
 

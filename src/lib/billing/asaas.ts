@@ -11,9 +11,11 @@
  *   with no customer at all lets the hosted page ask for everything. This
  *   module opens it with no customer, and the webhook reads the customer the
  *   provider made.
- * - A Pix subscription on an account with no Pix key comes back as BOLETO.
- *   That is the account's setting, not this code's; asaas.ts refuses it so a
- *   boleto is never sold as Pix.
+ * - A Pix subscription came back as BOLETO once, early on 12/11; made again
+ *   later the same day, with the account approved and a Pix key active, it
+ *   came back as PIX, its charge with a QR. The cause is not known, so
+ *   asaas.ts deletes such a subscription and refuses it: a boleto is never
+ *   sold as Pix.
  */
 
 import type { AsaasConfig } from "./config.ts";

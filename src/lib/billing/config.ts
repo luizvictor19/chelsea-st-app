@@ -30,9 +30,27 @@ export class BillingConfigError extends Error {
   }
 }
 
+/** A Supabase on this machine: `supabase start` serves on localhost. */
+function isLocalDatabase(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return hostname === "localhost" || hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * NEXT_PUBLIC_SUPABASE_URL is given by the app, which writes to that
+ * database, and left out by the scripts, which write to none. Given, a
+ * sandbox key is refused unless the database is a local one: .env.local
+ * points at production, and a plain `npm run dev` with the sandbox key would
+ * write test subscriptions into it (found 12/11/2026, #72).
+ */
 export function asaasConfig(env: {
   ASAAS_API_KEY?: string;
   VERCEL_ENV?: string;
+  NEXT_PUBLIC_SUPABASE_URL?: string;
 }): AsaasConfig {
   const apiKey = env.ASAAS_API_KEY ?? "";
   if (apiKey === "") {
@@ -51,6 +69,15 @@ export function asaasConfig(env: {
   if (sandbox && env.VERCEL_ENV === "production") {
     throw new BillingConfigError(
       "The Asaas sandbox key is refused in Vercel Production: the database is production.",
+    );
+  }
+  if (
+    sandbox &&
+    env.NEXT_PUBLIC_SUPABASE_URL !== undefined &&
+    !isLocalDatabase(env.NEXT_PUBLIC_SUPABASE_URL)
+  ) {
+    throw new BillingConfigError(
+      "The Asaas sandbox key runs only against a local Supabase (supabase start): this database is not local.",
     );
   }
   return { apiKey, baseUrl: sandbox ? SANDBOX_URL : PRODUCTION_URL, sandbox };

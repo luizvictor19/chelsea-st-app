@@ -61,4 +61,38 @@ describe("asaasConfig", () => {
     assert.throws(() => cpfKey({ BILLING_CPF_KEY: "x" }));
     assert.equal(cpfKey({ BILLING_CPF_KEY: "k".repeat(64) }).length, 64);
   });
+
+  // Found on 12/11: .env.local points at production, and a dev server with
+  // the sandbox key would write test subscriptions into it.
+  test("the sandbox key runs only against a local database", () => {
+    const sandbox = { ASAAS_API_KEY: "$aact_hmlg_x" };
+    assert.throws(
+      () =>
+        asaasConfig({
+          ...sandbox,
+          NEXT_PUBLIC_SUPABASE_URL: "https://gmgkoriwsmlrtwdqdsuo.supabase.co",
+        }),
+      /only against a local Supabase/,
+    );
+    assert.throws(
+      () => asaasConfig({ ...sandbox, NEXT_PUBLIC_SUPABASE_URL: "not a url" }),
+      /only against a local Supabase/,
+    );
+    for (const local of ["http://127.0.0.1:54321", "http://localhost:54321"]) {
+      assert.equal(
+        asaasConfig({ ...sandbox, NEXT_PUBLIC_SUPABASE_URL: local }).sandbox,
+        true,
+      );
+    }
+    // A script that writes no database gives no URL.
+    assert.equal(asaasConfig(sandbox).sandbox, true);
+    // The production key is not held to it.
+    assert.equal(
+      asaasConfig({
+        ASAAS_API_KEY: "$aact_prod_x",
+        NEXT_PUBLIC_SUPABASE_URL: "https://gmgkoriwsmlrtwdqdsuo.supabase.co",
+      }).sandbox,
+      false,
+    );
+  });
 });

@@ -35,6 +35,7 @@ export function billingOpen(): boolean {
     asaasConfig({
       ASAAS_API_KEY: process.env.ASAAS_API_KEY,
       VERCEL_ENV: process.env.VERCEL_ENV,
+      NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     });
     return true;
   } catch {
@@ -48,6 +49,7 @@ export function billingDeps(): SyncDeps {
       asaasConfig({
         ASAAS_API_KEY: process.env.ASAAS_API_KEY,
         VERCEL_ENV: process.env.VERCEL_ENV,
+        NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
       }),
     ),
     store: createSupabaseBillingStore(),
