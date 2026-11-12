@@ -5350,8 +5350,12 @@ declare
   c_late constant uuid := 'b0500000-0000-4000-8000-000000000007';
   c_employee constant uuid := 'b0500000-0000-4000-8000-000000000008';
   c_ahead constant uuid := 'b0500000-0000-4000-8000-000000000009';
+  c_extend constant uuid := 'b0500000-0000-4000-8000-00000000000a';
+  c_back constant uuid := 'b0500000-0000-4000-8000-00000000000b';
+  c_back2 constant uuid := 'b0500000-0000-4000-8000-00000000000c';
   c_people constant uuid[] := array[c_monthly, c_annual, c_refunded, c_gone,
-                                    c_window, c_quote, c_late, c_ahead];
+                                    c_window, c_quote, c_late, c_ahead,
+                                    c_extend, c_back, c_back2];
   c_plan_cols constant text :=
     'brand, key, name, monthly_price_cents, annual_price_cents, monthly_credits, '
     'trail_minutes_per_day, opens_voice_question, opens_free_conversation, opens_video, '
@@ -5369,6 +5373,7 @@ declare
     'public.credit_close_expired(uuid)',
     'public.credit_lock_person(uuid)',
     'public.credit_payment_lots(text)',
+    'public.credit_payment_open_lots(text)',
     'public.credit_payment_grants(public.payments)',
     'public.credit_payment_taken_back(public.payments)',
     'public.credit_alive(uuid)',
@@ -5394,6 +5399,8 @@ declare
   v_sub7 uuid;
   v_sub8 uuid;
   v_sub9 uuid;
+  v_sub_a uuid;
+  v_sub_b uuid;
   v_due3 date := (v_today - interval '2 months' - interval '5 days')::date;
   v_trial_lot uuid;
   v_plan_lot uuid;
@@ -5538,6 +5545,9 @@ begin
   perform billing_customer(c_quote, repeat('7', 64));
   perform billing_customer(c_late, repeat('8', 64));
   perform billing_customer(c_ahead, repeat('a', 64));
+  perform billing_customer(c_extend, repeat('b', 64));
+  perform billing_customer(c_back, repeat('c', 64));
+  perform billing_customer(c_back2, repeat('d', 64));
   v_sub1 := billing_open_subscription(c_student, v_plan, 'monthly', 'pix', 1000, true,
     v_today + 14, null, 'cus_c1', 'sub_c1');
   -- Events that came late: her first charge is already due.
@@ -5846,12 +5856,76 @@ begin
     insert into verify.failures values ('a trial lot past its end still counts');
   end if;
 
+  -- The end after a cancel is the latest one a paid subscription bought: a
+  -- subscription opened and never paid, or one paid for less, does not move
+  -- it. She paid until 10 days ago: 21 more days.
+  set local role service_role;
+  v_sub_a := billing_open_subscription(c_extend, v_plan, 'monthly', 'pix', 1000, false,
+    v_today - 40, null, 'cus_ca', 'sub_ca');
+  perform billing_save_payment('pay_ca', v_sub_a, 'cycle', 1000, 'RECEIVED', false, v_today - 40, now(), 0, null);
+  perform credit_settle_payment('pay_ca');
+  perform billing_apply_subscription(v_sub_a, null, null, 'canceled', v_today - 10, null, 'person');
+  v_sub_b := billing_open_subscription(c_extend, v_plan, 'monthly', 'pix', 1000, false,
+    v_today, null, 'cus_cb', 'sub_cb');
+  perform billing_apply_subscription(v_sub_b, null, null, 'canceled', null, null, 'overdue');
+  v_sub_b := billing_open_subscription(c_extend, v_plan, 'monthly', 'pix', 1000, false,
+    v_today, null, 'cus_cc', 'sub_cc');
+  perform billing_apply_subscription(v_sub_b, null, null, 'canceled', v_today - 20, null, 'person');
+  reset role;
+  v_at := (select l.expires_at from credit_lots_of(c_extend) l limit 1);
+  if v_at is distinct from (v_today + 21)::timestamp at time zone 'America/Sao_Paulo' then
+    insert into verify.failures values (format(
+      'a later subscription moved the end of her credits to %s, expected midnight of %s', v_at, v_today + 21));
+  end if;
+
+  -- A charge refunded with the cancel that rolls her days back: its lot is
+  -- past her end already, and is still voided; and a lesson from a lot whose
+  -- charge was refunded after the lot ended does not come back. The small
+  -- plan gives 0 days after a cancel.
+  set local role service_role;
+  v_sub_a := billing_open_subscription(c_back, v_small, 'monthly', 'pix', 1000, false,
+    v_today - 40, null, 'cus_cd', 'sub_cd');
+  perform billing_save_payment('pay_cd', v_sub_a, 'cycle', 1000, 'RECEIVED', false, v_today - 40, now(), 0, null);
+  perform credit_settle_payment('pay_cd');
+  reset role;
+  perform credit_debit(c_back, 'voice_minute', 1, 'voice:back');
+  set local role service_role;
+  perform billing_apply_subscription(v_sub_a, null, null, 'canceled', null, null, 'provider');
+  perform billing_save_payment('pay_cd', v_sub_a, 'cycle', 1000, 'REFUNDED', false, v_today - 40, now(), 1000, null);
+  v_int := credit_settle_payment('pay_cd');
+  reset role;
+  if v_int <> -2 then
+    insert into verify.failures values (format(
+      'a refunded charge whose lot was past her end voided %s, expected 2', -v_int));
+  end if;
+  set local role service_role;
+  v_sub_b := billing_open_subscription(c_back2, v_small, 'monthly', 'pix', 1000, false,
+    v_today - 40, null, 'cus_ce', 'sub_ce');
+  perform billing_save_payment('pay_ce', v_sub_b, 'cycle', 1000, 'RECEIVED', false, v_today - 40, now(), 0, null);
+  perform credit_settle_payment('pay_ce');
+  reset role;
+  perform credit_debit(c_back2, 'voice_minute', 1, 'voice:back2');
+  set local role service_role;
+  perform billing_apply_subscription(v_sub_b, null, null, 'canceled', null, null, 'provider');
+  reset role;
+  -- Her lot ends and is closed before the refund arrives.
+  perform credit_refund(c_back2, 'nothing');
+  set local role service_role;
+  perform billing_save_payment('pay_ce', v_sub_b, 'cycle', 1000, 'REFUNDED', false, v_today - 40, now(), 1000, null);
+  perform credit_settle_payment('pay_ce');
+  reset role;
+  v_int := credit_refund(c_back2, 'voice:back2');
+  if v_int <> 0 then
+    insert into verify.failures values (format(
+      'a lesson from a lot whose charge was refunded gave back %s', v_int));
+  end if;
+
   -- The routine: it grants the charge the webhook missed and closes the
   -- trial lot that ended; run again, it does nothing.
   set local role service_role;
   select * into v_daily from credit_daily();
-  if (v_daily.granted, v_daily.closed) is distinct from (1, 1) then
-    insert into verify.failures values (format('the routine granted %s and closed %s; expected 1 (the charge of the quote) and 1',
+  if (v_daily.granted, v_daily.closed) is distinct from (1, 2) then
+    insert into verify.failures values (format('the routine granted %s and closed %s; expected 1 (the charge of the quote) and 2 (the trial lot, the voided lot past her end)',
       v_daily.granted, v_daily.closed));
   end if;
   select * into v_daily from credit_daily();
@@ -5879,6 +5953,13 @@ begin
   select * into v_quote from credit_refund_quote('pay_c3');
   if (v_quote.payment_credits, v_quote.unused_credits, v_quote.refund_cents) is distinct from (120, 116, 9667) then
     insert into verify.failures values (format('the quote of an annual charge is %s/%s/%s, expected 120/116/9667',
+      v_quote.payment_credits, v_quote.unused_credits, v_quote.refund_cents));
+  end if;
+  -- A month the ceiling decided at 0 was paid for and never received: all of
+  -- it comes back.
+  select * into v_quote from credit_refund_quote('pay_c2_over');
+  if (v_quote.payment_credits, v_quote.unused_credits, v_quote.refund_cents) is distinct from (10, 10, 1000) then
+    insert into verify.failures values (format('the quote of a month cut by the ceiling is %s/%s/%s, expected 10/10/1000',
       v_quote.payment_credits, v_quote.unused_credits, v_quote.refund_cents));
   end if;
   select * into v_quote from credit_refund_quote('pay_c4_pending');

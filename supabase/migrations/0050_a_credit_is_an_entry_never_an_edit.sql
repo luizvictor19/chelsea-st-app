@@ -381,12 +381,16 @@ $$;
 comment on function public.credit_alive(uuid) is
   'Whether the person has a subscription running: trialing, awaiting, active or past_due.';
 
--- Where her credits end: never while a subscription of hers is alive (null);
--- once the last one that ran is canceled, at midnight in São Paulo of the
--- day after what she paid for ended, plus that plan's
--- credit_days_after_cancel. A checkout that never ran (replaced, expired, a
--- trial refused) moves nothing. Null too for a person who never subscribed:
--- only an end written on the lot applies.
+-- Where her credits end: never while a subscription of hers is alive (null).
+-- Otherwise, the latest end any canceled subscription of hers paid for: at
+-- midnight in São Paulo of the day after its paid_through, plus that plan's
+-- credit_days_after_cancel. The latest, so a short subscription after a
+-- long one never cuts what the long one paid for; and only one that was
+-- paid, so a subscription opened and never paid does not push the end
+-- forward. When none of hers was paid (or a refund took its days back), the
+-- day of the last cancel of one that ran counts instead. A checkout that
+-- never ran (replaced, expired, a trial refused) moves nothing. Null too for
+-- a person who never subscribed: only an end written on the lot applies.
 create function public.credit_deadline(p_person uuid)
 returns timestamptz
 language sql
@@ -395,20 +399,28 @@ set search_path = ''
 as $$
   select case
     when public.credit_alive(p_person) then null
-    else (select ((coalesce(s.paid_through, (s.canceled_at at time zone 'America/Sao_Paulo')::date - 1)
-                   + 1 + p.credit_days_after_cancel)::timestamp) at time zone 'America/Sao_Paulo'
-            from public.subscriptions s
-            join public.plans p on p.id = s.plan_id
-           where s.person_id = p_person
-             and s.status = 'canceled'
-             and s.cancel_reason not in ('replaced', 'checkout_expired', 'trial_used')
-           order by s.canceled_at desc, s.created_at desc
-           limit 1)
+    else coalesce(
+      (select max(((s.paid_through + 1 + p.credit_days_after_cancel)::timestamp)
+                  at time zone 'America/Sao_Paulo')
+         from public.subscriptions s
+         join public.plans p on p.id = s.plan_id
+        where s.person_id = p_person
+          and s.status = 'canceled'
+          and s.paid_through is not null),
+      (select (((s.canceled_at at time zone 'America/Sao_Paulo')::date
+                + p.credit_days_after_cancel)::timestamp) at time zone 'America/Sao_Paulo'
+         from public.subscriptions s
+         join public.plans p on p.id = s.plan_id
+        where s.person_id = p_person
+          and s.status = 'canceled'
+          and s.cancel_reason not in ('replaced', 'checkout_expired', 'trial_used')
+        order by s.canceled_at desc, s.created_at desc
+        limit 1))
   end;
 $$;
 
 comment on function public.credit_deadline(uuid) is
-  'When the person''s credits end: null while a subscription of hers is alive; after a cancel, midnight in São Paulo of the day after her paid period plus the plan''s credit_days_after_cancel.';
+  'When the person''s credits end: null while a subscription of hers is alive; after a cancel, the latest end a canceled subscription of hers paid for (midnight in São Paulo of the day after its paid_through, plus its plan''s credit_days_after_cancel), or the last cancel''s day plus those days when none was paid.';
 
 -- Her live lots: not closed, and not past their end, which is the earlier of
 -- the lot's own (the trial's) and hers (credit_deadline). The nearest end
@@ -452,6 +464,28 @@ $$;
 
 comment on function public.credit_balance_of(uuid) is
   'The person''s balance, the sum of her live lots. Read by the credit functions; the screen reads it through credits_balance.';
+
+-- The lots a charge paid for that were neither closed nor voided, each with
+-- what is left, alive or past her end: the void must reach a lot whose end
+-- came with the same cancel that took the money back.
+create function public.credit_payment_open_lots(p_payment_id text)
+returns table (lot_id uuid, organization_id uuid, person_id uuid, remaining integer)
+language sql
+stable
+set search_path = ''
+as $$
+  select g.id, g.organization_id, g.person_id,
+         (select sum(e.amount) from public.credit_entries e
+           where e.id = g.id or e.lot_id = g.id)::integer
+    from public.credit_entries g
+   where g.kind = 'plan'
+     and g.asaas_payment_id = p_payment_id
+     and not exists (select 1 from public.credit_entries x
+                      where x.lot_id = g.id and x.kind in ('expire', 'void'));
+$$;
+
+comment on function public.credit_payment_open_lots(text) is
+  'The lots a charge paid for that were neither closed nor voided, each with what is left, whether or not they are past the person''s end. Read by the void.';
 
 -- The live lots a charge paid for, each with what is left.
 create function public.credit_payment_lots(p_payment_id text)
@@ -685,10 +719,11 @@ begin
         on conflict (asaas_payment_id, period) where kind = 'plan' do nothing;
       get diagnostics v_rows = row_count;
       granted := granted + v_rows * v_amount;
-      granted_lots := granted_lots + v_rows;
+      -- A month decided at 0 by the ceiling granted nothing.
+      granted_lots := granted_lots + case when v_amount > 0 then v_rows else 0 end;
     end loop;
   elsif public.credit_payment_taken_back(v_payment) then
-    for v_lot in select * from public.credit_payment_lots(p_payment_id) loop
+    for v_lot in select * from public.credit_payment_open_lots(p_payment_id) loop
       continue when v_lot.remaining <= 0;
       insert into public.credit_entries (organization_id, person_id, kind, amount, lot_id)
         values (v_lot.organization_id, v_lot.person_id, 'void', -v_lot.remaining, v_lot.lot_id)
@@ -770,10 +805,8 @@ begin
             and p.due_on > (now() at time zone 'America/Sao_Paulo')::date - 400
             and p.due_on <= (now() at time zone 'America/Sao_Paulo')::date)
         or (public.credit_payment_taken_back(p)
-            and exists (select 1 from public.credit_entries g
-                         where g.kind = 'plan' and g.asaas_payment_id = p.asaas_payment_id
-                           and not exists (select 1 from public.credit_entries x
-                                            where x.lot_id = g.id and x.kind in ('void', 'expire'))))
+            and exists (select 1 from public.credit_payment_open_lots(p.asaas_payment_id) o
+                         where o.remaining > 0))
      order by p.due_on, p.asaas_payment_id
   loop
     select * into v_settled from public.credit_settle(v_payment_id);
@@ -781,12 +814,21 @@ begin
   end loop;
 
   for v_person in
-    select distinct l.person_id
-      from public.credit_entries l
-     where l.lot_id is null
-       and least(l.expires_at, public.credit_deadline(l.person_id)) <= now()
-       and not exists (select 1 from public.credit_entries x
-                        where x.lot_id = l.id and x.kind = 'expire')
+    with holders as (
+      select distinct l.person_id
+        from public.credit_entries l
+       where l.lot_id is null
+         and not exists (select 1 from public.credit_entries x
+                          where x.lot_id = l.id and x.kind = 'expire'))
+    select o.person_id
+      from holders o
+     cross join lateral (select public.credit_deadline(o.person_id) as deadline) d
+     where exists (select 1 from public.credit_entries l
+                    where l.person_id = o.person_id
+                      and l.lot_id is null
+                      and least(l.expires_at, d.deadline) <= now()
+                      and not exists (select 1 from public.credit_entries x
+                                       where x.lot_id = l.id and x.kind = 'expire'))
   loop
     perform public.credit_lock_person(v_person);
     select * into v_closed from public.credit_close_expired(v_person);
@@ -869,8 +911,9 @@ comment on function public.credit_debit(uuid, text, integer, text) is
 -- goes back to the lot it came from while that lot is alive. Once that lot
 -- is gone (closed), it opens a lot of its own (Q8): without an end while
 -- she has a subscription alive, ending in a month otherwise (and never after
--- her own end). A debit from a lot that was voided (its charge's money went
--- back) is not given back: those credits left with the money. Executed by
+-- her own end). A debit from a lot that was voided, or whose charge's money
+-- went back (even if the lot ended first), is not given back: those credits
+-- left with the money. Executed by
 -- nobody, like the debit.
 create function public.credit_refund(p_person uuid, p_reference text)
 returns integer
@@ -888,8 +931,12 @@ begin
   perform public.credit_close_expired(p_person);
   for v_debit in
     select d.id, d.organization_id, d.amount, d.lot_id, d.action, d.reference,
-           exists (select 1 from public.credit_entries v
-                    where v.lot_id = d.lot_id and v.kind = 'void') as lot_voided,
+           (exists (select 1 from public.credit_entries v
+                     where v.lot_id = d.lot_id and v.kind = 'void')
+            or exists (select 1 from public.credit_entries g
+                         join public.payments p on p.asaas_payment_id = g.asaas_payment_id
+                        where g.id = d.lot_id and public.credit_payment_taken_back(p)))
+             as lot_voided,
            exists (select 1 from public.credit_lots_of(p_person) l
                     where l.lot_id = d.lot_id) as lot_alive
       from public.credit_entries d
@@ -926,7 +973,8 @@ comment on function public.credit_refund(uuid, text) is
 -- The proportional refund (CDC art. 49) ------------------------------------------------------
 
 -- What a charge paid for and did not use: what is left in its live lots,
--- plus its months not granted yet (an annual charge's months ahead). The
+-- what the ceiling cut from its months, plus its months not granted yet (an
+-- annual charge's months ahead). The
 -- value back is rounded up to the cent, never against the person. A charge
 -- whose plan grants no credits had nothing to use: all of it. A charge that
 -- does not grant (not paid, refunded, deleted) is worth 0. Q7: who triggers
@@ -964,6 +1012,10 @@ begin
 
   select coalesce(sum(l.remaining), 0) into unused_credits
     from public.credit_payment_lots(p_payment_id) l;
+  -- What the ceiling cut from a month was paid for and never received.
+  unused_credits := unused_credits
+    + coalesce((select sum(v_sub.monthly_credits - e.amount) from public.credit_entries e
+                 where e.kind = 'plan' and e.asaas_payment_id = p_payment_id), 0);
   for v_month in 0 .. v_months - 1 loop
     if not exists (select 1 from public.credit_entries e
                     where e.kind = 'plan' and e.asaas_payment_id = p_payment_id
@@ -1064,6 +1116,7 @@ revoke all on function public.credit_deadline(uuid) from public, anon, authentic
 revoke all on function public.credit_lots_of(uuid) from public, anon, authenticated;
 revoke all on function public.credit_balance_of(uuid) from public, anon, authenticated;
 revoke all on function public.credit_payment_lots(text) from public, anon, authenticated;
+revoke all on function public.credit_payment_open_lots(text) from public, anon, authenticated;
 revoke all on function public.credit_check_reader(uuid) from public, anon, authenticated;
 revoke all on function public.credit_live_lots(uuid) from public, anon, authenticated;
 revoke all on function public.credits_balance(uuid) from public, anon, authenticated;
