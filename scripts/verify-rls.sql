@@ -5451,7 +5451,9 @@ begin
     'a company without a teacher opens the door', '23514 organizations_open_signup_chelsea',
     format('update organizations set open_signup = true where id = %L', v_company));
 
-  -- 5. One door at a time.
+  -- 5. One door at a time. A door the cases above opened by mistake is
+  -- closed first, so a refusal missing there does not hide this one.
+  update organizations set open_signup = false where open_signup;
   update organizations set open_signup = true where id = v_chelsea;
   insert into organizations (slug, name, brand, has_teacher)
     values ('chelsea-0051-segunda', 'Chelsea segunda', 'chelsea-st', true)
