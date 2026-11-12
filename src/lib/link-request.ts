@@ -46,13 +46,22 @@ export type LinkRequest = {
   readonly log: LinkLog;
 };
 
-/** No account behind the address: expected, and not worth a line. */
-const EXPECTED_CODES: ReadonlySet<string> = new Set(["otp_disabled"]);
+/**
+ * Asking twice within GoTrue's 60 s per address: normal use, a warning.
+ * GoTrue gives the same code, over_email_send_rate_limit, to the project's
+ * cap of emails per hour, which stops every send and is an error; only the
+ * message tells them apart ("For security purposes, you can only request this
+ * after N seconds." against "email rate limit exceeded", read from GoTrue's
+ * internal/api/errors.go, not measured). Anything else reads as the cap.
+ */
+const PER_ADDRESS_LIMIT = /only request this after \d+ seconds?/i;
 
-/** Asking twice within GoTrue's 60 s per address: normal use, a warning. */
-const RATE_LIMIT_CODES: ReadonlySet<string> = new Set([
-  "over_email_send_rate_limit",
-]);
+function isPerAddressLimit(outcome: NonNullable<SendOutcome>): boolean {
+  return (
+    outcome.code === "over_email_send_rate_limit" &&
+    PER_ADDRESS_LIMIT.test(outcome.message ?? "")
+  );
+}
 
 export function requestLink(request: LinkRequest): LinkRequestState {
   const { email, flow, send, schedule, log } = request;
@@ -75,7 +84,9 @@ export function requestLink(request: LinkRequest): LinkRequestState {
       });
       return;
     }
-    if (outcome === null || EXPECTED_CODES.has(outcome.code ?? "")) {
+    // null is a send that went through, or nothing to send (the caller
+    // turns "no account" into null: src/lib/magic-link.ts).
+    if (outcome === null) {
       return;
     }
     const entry = {
@@ -84,7 +95,7 @@ export function requestLink(request: LinkRequest): LinkRequestState {
       status: outcome.status ?? "-",
       message: withoutAddress(outcome.message ?? "-", email),
     };
-    if (RATE_LIMIT_CODES.has(outcome.code ?? "")) {
+    if (isPerAddressLimit(outcome)) {
       log.warn("link request rate limited", entry);
     } else {
       log.error("link request failed", entry);
@@ -94,8 +105,12 @@ export function requestLink(request: LinkRequest): LinkRequestState {
   return { status: "sent", email };
 }
 
-/** The message with the address taken out, whatever its case. */
+/** The message with the address taken out, whatever its case, plain or URL-encoded. */
 function withoutAddress(message: string, email: string): string {
-  const escaped = email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return message.replace(new RegExp(escaped, "gi"), "<email>");
+  let result = message;
+  for (const form of new Set([email, encodeURIComponent(email)])) {
+    const escaped = form.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    result = result.replace(new RegExp(escaped, "gi"), "<email>");
+  }
+  return result;
 }

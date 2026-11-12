@@ -106,7 +106,11 @@ export async function sendMagicLink(
         email,
         options: magicLinkOptions(site),
       });
-      if (magicLinkStep(error) !== "recover") {
+      const step = magicLinkStep(error);
+      if (step === "sent") {
+        return null;
+      }
+      if (step === "error") {
         return error;
       }
       const { error: recoveryError } =

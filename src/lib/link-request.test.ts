@@ -121,21 +121,38 @@ describe("requestLink: what reaches the server log", () => {
     return h.logged;
   }
 
-  test("a link that went out, or no account, logs nothing", async () => {
+  test("a send that went through logs nothing", async () => {
     assert.deepEqual(await logOf(async () => null), []);
-    assert.deepEqual(await logOf(async () => ({ code: "otp_disabled" })), []);
   });
 
   test("the limit per address is a warning: asking twice in a minute is normal", async () => {
     const logged = await logOf(async () => ({
       code: "over_email_send_rate_limit",
       status: 429,
-      message: "email rate limit exceeded",
+      message:
+        "For security purposes, you can only request this after 59 seconds.",
     }));
     assert.equal(logged.length, 1);
     assert.equal(logged[0].level, "warn");
     assert.match(JSON.stringify(logged[0].args), /over_email_send_rate_limit/);
     assert.match(JSON.stringify(logged[0].args), /magic_link/);
+  });
+
+  test("the project's cap per hour, same code, is an error: nothing goes out", async () => {
+    const logged = await logOf(async () => ({
+      code: "over_email_send_rate_limit",
+      status: 429,
+      message: "email rate limit exceeded",
+    }));
+    assert.equal(logged.length, 1);
+    assert.equal(logged[0].level, "error");
+  });
+
+  test("the code without the message of the limit per address is an error", async () => {
+    const logged = await logOf(async () => ({
+      code: "over_email_send_rate_limit",
+    }));
+    assert.equal(logged[0].level, "error");
   });
 
   test("a real failure is an error, with the code, the status and the message", async () => {
@@ -176,6 +193,11 @@ describe("requestLink: what reaches the server log", () => {
       }),
       async () => {
         throw new Error(`could not send to ${EMAIL}`);
+      },
+      async () => {
+        throw new Error(
+          `fetch failed: /auth/v1/otp?email=${encodeURIComponent(EMAIL)}`,
+        );
       },
     ];
     for (const send of failures) {

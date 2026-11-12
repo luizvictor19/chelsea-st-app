@@ -296,8 +296,11 @@ retention), and look in the Vercel runtime log of the same hour for `link reques
        and toInt32OrZero(log_attributes['response.status_code']) >= 400
      order by timestamp desc
 
-A 429 is the limit of one email per address per minute: the person asked twice, and the first link
-is the one to use.
+A 429 has three causes, and the Vercel log line of the same minute tells them apart: the limit of
+one email per address per minute (`link request rate limited`, a warning: the person asked twice,
+and the first link is the one to use); the project's cap of emails per hour (`link request failed`
+with "email rate limit exceeded": nothing goes out for anyone until the hour turns); or the limit
+of requests per IP, which every request from Vercel shares (`over_request_rate_limit`).
 
 ## GitHub quirks
 
