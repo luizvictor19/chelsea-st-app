@@ -31,7 +31,8 @@ const EMPTY: PlanFields = {
   opensVideo: false,
   trialDays: 0,
   trialCredits: 0,
-  carryoverPercent: 0,
+  creditCeilingMonths: null,
+  creditDaysAfterCancel: null,
   isActive: true,
 };
 
@@ -66,7 +67,9 @@ export default async function PlansPage() {
         <p className="text-muted max-w-prose text-sm">
           O preço mudado aqui vale para as assinaturas novas; quem já assina
           continua com o valor que assinou. Um plano sai de venda, nunca é
-          apagado.
+          apagado. Os créditos não vencem enquanto a assinatura está viva; o
+          teto do saldo e os dias depois do cancelamento mudados aqui valem
+          também para quem já assina.
         </p>
       </div>
       {(data ?? []).map((plan) => (
@@ -87,7 +90,8 @@ export default async function PlansPage() {
             opensVideo: plan.opens_video,
             trialDays: plan.trial_days,
             trialCredits: plan.trial_credits,
-            carryoverPercent: plan.carryover_percent,
+            creditCeilingMonths: plan.credit_ceiling_months,
+            creditDaysAfterCancel: plan.credit_days_after_cancel,
             isActive: plan.is_active,
           }}
         />

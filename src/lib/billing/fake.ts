@@ -285,7 +285,7 @@ export function createFakeStore(): FakeStore {
     events: new Map(),
     steps: new Map(),
     settled: [],
-    dailyReport: { granted: 0, closed: 0, carried: 0 },
+    dailyReport: { granted: 0, closed: 0 },
     settleFailWith: null,
     failWith: null,
 

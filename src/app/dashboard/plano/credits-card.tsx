@@ -3,9 +3,9 @@ import { creditsText, type CreditSummary } from "@/lib/credits/summary";
 import { formatDay } from "./format";
 
 /**
- * Her credits (#273): the balance and how many end first. The balance is the
- * sum of her live lots; between midnight and the daily routine a carryover
- * may not show yet, while a debit already counts it.
+ * Her credits (#273): the balance, how many end first and on which day, and
+ * how many have no end while her subscription is alive. A month paid ahead
+ * may show only after the daily routine, while a debit already counts it.
  */
 export function CreditsCard({ summary }: { readonly summary: CreditSummary }) {
   return (
@@ -22,6 +22,11 @@ export function CreditsCard({ summary }: { readonly summary: CreditSummary }) {
           {creditsText(summary.next.credits)}{" "}
           {summary.next.credits === 1 ? "vale" : "valem"} até{" "}
           {formatDay(summary.next.lastDay)}.
+        </p>
+      )}
+      {summary.lasting > 0 && (
+        <p className="text-muted text-sm">
+          Os créditos do plano não vencem enquanto a assinatura estiver ativa.
         </p>
       )}
     </section>

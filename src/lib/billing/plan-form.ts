@@ -19,7 +19,8 @@ export type PlanValues = {
   readonly opens_video: boolean;
   readonly trial_days: number;
   readonly trial_credits: number;
-  readonly carryover_percent: number;
+  readonly credit_ceiling_months: number;
+  readonly credit_days_after_cancel: number;
   readonly is_active: boolean;
 };
 
@@ -94,11 +95,18 @@ export function readPlanForm(form: FormData): PlanRead {
   if (trialDays === null || trialDays > 60) {
     return { ok: false, message: "Os dias de teste vão de 0 a 60." };
   }
-  const carryover = whole(form.get("carryover_percent"));
-  if (carryover === null || carryover > 100) {
+  const ceiling = whole(form.get("credit_ceiling_months"));
+  if (ceiling === null || ceiling < 1 || ceiling > 60) {
     return {
       ok: false,
-      message: "O teto da sobra é um número inteiro de 0 a 100 (%).",
+      message: "O teto do saldo vai de 1 a 60 meses de créditos do plano.",
+    };
+  }
+  const daysAfterCancel = whole(form.get("credit_days_after_cancel"));
+  if (daysAfterCancel === null || daysAfterCancel > 365) {
+    return {
+      ok: false,
+      message: "Os dias dos créditos depois do cancelamento vão de 0 a 365.",
     };
   }
   return {
@@ -117,7 +125,8 @@ export function readPlanForm(form: FormData): PlanRead {
       opens_video: form.get("opens_video") === "on",
       trial_days: trialDays,
       trial_credits: trialCredits,
-      carryover_percent: carryover,
+      credit_ceiling_months: ceiling,
+      credit_days_after_cancel: daysAfterCancel,
       is_active: form.get("is_active") === "on",
     },
   };

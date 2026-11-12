@@ -10,14 +10,14 @@ const OVERDUE = { taken: 1, outcomes: { pix_reminder: 1 } };
 describe("runDaily", () => {
   test("runs the credits where billing is not open, and says the overdue was skipped", async () => {
     const store = createFakeStore();
-    store.dailyReport = { granted: 2, closed: 5, carried: 1 };
+    store.dailyReport = { granted: 2, closed: 5 };
     const report = await runDaily({
       credits: () => store.creditDaily(),
       overdue: null,
       log: () => {},
     });
     assert.deepEqual(report, {
-      credits: { granted: 2, closed: 5, carried: 1 },
+      credits: { granted: 2, closed: 5 },
       overdue: { skipped: "billing is not open here" },
     });
   });
@@ -59,7 +59,7 @@ describe("runDaily", () => {
     await runDaily({
       credits: async () => {
         order.push("credits");
-        return { granted: 0, closed: 0, carried: 0 };
+        return { granted: 0, closed: 0 };
       },
       overdue: async () => {
         order.push("overdue");

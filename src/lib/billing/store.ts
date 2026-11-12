@@ -58,10 +58,8 @@ export type OverdueDay = (typeof OVERDUE_DAYS)[number];
 export type CreditDailyReport = {
   /** Months granted: an annual charge's next month, or a grant missed. */
   readonly granted: number;
-  /** Lots past their day closed. */
+  /** Lots past their end closed. */
   readonly closed: number;
-  /** Carryovers opened from the months closed. */
-  readonly carried: number;
 };
 
 /** A refusal of the database the app turns into a sentence, by its name. */

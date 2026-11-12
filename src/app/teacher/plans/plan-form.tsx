@@ -24,7 +24,9 @@ export type PlanFields = {
   readonly opensVideo: boolean;
   readonly trialDays: number;
   readonly trialCredits: number;
-  readonly carryoverPercent: number;
+  /** Null on a new plan: the admin says both, nothing comes filled in. */
+  readonly creditCeilingMonths: number | null;
+  readonly creditDaysAfterCancel: number | null;
   readonly isActive: boolean;
 };
 
@@ -126,12 +128,23 @@ export function PlanForm({ plan }: { readonly plan: PlanFields }) {
           className={fieldClass}
         />
       </label>
-      <label className="col-span-2 flex flex-col gap-1">
-        Teto da sobra (% dos créditos do mês que passam para o mês seguinte)
+      <label className="flex flex-col gap-1">
+        Teto do saldo (meses de créditos do plano)
         <input
-          name="carryover_percent"
-          defaultValue={plan.carryoverPercent}
+          name="credit_ceiling_months"
+          defaultValue={plan.creditCeilingMonths ?? ""}
           inputMode="numeric"
+          required
+          className={fieldClass}
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        Dias dos créditos depois do cancelamento
+        <input
+          name="credit_days_after_cancel"
+          defaultValue={plan.creditDaysAfterCancel ?? ""}
+          inputMode="numeric"
+          required
           className={fieldClass}
         />
       </label>

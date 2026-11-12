@@ -209,7 +209,6 @@ export function createSupabaseBillingStore(
       return {
         granted: row?.granted ?? 0,
         closed: row?.closed ?? 0,
-        carried: row?.carried ?? 0,
       };
     },
   };

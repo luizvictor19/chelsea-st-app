@@ -2,7 +2,7 @@
  * The daily routine (/api/billing/daily): the credits' step first, then the
  * overdue steps of #72. The credits' step runs everywhere, also where
  * billing is not open (production before the Asaas key): closing a lot past
- * its day and opening its carryover need no provider. A failure of the
+ * its end needs no provider. A failure of the
  * credits is logged and kept in the report, and the overdue steps still run:
  * the two do not depend on each other, and the next day's run repeats the
  * credits' step safely (credit_daily is idempotent).
