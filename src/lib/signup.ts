@@ -12,7 +12,7 @@ import { magicLinkStep } from "./magic-link.ts";
 import type { ChallengeResult } from "./turnstile.ts";
 
 /*
- * The signup of Chelsea St (#275): an invite the person asks for herself.
+ * The signup of the chelsea-st brand (#275): an invite the person asks for herself.
  *
  * The server calls inviteUserByEmail with the service role and the metadata
  * { signup: true, full_name }; GoTrue's own signup stays off (#109), so the
@@ -47,7 +47,7 @@ export function signupName(raw: unknown): string {
 export type SignupDoor = "absent" | "closed" | "open";
 
 /**
- * Only Chelsea St has the page: a company on GrifoAI is invite only, and a
+ * Only the chelsea-st site has the page: a company on GrifoAI is invite only, and a
  * host outside the list (a preview) is nobody's. It is closed until the
  * subscription opens (a person who cannot subscribe has nothing to do) and
  * while either Turnstile key is missing (the challenge would refuse every
@@ -69,7 +69,7 @@ export function signupDoor(
 
 /**
  * Options of inviteUserByEmail for the signup. The link leads back to the
- * Chelsea St site the person asked from, the dev server's own origin
+ * chelsea-st site the person asked from, the dev server's own origin
  * included: unlike an invite (inviteOptions), the person who asked is the
  * one who opens the email. Any other site sends no redirect, so the Site
  * URL, which is Chelsea's.

@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 /**
- * Shown to a student of Chelsea St who never subscribed (#275): the way from
+ * Shown to a student of a chelsea-st organization who never subscribed (#275): the way from
  * the signup to the trial. The plan screen does the rest (the plan, the CPF,
  * the trial, card or Pix). A card and not a redirect: the students who came
  * by invite and do not subscribe keep their screen.

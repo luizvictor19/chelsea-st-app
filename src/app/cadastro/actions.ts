@@ -25,10 +25,10 @@ export type SignupState =
   | { status: "error"; message: string; name: string; email: string };
 
 /**
- * The signup of Chelsea St (#275): an invite the person asks for herself.
+ * The signup of the chelsea-st brand (#275): an invite the person asks for herself.
  *
  * Refuses on the screen only what does not depend on the account: the door
- * (only Chelsea St, only while open), the name, the address and the
+ * (only the chelsea-st site, only while open), the name, the address and the
  * anti-robot challenge. Past them every address reads "sent", at once, and
  * the email goes out after the response (src/lib/signup.ts,
  * src/lib/link-request.ts): a new address gets the signup email, a confirmed

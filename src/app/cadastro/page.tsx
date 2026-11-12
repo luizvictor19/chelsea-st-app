@@ -18,7 +18,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * The signup of Chelsea St (#275). Only on its site: a company on GrifoAI is
+ * The signup of the chelsea-st brand (#275). Only on its site: a company on GrifoAI is
  * invite only, and any other host gets a 404. Closed, with a sentence, until
  * the subscription opens and while the Turnstile keys are missing.
  */
