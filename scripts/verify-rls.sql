@@ -350,8 +350,8 @@ language plpgsql security definer as $$ begin end; $$;
 \i supabase/migrations/0049_a_plan_is_paid_through_asaas.sql
 
 -- 0050 creates the credit ledger and the cost of each action, adds
--- plans.carryover_percent and subscriptions.monthly_credits, and touches no
--- older row. A subscription with a trial now opens a trial lot when it starts
+-- plans.credit_ceiling_months and plans.credit_days_after_cancel, copies them
+-- and monthly_credits onto each new subscription, and touches no older row. A subscription with a trial now opens a trial lot when it starts
 -- running, so the block of 0049 clears the ledger before its subscriptions.
 -- Its own block, "Credits are entries in a ledger (0050)", runs after the
 -- block of 0049.
@@ -5861,8 +5861,11 @@ begin
     insert into verify.failures values ('a trial lot past its end still counts');
   end if;
 
-  -- The plan back to the numbers the subscriptions below are born with.
-  update plans set credit_ceiling_months = 3, credit_days_after_cancel = 30 where id = v_plan;
+  -- The plan back to the numbers the subscriptions below are born with
+  -- (the two subscriptions opened again above were born with 99, 1 and 0,
+  -- and nothing below reads their numbers).
+  update plans set monthly_credits = 10, credit_ceiling_months = 3, credit_days_after_cancel = 30
+   where id = v_plan;
 
   -- The end after a cancel is the latest one a paid subscription bought: a
   -- subscription opened and never paid, or one paid for less, does not move

@@ -146,8 +146,9 @@ architecture question for Luiz.
   `postgres` included; a restore with `session_replication_role = replica` passes it). A grant opens
   a lot; every other row (debit, refund, expire, void) points at its lot, and no row takes a lot
   below zero. While her subscription is alive a month's credits never end (Luiz, 12/11): the month
-  grants only up to `plans.credit_ceiling_months` months of credits, and after a cancel her lots end
-  `plans.credit_days_after_cancel` days after what she paid for. That end is read from her
+  grants only up to `credit_ceiling_months` months of credits, and after a cancel her lots end
+  `credit_days_after_cancel` days after what she paid for, both copied from the plan onto the
+  subscription. That end is read from her
   subscriptions (`credit_deadline`), never written on a lot; a lot that ended is closed before a new
   subscription runs and never comes back. The balance is the sum of the live lots (`credits_balance`,
   `credit_live_lots`, `security definer`, refusing another person but the platform admin and
@@ -161,7 +162,8 @@ architecture question for Luiz.
   actions equal `CREDIT_ACTIONS` (`actions.test.ts`). The credits of a month, the ceiling and the
   days after a cancel are copied from the plan onto the subscription when it is born
   (`subscriptions.monthly_credits`, `credit_ceiling_months`, `credit_days_after_cancel`), and every
-  grant and end reads the subscription's copy: a plan changed later reaches new subscriptions only.
+  month's grant and every end reads the subscription's copy (the trial's credits are read from the
+  plan when the trial starts): a plan changed later reaches new subscriptions only.
   No number of the offer enters the repository.
 - `leads` receives rows only through `submit_lead` (0038), executed by `anon` alone: the site's
   function calls it with the publishable key. Nobody reads `leads` through the API, and the

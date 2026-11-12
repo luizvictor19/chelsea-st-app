@@ -399,8 +399,9 @@ comment on function public.credit_alive(uuid) is
 -- Where her credits end: never while a subscription of hers is alive (null).
 -- Otherwise, the latest end any canceled subscription of hers paid for: at
 -- midnight in São Paulo of the day after its paid_through, plus that
--- subscription's credit_days_after_cancel (copied from its plan at birth). The latest, so a short subscription after a
--- long one never cuts what the long one paid for; and only one that was
+-- subscription's credit_days_after_cancel (copied from its plan at birth).
+-- The latest, so a short subscription after a long one never cuts what the
+-- long one paid for; and only one that was
 -- paid, so a subscription opened and never paid does not push the end
 -- forward. When none of hers was paid (or a refund took its days back), the
 -- day of the last cancel of one that ran counts instead. A checkout that
@@ -682,9 +683,9 @@ comment on function public.credit_close_expired(uuid) is
 -- Every month of a paid charge that started, once
 -- (credit_entries_one_grant_per_period), without an end: a Pix paid ahead
 -- grants on its due day, so the next month never adds to the current one. The
--- credits come from the subscription (Q5), and stop at its ceiling (also kept on it):
--- what would pass it is not granted, and the month is decided (a lot of 0
--- when the ceiling is reached). A charge whose money went back has what is
+-- credits come from the subscription (Q5), and stop at its ceiling, also
+-- kept on it: what would pass it is not granted, and the month is decided (a
+-- lot of 0 when the ceiling is reached). A charge whose money went back has what is
 -- left of its live lots voided: what was spent stays spent, and its later
 -- months are never granted. Anything else (pending, overdue, a refund on its
 -- way) does nothing. Takes the person's lock.

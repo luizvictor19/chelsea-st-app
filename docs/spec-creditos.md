@@ -70,11 +70,13 @@ nem pelo `postgres` (`credit_entries_append_only`).
 - **Enquanto a assinatura está viva, o crédito do plano não vence.** O lote do mês nasce sem
   vencimento. Viva é em teste, aguardando o primeiro pagamento, ativa ou em atraso (Q6); o checkout
   não terminado não conta.
-- **O teto do saldo:** `plans.credit_ceiling_months`, em meses de créditos do plano (de 1 a 60). A
+- **O teto do saldo:** `credit_ceiling_months`, em meses de créditos do plano (de 1 a 60), escrito no
+  plano e copiado para a assinatura quando ela nasce. A
   concessão do mês concede só até o teto: o que passaria dele não é concedido, e o mês fica decidido
   (um lote de 0 quando o saldo já está no teto).
 - **Depois do cancelamento:** os lotes vivos vencem à 0h (São Paulo) do dia seguinte ao fim do
-  período pago (`paid_through`) mais `plans.credit_days_after_cancel` dias (de 0 a 365). Vale o fim
+  período pago (`paid_through`) mais `credit_days_after_cancel` dias (de 0 a 365), os da assinatura
+  cancelada, copiados do plano quando ela nasceu. Vale o fim
   mais tardio entre as assinaturas canceladas que foram pagas: uma assinatura aberta e nunca paga, ou
   uma mais curta depois de uma longa, não mexe no prazo. Sem nenhuma paga (ou com os dias tomados de
   volta por um estorno), conta o dia do último cancelamento de uma que rodou. Um checkout que nunca
