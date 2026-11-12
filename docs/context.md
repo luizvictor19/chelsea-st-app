@@ -144,19 +144,22 @@ architecture question for Luiz.
 - Credits follow 0050 (#273, `docs/spec-creditos.md`): a ledger, `credit_entries`, that only takes
   new rows (`credit_entries_append_only` refuses update, delete and truncate to every role,
   `postgres` included; a restore with `session_replication_role = replica` passes it). A grant opens
-  a lot (amount and `expires_at`); every other row (debit, refund, expire, void) points at its lot,
-  and no row takes a lot below zero. The balance is the sum of the live lots (`credits_balance`,
-  `credit_live_lots`, `security invoker`, so a person sums only her own rows); it is never stored
-  and never edited, and a correction is a new entry. A person reads her own rows, the platform admin
-  all; no API role writes them. `credit_settle_payment`, `credit_daily` and `credit_refund_quote`
-  are executed by `service_role` alone (the webhook, the daily routine); `credit_debit` and
-  `credit_refund` by nobody: another `security definer` function calls them inside its transaction,
-  never the browser. Every function that writes a person's ledger first takes her advisory lock. The
-  cost of each action is a row of `credit_costs` per brand, written by the platform admin on
-  `/teacher/plans` and read through `credit_cost` alone; its actions equal `CREDIT_ACTIONS`
-  (`actions.test.ts`). The credits of a month are kept on the subscription
-  (`subscriptions.monthly_credits`), the carryover cap on the plan (`plans.carryover_percent`). No
-  number of the offer enters the repository.
+  a lot; every other row (debit, refund, expire, void) points at its lot, and no row takes a lot
+  below zero. While her subscription is alive a month's credits never end (Luiz, 12/11): the month
+  grants only up to `plans.credit_ceiling_months` months of credits, and after a cancel her lots end
+  `plans.credit_days_after_cancel` days after what she paid for. That end is read from her
+  subscriptions (`credit_deadline`), never written on a lot; a lot that ended is closed before a new
+  subscription runs and never comes back. The balance is the sum of the live lots (`credits_balance`,
+  `credit_live_lots`, `security definer`, refusing another person but the platform admin and
+  `service_role`); it is never stored and never edited, and a correction is a new entry. A person
+  reads her own rows, the platform admin all; no API role writes them. `credit_settle_payment`,
+  `credit_daily` and `credit_refund_quote` are executed by `service_role` alone (the webhook, the
+  daily routine); `credit_debit` and `credit_refund` by nobody: another `security definer` function
+  calls them inside its transaction, never the browser. Every function that writes a person's
+  ledger first takes her advisory lock. The cost of each action is a row of `credit_costs` per
+  brand, written by the platform admin on `/teacher/plans` and read through `credit_cost` alone; its
+  actions equal `CREDIT_ACTIONS` (`actions.test.ts`). The credits of a month are kept on the
+  subscription (`subscriptions.monthly_credits`). No number of the offer enters the repository.
 - `leads` receives rows only through `submit_lead` (0038), executed by `anon` alone: the site's
   function calls it with the publishable key. Nobody reads `leads` through the API, and the
   service role holds nothing on it. A number sent twice is two rows (history, nothing is
