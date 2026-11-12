@@ -66,7 +66,8 @@ nem pelo `postgres` (`credit_entries_append_only`).
   `CREDIT_ACTIONS` em `src/lib/credits/actions.ts`.
 - Uma ação sem linha na marca não se vende ali (`credit_cost_known`).
 - O admin da plataforma escreve em `/teacher/plans`, seção "Custos em créditos". Todos leem: o custo
-  faz parte da oferta pública, como o preço.
+  faz parte da oferta pública, como o preço. Um custo salvo muda, mas não é apagado por lá (não há
+  política de `delete`).
 - O custo é lido de um lugar só, `credit_cost`, e nunca de uma constante. A pessoa lê o próprio; o de
   outra pessoa é recusado, porque com o selo Fundador (#292) ele diria quem é fundadora.
 
@@ -104,7 +105,8 @@ nem pelo `postgres` (`credit_entries_append_only`).
 - Só no servidor, nunca pelo navegador. `credit_debit(pessoa, ação, quantidade, referência)`:
   - trava a pessoa (`pg_advisory_xact_lock`): dois débitos dela esperam um pelo outro, e o segundo vê
     o saldo que o primeiro deixou;
-  - fecha os lotes vencidos dela;
+  - concede os meses dela que já começaram e ninguém concedeu ainda (um mês pago antes, entre a
+    meia-noite e a rotina), e fecha os lotes vencidos dela;
   - calcula custo × quantidade;
   - recusa a referência já usada (`credit_debit_reference_used`), a ação sem custo na marca
     (`credit_cost_known`) e o saldo que não cobre (`credits_not_negative`): o saldo nunca fica
@@ -121,16 +123,21 @@ nem pelo `postgres` (`credit_entries_append_only`).
 - Para a aula cancelada (#276): `credit_refund(pessoa, referência)` devolve cada débito daquela
   referência, uma vez (`credit_entries_once_per_entry`). Não havendo o que devolver, devolve 0.
 - Volta para o lote de onde saiu, enquanto ele vive. Se o lote já venceu, abre um lote novo que vence
-  com o lote do mês corrente dela, ou em um mês se ela não tiver nenhum (Q8).
+  com o lote do mês corrente dela, ou em um mês se ela não tiver nenhum (Q8). Um mês anulado não conta
+  como mês corrente.
+- O débito de um lote anulado (cobrança estornada ou contestada) não volta: aqueles créditos saíram
+  com o dinheiro.
 
-## Cobrança estornada ou apagada
+## Cobrança estornada, contestada ou apagada
 
 - O que resta de cada lote vivo da cobrança (os meses e a sobra deles) é anulado (`void`), uma vez.
 - O que já foi gasto fica gasto, e os meses que ainda não começaram não são concedidos.
 - Um estorno pedido e ainda não feito não anula nada: só o estorno que a Asaas dá como feito, a
-  cobrança `REFUNDED` ou apagada.
-- Se o estorno for revertido na Asaas, o lote anulado não volta sozinho. O ajuste manual do admin não
-  existe ainda.
+  cobrança `REFUNDED`, a contestação no cartão (`CHARGEBACK_REQUESTED`, `CHARGEBACK_DISPUTE`,
+  `AWAITING_CHARGEBACK_REVERSAL`) ou a cobrança apagada.
+- Se a contestação for ganha ou o estorno revertido na Asaas, o lote anulado não volta sozinho. O
+  ajuste manual do admin não existe ainda.
+- Uma cobrança estornada depois que a assinatura foi cancelada ainda não chega ao banco: #302.
 
 ## O reembolso proporcional (CDC art. 49)
 
@@ -177,5 +184,8 @@ As funções:
 
 - Um erro de concessão não se corrige editando: a correção é um lançamento compensatório, e hoje
   isso seria uma migration (não há função de ajuste do admin).
-- A tela pode mostrar o saldo sem a sobra entre a 0h e a rotina das 9h.
+- A tela pode mostrar o saldo sem a sobra, e sem o mês pago antes, entre a 0h e a rotina das 9h. O
+  débito não erra: concede e fecha antes de contar.
+- A rotina roda numa transação só, e a trava de cada pessoa fica presa até ela terminar: um débito
+  dessa pessoa espera esses instantes.
 - O teste de débito concorrente usa `dblink`, criado só no banco do teste, nunca por migration.

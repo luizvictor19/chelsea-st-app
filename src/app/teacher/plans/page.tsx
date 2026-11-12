@@ -100,7 +100,7 @@ export default async function PlansPage() {
         <p className="text-muted max-w-prose text-sm">
           Quanto cada coisa custa em créditos, em cada marca. Sem custo, a coisa
           não se vende naquela marca. O custo mudado aqui vale a partir do
-          próximo débito.
+          próximo débito. Um custo salvo muda, mas não sai por esta tela.
         </p>
       </div>
       {BRAND_KEYS.map((brand) => (
