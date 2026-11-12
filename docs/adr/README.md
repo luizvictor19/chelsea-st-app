@@ -12,10 +12,11 @@ Format, kept short on purpose:
 - **Decision**: one paragraph.
 - **Consequences**: what we accept as a result, good and bad.
 
-| Number | Title                                               | Status   |
-| ------ | --------------------------------------------------- | -------- |
-| 0001   | Next.js on Vercel with Supabase                     | accepted |
-| 0002   | Web first, no native app                            | accepted |
-| 0003   | RLS policies verified in CI against a real Postgres | accepted |
-| 0004   | One database, many schools                          | accepted |
-| 0005   | Two brands, many companies                          | accepted |
+| Number | Title                                               | Status                               |
+| ------ | --------------------------------------------------- | ------------------------------------ |
+| 0001   | Next.js on Vercel with Supabase                     | accepted                             |
+| 0002   | Web first, no native app                            | accepted                             |
+| 0003   | RLS policies verified in CI against a real Postgres | accepted                             |
+| 0004   | One database, many schools                          | accepted                             |
+| 0005   | Two brands, many companies                          | accepted, in part superseded by 0006 |
+| 0006   | One company, two lines, three levels of practice    | accepted                             |
