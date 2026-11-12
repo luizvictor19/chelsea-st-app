@@ -24,6 +24,7 @@ export type PlanFields = {
   readonly opensVideo: boolean;
   readonly trialDays: number;
   readonly trialCredits: number;
+  readonly carryoverPercent: number;
   readonly isActive: boolean;
 };
 
@@ -121,6 +122,15 @@ export function PlanForm({ plan }: { readonly plan: PlanFields }) {
         <input
           name="trial_credits"
           defaultValue={plan.trialCredits}
+          inputMode="numeric"
+          className={fieldClass}
+        />
+      </label>
+      <label className="col-span-2 flex flex-col gap-1">
+        Teto da sobra (% dos créditos do mês que passam para o mês seguinte)
+        <input
+          name="carryover_percent"
+          defaultValue={plan.carryoverPercent}
           inputMode="numeric"
           className={fieldClass}
         />

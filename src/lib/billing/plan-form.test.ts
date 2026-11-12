@@ -16,6 +16,7 @@ function form(over: Record<string, string> = {}): FormData {
     trail_minutes_per_day: "15",
     trial_days: "14",
     trial_credits: "5",
+    carryover_percent: "30",
     opens_voice_question: "on",
     is_active: "on",
     ...over,
@@ -49,6 +50,7 @@ describe("readPlanForm", () => {
     assert.equal(read.values.annual_price_cents, 10500);
     assert.equal(read.values.opens_voice_question, true);
     assert.equal(read.values.opens_video, false);
+    assert.equal(read.values.carryover_percent, 30);
     assert.equal(read.values.is_active, true);
   });
 
@@ -65,9 +67,24 @@ describe("readPlanForm", () => {
       { trail_minutes_per_day: "241" },
       { trial_days: "61" },
       { trial_credits: "1.5" },
+      { carryover_percent: "101" },
+      { carryover_percent: "" },
+      { carryover_percent: "-5" },
     ];
     for (const over of cases) {
       assert.equal(readPlanForm(form(over)).ok, false, JSON.stringify(over));
     }
+  });
+});
+
+describe("the carryover cap", () => {
+  test("goes from 0 to 100, the range of plans_carryover_percent_range", () => {
+    for (const ok of ["0", "100"]) {
+      const read = readPlanForm(form({ carryover_percent: ok }));
+      assert.equal(read.ok, true, ok);
+    }
+    const refused = readPlanForm(form({ carryover_percent: "101" }));
+    assert.equal(refused.ok, false);
+    if (!refused.ok) assert.match(refused.message, /0 a 100/);
   });
 });

@@ -19,6 +19,7 @@ export type PlanValues = {
   readonly opens_video: boolean;
   readonly trial_days: number;
   readonly trial_credits: number;
+  readonly carryover_percent: number;
   readonly is_active: boolean;
 };
 
@@ -93,6 +94,13 @@ export function readPlanForm(form: FormData): PlanRead {
   if (trialDays === null || trialDays > 60) {
     return { ok: false, message: "Os dias de teste vão de 0 a 60." };
   }
+  const carryover = whole(form.get("carryover_percent"));
+  if (carryover === null || carryover > 100) {
+    return {
+      ok: false,
+      message: "O teto da sobra é um número inteiro de 0 a 100 (%).",
+    };
+  }
   return {
     ok: true,
     values: {
@@ -109,6 +117,7 @@ export function readPlanForm(form: FormData): PlanRead {
       opens_video: form.get("opens_video") === "on",
       trial_days: trialDays,
       trial_credits: trialCredits,
+      carryover_percent: carryover,
       is_active: form.get("is_active") === "on",
     },
   };
