@@ -33,9 +33,10 @@ const NAMED = [
   "subscriptions_one_alive_per_person",
 ];
 
-type Row = Functions["billing_find_subscription"]["Returns"][number];
+type Row = Database["public"]["Tables"]["subscriptions"]["Row"];
 
-function toStored(row: Row): StoredSubscription {
+/** A subscriptions row, as the function or the person's own client read it. */
+export function toStored(row: Row): StoredSubscription {
   return {
     id: row.id,
     personId: row.person_id,

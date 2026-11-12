@@ -1,0 +1,124 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+
+import { studies } from "@/lib/access";
+import { readAccess } from "@/lib/auth";
+import { billingDay } from "@/lib/billing/dates";
+import { billingOpen } from "@/lib/billing/server";
+import { createClient } from "@/lib/supabase/server";
+
+import { formatDay } from "./format";
+import { readPlanScreen } from "./queries";
+import { SubscribeForm } from "./subscribe-form";
+import { SubscriptionCard } from "./subscription-card";
+
+export const metadata: Metadata = {
+  title: "Plano e pagamento",
+};
+
+/**
+ * Her plan and its payment (#72), for a student of the B2C line (brand
+ * chelsea-st). A company's employee never pays here (#274): the billing
+ * refuses anyone who is not a student of a chelsea-st organization, and this
+ * screen says so instead of offering a form.
+ */
+export default async function PlanPage() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const [access, { data: profile }, { data: chelsea }] = await Promise.all([
+    readAccess(supabase, user.id),
+    supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", user.id)
+      .maybeSingle(),
+    supabase
+      .from("organization_members")
+      .select("organizations!inner(brand)")
+      .eq("user_id", user.id)
+      .eq("role", "student")
+      .eq("organizations.brand", "chelsea-st")
+      .limit(1),
+  ]);
+  if (!studies(access)) redirect("/dashboard");
+
+  const header = (
+    <div className="flex flex-col gap-2">
+      <Link href="/dashboard" className="text-muted text-sm underline">
+        Voltar
+      </Link>
+      <h1 className="text-3xl font-extrabold tracking-tight">
+        Plano e pagamento
+      </h1>
+    </div>
+  );
+
+  if ((chelsea ?? []).length === 0) {
+    return (
+      <main className="mx-auto flex min-h-dvh max-w-xl flex-col gap-6 p-6">
+        {header}
+        <p className="text-muted">
+          O seu acesso vem da sua empresa. Não há nada a pagar aqui.
+        </p>
+      </main>
+    );
+  }
+
+  const { plans, current, pastDueSince, trialUsed } = await readPlanScreen(
+    user.id,
+  );
+  const today = billingDay(new Date());
+  const alive = current !== null && current.status !== "canceled";
+  const plan = plans.find((each) => each.id === current?.planId);
+
+  return (
+    <main className="mx-auto flex min-h-dvh max-w-xl flex-col gap-6 p-6">
+      {header}
+
+      {alive && current !== null && (
+        <SubscriptionCard
+          planName={plan?.name ?? "Seu plano"}
+          status={current.status}
+          valueCents={current.valueCents}
+          cycle={current.cycle}
+          billingType={current.billingType}
+          firstDueOn={current.firstDueOn}
+          paidThrough={current.paidThrough}
+          pastDueSince={pastDueSince}
+        />
+      )}
+
+      {current?.status === "canceled" &&
+        current.paidThrough !== null &&
+        current.paidThrough >= today && (
+          <p className="text-muted">
+            Assinatura cancelada. Você tem acesso até{" "}
+            {formatDay(current.paidThrough)}.
+          </p>
+        )}
+
+      {!alive &&
+        (!billingOpen() || plans.length === 0 ? (
+          <p className="text-muted">
+            A assinatura ainda não abriu. Fale com a gente.
+          </p>
+        ) : (
+          <SubscribeForm
+            plans={plans}
+            // One trial per person (Q4): a second subscription has none.
+            trialDays={
+              !trialUsed && (plans[0]?.trialDays ?? 0) > 0
+                ? plans[0].trialDays
+                : null
+            }
+            defaultName={profile?.full_name ?? ""}
+          />
+        ))}
+    </main>
+  );
+}
