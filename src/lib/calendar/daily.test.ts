@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { calendarDaily, DAILY_LIMIT } from "./daily.ts";
+import { calendarDaily, DAILY_LIMIT, DAILY_PROPOSAL_LIMIT } from "./daily.ts";
 
 const SECRET = "c".repeat(40);
 const URL = "https://app.example.com/api/calendar/daily";
@@ -14,6 +14,10 @@ function counting() {
       limits.push(limit);
       return { sent: 2, retry: 1, abandoned: 0 };
     },
+    drainProposals: async (limit: number) => {
+      limits.push(-limit);
+      return { sent: 1, retry: 0, abandoned: 1 };
+    },
   };
 }
 
@@ -25,10 +29,11 @@ describe("calendarDaily", () => {
       { authorization: SECRET },
     ];
     for (const headers of attempts) {
-      const { limits, drain } = counting();
+      const { limits, drain, drainProposals } = counting();
       const response = await calendarDaily(new Request(URL, { headers }), {
         secret: SECRET,
         drain,
+        drainProposals,
       });
       assert.equal(response.status, 401);
       assert.deepEqual(limits, []);
@@ -36,27 +41,28 @@ describe("calendarDaily", () => {
   });
 
   test("with no secret set, even an empty bearer is refused", async () => {
-    const { limits, drain } = counting();
+    const { limits, drain, drainProposals } = counting();
     const response = await calendarDaily(
       new Request(URL, { headers: { authorization: "Bearer " } }),
-      { secret: undefined, drain },
+      { secret: undefined, drain, drainProposals },
     );
     assert.equal(response.status, 401);
     assert.deepEqual(limits, []);
   });
 
-  test("with the secret: one drain of any lesson, and its report", async () => {
-    const { limits, drain } = counting();
+  test("with the secret: one drain of any lesson, then of any proposal, and both reports", async () => {
+    const { limits, drain, drainProposals } = counting();
     const response = await calendarDaily(
       new Request(URL, { headers: { authorization: `Bearer ${SECRET}` } }),
-      { secret: SECRET, drain },
+      { secret: SECRET, drain, drainProposals },
     );
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), {
       sent: 2,
       retry: 1,
       abandoned: 0,
+      proposals: { sent: 1, retry: 0, abandoned: 1 },
     });
-    assert.deepEqual(limits, [DAILY_LIMIT]);
+    assert.deepEqual(limits, [DAILY_LIMIT, -DAILY_PROPOSAL_LIMIT]);
   });
 });

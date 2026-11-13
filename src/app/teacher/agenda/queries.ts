@@ -1,5 +1,6 @@
 import { inviteWarnings } from "@/lib/calendar/invite-status";
 import type { requireTeacher } from "@/lib/content/queries";
+import type { ProposalRow } from "@/lib/lessons/proposals/view";
 
 import { progressOf, type Progress } from "../students/progress";
 import {
@@ -243,3 +244,34 @@ async function readBooked(
  * list wrote more than this many notes, together, after it.
  */
 const NOTES_READ_PER_STUDENT = 5;
+
+/** A student she may propose to: active, of the organization of her row. */
+export type ProposalStudent = { readonly id: string; readonly name: string };
+
+/** The active students of the organization, by name, as RLS gives them. */
+export async function readProposalStudents(
+  supabase: Supabase,
+  organizationId: string,
+): Promise<ProposalStudent[]> {
+  const { data, error } = await supabase
+    .from("students")
+    .select("id, profiles!inner(full_name)")
+    .eq("organization_id", organizationId)
+    .eq("is_active", true);
+  if (error) throw new Error(error.message);
+  return data
+    .map((row) => ({ id: row.id, name: row.profiles.full_name }))
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+}
+
+/**
+ * Her proposals as the teacher (my_lesson_proposals, 0057): the open ones
+ * and those closed in the last 7 days, the state read against the clock.
+ */
+export async function readTeacherProposals(
+  supabase: Supabase,
+): Promise<ProposalRow[]> {
+  const { data, error } = await supabase.rpc("my_lesson_proposals");
+  if (error) throw new Error(error.message);
+  return (data as ProposalRow[]).filter((row) => row.my_side === "teacher");
+}

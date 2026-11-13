@@ -75,7 +75,8 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
 - **Chelsea St, generic platform.**
   - Code: the rest of `src/app/teacher` (`lesson`, `agenda`, `students`, `invites`,
     `organizations`, `plans`, the layout, the nav and the notices); `src/app/dashboard` except
-    Robin's practice; `src/app/cadastro`, `login`, `auth`, `forgot-password`, `set-password`,
+    Robin's practice; `src/app/proposal-form.tsx` and `src/app/proposal-list.tsx` (#319, shared by
+    both sides); `src/app/cadastro`, `login`, `auth`, `forgot-password`, `set-password`,
     `src/app/api` (`asaas`, `billing`, `calendar`); `src/lib/billing`, `credits`, `lessons`,
     `calendar`, `mail`, `supabase`, and the loose files of `src/lib` (`auth*`, `access`, `invites`,
     `organizations`, `signup`, `turnstile`, `magic-link`, `link-request`, `session-cookies`,
@@ -86,7 +87,8 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
     `docs/spec-creditos.md`.
   - Data: `profiles`, `organizations`, `organization_members`, `organization_invites`,
     `platform_admins`, `students`, `teachers`, `teacher_availability`, `teacher_time_off`,
-    `lessons`, `calendar_invites`, `assignments`, `assignment_items`, `attempts`,
+    `lessons`, `calendar_invites`, `lesson_proposals`, `lesson_proposal_items`,
+    `lesson_proposal_mails`, `assignments`, `assignment_items`, `attempts`,
     `review_schedule`, `leads`, `plans`, `billing_customers`, `subscriptions`, `payments`,
     `billing_events`, `overdue_steps`, `credit_costs`, `credit_entries`. The migration sequence is
     one, and belongs to nobody in particular.
@@ -270,7 +272,8 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
   reads the plan's cost of a lesson first. Nobody executes `lesson_booker_organization`, `lesson_open_slots` or the trigger function,
   and `credit_debit` and `credit_refund` stay executable by nobody. Each refusal names its rule at
   the start of its message, and `src/lib/lessons/refusals.ts` says it in Portuguese.
-- A lesson is born only through `book_lesson` (0054, #295). The fixed weekly agenda is gone:
+- A lesson is born only through `book_lesson` or `accept_lesson_proposal`, both through
+  `lesson_write_paid` (0054, #295; 0057, #319). The fixed weekly agenda is gone:
   `lesson_schedules`, `materialize_lessons`, `students.meet_url`, `lessons.meet_url` and
   `lessons_student_slot_idx` no longer exist, and a test reads `src/` for their names
   (`no-fixed-agenda.test.ts`). Every lesson has a teacher (`lessons.teacher_id` is not null): 0054
@@ -306,6 +309,35 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
   kind, the role and Resend's status and error name, never an address or a name. 0056 queued
   the requests of the lessons ahead and scheduled when it was applied, after 0054 gave each its
   teacher.
+- A lesson outside the free slots is proposed and waits for a yes (0057, #319, `docs/spec-f1.md`,
+  "Proposta de aula"). A teacher proposes to an active student of the organization of her row of
+  `teachers`, a student to a teacher she could book; one lesson or a series, stored as instants
+  (`lesson_proposals`, `lesson_proposal_items`). Each start is more than `refund_until_before`
+  ahead and at most `book_opens_ahead`, crossing no scheduled lesson of the teacher (any of her
+  rows) or of the student, nor another of the proposal (`lesson_proposal_items_no_overlap`); the
+  windows and time off are not checked. Nothing is debited or held until the yes. A proposal is
+  open until `expires_at`, written once: `lesson_proposal_rules().valid_for` (3 days) or
+  `refund_until_before` before its first lesson, the sooner; its state is read against the clock,
+  and `expired` is written on the table by the next proposal of the same person and by
+  `lesson_proposal_mails_due` (after every proposal and daily). As `book_lesson`, neither the
+  proposal nor the yes passes in an organization without a teacher. A student has one open proposal per teacher
+  (`lesson_proposal_one_open`) and her balance must cover the proposal when she proposes. Only the
+  other side answers (`lesson_proposal_answer_allowed`), only the proposer withdraws. The yes
+  (`accept_lesson_proposal`) checks every start again (`lesson_proposal_slot_taken`) and writes and
+  pays each lesson through `lesson_write_paid`, the piece `book_lesson` was recreated on in 0057
+  with the same signature: one `credit_debit(student, 'teacher_lesson', 1, 'lesson:<id>')` per
+  lesson, the whole series or nothing. Nobody writes the three tables through the API; the
+  proposal and its lessons are read by its student, its teacher, the organization's admin and the
+  platform admin. `authenticated` executes six functions, all for `auth.uid()`:
+  `propose_lessons_to_student`, `propose_lessons_to_teacher`, `accept_lesson_proposal`,
+  `decline_lesson_proposal`, `withdraw_lesson_proposal`, `my_lesson_proposals`; nobody executes
+  `lesson_write_paid`, `lesson_proposal_rules`, the other pieces or the trigger function. The
+  e-mail to the other side is queued by the trigger `lesson_proposals_queue_mail` in
+  `lesson_proposal_mails` (one row per proposal, skipped once the proposal closes), sent from
+  `agenda@` after the action and by the daily routine `/api/calendar/daily`, through three
+  `security definer` functions only `service_role` executes (`lesson_proposal_mails_due`,
+  `lesson_proposal_mail_sent`, `lesson_proposal_mail_failed`), the same exception as the calendar
+  invites; whoever teaches in the organization reads its rows, never an address.
 - The Plano Fundador, the Founder seal, the seats and the Plano Fundador Personalizado follow 0058
   (#292, `docs/spec-pagamento.md`, "Plano Fundador"):
   - **The seal** is `person_badges`: one row per grant, never deleted (revoking writes `revoked_at`,
@@ -472,7 +504,9 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
   below: `src/lib/billing/supabase-store.ts` (#72, Q2), which calls only the ten `billing_*`
   functions of 0049 and `credit_settle_payment` and `credit_daily` of 0050 (#273), and reads a
   person's e-mail from auth for the overdue e-mails, and by `src/lib/calendar/supabase-outbox.ts`
-  (#294), which calls only the three `calendar_*` functions of 0056. It passes every policy: never use it to read or
+  (#294), which calls only the three `calendar_*` functions of 0056, and by
+  `src/lib/lessons/proposals/supabase-outbox.ts` (#319), which calls only the three
+  `lesson_proposal_mail*` functions of 0057. It passes every policy: never use it to read or
   write a table directly; it holds no privilege on the billing tables or the ledger, only `execute`
   on their functions.
 - Asaas (#72, `docs/spec-pagamento.md`): `ASAAS_API_KEY` (the address follows its prefix; written

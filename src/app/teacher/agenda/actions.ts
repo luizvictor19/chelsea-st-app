@@ -9,11 +9,14 @@ import {
   readTimeOffForm,
   readWindowForm,
 } from "@/lib/lessons/availability-form";
-import { refusalSentence } from "@/lib/lessons/refusals";
+import { readProposalForm } from "@/lib/lessons/proposal-form";
+import { sendProposalMailAfterResponse } from "@/lib/lessons/proposals/server";
+import { lessonsLabel } from "@/lib/lessons/proposals/view";
+import { refusalSentence, STUDENT_BALANCE_SHORT } from "@/lib/lessons/refusals";
 import { lessonMinutesFrom } from "@/lib/lessons/rules";
 import { creditsLabel } from "@/lib/lessons/slots";
 
-import { instantIn } from "../students/agenda";
+import { instantIn } from "@/lib/datetime";
 import { teacherZone } from "../students/queries";
 
 export type AgendaResult =
@@ -218,4 +221,91 @@ export async function cancelBookedLesson(
         ? `Aula cancelada · ${creditsLabel(data)} de volta para o aluno.`
         : "Aula cancelada.",
   };
+}
+
+/**
+ * Proposes a lesson or a series to a student of hers (#319,
+ * propose_lessons_to_student, 0057): the form read into instants in her zone,
+ * nothing debited, the e-mail to the student after the answer.
+ */
+export async function proposeLessons(
+  formData: FormData,
+): Promise<AgendaResult> {
+  const { supabase, user } = await requireTeacher();
+  const zone = await teacherZone(supabase, user.id);
+  const read = readProposalForm(formData, zone);
+  if (!read.ok) return { ok: false, error: read.message };
+  const { data, error } = await supabase.rpc("propose_lessons_to_student", {
+    p_student: String(formData.get("student_id") ?? ""),
+    p_starts: read.values.map((start) => start.toISOString()),
+  });
+  if (error) return { ok: false, error: refusalSentence(error.message) };
+  refresh();
+  revalidatePath("/teacher/students", "layout");
+  sendProposalMailAfterResponse(data);
+  return {
+    ok: true,
+    message: `Proposta enviada · ${lessonsLabel(read.values.length)}. Nada é debitado antes do aceite do aluno.`,
+  };
+}
+
+/**
+ * Her yes or no to a student's proposal (accept_lesson_proposal,
+ * decline_lesson_proposal, 0057). On the yes the lessons are written and paid
+ * from the student's balance, and their calendar invites go after the answer.
+ */
+export async function answerProposal(
+  proposalId: string,
+  answer: "accept" | "decline",
+): Promise<AgendaResult> {
+  const { supabase } = await requireTeacher();
+  if (answer === "decline") {
+    const { error } = await supabase.rpc("decline_lesson_proposal", {
+      p_proposal: proposalId,
+    });
+    if (error) return { ok: false, error: refusalSentence(error.message) };
+    refresh();
+    return { ok: true, message: "Proposta recusada. Nada foi debitado." };
+  }
+  const { data, error } = await supabase.rpc("accept_lesson_proposal", {
+    p_proposal: proposalId,
+  });
+  if (error) {
+    // The sentence of the ledger speaks to the student; here the balance
+    // is hers, not the reader's.
+    return {
+      ok: false,
+      error: error.message.includes("credits_not_negative")
+        ? STUDENT_BALANCE_SHORT
+        : refusalSentence(error.message),
+    };
+  }
+  refresh();
+  revalidatePath("/teacher/students", "layout");
+  const accepted = data.at(0);
+  // The lessons the yes wrote, soonest first: their invites go now.
+  if (accepted !== undefined && accepted.lesson_ids.length > 0) {
+    sendInvitesAfterResponse(accepted.lesson_ids);
+  }
+  return {
+    ok: true,
+    message:
+      accepted === undefined
+        ? "Proposta aceita."
+        : `Proposta aceita · ${lessonsLabel(accepted.lesson_count)} marcada${accepted.lesson_count === 1 ? "" : "s"}, ${creditsLabel(accepted.credits_debited)} do saldo do aluno.`,
+  };
+}
+
+/** Takes back a proposal she made, while it is open (0057). */
+export async function withdrawProposal(
+  proposalId: string,
+): Promise<AgendaResult> {
+  const { supabase } = await requireTeacher();
+  const { error } = await supabase.rpc("withdraw_lesson_proposal", {
+    p_proposal: proposalId,
+  });
+  if (error) return { ok: false, error: refusalSentence(error.message) };
+  refresh();
+  revalidatePath("/teacher/students", "layout");
+  return { ok: true, message: "Proposta retirada." };
 }

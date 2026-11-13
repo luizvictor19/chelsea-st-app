@@ -70,19 +70,27 @@ export async function drainAllCalendarInvites(
 }
 
 /**
- * After the answer to a booking or a cancel: the invites of that lesson,
- * then a few left pending of others. The lesson is already written; this
- * only reads the queue and sends, and never throws.
+ * After the answer to a booking, a cancel or the yes to a proposal: the
+ * invites of those lessons, soonest first, then a few left pending of
+ * others. The lessons are already written; this only reads the queue and
+ * sends, and never throws. A series sends two rows per lesson, paced: what
+ * does not fit in the route's time waits for the next action or the daily
+ * routine (the queue keeps it).
  */
-export function sendInvitesAfterResponse(lessonId: string): void {
+export function sendInvitesAfterResponse(
+  lessonIds: string | readonly string[],
+): void {
+  const lessons = typeof lessonIds === "string" ? [lessonIds] : lessonIds;
   after(async () => {
     const deps = calendarDeps();
     if (deps === null) return;
-    await drainInvites(deps, { lessonId, limit: 4 });
+    for (const lessonId of lessons) {
+      await drainInvites(deps, { lessonId, limit: 4 });
+    }
     await drainInvites(deps, {
       lessonId: null,
       limit: OTHERS_PER_ACTION,
-      skipLessonId: lessonId,
+      skipLessonId: lessons.length === 1 ? lessons[0] : undefined,
     });
   });
 }

@@ -3,9 +3,20 @@
 import Link from "next/link";
 import { useRef, useState, useTransition } from "react";
 
+import type { ProposalItem } from "@/lib/lessons/proposals/view";
 import { creditsLabel, type SlotDay } from "@/lib/lessons/slots";
 
-import { bookLesson, cancelMyLesson, type LessonResult } from "./actions";
+import { ProposalForm } from "../../proposal-form";
+import { ProposalList } from "../../proposal-list";
+import { STUDENT_ACCEPT_NOTE } from "../proposal-card";
+import {
+  answerMyProposal,
+  bookLesson,
+  cancelMyLesson,
+  proposeToTeacher,
+  withdrawMyProposal,
+  type LessonResult,
+} from "./actions";
 
 type MyLessonItem = {
   readonly id: string;
@@ -345,5 +356,57 @@ function MyLessonRow({
         </div>
       </dialog>
     </li>
+  );
+}
+
+/**
+ * Her proposals, both ways, and the form to propose a time outside the free
+ * slots (#319). The teacher's open ones are also the cards on /dashboard.
+ */
+export function ProposalsSection({
+  items,
+  teachers,
+  zone,
+}: {
+  readonly items: readonly ProposalItem[];
+  readonly teachers: readonly { id: string; name: string }[];
+  readonly zone: string;
+}) {
+  return (
+    <section aria-labelledby="proposals" className="flex flex-col gap-3">
+      <h2 id="proposals" className="text-xl font-bold tracking-tight">
+        Propostas
+      </h2>
+      {items.length === 0 ? (
+        <p className="text-muted text-sm">Nenhuma proposta nos últimos dias.</p>
+      ) : (
+        <ProposalList
+          items={items}
+          answer={answerMyProposal}
+          withdraw={withdrawMyProposal}
+          acceptNote={STUDENT_ACCEPT_NOTE}
+        />
+      )}
+      <h3 className="text-base font-bold tracking-tight">
+        Propor outro horário
+      </h3>
+      {teachers.length === 0 ? (
+        <p className="text-muted text-sm">
+          Nenhum professor aceitando aulas agora.
+        </p>
+      ) : (
+        <ProposalForm
+          target={{
+            field: "teacher_id",
+            label: "Professor",
+            options: teachers,
+          }}
+          zone={zone}
+          action={proposeToTeacher}
+          submitLabel="Enviar proposta"
+          note={`Hora no seu fuso (${zone}). Para um horário fora dos livres: o professor aceita ou recusa, e os créditos saem só no aceite. Seu saldo precisa cobrir a proposta agora. Uma proposta aberta por professor; ela vale 3 dias, ou até 1 hora antes da primeira aula.`}
+        />
+      )}
+    </section>
   );
 }

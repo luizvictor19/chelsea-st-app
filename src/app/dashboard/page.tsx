@@ -6,6 +6,7 @@ import { destinationFor, manages, practicesOnly, studies } from "@/lib/access";
 import { readAccess } from "@/lib/auth";
 import { billingOpen } from "@/lib/billing/server";
 import { currentSite } from "@/lib/current-site";
+import { proposalItem, type ProposalRow } from "@/lib/lessons/proposals/view";
 import { createClient } from "@/lib/supabase/server";
 
 import { PendingInvites } from "../auth/pending-invites";
@@ -15,6 +16,7 @@ import { AccountPending } from "./account-pending";
 import { DailyChallenge } from "./daily-challenge";
 import { FounderBadge } from "./founder-badge";
 import { NextLessonCard } from "./next-lesson-card";
+import { ProposalCards } from "./proposal-card";
 import { readPlanScreen } from "./plano/queries";
 import { RobinPractice } from "./robin-practice";
 import { StartTrialCard } from "./start-trial-card";
@@ -69,20 +71,41 @@ export default async function DashboardPage() {
   }
 
   const now = new Date();
-  const [{ data: lessons }, startsTrial] = await Promise.all([
-    // Her lessons not finished yet, soonest first, with the room: the Meet of
-    // the lesson's teacher (#276), for every lesson since #295. A lesson
-    // still running is in it: running late is normal.
-    supabase.rpc("my_lessons"),
-    offersTrial(supabase, user.id),
-  ]);
+  const [{ data: lessons }, startsTrial, proposalsRead, balanceRead] =
+    await Promise.all([
+      // Her lessons not finished yet, soonest first, with the room: the Meet
+      // of the lesson's teacher (#276), for every lesson since #295. A lesson
+      // still running is in it: running late is normal.
+      supabase.rpc("my_lessons"),
+      offersTrial(supabase, user.id),
+      // The teacher's proposals waiting for her yes (#319). A failed read
+      // shows no card; /dashboard/lessons lists them too.
+      supabase.rpc("my_lesson_proposals"),
+      supabase.rpc("credits_balance", { p_person: user.id }),
+    ]);
   const nextLesson = (lessons ?? []).at(0);
+  const proposals = ((proposalsRead.data ?? []) as ProposalRow[])
+    .filter(
+      (row) =>
+        row.my_side === "student" &&
+        row.proposed_by === "teacher" &&
+        row.status === "open",
+    )
+    .map((row) =>
+      proposalItem(row, {
+        zone: profile.timezone,
+        balance: balanceRead.error ? null : balanceRead.data,
+        timeOff: [],
+      }),
+    );
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-6 p-6">
       <Greeting name={profile.full_name} team={manages(access)} />
       {/* The Founder seal (#292). */}
       <FounderBadge />
+
+      <ProposalCards items={proposals} />
 
       <PendingInvites />
 
