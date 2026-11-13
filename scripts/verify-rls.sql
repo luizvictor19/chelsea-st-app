@@ -6711,7 +6711,8 @@ begin
     raise notice 'a booking writes the lesson and debits the caller by credit_cost, under lesson:<id>, in one call';
   end if;
 
-  -- 8. The slot is taken: by the slots and by the booking of another.
+  -- 8. The slot is taken: by the slots and by the booking of another; and
+  -- for her, the same hour with another teacher.
   perform set_config('test.uid', c_other::text, false);
   set local role authenticated;
   if exists (select 1 from bookable_slots(v_a, v_ten, v_ten) ) then
@@ -6719,6 +6720,13 @@ begin
   end if;
   perform verify.expect_named_refusal('a slot already booked', '23514 lesson_slot_bookable',
     format('select * from book_lesson(%L, %L)', v_a, v_ten));
+  -- Nor is the hour she already has with A offered to her with B.
+  perform set_config('test.uid', c_student::text, false);
+  if exists (select 1 from bookable_slots(v_b, v_ten, v_ten)) then
+    insert into verify.failures values ('a slot that crosses a lesson of hers is offered to her');
+  end if;
+  perform verify.expect_named_refusal('a slot that crosses a lesson of hers', '23514 lesson_slot_bookable',
+    format('select * from book_lesson(%L, %L)', v_b, v_ten));
 
   -- 9. A balance that does not cover a lesson: no lesson, no entry.
   perform set_config('test.uid', c_poor::text, false);
