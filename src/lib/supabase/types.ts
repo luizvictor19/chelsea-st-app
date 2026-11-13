@@ -629,6 +629,151 @@ export type Database = {
           },
         ];
       };
+      founder_coupon_redemptions: {
+        Row: {
+          coupon_id: string;
+          id: string;
+          organization_id: string | null;
+          person_id: string | null;
+          redeemed_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          coupon_id: string;
+          id?: string;
+          organization_id?: string | null;
+          person_id?: string | null;
+          redeemed_at?: string;
+        };
+        Update: {
+          coupon_id?: string;
+          id?: string;
+          organization_id?: string | null;
+          person_id?: string | null;
+          redeemed_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "founder_coupon_redemptions_coupon_id_fkey";
+            columns: ["coupon_id"];
+            isOneToOne: false;
+            referencedRelation: "founder_coupons";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "founder_coupon_redemptions_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "founder_coupon_redemptions_person_id_fkey";
+            columns: ["person_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      founder_coupons: {
+        Row: {
+          brand: string;
+          code_hash: string;
+          created_at: string;
+          created_by: string | null;
+          expires_at: string;
+          id: string;
+          label: string;
+          max_uses: number;
+          organization_id: string | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          brand: string;
+          code_hash: string;
+          created_at?: string;
+          created_by?: string | null;
+          expires_at: string;
+          id?: string;
+          label: string;
+          max_uses: number;
+          organization_id?: string | null;
+        };
+        Update: {
+          brand?: string;
+          code_hash?: string;
+          created_at?: string;
+          created_by?: string | null;
+          expires_at?: string;
+          id?: string;
+          label?: string;
+          max_uses?: number;
+          organization_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "founder_coupons_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "founder_coupons_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      founder_invites: {
+        Row: {
+          accepted_at: string | null;
+          created_at: string;
+          email: string;
+          expires_at: string;
+          id: string;
+          invited_by: string | null;
+          organization_id: string | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          accepted_at?: string | null;
+          created_at?: string;
+          email: string;
+          expires_at: string;
+          id?: string;
+          invited_by?: string | null;
+          organization_id?: string | null;
+        };
+        Update: {
+          accepted_at?: string | null;
+          created_at?: string;
+          email?: string;
+          expires_at?: string;
+          id?: string;
+          invited_by?: string | null;
+          organization_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "founder_invites_invited_by_fkey";
+            columns: ["invited_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "founder_invites_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       founder_program: {
         Row: {
           id: boolean;
@@ -1835,6 +1980,43 @@ export type Database = {
           },
         ];
       };
+      signup_origins: {
+        Row: {
+          created_at: string;
+          organization_id: string | null;
+          origin: string;
+          person_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          organization_id?: string | null;
+          origin: string;
+          person_id: string;
+        };
+        Update: {
+          created_at?: string;
+          organization_id?: string | null;
+          origin?: string;
+          person_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "signup_origins_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "signup_origins_person_id_fkey";
+            columns: ["person_id"];
+            isOneToOne: true;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       students: {
         Row: {
           id: string;
@@ -2232,6 +2414,10 @@ export type Database = {
       };
     };
     Functions: {
+      accept_founder_invites: {
+        Args: { p_email: string; p_user: string };
+        Returns: undefined;
+      };
       accept_lesson_proposal: {
         Args: { p_proposal: string };
         Returns: {
@@ -2446,6 +2632,16 @@ export type Database = {
         };
         Returns: undefined;
       };
+      create_founder_coupon: {
+        Args: {
+          p_brand: string;
+          p_code: string;
+          p_expires_at: string;
+          p_label: string;
+          p_max_uses: number;
+        };
+        Returns: string;
+      };
       credit_alive: { Args: { p_person: string }; Returns: boolean };
       credit_balance_of: { Args: { p_person: string }; Returns: number };
       credit_check_reader: { Args: { p_person: string }; Returns: undefined };
@@ -2558,6 +2754,7 @@ export type Database = {
       };
       delete_question: { Args: { p_question_id: string }; Returns: undefined };
       dissolve_contrast_set: { Args: { p_set_id: string }; Returns: undefined };
+      founder_coupon_hash: { Args: { p_code: string }; Returns: string };
       founder_seats_left: { Args: Record<PropertyKey, never>; Returns: number };
       gen_random_uuid: { Args: Record<PropertyKey, never>; Returns: string };
       gen_salt: { Args: { "": string }; Returns: string };
@@ -2750,6 +2947,15 @@ export type Database = {
         Args: { p_starts: string[]; p_teacher: string };
         Returns: string;
       };
+      record_signup_origin: {
+        Args: { p_meta: Json; p_user: string };
+        Returns: undefined;
+      };
+      redeem_founder_coupon: {
+        Args: { p_code: string; p_person: string };
+        Returns: string;
+      };
+      redeem_my_founder_coupon: { Args: { p_code: string }; Returns: string };
       reorder_questions: {
         Args: { p_ids: string[]; p_point_id: string };
         Returns: undefined;

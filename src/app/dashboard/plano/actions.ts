@@ -11,6 +11,7 @@ import {
   startSubscription,
 } from "@/lib/billing/subscribe";
 import { siteOfBrand } from "@/lib/brand";
+import { redeemAnswer, type RedeemState } from "@/lib/founder-coupon";
 import { currentSite, siteConfig } from "@/lib/current-site";
 import { createClient } from "@/lib/supabase/server";
 
@@ -130,4 +131,27 @@ export async function cancel(
   }
   revalidatePath("/dashboard/plano");
   return { status: "idle" };
+}
+
+/**
+ * "Tenho um cupom" (#296): redeem_my_founder_coupon decides, for her and
+ * nobody else (auth.uid() in the database), and every refusal comes back by
+ * the name of its rule. With the seal, the Plano Fundador is hers to read.
+ */
+export async function redeemCoupon(
+  _previous: RedeemState,
+  formData: FormData,
+): Promise<RedeemState> {
+  await signedPerson();
+  const code = String(formData.get("code") ?? "").trim();
+  if (code === "") {
+    return { status: "error", message: "Digite o código do cupom." };
+  }
+  const supabase = await createClient();
+  const answer = await supabase.rpc("redeem_my_founder_coupon", {
+    p_code: code.slice(0, 128),
+  });
+  const state = redeemAnswer(answer);
+  if (state.status === "granted") revalidatePath("/dashboard/plano");
+  return state;
 }

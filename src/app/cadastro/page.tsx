@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 
 import { pageMetadata } from "@/lib/brand";
 import { currentSite } from "@/lib/current-site";
+import { signupFounderView } from "@/lib/signup";
+import { createClient } from "@/lib/supabase/server";
 
 import { BrandMark } from "../brand-mark";
 import { signupDoorHere } from "./door";
@@ -20,14 +22,28 @@ export async function generateMetadata(): Promise<Metadata> {
  * The signup of the chelsea-st brand (#275). Only on its site: a company on GrifoAI is
  * invite only, and any other host gets a 404. Closed, with a sentence, until
  * the subscription opens and while the Turnstile keys are missing.
+ *
+ * ?cupom= fills "Tenho um cupom" (the landing's button, #296); ?origem=grifoai
+ * (the GrifoAI landing) hides the founders and is recorded; the fragment of a
+ * founder invite fills the e-mail (signup-form.tsx).
  */
-export default async function SignupPage() {
+export default async function SignupPage({
+  searchParams,
+}: {
+  readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const site = await currentSite();
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
   const door = signupDoorHere(site);
   if (door === "absent") {
     notFound();
   }
+  const params = await searchParams;
+  const founders = signupFounderView({
+    coupon: params.cupom,
+    origin: params.origem,
+    seatsLeft: door === "open" ? await seatsLeft() : null,
+  });
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 p-6">
@@ -41,7 +57,11 @@ export default async function SignupPage() {
       </div>
 
       {door === "open" && siteKey ? (
-        <SignupForm siteKey={siteKey} privacyUrl={PRIVACY_URL} />
+        <SignupForm
+          siteKey={siteKey}
+          privacyUrl={PRIVACY_URL}
+          founders={founders}
+        />
       ) : (
         <p className="border-rule bg-surface text-muted rounded-sm border p-6">
           As inscrições abrem em breve.
@@ -57,4 +77,11 @@ export default async function SignupPage() {
       </p>
     </main>
   );
+}
+
+/** The founder seats left, the number the landing shows; null when unread. */
+async function seatsLeft(): Promise<number | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("founder_seats_left");
+  return error ? null : data;
 }

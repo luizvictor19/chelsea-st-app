@@ -1,11 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { siteOfBrand } from "@/lib/brand";
 import { requireTeacher } from "@/lib/content/queries";
+import { siteConfig } from "@/lib/current-site";
+import { founderSignupLink } from "@/lib/founder-invite-mail";
 
 import {
   openInvites,
   readInvitableOrganizations,
+  readOpenFounderInvites,
   readOpenInvites,
   readWaitingPersonalPlans,
 } from "./invitable";
@@ -27,12 +31,23 @@ export const metadata: Metadata = {
 export default async function InvitesPage() {
   const { supabase, user, access } = await requireTeacher();
 
-  const [organizations, rows, personalPlans] = await Promise.all([
-    readInvitableOrganizations(supabase, user.id, access.platformAdmin),
-    readOpenInvites(supabase),
-    access.platformAdmin ? readWaitingPersonalPlans(supabase) : [],
-  ]);
-  const invites = openInvites(rows, organizations, new Date());
+  const now = new Date();
+  const origin = siteOfBrand("chelsea-st", siteConfig())?.origin ?? null;
+  const [organizations, rows, personalPlans, founderInvites, seatsLeft] =
+    await Promise.all([
+      readInvitableOrganizations(supabase, user.id, access.platformAdmin),
+      readOpenInvites(supabase),
+      access.platformAdmin ? readWaitingPersonalPlans(supabase) : [],
+      access.platformAdmin
+        ? readOpenFounderInvites(supabase, now, (email) =>
+            origin === null ? null : founderSignupLink(origin, email),
+          )
+        : [],
+      access.platformAdmin
+        ? supabase.rpc("founder_seats_left").then(({ data }) => data ?? null)
+        : null,
+    ]);
+  const invites = openInvites(rows, organizations, now);
 
   return (
     <section className="flex max-w-3xl flex-col gap-8">
@@ -49,6 +64,14 @@ export default async function InvitesPage() {
           vê o convite ao entrar na plataforma e aceita ali. Avise a pessoa.
           Aluna não se convida: ela se cadastra.
         </p>
+        {access.platformAdmin && (
+          <p className="text-muted max-w-prose">
+            Fundador: a pessoa recebe um e-mail da agenda com o link do
+            cadastro, e o selo de fundador entra quando ela confirmar o e-mail.
+            Se ela já tem conta com esse e-mail, o selo entra na hora. Os cupons
+            ficam em Fundadores.
+          </p>
+        )}
         {access.platformAdmin && (
           <p className="text-muted max-w-prose">
             Plano personalizado: o plano fica pronto para o e-mail, e a pessoa
@@ -70,12 +93,14 @@ export default async function InvitesPage() {
       <InviteTypes
         organizations={organizations}
         platformAdmin={access.platformAdmin}
+        seatsLeft={seatsLeft}
       />
 
       <InviteList
         invites={invites}
         showOrganization={organizations.length > 1}
         personalPlans={personalPlans}
+        founderInvites={founderInvites}
       />
     </section>
   );

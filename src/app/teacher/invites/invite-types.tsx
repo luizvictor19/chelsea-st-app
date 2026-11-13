@@ -2,20 +2,24 @@
 
 import { useState } from "react";
 
+import { FounderInviteForm } from "./founder-invite-form";
 import { InviteForm, type InvitableOrganization } from "./invite-form";
 import { PersonalPlanForm } from "./personal-plan-form";
 
 /**
  * The one invite screen (#292, 13/11): the kind first, then its form. An
- * invite to an organization, as before; a Plano Fundador Personalizado, for
- * the platform admin alone. #296 adds the founder's invite here.
+ * invite to an organization, as before; for the platform admin alone, a
+ * Plano Fundador Personalizado and a founder invite (#296).
  */
 export function InviteTypes({
   organizations,
   platformAdmin,
+  seatsLeft = null,
 }: {
   readonly organizations: readonly InvitableOrganization[];
   readonly platformAdmin: boolean;
+  /** The founder seats left (founder_seats_left), for the founder invite. */
+  readonly seatsLeft?: number | null;
 }) {
   // Where the signup is the door, a teacher who is not the admin offers no
   // role, and the organization has no form (its open invites still list).
@@ -25,7 +29,10 @@ export function InviteTypes({
       ? [{ key: "organization", label: "Organização" } as const]
       : []),
     ...(platformAdmin
-      ? [{ key: "personal", label: "Plano personalizado" } as const]
+      ? ([
+          { key: "founder", label: "Fundador" },
+          { key: "personal", label: "Plano personalizado" },
+        ] as const)
       : []),
   ];
   const [kind, setKind] = useState(kinds[0]?.key);
@@ -55,6 +62,8 @@ export function InviteTypes({
       )}
       {kind === "organization" ? (
         <InviteForm organizations={offerable} />
+      ) : kind === "founder" ? (
+        <FounderInviteForm seatsLeft={seatsLeft} />
       ) : (
         <PersonalPlanForm />
       )}

@@ -3,7 +3,11 @@ import { invitableRoles } from "@/lib/invites";
 import type { createClient } from "@/lib/supabase/server";
 
 import type { InvitableOrganization } from "./invite-form";
-import type { OpenInvite, WaitingPersonalPlan } from "./invite-list";
+import type {
+  OpenFounderInvite,
+  OpenInvite,
+  WaitingPersonalPlan,
+} from "./invite-list";
 
 type Client = Awaited<ReturnType<typeof createClient>>;
 
@@ -147,4 +151,29 @@ export async function readWaitingPersonalPlans(
       ? []
       : [{ id: plan.id, name: plan.name, email: plan.person_email }],
   );
+}
+
+/**
+ * The founder invites still open (0059), for the platform admin:
+ * founder_invites_read gives them to her alone. Each with the link of its
+ * e-mail, to send by hand when the e-mail does not go.
+ */
+export async function readOpenFounderInvites(
+  supabase: Client,
+  now: Date,
+  signupLink: (email: string) => string | null,
+): Promise<OpenFounderInvite[]> {
+  const { data, error } = await supabase
+    .from("founder_invites")
+    .select("id, email, expires_at")
+    .is("accepted_at", null)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(`founder_invites: ${error.message}`);
+  return data.map((invite) => ({
+    id: invite.id,
+    email: invite.email,
+    expiresAt: invite.expires_at,
+    expired: new Date(invite.expires_at) <= now,
+    link: signupLink(invite.email),
+  }));
 }
