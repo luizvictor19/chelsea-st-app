@@ -313,8 +313,10 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
   rows) or of the student, nor another of the proposal (`lesson_proposal_items_no_overlap`); the
   windows and time off are not checked. Nothing is debited or held until the yes. A proposal is
   open until `expires_at`, written once: `lesson_proposal_rules().valid_for` (3 days) or
-  `refund_until_before` before its first lesson, the sooner; its state is read against the clock
-  and written `expired` by the function that meets it. A student has one open proposal per teacher
+  `refund_until_before` before its first lesson, the sooner; its state is read against the clock,
+  and `expired` is written on the table by the next proposal of the same person and by
+  `lesson_proposal_mails_due` (after every proposal and daily). As `book_lesson`, neither the
+  proposal nor the yes passes in an organization without a teacher. A student has one open proposal per teacher
   (`lesson_proposal_one_open`) and her balance must cover the proposal when she proposes. Only the
   other side answers (`lesson_proposal_answer_allowed`), only the proposer withdraws. The yes
   (`accept_lesson_proposal`) checks every start again (`lesson_proposal_slot_taken`) and writes and

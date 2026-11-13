@@ -92,6 +92,7 @@ export function TeacherAgendaView({
   windows,
   timeOff,
   proposals,
+  proposalsReadFailed,
   students,
   lessons,
 }: {
@@ -102,6 +103,7 @@ export function TeacherAgendaView({
   readonly windows: readonly WindowItem[];
   readonly timeOff: readonly TimeOffItem[];
   readonly proposals: readonly ProposalItem[];
+  readonly proposalsReadFailed: boolean;
   readonly students: readonly ProposalStudent[];
   readonly lessons: readonly LessonItem[];
 }) {
@@ -126,6 +128,7 @@ export function TeacherAgendaView({
           />
           <ProposalSection
             proposals={proposals}
+            readFailed={proposalsReadFailed}
             students={students}
             zone={zone}
           />
@@ -361,10 +364,12 @@ function TimeOffSection({
 /** The proposals she made and the students' ones to her (#319), and the form. */
 export function ProposalSection({
   proposals,
+  readFailed,
   students,
   zone,
 }: {
   readonly proposals: readonly ProposalItem[];
+  readonly readFailed: boolean;
   readonly students: readonly ProposalStudent[];
   readonly zone: string;
 }) {
@@ -377,7 +382,11 @@ export function ProposalSection({
         Uma aula combinada fora dos horários livres vira proposta: quem recebe
         aceita ou recusa, e os créditos saem só no aceite.
       </p>
-      {proposals.length === 0 ? (
+      {readFailed ? (
+        <p role="alert" className="text-accent text-sm">
+          Não foi possível ler as propostas agora. Recarregue a página.
+        </p>
+      ) : proposals.length === 0 ? (
         <p className="text-muted text-sm">Nenhuma proposta nos últimos dias.</p>
       ) : (
         <ProposalList

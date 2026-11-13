@@ -161,16 +161,11 @@ export async function answerMyProposal(
     };
   }
   refresh();
-  const { data: items } = await supabase
-    .from("lesson_proposal_items")
-    .select("lesson_id")
-    .eq("proposal_id", proposalId)
-    .order("starts_at");
-  const lessons = (items ?? []).flatMap((item) =>
-    item.lesson_id === null ? [] : [item.lesson_id],
-  );
-  if (lessons.length > 0) sendInvitesAfterResponse(lessons);
   const accepted = data.at(0);
+  // The lessons the yes wrote, soonest first: their invites go now.
+  if (accepted !== undefined && accepted.lesson_ids.length > 0) {
+    sendInvitesAfterResponse(accepted.lesson_ids);
+  }
   return {
     ok: true,
     message:

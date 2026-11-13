@@ -42,12 +42,16 @@ export default async function TeacherAgendaPage() {
     teacherZone(supabase, user.id),
   ]);
   const organization = agenda.teachable[0];
+  // The proposals are a section of the agenda, not the agenda: a failed
+  // read says so there and leaves the hours and the lessons on the screen.
   const [proposals, students] =
     agenda.profile === null
       ? [[], []]
       : await Promise.all([
-          readTeacherProposals(supabase),
-          readProposalStudents(supabase, agenda.profile.organizationId),
+          readTeacherProposals(supabase).catch(() => null),
+          readProposalStudents(supabase, agenda.profile.organizationId).catch(
+            () => [],
+          ),
         ]);
 
   return (
@@ -90,13 +94,14 @@ export default async function TeacherAgendaPage() {
             const to = dayMonth(last, zone);
             return { id: t.id, label: from === to ? from : `${from} a ${to}` };
           })}
-          proposals={proposals.map((row) =>
+          proposals={(proposals ?? []).map((row) =>
             proposalItem(row, {
               zone,
               balance: null,
               timeOff: agenda.timeOff,
             }),
           )}
+          proposalsReadFailed={proposals === null}
           students={students}
           lessons={agenda.lessons.map((lesson) => {
             const start = new Date(lesson.scheduledAt);
