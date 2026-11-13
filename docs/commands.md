@@ -486,3 +486,21 @@ End to end with the sandbox, never against production (the database is productio
 The daily overdue routine by hand (Vercel Cron calls it at 12h UTC in production):
 
     curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3100/api/billing/daily
+
+## Calendar invites (#294)
+
+The daily routine by hand (Vercel Cron calls it at 13h UTC in production). It sends the pending
+invites of every lesson, in the database `.env.local` points at, which is production:
+
+    curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3100/api/calendar/daily
+
+A real invite and its cancel of a made-up lesson, without the database, to see a calendar take
+them (Luiz only: it sends real e-mails). The answers go to `fixtures/calendar/smoke-<date>.jsonl`,
+without the addresses:
+
+    node scripts/calendar-smoke.ts --student <e-mail> --teacher <e-mail> --wait 60
+
+What is waiting or was given up, through the MCP (no address in the table):
+
+    select status, method, recipient, attempts, last_error, count(*)
+      from calendar_invites group by 1, 2, 3, 4, 5 order by 1;

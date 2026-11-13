@@ -215,6 +215,28 @@ Estados da tela do aluno:
 Antes da aula, o professor vê em cada reserva onde o aluno parou (o último "Parei aqui") e a
 última nota. O painel do Robin entra com a #255.
 
+### Convite de agenda (#294, migration 0056)
+
+- Cada reserva manda um e-mail com o convite de agenda (`.ics`, `METHOD:REQUEST`) ao aluno, no
+  e-mail da conta, e ao professor, no e-mail da agenda do perfil (que pode ser outro que o do
+  login). Um e-mail por pessoa, com a data e a hora no fuso de quem lê; o `.ics` é o mesmo, com a
+  hora em UTC, e cada agenda mostra o evento no fuso de quem abre. O evento leva o Meet do
+  professor.
+- O cancelamento, por quem for, manda o cancelamento do mesmo evento (`METHOD:CANCEL`, mesmo
+  `UID`), e o evento sai das duas agendas. Remarcar é cancelar e reservar de novo. O cancelamento
+  só vai para quem recebeu o convite: se o convite de alguém ainda não tinha saído, nenhum dos dois
+  sai para essa pessoa.
+- O organizador do evento é a plataforma, `agenda@chelsea-st.com`, não o professor. Responder
+  "Não" na agenda não cancela a aula: a resposta vira um e-mail para esse endereço. Cancelar é só
+  pela plataforma, e o e-mail e o convite dizem isso.
+- O e-mail sai pela Resend depois da resposta da reserva ou do cancelamento, fora da transação: um
+  envio que falha não desfaz nada. O banco guarda o que falta mandar (`calendar_invites`), e o
+  envio é tentado de novo na próxima reserva ou cancelamento de qualquer aula e na rotina diária
+  (13h UTC). Depois de 5 tentativas, ou quando a aula já começou, o convite é dado como não
+  enviado, e o professor vê "Convite de agenda não enviado" na aula, em `/teacher/agenda`.
+- Fora: a API do Google Agenda, atualizar um evento já mandado (troca do Meet), lembrete antes da
+  aula, ler na plataforma as respostas "Sim" e "Não".
+
 ## Critérios de aceite
 
 1. Pedir magic link com e-mail cadastrado leva à sessão ativa depois do clique.
