@@ -19,4 +19,5 @@ Format, kept short on purpose:
 | 0003   | RLS policies verified in CI against a real Postgres | accepted                             |
 | 0004   | One database, many schools                          | accepted                             |
 | 0005   | Two brands, many companies                          | accepted, in part superseded by 0006 |
-| 0006   | One company, two lines, three levels of practice    | accepted                             |
+| 0006   | One company, two lines, three levels of practice    | accepted, in part superseded by 0007 |
+| 0007   | Two companies in partnership                        | accepted                             |
