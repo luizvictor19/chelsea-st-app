@@ -97,9 +97,15 @@ done
 [ -n "$ready" ] || die "Postgres did not come up in 60 seconds"
 
 echo "gen-types: applying the migrations through scripts/verify-rls.sql"
-docker exec "$CONTAINER" mkdir -p /work/supabase /work/scripts
+# The whole scripts/ directory and not verify-rls.sql alone: it pulls in other
+# files with \i (scripts/restore-outside-public.sql, #104), and psql in here
+# sees only what was copied. Copying one file stopped the run halfway (#300);
+# scripts/gen-types-includes.test.ts holds every \i to being copied.
+# /work/scripts is not created first: docker cp of a directory onto one that
+# exists lands inside it, as /work/scripts/scripts.
+docker exec "$CONTAINER" mkdir -p /work/supabase
 docker cp supabase/migrations "$CONTAINER:/work/supabase/migrations"
-docker cp scripts/verify-rls.sql "$CONTAINER:/work/scripts/verify-rls.sql"
+docker cp scripts "$CONTAINER:/work/scripts"
 docker exec --workdir /work --user postgres "$CONTAINER" \
   psql --quiet -v ON_ERROR_STOP=1 -f scripts/verify-rls.sql
 
