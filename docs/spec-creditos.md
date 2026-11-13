@@ -22,7 +22,7 @@ banco, escritos pelo admin da plataforma em `/teacher/plans`, e ficam fora do re
   - o pacote avulso, só para quem tem plano: #298;
   - o botão do reembolso no cancelamento: #297;
   - a reserva e o cancelamento da aula: #276;
-  - o selo Fundador, que muda o custo: #292;
+  - o custo da aula pelo plano (o Plano Fundador e o Personalizado): #292, abaixo;
   - o cadeado e o upgrade: #274;
   - o acerto mensal entre Chelsea St e GrifoAI dos créditos pagos a uma e gastos na outra: #307 (o
     razão já guarda a cobrança de cada lote);
@@ -103,7 +103,16 @@ nem pelo `postgres` (`credit_entries_append_only`).
   faz parte da oferta pública, como o preço. Um custo salvo muda, mas não é apagado por lá (não há
   política de `delete`).
 - O custo é lido de um lugar só, `credit_cost`, e nunca de uma constante. A pessoa lê o próprio; o de
-  outra pessoa é recusado, porque com o selo Fundador (#292) ele diria quem é fundadora.
+  outra pessoa é recusado, porque ele diria qual plano ela tem.
+- **O custo da aula pelo plano (0058, #292).** Um plano pode ter o seu custo da aula com professor
+  (`plans.teacher_lesson_credits`; vazio é o custo da marca). Ele é copiado para a assinatura quando
+  ela nasce, como os créditos do mês: mudar o plano depois vale só para assinaturas novas. Quem
+  volta ao Plano Fundador com o preço garantido recebe o custo guardado no selo.
+- **Qual assinatura conta** para o custo da aula: a viva mais recente (teste, aguardando, ativa,
+  atrasada); sem viva, a última que rodou (cancelada por um motivo que não seja `replaced`,
+  `checkout_expired` nem `trial_used`), porque é dela o saldo que a pessoa ainda gasta. O custo dela,
+  se tiver; senão o da marca. O selo de fundador não muda o custo: quem tem o selo e assina um plano
+  público paga a aula pelo custo desse plano.
 
 ## Quando os créditos entram
 

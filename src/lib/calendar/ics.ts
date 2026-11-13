@@ -11,9 +11,10 @@
  */
 
 import { CHELSEA } from "../brand.ts";
+import { AGENDA_ADDRESS } from "../mail/senders.ts";
 
 /** Where the invites come from and the calendar answers go to. */
-export const INVITE_ADDRESS = "agenda@chelsea-st.com";
+export const INVITE_ADDRESS = AGENDA_ADDRESS;
 
 export type InviteMethod = "request" | "cancel";
 

@@ -629,6 +629,36 @@ export type Database = {
           },
         ];
       };
+      founder_program: {
+        Row: {
+          id: boolean;
+          seats_total: number;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          id?: boolean;
+          seats_total: number;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Update: {
+          id?: boolean;
+          seats_total?: number;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "founder_program_updated_by_fkey";
+            columns: ["updated_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       image_attempts: {
         Row: {
           completed_at: string | null;
@@ -1301,9 +1331,97 @@ export type Database = {
           },
         ];
       };
+      person_badges: {
+        Row: {
+          badge: string;
+          granted_at: string;
+          granted_by: string | null;
+          id: string;
+          organization_id: string | null;
+          person_id: string;
+          revoked_at: string | null;
+          revoked_by: string | null;
+          source: string;
+          terms_annual_price_cents: number | null;
+          terms_credit_ceiling_months: number | null;
+          terms_credit_days_after_cancel: number | null;
+          terms_fixed_at: string | null;
+          terms_monthly_credits: number | null;
+          terms_monthly_price_cents: number | null;
+          terms_teacher_lesson_credits: number | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          badge: string;
+          granted_at?: string;
+          granted_by?: string | null;
+          id?: string;
+          organization_id?: string | null;
+          person_id: string;
+          revoked_at?: string | null;
+          revoked_by?: string | null;
+          source: string;
+          terms_annual_price_cents?: number | null;
+          terms_credit_ceiling_months?: number | null;
+          terms_credit_days_after_cancel?: number | null;
+          terms_fixed_at?: string | null;
+          terms_monthly_credits?: number | null;
+          terms_monthly_price_cents?: number | null;
+          terms_teacher_lesson_credits?: number | null;
+        };
+        Update: {
+          badge?: string;
+          granted_at?: string;
+          granted_by?: string | null;
+          id?: string;
+          organization_id?: string | null;
+          person_id?: string;
+          revoked_at?: string | null;
+          revoked_by?: string | null;
+          source?: string;
+          terms_annual_price_cents?: number | null;
+          terms_credit_ceiling_months?: number | null;
+          terms_credit_days_after_cancel?: number | null;
+          terms_fixed_at?: string | null;
+          terms_monthly_credits?: number | null;
+          terms_monthly_price_cents?: number | null;
+          terms_teacher_lesson_credits?: number | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "person_badges_granted_by_fkey";
+            columns: ["granted_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "person_badges_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "person_badges_person_id_fkey";
+            columns: ["person_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "person_badges_revoked_by_fkey";
+            columns: ["revoked_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       plans: {
         Row: {
           annual_price_cents: number;
+          audience: string;
           brand: string;
           created_at: string;
           credit_ceiling_months: number;
@@ -1318,7 +1436,10 @@ export type Database = {
           opens_video: boolean;
           opens_voice_question: boolean;
           organization_id: string | null;
+          person_email: string | null;
+          person_id: string | null;
           position: number;
+          teacher_lesson_credits: number | null;
           trail_minutes_per_day: number;
           trial_credits: number;
           trial_days: number;
@@ -1327,6 +1448,7 @@ export type Database = {
         ComputedFields: never;
         Insert: {
           annual_price_cents: number;
+          audience?: string;
           brand: string;
           created_at?: string;
           credit_ceiling_months: number;
@@ -1341,7 +1463,10 @@ export type Database = {
           opens_video: boolean;
           opens_voice_question: boolean;
           organization_id?: string | null;
+          person_email?: string | null;
+          person_id?: string | null;
           position?: number;
+          teacher_lesson_credits?: number | null;
           trail_minutes_per_day: number;
           trial_credits: number;
           trial_days: number;
@@ -1349,6 +1474,7 @@ export type Database = {
         };
         Update: {
           annual_price_cents?: number;
+          audience?: string;
           brand?: string;
           created_at?: string;
           credit_ceiling_months?: number;
@@ -1363,7 +1489,10 @@ export type Database = {
           opens_video?: boolean;
           opens_voice_question?: boolean;
           organization_id?: string | null;
+          person_email?: string | null;
+          person_id?: string | null;
           position?: number;
+          teacher_lesson_credits?: number | null;
           trail_minutes_per_day?: number;
           trial_credits?: number;
           trial_days?: number;
@@ -1375,6 +1504,13 @@ export type Database = {
             columns: ["organization_id"];
             isOneToOne: false;
             referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "plans_person_id_fkey";
+            columns: ["person_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
             referencedColumns: ["id"];
           },
         ];
@@ -1767,6 +1903,7 @@ export type Database = {
           person_id: string;
           plan_id: string;
           status: string;
+          teacher_lesson_credits: number | null;
           updated_at: string;
           value_cents: number;
           with_trial: boolean;
@@ -1792,6 +1929,7 @@ export type Database = {
           person_id: string;
           plan_id: string;
           status: string;
+          teacher_lesson_credits?: number | null;
           updated_at?: string;
           value_cents: number;
           with_trial: boolean;
@@ -1816,6 +1954,7 @@ export type Database = {
           person_id?: string;
           plan_id?: string;
           status?: string;
+          teacher_lesson_credits?: number | null;
           updated_at?: string;
           value_cents?: number;
           with_trial?: boolean;
@@ -2114,6 +2253,15 @@ export type Database = {
         Args: { p_attempt: string };
         Returns: undefined;
       };
+      badge_grant: {
+        Args: {
+          p_badge: string;
+          p_granted_by: string;
+          p_person: string;
+          p_source: string;
+        };
+        Returns: string;
+      };
       belongs_anywhere: { Args: Record<PropertyKey, never>; Returns: boolean };
       billing_apply_subscription: {
         Args: {
@@ -2153,6 +2301,7 @@ export type Database = {
           person_id: string;
           plan_id: string;
           status: string;
+          teacher_lesson_credits: number | null;
           updated_at: string;
           value_cents: number;
           with_trial: boolean;
@@ -2225,6 +2374,10 @@ export type Database = {
       billing_take_overdue_step: {
         Args: { p_day: number; p_payment_id: string };
         Returns: boolean;
+      };
+      bind_personal_plans: {
+        Args: { p_email: string; p_user: string };
+        Returns: undefined;
       };
       book_lesson: {
         Args: { p_starts_at: string; p_teacher: string };
@@ -2405,8 +2558,14 @@ export type Database = {
       };
       delete_question: { Args: { p_question_id: string }; Returns: undefined };
       dissolve_contrast_set: { Args: { p_set_id: string }; Returns: undefined };
+      founder_seats_left: { Args: Record<PropertyKey, never>; Returns: number };
       gen_random_uuid: { Args: Record<PropertyKey, never>; Returns: string };
       gen_salt: { Args: { "": string }; Returns: string };
+      grant_badge: {
+        Args: { p_badge: string; p_person: string };
+        Returns: string;
+      };
+      holds_badge: { Args: { p_badge: string }; Returns: boolean };
       is_known_time_zone: { Args: { p_zone: string }; Returns: boolean };
       is_organization_member: {
         Args: {
@@ -2594,6 +2753,10 @@ export type Database = {
       reorder_questions: {
         Args: { p_ids: string[]; p_point_id: string };
         Returns: undefined;
+      };
+      revoke_badge: {
+        Args: { p_badge: string; p_person: string };
+        Returns: boolean;
       };
       save_contrast_set: {
         Args: { p_expected?: string[]; p_items: string[]; p_set_id?: string };

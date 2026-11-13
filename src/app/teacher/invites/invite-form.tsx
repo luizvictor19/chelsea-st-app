@@ -12,7 +12,15 @@ export type InvitableOrganization = {
   readonly name: string;
   /** Whether it has a teacher (0042): it names the roles. */
   readonly hasTeacher: boolean;
+  /** The roles the form offers. */
   readonly roles: readonly OrganizationRole[];
+  /**
+   * The roles whose open invites she may renew and cancel (can_invite,
+   * 0031). Wider than roles where the signup is the door (open_signup): a
+   * student invite there is no longer offered, but one still open is hers to
+   * manage.
+   */
+  readonly manageRoles: readonly OrganizationRole[];
 };
 
 const INITIAL_STATE: InviteState = { status: "idle" };

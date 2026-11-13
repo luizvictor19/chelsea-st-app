@@ -274,6 +274,12 @@ export type FakeStore = BillingStore & {
   settleFailWith: Error | null;
   /** When set, every call fails with this error. */
   failWith: Error | null;
+  /**
+   * When set, openSubscription refuses with this constraint, as the
+   * database refuses a plan outside her audience or a value that is not
+   * hers (0058).
+   */
+  refuseOpenWith: string | null;
 };
 
 export function createFakeStore(): FakeStore {
@@ -288,6 +294,7 @@ export function createFakeStore(): FakeStore {
     dailyReport: { granted: 0, closed: 0 },
     settleFailWith: null,
     failWith: null,
+    refuseOpenWith: null,
 
     async customer(personId, cpfHmac) {
       check();
@@ -315,6 +322,9 @@ export function createFakeStore(): FakeStore {
 
     async openSubscription(input) {
       check();
+      if (store.refuseOpenWith !== null) {
+        throw new StoreRefusal(store.refuseOpenWith, "refused by the database");
+      }
       const customer = store.customers.get(input.personId);
       if (customer === undefined) throw new Error("no billing row");
       if (input.withTrial && customer.trialUsedAt !== null) {

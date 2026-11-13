@@ -10,6 +10,7 @@ export type NavIcon =
   | "invites"
   | "lessons"
   | "plans"
+  | "founders"
   | "organizations";
 
 /**
@@ -48,9 +49,10 @@ const TEACHING: readonly NavLink[] = [
   { label: "Aulas", href: null, icon: "lessons" },
 ];
 
-/** The platform's own screens, behind requirePlatformAdmin (#72, #205). */
+/** The platform's own screens, behind requirePlatformAdmin (#72, #205, #292). */
 const PLATFORM: readonly NavLink[] = [
   { label: "Planos e custos", href: "/teacher/plans", icon: "plans" },
+  { label: "Fundadores", href: "/teacher/founders", icon: "founders" },
   {
     label: "Organizações",
     href: "/teacher/organizations",

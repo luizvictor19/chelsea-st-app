@@ -20,6 +20,10 @@ export const SUBSCRIBE_REFUSALS: Readonly<Record<string, string>> = {
   billing_one_trial_per_person:
     "O seu teste grátis já foi usado. Assine sem o teste.",
   billing_plan_active: "Este plano não está mais à venda. Escolha outro.",
+  billing_plan_audience:
+    "Este plano não está disponível para você. Escolha outro.",
+  billing_value_matches:
+    "O valor deste plano mudou. Recarregue a página e assine de novo.",
   subscriptions_one_alive_per_person:
     "Você já tem uma assinatura ativa. Cancele a atual antes de assinar outra.",
 };

@@ -143,7 +143,7 @@ falhas seguidas, a fila para (os eventos ficam guardados por até 14 dias).
 
 | Tabela              | O quê                                           | Quem lê                     |
 | ------------------- | ----------------------------------------------- | --------------------------- |
-| `plans`             | o catálogo de cada marca                        | ativos: todos; todos: admin |
+| `plans`             | o catálogo de cada marca                        | ver "Plano Fundador" abaixo |
 | `billing_customers` | a pessoa, o HMAC do CPF, quando o teste começou | ela e o admin da plataforma |
 | `subscriptions`     | a assinatura e a última leitura dela na Asaas   | ela e o admin da plataforma |
 | `payments`          | cada cobrança, como o app a leu por último      | ela e o admin da plataforma |
@@ -155,6 +155,43 @@ falhas seguidas, a fila para (os eventos ficam guardados por até 14 dias).
   por mês (`docs/spec-creditos.md`).
 - Um preço mudado em `plans` vale para assinaturas novas; a que existe guarda o valor dela na Asaas.
 - Um plano sai de venda, nunca é apagado.
+
+## Plano Fundador (0058, #292)
+
+- **Quem vê cada plano** (`plans.audience`):
+  - `public`: os planos de todos; os ativos são lidos por qualquer um, também sem login;
+  - `founder`: o Plano Fundador, lido só por quem tem o selo de fundador vivo;
+  - `person`: o Plano Fundador Personalizado, lido só pela conta ligada a ele;
+  - o admin da plataforma lê todos. Fundador e Personalizado são só da marca chelsea-st.
+- **O selo de fundador** (`person_badges`) é o direito de assinar o Plano Fundador pelo preço de
+  fundador, de ficar nele e de voltar a ele, para sempre. Não sai quando a assinatura vence, atrasa
+  ou é cancelada. Vem por cupom ou convite (#296) ou, como reparo, pelo admin da plataforma em
+  `/teacher/founders`. Ninguém dá o selo a si mesmo.
+- **As vagas** (`founder_program`): o total, escrito pelo admin. Uma vaga é um selo vivo; tirar o
+  selo devolve a vaga, cancelar a assinatura não. Sem vaga, nenhum selo novo, nem pelo admin.
+  `founder_seats_left()` dá o número restante, também sem login (a landing).
+- **O preço garantido**: no primeiro pagamento confirmado de um Plano Fundador (a assinatura passa a
+  `active`), o selo guarda os termos dela: o preço mensal e o anual, os créditos do mês, o teto, os
+  dias depois do cancelamento e o custo da aula. Quem volta ao Plano Fundador assina com esses
+  termos, não com os do plano no dia. Um checkout abandonado ou um Pix nunca pago não guarda nada.
+- **O Plano Fundador nunca sai de venda**: o último Plano Fundador ativo da marca não pode ser
+  desmarcado nem mudar de público (`plans_founder_stays_on_sale`). Para mudar, o admin põe outro à
+  venda antes.
+- **Recusas novas de `billing_open_subscription`**:
+  - `billing_plan_audience`: Plano Fundador sem selo vivo, ou Personalizado que não é da pessoa;
+    frase "Este plano não está disponível para você. Escolha outro.";
+  - `billing_value_matches`: valor diferente do que a pessoa tem direito (os termos do selo no
+    Plano Fundador, o preço do plano no resto, para o ciclo); frase "O valor deste plano mudou.
+    Recarregue a página e assine de novo.".
+- **O Personalizado** nasce em `/teacher/invites` (tipo "Plano personalizado"), para um e-mail. O
+  app manda da agenda@ "Seu plano personalizado está pronto", com o nome do plano e dois links
+  (entrar, criar conta), sem nenhum número. O plano se liga à conta confirmada com aquele e-mail, na
+  hora (se ela já existe) ou na primeira confirmação; ligado, não muda de pessoa. Enquanto a
+  assinatura está aberta, ela não tem assinatura viva e nunca assinou aquele plano, a porta da frente
+  leva a pessoa a `/dashboard/plano?plano=<id>`. Os
+  números se editam em `/teacher/plans`, seção Personalizados. "Tirar de venda" encerra o convite.
+- **A trilha**: 0 minutos por dia é um plano sem trilha (o Plano Fundador, hoje).
+- **O custo da aula** de cada plano: ver `docs/spec-creditos.md`, "O custo de cada ação".
 
 ## Ambientes
 

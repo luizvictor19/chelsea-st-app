@@ -2,6 +2,8 @@
 
 import { useActionState } from "react";
 
+import { AUDIENCE_LABEL, CATALOG_AUDIENCES } from "@/lib/badges";
+
 import { savePlan, type PlanState } from "./actions";
 
 const INITIAL: PlanState = { status: "idle" };
@@ -27,11 +29,19 @@ export type PlanFields = {
   /** Null on a new plan: the admin says both, nothing comes filled in. */
   readonly creditCeilingMonths: number | null;
   readonly creditDaysAfterCancel: number | null;
+  /** Null: the brand's cost of a lesson. */
+  readonly teacherLessonCredits: number | null;
+  readonly audience: "public" | "founder" | "person";
   readonly isActive: boolean;
 };
 
-/** One plan, new (id "") or existing, every number of the offer in one form. */
+/**
+ * One plan, new (id "") or existing, every number of the offer in one form.
+ * A personal plan (audience person) is edited here with its numbers only: its
+ * brand, its audience and its e-mail stay as /teacher/invites wrote them.
+ */
 export function PlanForm({ plan }: { readonly plan: PlanFields }) {
+  const personal = plan.audience === "person";
   const [state, formAction, isPending] = useActionState(savePlan, INITIAL);
 
   return (
@@ -40,13 +50,40 @@ export function PlanForm({ plan }: { readonly plan: PlanFields }) {
       className="border-rule bg-surface grid grid-cols-2 gap-3 rounded-sm border p-4 text-sm"
     >
       <input type="hidden" name="id" value={plan.id} />
-      <label className="flex flex-col gap-1">
-        Marca
-        <select name="brand" defaultValue={plan.brand} className={fieldClass}>
-          <option value="chelsea-st">chelsea-st</option>
-          <option value="grifoai">grifoai</option>
-        </select>
-      </label>
+      {personal ? (
+        <>
+          <input type="hidden" name="personal" value="1" />
+          <input type="hidden" name="brand" value={plan.brand} />
+        </>
+      ) : (
+        <>
+          <label className="flex flex-col gap-1">
+            Marca
+            <select
+              name="brand"
+              defaultValue={plan.brand}
+              className={fieldClass}
+            >
+              <option value="chelsea-st">chelsea-st</option>
+              <option value="grifoai">grifoai</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            Quem vê o plano
+            <select
+              name="audience"
+              defaultValue={plan.audience}
+              className={fieldClass}
+            >
+              {CATALOG_AUDIENCES.map((audience) => (
+                <option key={audience} value={audience}>
+                  {AUDIENCE_LABEL[audience]}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      )}
       <label className="flex flex-col gap-1">
         Chave
         <input
@@ -102,10 +139,19 @@ export function PlanForm({ plan }: { readonly plan: PlanFields }) {
         />
       </label>
       <label className="flex flex-col gap-1">
-        Minutos da trilha por dia
+        Minutos da trilha por dia (0 = sem trilha)
         <input
           name="trail_minutes_per_day"
           defaultValue={plan.trailMinutesPerDay}
+          inputMode="numeric"
+          className={fieldClass}
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        Custo da aula em créditos (vazio = o custo da marca)
+        <input
+          name="teacher_lesson_credits"
+          defaultValue={plan.teacherLessonCredits ?? ""}
           inputMode="numeric"
           className={fieldClass}
         />

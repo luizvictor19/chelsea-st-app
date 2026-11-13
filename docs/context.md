@@ -180,7 +180,8 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
 
 - DDL only through a migration in `supabase/migrations`, applied by Luiz with `supabase db push`
   from the worktree that holds the file. The SQL Editor is for reads only.
-- Migration numbers: 0023 and 0024 stay unused (0023 was reserved for payments until ADR 0006); the next free number
+- Migration numbers: 0023 and 0024 stay unused (0023 was reserved for payments until ADR 0006),
+  and so do 0053 and 0055 (numbers of plans rewritten before they were written, #292, #296); the next free number
   is the lowest one above the highest file on disk. Luiz gives the number in the prompt; a session
   never picks it.
 - Every migration appears in `scripts/verify-rls.sql`, or in `LEFT_OUT` of
@@ -200,15 +201,17 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
   If Supabase creates `rls_auto_enable` again (as `supabase_admin`, whose default in `public`
   grants `anon`), it comes back open; only a query on the project shows it. The migration that
   creates a function grants `execute` to who calls it: `authenticated` for what policies, checks and the
-  app call; `anon` only for the site's door (`submit_lead`). A trigger function, and
+  app call; `anon` only for the site's door (`submit_lead`) and the founder seats left
+  (`founder_seats_left`, 0058, one number and no argument). A trigger function, and
   `rls_auto_enable` behind the event trigger `ensure_rls`, is executable by nobody: execute is
   checked when a trigger is created, not when it fires. `service_role` gets none (it bypasses
   RLS). A forgotten grant shows as "permission denied for function" on the screen, never as an
   open door. `scripts/verify-rls.sql` holds it: no function of `public` executable by PUBLIC, no
-  `security definer` executable by `anon` but `submit_lead`. The image bucket's write policy is
+  `security definer` executable by `anon` but `submit_lead` (and, since 0058, `founder_seats_left`). The image bucket's write policy is
   `to authenticated`, so `anon` reading the bucket never reaches `is_platform_admin()`.
 - Billing follows 0049 (#72, `docs/spec-pagamento.md`): `plans` (the catalog, every number of the
-  offer, written by the platform admin on `/teacher/plans`; active plans read by `anon` too),
+  offer, written by the platform admin on `/teacher/plans`; active public plans read by `anon` too,
+  the others as 0058 says below),
   `billing_customers`, `subscriptions`, `payments`, `billing_events` and `overdue_steps`. A person
   reads her own rows, the platform admin all; nobody writes them but ten `security definer`
   functions that only `service_role` executes, the one exception to "service_role gets none" above
@@ -234,7 +237,8 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
   calls them inside its transaction, never the browser. Every function that writes a person's
   ledger first takes her advisory lock. The cost of each action is a row of `credit_costs` per
   brand, written by the platform admin on `/teacher/plans` and read through `credit_cost` alone; its
-  actions equal `CREDIT_ACTIONS` (`actions.test.ts`). The credits of a month, the ceiling and the
+  actions equal `CREDIT_ACTIONS` (`actions.test.ts`). A lesson with a teacher may cost what its plan
+  says instead (0058, below). The credits of a month, the ceiling and the
   days after a cancel are copied from the plan onto the subscription when it is born
   (`subscriptions.monthly_credits`, `credit_ceiling_months`, `credit_days_after_cancel`), and every
   month's grant and every end reads the subscription's copy (the trial's credits are read from the
@@ -264,8 +268,8 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
   `credit_debit(her, 'teacher_lesson', 1, 'lesson:<id>')` in the same transaction) and
   `cancel_lesson` (the lesson's student until the start, with `credit_refund` up to 1 h before; the lesson's
   teacher, the organization's admin or the platform admin until the planned end, always with
-  `credit_refund`). The cost is read through the ledger's `credit_price` alone, so #292 changes it
-  there. Nobody executes `lesson_booker_organization`, `lesson_open_slots` or the trigger function,
+  `credit_refund`). The cost is read through the ledger's `credit_price` alone, which since 0058
+  reads the plan's cost of a lesson first. Nobody executes `lesson_booker_organization`, `lesson_open_slots` or the trigger function,
   and `credit_debit` and `credit_refund` stay executable by nobody. Each refusal names its rule at
   the start of its message, and `src/lib/lessons/refusals.ts` says it in Portuguese.
 - A lesson is born only through `book_lesson` or `accept_lesson_proposal`, both through
@@ -334,6 +338,50 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
   `security definer` functions only `service_role` executes (`lesson_proposal_mails_due`,
   `lesson_proposal_mail_sent`, `lesson_proposal_mail_failed`), the same exception as the calendar
   invites; whoever teaches in the organization reads its rows, never an address.
+- The Plano Fundador, the Founder seal, the seats and the Plano Fundador Personalizado follow 0058
+  (#292, `docs/spec-pagamento.md`, "Plano Fundador"):
+  - **The seal** is `person_badges`: one row per grant, never deleted (revoking writes `revoked_at`,
+    giving again is a new row), one live per person and kind (`person_badges_one_live`), common
+    (`organization_id` always null). It is the right to subscribe to the Plano Fundador at the
+    founder's terms, to stay and to come back, for life: nothing ties it to a subscription, so a
+    cancel or an overdue never touches it, and it does not change what a lesson costs. The person
+    reads her own rows, the platform admin all, `anon` nothing, and no API role writes them. A seal
+    comes only through `badge_grant` (executed by its owner alone; #296's coupon and invite call
+    it), behind `grant_badge` for the platform admin (a repair since 13/11; anyone else gets 42501,
+    so nobody gives herself a seal); `revoke_badge` is the platform admin's. `holds_badge`
+    (invoker) is what the policy and the screens ask.
+  - **The terms**: the seal keeps the prices, the credits of a month, the ceiling, the days after a
+    cancel and the cost of a lesson of her first Plano Fundador subscription that turned `active`
+    (the trigger `person_badges_fix_terms`, once). A founder who comes back subscribes with them:
+    `credit_subscription_copies_plan` copies them instead of the plan's, and a seal given again
+    inherits them. A Plano Fundador changed later reaches only founders without terms.
+  - **The seats**: `founder_program`, one row with `seats_total`, written by the platform admin on
+    `/teacher/founders`. A seat is a live seal: a revoke gives it back, a cancel does not.
+    `badge_grant` locks that row and refuses with no seat left or no row
+    (`founder_seats_available`), for the admin too. `founder_seats_left()` gives `anon` the number.
+  - **Who reads a plan**: `plans.audience`, `public` (everyone, `anon` too), `founder` (a live seal
+    holder, `plans_read_founder`) or `person` (the account in `plans.person_id`,
+    `plans_read_personal`); the platform admin reads all. Founder and personal plans are the brand
+    `chelsea-st`'s only. The last active founder plan of a brand never leaves sale nor its audience
+    (`plans_founder_stays_on_sale`).
+  - **Who subscribes, at which value**: `billing_open_subscription` refuses a plan outside her
+    audience (`billing_plan_audience`) and a value other than hers, her terms on a founder plan once
+    fixed and the plan's price otherwise (`billing_value_matches`).
+  - **The personal plan** is made on `/teacher/invites` for an e-mail (`plans.person_email`,
+    lower-cased) and binds to the account confirmed with it: when written (a confirmed account
+    exists, `plans_bind_personal`) or on the first confirmation (`bind_personal_plans`, called by
+    the confirmation trigger after the invites and the signup; it never raises). Bound, it stays
+    bound (`plans_personal_bound_for_good`). It needs no seal and takes no seat. Its e-mail goes from
+    agenda@ with two links (enter, sign up); the front door (`resolveDestination`) sends her to
+    `/dashboard/plano?plano=<id>` while billing is open, no subscription of hers is alive and none
+    of that plan ever ran.
+  - **The cost of a lesson by plan**: `plans.teacher_lesson_credits` (null: the brand's), copied
+    onto `subscriptions.teacher_lesson_credits` when it is born. `credit_price` reads the copy of
+    the subscription that counts, her latest alive one or, with none alive, her latest that ran (a
+    cancel other than `replaced`, `checkout_expired`, `trial_used`); otherwise the brand's cost.
+  - **The trail**: `trail_minutes_per_day` takes 0, a plan that does not open the trail.
+  - The organization a signup enters (`open_signup`) is no longer offered student invites on
+    `/teacher/invites`: the signup is that door. The database (0031) still accepts one.
 - `leads` receives rows only through `submit_lead` (0038), executed by `anon` alone: the site's
   function calls it with the publishable key. Nobody reads `leads` through the API, and the
   service role holds nothing on it. A number sent twice is two rows (history, nothing is

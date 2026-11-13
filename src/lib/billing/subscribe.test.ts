@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, test } from "node:test";
 
 import { cpfHmac } from "./cpf.ts";
+import { withFounderTerms } from "./founder-terms.ts";
 import {
   createFakeProvider,
   createFakeStore,
@@ -145,6 +146,49 @@ describe("startSubscription", () => {
   test("the price follows the cycle", () => {
     assert.equal(priceOf(PLAN, "monthly"), 1000);
     assert.equal(priceOf(PLAN, "annual"), 10000);
+  });
+
+  test("a founder with her terms fixed pays them, not the plan's of the day", async () => {
+    const founder = withFounderTerms(
+      {
+        ...PLAN,
+        audience: "founder",
+        monthlyCredits: 6,
+        teacherLessonCredits: 3,
+      },
+      {
+        termsFixedAt: "2026-11-13T12:00:00Z",
+        monthlyPriceCents: 700,
+        annualPriceCents: 7000,
+        monthlyCredits: 8,
+        teacherLessonCredits: 2,
+      },
+    );
+    assert.equal(priceOf(founder, "monthly"), 700);
+    assert.equal(priceOf(founder, "annual"), 7000);
+    await start({ plan: founder, billingType: "card" });
+    assert.equal([...store.rows.values()][0].valueCents, 700);
+  });
+
+  test("a plan outside her audience, or a value not hers, is said in Portuguese", async () => {
+    for (const constraint of [
+      "billing_plan_audience",
+      "billing_value_matches",
+    ]) {
+      provider = createFakeProvider();
+      store = createFakeStore();
+      store.refuseOpenWith = constraint;
+      const result = await start();
+      assert.deepEqual(result, {
+        kind: "refused",
+        message: SUBSCRIBE_REFUSALS[constraint],
+      });
+      assert.ok(SUBSCRIBE_REFUSALS[constraint]);
+      // The provider's subscription made for the Pix is undone.
+      assert.ok(
+        [...provider.subscriptions.values()].every((made) => made.deleted),
+      );
+    }
   });
 });
 

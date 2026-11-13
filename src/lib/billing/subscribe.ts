@@ -41,6 +41,11 @@ export type StartResult =
   | { readonly kind: "pix"; readonly rowId: string }
   | { readonly kind: "refused"; readonly message: string };
 
+/**
+ * On a Plano Fundador whose holder has her terms fixed (0058) the prices are
+ * already hers (withFounderTerms): billing_open_subscription refuses any
+ * other value (billing_value_matches).
+ */
 export function priceOf(plan: PlanForSale, cycle: Cycle): number {
   return cycle === "monthly" ? plan.monthlyPriceCents : plan.annualPriceCents;
 }

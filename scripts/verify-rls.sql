@@ -31,6 +31,11 @@ create table auth.users (
 create function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('test.uid', true), '')::uuid;
 $$;
+-- As production (measured through the MCP on 2026-11-13): the three API roles
+-- use the schema auth and execute auth.uid(), and read none of its tables.
+-- A policy reaches auth.uid() by its oid; a function body that names it
+-- (holds_badge, a trigger of 0058) needs the usage, as in production.
+grant usage on schema auth to anon, authenticated, service_role;
 
 -- The storage schema, stubbed to the two tables 0008 touches, for the same
 -- reason auth is stubbed above: this runs on a plain Postgres. The columns are
@@ -8586,6 +8591,843 @@ begin
   raise notice 'a proposed lesson waits for a yes: a proposal debits nothing and writes no lesson; only the other side answers and only the proposer withdraws; the yes writes and pays every lesson as book_lesson does, or none; a slot taken, a short balance and a proposal past its time are refused by name; nobody writes the tables through the API; the e-mail goes to the other side once';
 end;
 $$;
+
+-- 0058 creates person_badges and founder_program, empty; gives plans an
+-- audience ('public' by default, so every plan written above stays public),
+-- a person and a cost of the lesson, all null; gives subscriptions a cost of
+-- the lesson, null; and recreates billing_open_subscription,
+-- credit_subscription_copies_plan, credit_price and the trigger function of
+-- the first confirmation. No row is written by it. The blocks of 0049, 0050
+-- and 0051 run before it, against the bodies it replaces, so its own block,
+-- "A founder keeps a door (0058)", holds again what each recreated body kept
+-- from the one before, besides what it adds.
+\i supabase/migrations/0058_a_founder_keeps_a_door.sql
+
+-- A founder keeps a door (0058) ---------------------------------------------------------
+--
+-- The Founder seal: read by its holder and the platform admin, written by no
+-- API role, given only through badge_grant (executed by its owner alone,
+-- behind grant_badge for the platform admin), one live per person, within
+-- the seats of founder_program, inherited terms when given again; nobody
+-- gives herself one. The plans: anon and every person read the public ones,
+-- the founder plan only a live seal holder, a personal plan only the person
+-- it is bound to, bound when written for a confirmed account or on the first
+-- confirmation (whatever the case of the address), bound for good, and a
+-- failing bind never fails a confirmation. billing_open_subscription refuses
+-- a plan outside her audience and a value other than hers; the founder's
+-- terms are fixed by the first paid founder subscription and a founder who
+-- comes back subscribes with them; the seal outlives a cancel and an overdue.
+-- credit_price reads the cost of a lesson from the subscription that counts.
+-- Every check is refused by its own name. Numbers are made up. Nothing
+-- written here is kept. Each numbered case is the line of the table of the
+-- plan of 13/11 on #292 that it holds.
+
+create function verify.holds_0058(p_what text, p_ok boolean) returns void
+language plpgsql as $$
+begin
+  if p_ok is distinct from true then
+    insert into verify.failures values (p_what);
+  else
+    raise notice '%', p_what;
+  end if;
+end;
+$$;
+
+-- A plan as the platform admin writes it, with the columns of 0058.
+create function verify.plan_0058(
+  p_key text, p_audience text, p_monthly integer, p_annual integer, p_credits integer,
+  p_lesson integer, p_email text, p_trial_days integer default 14, p_brand text default 'chelsea-st')
+returns uuid
+language plpgsql as $$
+declare
+  v_id uuid;
+begin
+  insert into plans (brand, key, name, monthly_price_cents, annual_price_cents, monthly_credits,
+                     trail_minutes_per_day, opens_voice_question, opens_free_conversation, opens_video,
+                     trial_days, trial_credits, credit_ceiling_months, credit_days_after_cancel,
+                     audience, teacher_lesson_credits, person_email)
+    values (p_brand, p_key, initcap(p_key), p_monthly, p_annual, p_credits, 0, false, false, false,
+            p_trial_days, 20, case p_audience when 'founder' then 2 else 3 end,
+            case p_audience when 'founder' then 20 else 30 end,
+            p_audience, p_lesson, p_email)
+    returning id into v_id;
+  return v_id;
+end;
+$$;
+
+create function verify.open_0058(
+  p_person uuid, p_plan uuid, p_cycle text, p_value integer, p_trial boolean,
+  p_checkout text, p_subscription text)
+returns uuid
+language sql as $$
+  select public.billing_open_subscription(p_person, p_plan, p_cycle,
+    case when p_checkout is null then 'pix' else 'card' end, p_value, p_trial,
+    (now() at time zone 'America/Sao_Paulo')::date + 14, p_checkout,
+    case when p_subscription is null then null else 'cus_' || p_subscription end, p_subscription);
+$$;
+
+create function verify.apply_0058(
+  p_id uuid, p_subscription_id text, p_customer_id text, p_status text,
+  p_paid_through date, p_past_due_since date, p_cancel_reason text)
+returns void
+language plpgsql as $$
+begin
+  perform public.billing_apply_subscription(p_id, p_subscription_id, p_customer_id, p_status,
+    p_paid_through, p_past_due_since, p_cancel_reason);
+exception when others then
+  insert into verify.failures values (format(
+    '[0058] a subscription the case needed did not turn %s: %s %s', p_status, sqlstate, sqlerrm));
+end;
+$$;
+
+-- The same, for a subscription the case needs: a refusal is recorded as a
+-- failure of the block, which goes on, instead of ending it unnamed.
+create function verify.must_open_0058(
+  p_what text, p_person uuid, p_plan uuid, p_cycle text, p_value integer, p_trial boolean,
+  p_checkout text, p_subscription text)
+returns uuid
+language plpgsql as $$
+begin
+  return verify.open_0058(p_person, p_plan, p_cycle, p_value, p_trial, p_checkout, p_subscription);
+exception when others then
+  insert into verify.failures values (format('%s: refused with %s %s', p_what, sqlstate, sqlerrm));
+  return null;
+end;
+$$;
+
+do $$
+declare
+  c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_teacher constant uuid := '55555555-5555-5555-5555-555555555555';
+  c_f1 constant uuid := 'b0580000-0000-4000-8000-000000000001';
+  c_p2 constant uuid := 'b0580000-0000-4000-8000-000000000002';
+  c_f3 constant uuid := 'b0580000-0000-4000-8000-000000000003';
+  c_plain constant uuid := 'b0580000-0000-4000-8000-000000000004';
+  c_new constant uuid := 'b0580000-0000-4000-8000-000000000005';
+  c_other constant uuid := 'b0580000-0000-4000-8000-000000000006';
+  c_boom constant uuid := 'b0580000-0000-4000-8000-000000000007';
+  c_book constant uuid := 'b0580000-0000-4000-8000-000000000008';
+  c_tutor constant uuid := 'b0580000-0000-4000-8000-000000000009';
+  c_people constant uuid[] := array[c_f1, c_p2, c_f3, c_plain, c_new, c_other, c_boom, c_book, c_tutor];
+  c_zone constant text := 'America/Sao_Paulo';
+  v_uid text := current_setting('test.uid', true);
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_today date := (now() at time zone 'America/Sao_Paulo')::date;
+  v_ten timestamptz := ((now() at time zone 'America/Sao_Paulo')::date + 2 + time '10:00') at time zone 'America/Sao_Paulo';
+  v_public uuid;
+  v_founder uuid;
+  v_founder2 uuid;
+  v_personal uuid;
+  v_waiting uuid;
+  v_nobody uuid;
+  v_boom_plan uuid;
+  v_grifo uuid;
+  v_inactive uuid;
+  v_tutor uuid;
+  v_sub uuid;
+  v_sub2 uuid;
+  v_seal uuid;
+  v_seal2 uuid;
+  v_n bigint;
+  v_int integer;
+  v_text text;
+  v_bool boolean;
+  v_terms record;
+  v_terms2 record;
+  v_row record;
+  v_left integer;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  -- The people. Chelsea St students, confirmed: two founders, a holder of a
+  -- personal plan, one with nothing, one more, a founder who books, and a
+  -- teacher who takes bookings. Unconfirmed: one a personal plan waits for
+  -- (her address in another case, and a signup), and one whose bind fails.
+  insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at) values
+    (c_f1, 'f1-0058@example.com', '{"full_name":"F1"}', now()),
+    (c_p2, 'p2-0058@example.com', '{"full_name":"P2"}', now()),
+    (c_f3, 'f3-0058@example.com', '{"full_name":"F3"}', now()),
+    (c_plain, 'plain-0058@example.com', '{"full_name":"Plain"}', now()),
+    (c_other, 'other-0058@example.com', '{"full_name":"Other"}', now()),
+    (c_book, 'book-0058@example.com', '{"full_name":"Book"}', now()),
+    (c_tutor, 'tutor-0058@example.com', '{"full_name":"Tutor"}', now());
+  insert into auth.users (id, email, raw_user_meta_data) values
+    (c_new, 'New-0058@Example.COM', '{"signup": true, "full_name":"New"}'),
+    (c_boom, 'boom-0058@example.com', '{"full_name":"Boom"}');
+  insert into organization_members (organization_id, user_id, role)
+    select v_chelsea, p, 'student' from unnest(array[c_f1, c_p2, c_f3, c_plain, c_other, c_book]) p;
+  insert into organization_members (organization_id, user_id, role) values (v_chelsea, c_tutor, 'teacher');
+  insert into students (id, organization_id)
+    select p, v_chelsea from unnest(array[c_f1, c_p2, c_f3, c_plain, c_other, c_book]) p;
+  insert into teachers (organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+    values (v_chelsea, c_tutor, 'teacher', 'https://meet.example.com/0058', 'tutor-agenda@example.com', true)
+    returning id into v_tutor;
+  insert into teacher_availability (organization_id, teacher_id, weekday, start_time, end_time, timezone)
+    select v_chelsea, v_tutor, d, '00:00', '24:00', c_zone from generate_series(0, 6) d;
+  -- The brand's cost of a lesson.
+  insert into credit_costs (brand, action, credits) values ('chelsea-st', 'teacher_lesson', 4);
+
+  -- Who executes what.
+  perform verify.holds_0058('[0058 #19] badge_grant is executed by no API role; grant_badge and revoke_badge by authenticated alone; holds_badge by authenticated alone; founder_seats_left by anon and authenticated',
+        not has_function_privilege('anon', 'public.badge_grant(uuid, text, text, uuid)', 'execute')
+    and not has_function_privilege('authenticated', 'public.badge_grant(uuid, text, text, uuid)', 'execute')
+    and not has_function_privilege('service_role', 'public.badge_grant(uuid, text, text, uuid)', 'execute')
+    and not has_function_privilege('anon', 'public.grant_badge(uuid, text)', 'execute')
+    and not has_function_privilege('anon', 'public.revoke_badge(uuid, text)', 'execute')
+    and not has_function_privilege('service_role', 'public.grant_badge(uuid, text)', 'execute')
+    and has_function_privilege('authenticated', 'public.grant_badge(uuid, text)', 'execute')
+    and has_function_privilege('authenticated', 'public.revoke_badge(uuid, text)', 'execute')
+    and has_function_privilege('authenticated', 'public.holds_badge(text)', 'execute')
+    and not has_function_privilege('anon', 'public.holds_badge(text)', 'execute')
+    and has_function_privilege('anon', 'public.founder_seats_left()', 'execute')
+    and has_function_privilege('authenticated', 'public.founder_seats_left()', 'execute')
+    and not has_function_privilege('service_role', 'public.founder_seats_left()', 'execute'));
+  perform verify.holds_0058('[0058] the internal and trigger functions of 0058 are executed by no API role',
+    not exists (select 1 from unnest(array[
+                  'public.bind_personal_plans(uuid, text)', 'public.founder_program_stamp()',
+                  'public.plans_founder_stays_on_sale()', 'public.plans_bind_personal()',
+                  'public.plans_personal_bound_for_good()', 'public.person_badges_fix_terms()',
+                  'public.accept_organization_invites_on_confirmation()',
+                  'public.credit_subscription_copies_plan()', 'public.credit_price(uuid, text)']::regprocedure[]) f
+                cross join unnest(array['anon', 'authenticated', 'service_role']) r
+                where has_function_privilege(r, f, 'execute'))
+    and has_function_privilege('service_role',
+          'public.billing_open_subscription(uuid, uuid, text, text, integer, boolean, date, text, text, text)', 'execute')
+    and not has_function_privilege('authenticated',
+          'public.billing_open_subscription(uuid, uuid, text, text, integer, boolean, date, text, text, text)', 'execute'));
+  perform verify.holds_0058('[0058 #18] authenticated only selects person_badges, anon and service_role hold nothing on it or on founder_program',
+        has_table_privilege('authenticated', 'public.person_badges', 'select')
+    and not exists (select 1 from unnest(array['insert', 'update', 'delete']) p
+                     where has_table_privilege('authenticated', 'public.person_badges', p))
+    and not exists (select 1 from unnest(array['select', 'insert', 'update', 'delete']) p
+                    cross join unnest(array['anon', 'service_role']) r
+                    cross join unnest(array['public.person_badges', 'public.founder_program']) t
+                     where has_table_privilege(r, t, p))
+    and not has_table_privilege('authenticated', 'public.founder_program', 'delete'));
+
+  -- No total yet: no seat, and badge_grant refuses.
+  perform verify.holds_0058('[0058 #21] with no row in founder_program, founder_seats_left is null',
+    founder_seats_left() is null);
+  perform verify.expect_named_refusal('[0058 #21] a seal with no row in founder_program',
+    '23514 founder_seats_available', format('select badge_grant(%L, ''founder'', ''admin'', null)', c_f1));
+
+  -- The platform admin writes the total and the catalog.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  insert into founder_program (seats_total) values (3);
+  v_public := verify.plan_0058('public', 'public', 1000, 10000, 10, null, null);
+  v_founder := verify.plan_0058('founder', 'founder', 500, 5000, 8, 2, null);
+  v_founder2 := verify.plan_0058('founder-two', 'founder', 600, 6000, 8, 2, null);
+  update plans set is_active = false where id = v_founder2;
+  v_personal := verify.plan_0058('personal-p2', 'person', 800, 8000, 10, 1, 'p2-0058@example.com');
+  v_waiting := verify.plan_0058('personal-new', 'person', 800, 8000, 10, 1, 'new-0058@example.com');
+  v_nobody := verify.plan_0058('personal-nobody', 'person', 800, 8000, 10, 1, 'nobody-0058@example.com');
+  v_boom_plan := verify.plan_0058('personal-boom', 'person', 800, 8000, 10, 1, 'boom-0058@example.com');
+  v_grifo := verify.plan_0058('seat', 'public', 1000, 10000, 10, null, null, 0, 'grifoai');
+  v_inactive := verify.plan_0058('old', 'public', 1000, 10000, 10, null, null);
+  update plans set is_active = false where id = v_inactive;
+  reset role;
+
+  perform verify.holds_0058('[0058] founder_program says who wrote the total and when',
+    (select updated_by from founder_program) = c_admin
+    and (select updated_at from founder_program) is not null);
+
+  -- 7. Bound when written, for a confirmed account only.
+  perform verify.holds_0058('[0058 #7] a personal plan for the e-mail of a confirmed account is born bound to it',
+    (select person_id from plans where id = v_personal) = c_p2);
+  perform verify.holds_0058('[0058 #7] a personal plan for the e-mail of an unconfirmed account is born unbound',
+    (select person_id from plans where id = v_waiting) is null
+    and (select person_id from plans where id = v_boom_plan) is null);
+
+  -- The seals, by the platform admin.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  v_seal := grant_badge(c_f1, 'founder');
+  perform grant_badge(c_f3, 'founder');
+  perform grant_badge(c_book, 'founder');
+  reset role;
+  perform verify.holds_0058('[0058] grant_badge gives the seal with source admin and the admin as granted_by',
+    (select count(*) from person_badges
+      where person_id in (c_f1, c_f3, c_book) and badge = 'founder' and source = 'admin'
+        and granted_by = c_admin and revoked_at is null) = 3);
+
+  -- 1 to 5. Who reads which plan.
+  set local role anon;
+  v_n := (select count(*) from plans where audience <> 'public');
+  v_bool := exists (select 1 from plans where id = v_public);
+  reset role;
+  perform verify.holds_0058('[0058 #1] anon reads the public active plans and no founder or personal plan',
+    v_n = 0 and v_bool);
+
+  perform set_config('test.uid', c_plain::text, false);
+  set local role authenticated;
+  v_n := (select count(*) from plans where audience = 'founder');
+  v_int := (select count(*) from plans where audience = 'person');
+  v_bool := exists (select 1 from plans where id = v_public);
+  reset role;
+  perform verify.holds_0058('[0058 #2] a student without the seal reads no founder plan and no personal plan, and the public one',
+    v_n = 0 and v_int = 0 and v_bool);
+
+  perform set_config('test.uid', c_f1::text, false);
+  set local role authenticated;
+  v_n := (select count(*) from plans where id = v_founder);
+  v_int := (select count(*) from plans where id in (v_founder2, v_personal, v_nobody, v_waiting));
+  v_bool := holds_badge('founder');
+  reset role;
+  perform verify.holds_0058('[0058 #3] a founder with a live seal reads the founder plan on sale, not the one off sale, and no personal plan',
+    v_n = 1 and v_int = 0 and v_bool);
+
+  perform set_config('test.uid', c_p2::text, false);
+  set local role authenticated;
+  v_n := (select count(*) from plans where id = v_personal);
+  v_int := (select count(*) from plans where id in (v_waiting, v_nobody, v_founder));
+  reset role;
+  perform verify.holds_0058('[0058 #4] a personal plan is read by its person, and she reads no other personal plan',
+    v_n = 1 and v_int = 0);
+
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  v_n := (select count(*) from plans where id in (v_nobody, v_waiting, v_personal, v_founder, v_founder2));
+  reset role;
+  perform verify.holds_0058('[0058 #5] the platform admin reads every plan, the personal ones waiting too',
+    v_n = 5);
+
+  -- 8. Bound for good.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0058 #8] another e-mail on a bound personal plan',
+    '23514 plans_personal_bound_for_good',
+    format('update plans set person_email = ''other-0058@example.com'' where id = %L', v_personal));
+  perform verify.expect_named_refusal('[0058 #8] another person on a bound personal plan',
+    '23514 plans_personal_bound_for_good',
+    format('update plans set person_id = %L where id = %L', c_plain, v_personal));
+  perform verify.expect_named_refusal('[0058 #8] no person on a bound personal plan',
+    '23514 plans_personal_bound_for_good',
+    format('update plans set person_id = null where id = %L', v_personal));
+  reset role;
+
+  -- 6. Bound on the first confirmation, whatever the case of the address,
+  -- with the invite and the signup still done (0051's body).
+  update auth.users set email_confirmed_at = now() where id = c_new;
+  perform verify.holds_0058('[0058 #6] a confirmation binds the personal plan waiting for her e-mail, in another case',
+    (select person_id from plans where id = v_waiting) = c_new);
+  perform verify.holds_0058('[0058 #6] a confirmation binds no plan of another e-mail',
+    (select person_id from plans where id = v_nobody) is null);
+  perform verify.holds_0058('[0058] the confirmation still makes a signup a student of Chelsea St (0051''s body kept)',
+    exists (select 1 from organization_members
+             where user_id = c_new and organization_id = v_chelsea and role = 'student'));
+  perform set_config('test.uid', c_new::text, false);
+  set local role authenticated;
+  v_n := (select count(*) from plans where id = v_waiting);
+  reset role;
+  perform verify.holds_0058('[0058 #6] once bound, she reads her personal plan', v_n = 1);
+
+  -- 9. A bind that fails never fails a confirmation.
+  alter table plans add constraint verify_0058_refuse_bind check (person_id is null) not valid;
+  v_text := verify.named_refusal(format('update auth.users set email_confirmed_at = now() where id = %L', c_boom));
+  alter table plans drop constraint verify_0058_refuse_bind;
+  perform verify.holds_0058(format('[0058 #9] a confirmation whose bind fails still confirms (%s)', coalesce(v_text, 'accepted')),
+    v_text is null
+    and (select email_confirmed_at from auth.users where id = c_boom) is not null
+    and (select person_id from plans where id = v_boom_plan) is null);
+
+  -- 10. Who subscribes to which plan.
+  perform billing_customer(c_f1, repeat('1', 64));
+  perform billing_customer(c_p2, repeat('2', 64));
+  perform billing_customer(c_f3, repeat('3', 64));
+  perform billing_customer(c_plain, repeat('4', 64));
+  perform billing_customer(c_other, repeat('6', 64));
+  perform billing_customer(c_book, repeat('8', 64));
+  perform verify.expect_named_refusal('[0058 #10] a founder plan without the seal',
+    '23514 billing_plan_audience',
+    format('select verify.open_0058(%L, %L, ''monthly'', 500, false, null, ''sub_plain_f'')', c_plain, v_founder));
+  perform verify.expect_named_refusal('[0058 #10] a personal plan bound to another person, by a founder',
+    '23514 billing_plan_audience',
+    format('select verify.open_0058(%L, %L, ''monthly'', 800, false, null, ''sub_f1_x'')', c_f1, v_personal));
+  perform verify.expect_named_refusal('[0058 #10] a personal plan bound to nobody',
+    '23514 billing_plan_audience',
+    format('select verify.open_0058(%L, %L, ''monthly'', 800, false, null, ''sub_f1_n'')', c_f1, v_nobody));
+
+  -- Regression of 0049's body: a GrifoAI plan and a plan off sale.
+  perform verify.expect_named_refusal('[0058] a GrifoAI plan is still refused (0049''s body kept)',
+    '23514 billing_plan_active',
+    format('select verify.open_0058(%L, %L, ''monthly'', 1000, false, null, ''sub_g'')', c_plain, v_grifo));
+  perform verify.expect_named_refusal('[0058] a plan off sale is still refused (0049''s body kept)',
+    '23514 billing_plan_active',
+    format('select verify.open_0058(%L, %L, ''monthly'', 1000, false, null, ''sub_i'')', c_plain, v_inactive));
+
+  -- 12. The value: the plan's price for the cycle.
+  perform verify.expect_named_refusal('[0058 #12] a public plan at another value',
+    '23514 billing_value_matches',
+    format('select verify.open_0058(%L, %L, ''monthly'', 999, true, null, ''sub_plain_bad'')', c_plain, v_public));
+  perform verify.expect_named_refusal('[0058 #12] the annual cycle at the monthly price',
+    '23514 billing_value_matches',
+    format('select verify.open_0058(%L, %L, ''annual'', 1000, true, null, ''sub_plain_bad2'')', c_plain, v_public));
+  perform verify.expect_named_refusal('[0058 #12] a personal plan at another value',
+    '23514 billing_value_matches',
+    format('select verify.open_0058(%L, %L, ''monthly'', 500, false, null, ''sub_p2_bad'')', c_p2, v_personal));
+
+  -- c_plain on the public plan with its trial; c_p2 on her personal plan.
+  v_sub := verify.must_open_0058('[0058 #12] the public plan at its price', c_plain, v_public, 'monthly', 1000, true, null, 'sub_plain');
+  perform verify.holds_0058('[0058] a subscription still copies the credits, the ceiling and the days of its plan (0050''s body kept)',
+    (select (monthly_credits, credit_ceiling_months, credit_days_after_cancel, teacher_lesson_credits, status)
+       from subscriptions where id = v_sub) = row(10, 3::smallint, 30::smallint, null::integer, 'trialing'::text));
+  perform verify.expect_named_refusal('[0058] a second trial is still refused (0049''s body kept)',
+    '23514 billing_one_trial_per_person',
+    format('select verify.open_0058(%L, %L, ''monthly'', 1000, true, null, ''sub_plain2'')', c_plain, v_public));
+  perform verify.must_open_0058('[0058 #10] her personal plan, by its person', c_p2, v_personal, 'monthly', 800, false, null, 'sub_p2');
+
+  -- 15 and 24. The founder's first subscription, paid: her terms are fixed.
+  -- With public plans active, the founder plan is still hers to subscribe.
+  v_sub := verify.must_open_0058('[0058 #15] the founder plan with a live seal, public plans on sale', c_f1, v_founder, 'monthly', 500, false, null, 'sub_f1');
+  perform verify.holds_0058('[0058 #13] a founder subscription not paid yet fixes no terms',
+    (select terms_fixed_at from person_badges where id = v_seal) is null);
+  perform verify.apply_0058(v_sub, 'sub_f1', 'cus_sub_f1', 'active', v_today + 30, null, null);
+  select terms_monthly_price_cents, terms_annual_price_cents, terms_monthly_credits,
+         terms_teacher_lesson_credits, terms_credit_ceiling_months, terms_credit_days_after_cancel,
+         terms_fixed_at
+    into v_terms from person_badges where id = v_seal;
+  perform verify.holds_0058('[0058 #13] the first active founder subscription fixes her terms: her value, the plan''s other cycle, the credits, the cost of a lesson',
+    (v_terms.terms_monthly_price_cents, v_terms.terms_annual_price_cents, v_terms.terms_monthly_credits,
+     v_terms.terms_teacher_lesson_credits, v_terms.terms_credit_ceiling_months,
+     v_terms.terms_credit_days_after_cancel)
+      = (500, 5000, 8, 2, 2::smallint, 20::smallint)
+    and v_terms.terms_fixed_at is not null);
+
+  -- 24. The cost of a lesson by the plan.
+  perform verify.holds_0058('[0058 #24] a lesson costs a founder what her founder subscription says',
+    credit_price(c_f1, 'teacher_lesson') = 2);
+  perform verify.holds_0058('[0058 #24] a lesson costs a subscriber of a plan without its own cost the brand''s',
+    credit_price(c_plain, 'teacher_lesson') = 4);
+  perform verify.holds_0058('[0058 #24] a lesson costs the holder of a personal plan what it says',
+    credit_price(c_p2, 'teacher_lesson') = 1);
+  perform verify.expect_named_refusal('[0058] an action without a cost in the brand is still refused (0050''s body kept)',
+    '23514 credit_cost_known', format('select credit_price(%L, ''voice_minute'')', c_f1));
+
+  -- The admin changes the founder plan: price, credits and the lesson.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  update plans set monthly_price_cents = 700, annual_price_cents = 7000, monthly_credits = 6,
+                   teacher_lesson_credits = 3
+   where id = v_founder;
+  reset role;
+  perform verify.holds_0058('[0058 #25] a change of the plan does not change the cost under a subscription already born',
+    credit_price(c_f1, 'teacher_lesson') = 2);
+
+  -- 15. She falls behind and is cancelled: the seal stays.
+  perform verify.apply_0058(v_sub, 'sub_f1', null, 'past_due', v_today + 30, v_today, null);
+  perform verify.apply_0058(v_sub, 'sub_f1', null, 'canceled', null, null, 'overdue');
+  perform set_config('test.uid', c_f1::text, false);
+  set local role authenticated;
+  v_bool := holds_badge('founder');
+  v_n := (select count(*) from plans where id = v_founder);
+  reset role;
+  perform verify.holds_0058('[0058 #15] past due and cancelled for it, the founder keeps a live seal and still reads the founder plan',
+    v_bool and v_n = 1
+    and exists (select 1 from person_badges where id = v_seal and revoked_at is null));
+
+  -- 27. With none alive, the last one that ran counts; a checkout given up
+  -- after it does not.
+  perform verify.must_open_0058('[0058 #27] a checkout of a public plan', c_f1, v_public, 'monthly', 1000, false, 'chk_f1', null);
+  perform verify.apply_0058((select id from subscriptions where asaas_checkout_id = 'chk_f1'),
+    null, null, 'canceled', null, null, 'checkout_expired');
+  -- Later than the founder subscription's cancel: in one transaction now()
+  -- does not move, and the two would tie.
+  update subscriptions set canceled_at = canceled_at + interval '1 minute'
+   where asaas_checkout_id = 'chk_f1';
+  perform verify.holds_0058('[0058 #27] with no subscription alive, the cost is the last one''s that ran, not a checkout''s that expired after it',
+    credit_price(c_f1, 'teacher_lesson') = 2);
+
+  -- 11 and 12. She comes back: her terms, not the plan's of the day.
+  perform verify.expect_named_refusal('[0058 #12] a founder coming back at the founder plan''s price of the day',
+    '23514 billing_value_matches',
+    format('select verify.open_0058(%L, %L, ''monthly'', 700, false, null, ''sub_f1_day'')', c_f1, v_founder));
+  v_sub2 := verify.must_open_0058('[0058 #15] the founder plan again after a cancel, at her terms', c_f1, v_founder, 'monthly', 500, false, null, 'sub_f1_back');
+  perform verify.holds_0058('[0058 #11] a founder who comes back after the plan changed subscribes with her terms: value, credits, ceiling, days and cost of a lesson',
+    (select (value_cents, monthly_credits, credit_ceiling_months, credit_days_after_cancel, teacher_lesson_credits)
+       from subscriptions where id = v_sub2) = row(500, 8, 2::smallint, 20::smallint, 2));
+  perform verify.holds_0058('[0058 #15] a founder who cancelled subscribes to the founder plan again',
+    (select status from subscriptions where id = v_sub2) = 'awaiting');
+
+  -- 13. The terms are fixed on the first active only, not on awaiting, and
+  -- never moved again.
+  v_sub := verify.must_open_0058('[0058 #13] the founder plan at its price, no terms yet', c_f3, v_founder, 'monthly', 700, false, 'chk_f3', null);
+  perform verify.apply_0058(v_sub, 'sub_f3', 'cus_f3', 'awaiting', null, null, null);
+  perform verify.holds_0058('[0058 #13] a founder subscription pending and then awaiting fixes no terms',
+    (select terms_fixed_at from person_badges where person_id = c_f3 and revoked_at is null) is null);
+  perform verify.apply_0058(v_sub, 'sub_f3', 'cus_f3', 'active', v_today + 30, null, null);
+  select terms_monthly_price_cents, terms_annual_price_cents, terms_monthly_credits,
+         terms_teacher_lesson_credits, terms_fixed_at
+    into v_terms from person_badges where person_id = c_f3 and revoked_at is null;
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  update plans set annual_price_cents = 9000 where id = v_founder;
+  reset role;
+  perform verify.apply_0058(v_sub, 'sub_f3', null, 'past_due', v_today + 30, v_today, null);
+  perform verify.apply_0058(v_sub, 'sub_f3', null, 'active', v_today + 60, null, null);
+  select terms_monthly_price_cents, terms_annual_price_cents, terms_monthly_credits,
+         terms_teacher_lesson_credits, terms_fixed_at
+    into v_terms2 from person_badges where person_id = c_f3 and revoked_at is null;
+  perform verify.holds_0058('[0058 #13] the first active fixes the terms of that day, and a second active moves none of them',
+    (v_terms.terms_monthly_price_cents, v_terms.terms_annual_price_cents, v_terms.terms_monthly_credits,
+     v_terms.terms_teacher_lesson_credits) = (700, 7000, 6, 3)
+    and (v_terms2.terms_monthly_price_cents, v_terms2.terms_annual_price_cents,
+         v_terms2.terms_monthly_credits, v_terms2.terms_teacher_lesson_credits, v_terms2.terms_fixed_at)
+        = (v_terms.terms_monthly_price_cents, v_terms.terms_annual_price_cents,
+           v_terms.terms_monthly_credits, v_terms.terms_teacher_lesson_credits, v_terms.terms_fixed_at));
+
+  -- 28. The seal does not change the cost: a founder on a public plan pays
+  -- the public plan's.
+  perform verify.apply_0058(v_sub, 'sub_f3', null, 'canceled', null, null, 'person');
+  perform verify.must_open_0058('[0058 #28] a public plan by a founder', c_f3, v_public, 'monthly', 1000, false, null, 'sub_f3_public');
+  perform verify.holds_0058('[0058 #28] a founder on a public plan pays the lesson at the public plan''s cost, not her terms''',
+    credit_price(c_f3, 'teacher_lesson') = 4);
+
+  -- 25. A plan changed later reaches new subscriptions only.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  update plans set teacher_lesson_credits = 5 where id = v_public;
+  reset role;
+  -- A pending checkout of hers is replaced by the next one (0049's body).
+  perform verify.must_open_0058('[0058] a checkout', c_other, v_public, 'monthly', 1000, false, 'chk_other', null);
+  perform verify.must_open_0058('[0058] a subscription after a checkout left behind', c_other, v_public, 'monthly', 1000, false, null, 'sub_other');
+  perform verify.holds_0058('[0058] a pending checkout is still cancelled as replaced by the next subscription (0049''s body kept)',
+    (select cancel_reason from subscriptions where asaas_checkout_id = 'chk_other') = 'replaced');
+  perform verify.holds_0058('[0058 #25] the cost of a plan changed later reaches a new subscription and not one already born',
+    credit_price(c_other, 'teacher_lesson') = 5 and credit_price(c_plain, 'teacher_lesson') = 4);
+
+  -- 26. A booking debits the cost of her plan: a founder on her trial, and
+  -- a student of a public plan born before its cost changed.
+  v_sub := verify.must_open_0058('[0058 #26] the founder plan with its trial', c_book, v_founder, 'monthly', 700, true, null, 'sub_book');
+  perform set_config('test.uid', c_book::text, false);
+  begin
+    set local role authenticated;
+    select credits_debited into v_int from book_lesson(v_tutor, v_ten);
+  exception when others then
+    insert into verify.failures values (format('[0058 #26] a founder could not book: %s %s', sqlstate, sqlerrm));
+  end;
+  reset role;
+  perform set_config('test.uid', c_plain::text, false);
+  begin
+    set local role authenticated;
+    select credits_debited into v_n from book_lesson(v_tutor, v_ten + interval '2 hours');
+  exception when others then
+    insert into verify.failures values (format('[0058 #26] a student of a public plan could not book: %s %s', sqlstate, sqlerrm));
+  end;
+  reset role;
+  perform verify.holds_0058(format('[0058 #26] book_lesson debits the founder plan''s cost to a founder (%s) and the brand''s to a public plan born before (%s)', v_int, v_n),
+    v_int = 3 and v_n = 4
+    and (select sum(amount) from credit_entries where person_id = c_book and kind = 'debit') = -3
+    and (select sum(amount) from credit_entries where person_id = c_plain and kind = 'debit') = -4);
+
+  -- 29. Another person's cost is not hers to read (0050).
+  perform set_config('test.uid', c_plain::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0058 #29] the cost of a lesson of another person', '42501',
+    format('select credit_cost(%L, ''teacher_lesson'')', c_f1));
+  v_int := credit_cost(c_plain, 'teacher_lesson');
+  reset role;
+  perform verify.holds_0058('[0058 #29] she reads her own cost', v_int = 4);
+
+  -- 17. Nobody gives herself a seal, nor takes one away.
+  perform set_config('test.uid', c_plain::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0058 #17] a student gives herself the seal', '42501',
+    format('select grant_badge(%L, ''founder'')', c_plain));
+  perform verify.expect_named_refusal('[0058 #17] a student takes a seal away', '42501',
+    format('select revoke_badge(%L, ''founder'')', c_f1));
+  perform set_config('test.uid', c_teacher::text, false);
+  perform verify.expect_named_refusal('[0058 #17] a teacher who is not the platform admin gives herself the seal', '42501',
+    format('select grant_badge(%L, ''founder'')', c_teacher));
+  reset role;
+
+  -- 18. Nobody writes the seals or the seats through the API.
+  perform set_config('test.uid', c_plain::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0058 #18] a student inserts her own seal', '42501',
+    format('insert into person_badges (person_id, badge, source) values (%L, ''founder'', ''admin'')', c_plain));
+  perform verify.expect_named_refusal('[0058 #18] a founder moves her own seal', '42501',
+    format('update person_badges set revoked_at = null where person_id = %L', c_plain));
+  perform verify.expect_named_refusal('[0058 #18] a student deletes a seal', '42501',
+    'delete from person_badges');
+  perform verify.expect_named_refusal('[0058 #18] a student writes the total of seats', '42501',
+    'insert into founder_program (id, seats_total) values (true, 99) on conflict (id) do update set seats_total = 99');
+  update founder_program set seats_total = 99;
+  get diagnostics v_n = row_count;
+  v_int := (select count(*) from founder_program);
+  reset role;
+  perform verify.holds_0058('[0058 #18] a student changes no total of seats and reads none',
+    v_n = 0 and v_int = 0 and (select seats_total from founder_program) = 3);
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0058 #18] the platform admin inserts a seal past badge_grant', '42501',
+    format('insert into person_badges (person_id, badge, source) values (%L, ''founder'', ''admin'')', c_plain));
+  reset role;
+
+  -- 11 (of 12/11). A student reads her own seals; the admin all.
+  perform set_config('test.uid', c_f1::text, false);
+  set local role authenticated;
+  v_n := (select count(*) from person_badges);
+  v_bool := exists (select 1 from person_badges where person_id = c_f1);
+  reset role;
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  v_int := (select count(*) from person_badges where person_id in (c_f1, c_f3, c_book));
+  reset role;
+  perform verify.holds_0058('[0058 #18] a founder reads her own seal and no other; the platform admin reads them all',
+    v_n = 1 and v_bool and v_int = 3);
+
+  -- 20. One live seal per person, and grant_badge again spends no seat.
+  v_left := founder_seats_left();
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  v_seal2 := grant_badge(c_f1, 'founder');
+  reset role;
+  perform verify.holds_0058('[0058 #20] giving a live seal again returns the same seal and spends no seat',
+    v_seal2 = v_seal and founder_seats_left() = v_left
+    and (select count(*) from person_badges where person_id = c_f1) = 1);
+  perform verify.expect_named_refusal('[0058 #20] a second live seal of the same person',
+    '23505 person_badges_one_live',
+    format('insert into person_badges (person_id, badge, source) values (%L, ''founder'', ''admin'')', c_f1));
+
+  -- 21. The seats: full, a seal is refused; a seal revoked gives it back.
+  perform verify.holds_0058('[0058 #21] founder_seats_left is the total less the live seals', v_left = 0);
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0058 #21] a seal with every seat taken, by the platform admin',
+    '23514 founder_seats_available', format('select grant_badge(%L, ''founder'')', c_other));
+  v_bool := revoke_badge(c_book, 'founder');
+  perform grant_badge(c_other, 'founder');
+  v_text := revoke_badge(c_plain, 'founder')::text;
+  reset role;
+  perform verify.holds_0058('[0058 #21] a seal revoked gives its seat back to the next; revoking where there is none says false',
+    v_bool and v_text = 'false'
+    and exists (select 1 from person_badges where person_id = c_other and revoked_at is null)
+    and (select revoked_by from person_badges where person_id = c_book) = c_admin
+    and founder_seats_left() = 0);
+  set local role anon;
+  v_left := founder_seats_left();
+  reset role;
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  update founder_program set seats_total = 1;
+  reset role;
+  perform verify.holds_0058('[0058 #23] anon reads the seats left, a number; a total below the live seals leaves 0 and takes no seal',
+    v_left = 0 and founder_seats_left() = 0
+    and (select count(*) from person_badges where revoked_at is null) = 3);
+  set local role anon;
+  perform verify.expect_named_refusal('[0058 #23] anon reads founder_program', '42501', 'select * from founder_program');
+  perform verify.expect_named_refusal('[0058 #23] anon reads person_badges', '42501', 'select * from person_badges');
+  reset role;
+
+  -- 14. Revoked and given again: the same terms.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  update founder_program set seats_total = 3;
+  perform revoke_badge(c_f1, 'founder');
+  reset role;
+  perform set_config('test.uid', c_f1::text, false);
+  set local role authenticated;
+  v_n := (select count(*) from plans where id = v_founder);
+  v_bool := holds_badge('founder');
+  reset role;
+  perform verify.holds_0058('[0058 #3] with her seal revoked she reads the founder plan no more', v_n = 0 and not v_bool);
+  perform verify.expect_named_refusal('[0058 #10] a founder plan with the seal revoked',
+    '23514 billing_plan_audience',
+    format('select verify.open_0058(%L, %L, ''monthly'', 500, false, null, ''sub_f1_revoked'')', c_f1, v_founder));
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  v_seal2 := grant_badge(c_f1, 'founder');
+  reset role;
+  perform verify.holds_0058('[0058 #14] a seal given again after a revoke is a new row with the same terms',
+    v_seal2 <> v_seal
+    and (select (terms_monthly_price_cents, terms_annual_price_cents, terms_monthly_credits,
+                 terms_teacher_lesson_credits, terms_credit_ceiling_months, terms_credit_days_after_cancel)
+           from person_badges where id = v_seal2)
+        = (select (terms_monthly_price_cents, terms_annual_price_cents, terms_monthly_credits,
+                   terms_teacher_lesson_credits, terms_credit_ceiling_months, terms_credit_days_after_cancel)
+             from person_badges where id = v_seal)
+    and (select terms_fixed_at from person_badges where id = v_seal2) is not null);
+
+  -- 16. The last founder plan on sale stays on sale.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0058 #16] the last founder plan taken off sale',
+    '23514 plans_founder_stays_on_sale', format('update plans set is_active = false where id = %L', v_founder));
+  perform verify.expect_named_refusal('[0058 #16] the last founder plan made public',
+    '23514 plans_founder_stays_on_sale', format('update plans set audience = ''public'' where id = %L', v_founder));
+  update plans set is_active = true where id = v_founder2;
+  perform verify.expect_accepted('[0058 #16] a founder plan taken off sale with another on sale',
+    format('update plans set is_active = false where id = %L', v_founder));
+  reset role;
+
+  -- 30. Every check by its name.
+  perform verify.expect_named_refusal('[0058 #30] a plan for an unknown audience', '23514 plans_audience_known',
+    format('update plans set audience = ''everyone'' where id = %L', v_inactive));
+  perform verify.expect_named_refusal('[0058 #30] a public plan with a person', '23514 plans_person_only_personal',
+    format('update plans set person_id = %L where id = %L', c_plain, v_inactive));
+  perform verify.expect_named_refusal('[0058 #30] a personal plan with no e-mail', '23514 plans_personal_has_email',
+    format('update plans set person_email = null where id = %L', v_nobody));
+  perform verify.expect_named_refusal('[0058 #30] a public plan with an e-mail', '23514 plans_personal_has_email',
+    format('update plans set person_email = ''a-0058@example.com'' where id = %L', v_inactive));
+  perform verify.expect_named_refusal('[0058 #30] a founder plan of GrifoAI', '23514 plans_founder_is_chelsea_st',
+    format('update plans set audience = ''founder'' where id = %L', v_grifo));
+  perform verify.expect_named_refusal('[0058 #30] a personal plan of GrifoAI', '23514 plans_founder_is_chelsea_st',
+    format('update plans set brand = ''grifoai'' where id = %L', v_nobody));
+  perform verify.expect_named_refusal('[0058 #30] a lesson that costs 0 on a plan', '23514 plans_teacher_lesson_credits_positive',
+    format('update plans set teacher_lesson_credits = 0 where id = %L', v_inactive));
+  perform verify.expect_named_refusal('[0058 #30] an e-mail in capitals on a personal plan', '23514 plans_person_email_shape',
+    format('update plans set person_email = ''Nobody-0058@example.com'' where id = %L', v_nobody));
+  perform verify.expect_named_refusal('[0058 #30] an e-mail with spaces around on a personal plan', '23514 plans_person_email_shape',
+    format('update plans set person_email = '' nobody-0058@example.com'' where id = %L', v_nobody));
+  perform verify.expect_named_refusal('[0058 #30] a personal plan for something that is not an e-mail', '23514 plans_person_email_shape',
+    format('update plans set person_email = ''nobody'' where id = %L', v_nobody));
+  perform verify.expect_named_refusal('[0058 #30] a seal of an unknown kind', '23514 person_badges_badge_known',
+    format('insert into person_badges (person_id, badge, source) values (%L, ''gold'', ''admin'')', c_plain));
+  perform verify.expect_named_refusal('[0058 #30] a seal from an unknown source', '23514 person_badges_source_known',
+    format('insert into person_badges (person_id, badge, source) values (%L, ''founder'', ''gift'')', c_plain));
+  perform verify.expect_named_refusal('[0058 #30] a seal of an organization', '23514 person_badges_is_common',
+    format('insert into person_badges (person_id, badge, source, organization_id) values (%L, ''founder'', ''admin'', %L)', c_plain, v_chelsea));
+  perform verify.expect_named_refusal('[0058 #30] terms fixed with no numbers', '23514 person_badges_terms_whole',
+    format('insert into person_badges (person_id, badge, source, terms_fixed_at) values (%L, ''founder'', ''admin'', now())', c_plain));
+  perform verify.expect_named_refusal('[0058 #30] a number of the terms with the terms not fixed', '23514 person_badges_terms_whole',
+    format('insert into person_badges (person_id, badge, source, terms_monthly_price_cents) values (%L, ''founder'', ''admin'', 100)', c_plain));
+  perform verify.expect_accepted('[0058 #30] whole terms with no cost of a lesson (the brand''s)',
+    format('insert into person_badges (person_id, badge, source, revoked_at, terms_monthly_price_cents, terms_annual_price_cents, terms_monthly_credits, terms_credit_ceiling_months, terms_credit_days_after_cancel, terms_fixed_at) values (%L, ''founder'', ''admin'', now(), 100, 1000, 1, 1, 0, now())', c_plain));
+  perform verify.expect_named_refusal('[0058 #30] terms at a price of 0', '23514 person_badges_terms_ranges',
+    format('insert into person_badges (person_id, badge, source, revoked_at, terms_monthly_price_cents, terms_annual_price_cents, terms_monthly_credits, terms_credit_ceiling_months, terms_credit_days_after_cancel, terms_fixed_at) values (%L, ''founder'', ''admin'', now(), 0, 1000, 1, 1, 0, now())', c_plain));
+  perform verify.expect_named_refusal('[0058 #30] a subscription whose lesson costs 0', '23514 subscriptions_teacher_lesson_credits_positive',
+    format('update subscriptions set teacher_lesson_credits = 0 where id = %L', v_sub2));
+  perform verify.expect_named_refusal('[0058 #30] a second row of founder_program', '23514 founder_program_one_row',
+    'insert into founder_program (id, seats_total) values (false, 1)');
+  perform verify.expect_named_refusal('[0058 #30] a negative total of seats', '23514 founder_program_seats_not_negative',
+    'update founder_program set seats_total = -1');
+
+  -- 31. The trail: 0 is a plan without it.
+  perform verify.expect_accepted('[0058 #31] a plan with 0 minutes of trail',
+    format('update plans set trail_minutes_per_day = 0 where id = %L', v_inactive));
+  perform verify.expect_named_refusal('[0058 #31] 241 minutes of trail', '23514 plans_trail_minutes_range',
+    format('update plans set trail_minutes_per_day = 241 where id = %L', v_inactive));
+  perform verify.expect_named_refusal('[0058 #31] -1 minutes of trail', '23514 plans_trail_minutes_range',
+    format('update plans set trail_minutes_per_day = -1 where id = %L', v_inactive));
+
+  -- 23. No security definer of public is executable by anon but the two
+  -- doors: the site's form and the seats left.
+  insert into verify.failures
+  select format('[0058 #23] anon executes the security definer %s', p.oid::regprocedure)
+    from pg_proc p
+   where p.pronamespace = 'public'::regnamespace
+     and not exists (select 1 from pg_depend d
+                      where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
+     and p.prosecdef
+     and p.oid not in ('public.submit_lead(text, text, text, text, text, text, text, text, text, text)'::regprocedure,
+                       'public.founder_seats_left()'::regprocedure)
+     and has_function_privilege('anon', p.oid, 'execute');
+  if not exists (select 1 from verify.failures where what like '[0058 #23] anon executes%') then
+    raise notice '[0058 #23] no security definer of public is executable by anon but submit_lead and founder_seats_left';
+  end if;
+
+  -- Nothing written here is kept.
+  perform set_config('session_replication_role', 'replica', true);
+  delete from credit_entries;
+  perform set_config('session_replication_role', 'origin', true);
+  delete from lessons where teacher_id = v_tutor;
+  delete from teacher_availability where teacher_id = v_tutor;
+  delete from teachers where id = v_tutor;
+  delete from subscriptions;
+  delete from billing_customers;
+  delete from credit_costs;
+  delete from plans;
+  delete from person_badges;
+  delete from founder_program;
+  delete from students where id = any (c_people);
+  delete from organization_members where user_id = any (c_people);
+  delete from auth.users where id = any (c_people);
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a founder keeps a door: %', v_failures;
+  end if;
+  raise notice 'a founder keeps a door: the seal is read by its holder and the admin and given only by badge_grant within the seats; the founder plan is read and subscribed with a live seal, the personal plan by its bound person; the founder''s terms are fixed by her first paid subscription and come back with her; the lesson costs what the subscription that counts says';
+end;
+$$;
+
+-- Two grants of the last seat at once (0058) ------------------------------------------
+--
+-- As the two debits of 0050: a second connection gives the last seat and
+-- holds its transaction open; a grant in this session waits for it (refused
+-- with 55P03 under lock_timeout), and once the other commits it is refused
+-- by founder_seats_available. The fixture is committed first, and removed.
+
+create extension dblink schema verify;
+
+do $$
+begin
+  insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at) values
+    ('b0580000-0000-4000-8000-0000000000a1', 'race1-0058@example.com', '{"full_name":"Race 1"}', now()),
+    ('b0580000-0000-4000-8000-0000000000a2', 'race2-0058@example.com', '{"full_name":"Race 2"}', now());
+  insert into founder_program (seats_total) values (1);
+end;
+$$;
+
+do $$
+declare
+  c_one constant uuid := 'b0580000-0000-4000-8000-0000000000a1';
+  c_two constant uuid := 'b0580000-0000-4000-8000-0000000000a2';
+  v_by text;
+  v_failures text;
+begin
+  delete from verify.failures;
+  perform verify.dblink_connect('race0058',
+    format('dbname=%s user=%s', current_database(), current_user));
+  perform verify.dblink_exec('race0058', 'begin');
+  perform * from verify.dblink('race0058',
+    format('select public.badge_grant(%L, ''founder'', ''coupon'', null)', c_one)) as t (id uuid);
+
+  perform set_config('lock_timeout', '300ms', true);
+  v_by := verify.named_refusal(format('select badge_grant(%L, ''founder'', ''coupon'', null)', c_two));
+  perform set_config('lock_timeout', '0', true);
+  if v_by is distinct from '55P03' then
+    insert into verify.failures values (format(
+      '[0058 #22] a grant did not wait for another grant of the last seat in flight: %s, expected 55P03',
+      coalesce(v_by, 'accepted')));
+  else
+    raise notice '[0058 #22] a grant waits for another grant of the last seat in flight: refused by 55P03 under lock_timeout';
+  end if;
+
+  perform verify.dblink_exec('race0058', 'commit');
+  perform verify.dblink_disconnect('race0058');
+
+  perform verify.expect_named_refusal('[0058 #22] a grant of the last seat after the other one committed',
+    '23514 founder_seats_available',
+    format('select badge_grant(%L, ''founder'', ''coupon'', null)', c_two));
+  if (select count(*) from person_badges where revoked_at is null) <> 1 then
+    insert into verify.failures values (format(
+      '[0058 #22] two grants of the last seat left %s live seals, expected 1',
+      (select count(*) from person_badges where revoked_at is null)));
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'two grants of the last seat: %', v_failures;
+  end if;
+  raise notice 'two grants of the last seat at once: the second waits for the first, then is refused by founder_seats_available; one seal';
+end;
+$$;
+
+do $$
+begin
+  delete from person_badges;
+  delete from founder_program;
+  delete from auth.users where id in ('b0580000-0000-4000-8000-0000000000a1',
+                                      'b0580000-0000-4000-8000-0000000000a2');
+end;
+$$;
+
+drop extension dblink;
+
 
 -- A restored copy gets back what the dump leaves out (#101, #104) --------------------
 --

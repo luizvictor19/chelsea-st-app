@@ -51,7 +51,10 @@ export async function subscribe(
   const user = await signedPerson();
   if (!billingOpen()) return { status: "error", message: NOT_OPEN };
 
-  const plan = await readPlanForSale(String(formData.get("plan") ?? ""));
+  const plan = await readPlanForSale(
+    String(formData.get("plan") ?? ""),
+    user.id,
+  );
   if (plan === null) {
     return { status: "error", message: "Escolha um plano." };
   }

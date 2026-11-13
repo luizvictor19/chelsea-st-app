@@ -54,18 +54,24 @@ export function invitedAs(invite: {
  * The roles someone may invite to one organization, mirroring can_invite() in 0031:
  * a platform admin or the organization's admin any role, its teacher students only,
  * a student none. Where the organization has no teacher, nobody is invited as
- * one (0042). The form offers only these; the database refuses the rest anyway.
+ * one (0042). Where it takes signups (open_signup, 0051), nobody is invited as
+ * a student: the signup is that door (#292, 13/11), and the screen stops
+ * offering it, while the database still accepts it. The form offers only
+ * these; the database refuses the rest anyway.
  */
 export function invitableRoles(
   platformAdmin: boolean,
   rolesInOrganization: readonly OrganizationRole[],
   hasTeacher: boolean,
+  openSignup = false,
 ): OrganizationRole[] {
+  const offered = (role: OrganizationRole) =>
+    (hasTeacher || role !== "teacher") && !(openSignup && role === "student");
   if (platformAdmin || rolesInOrganization.includes("admin")) {
-    return ROLE_ORDER.filter((role) => hasTeacher || role !== "teacher");
+    return ROLE_ORDER.filter(offered);
   }
   if (rolesInOrganization.includes("teacher")) {
-    return ["student"];
+    return ["student" as const].filter(offered);
   }
   return [];
 }
