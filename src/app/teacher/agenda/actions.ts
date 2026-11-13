@@ -13,7 +13,7 @@ import { refusalSentence } from "@/lib/lessons/refusals";
 import { lessonMinutesFrom } from "@/lib/lessons/rules";
 import { creditsLabel } from "@/lib/lessons/slots";
 
-import { instantIn } from "../students/agenda";
+import { instantIn } from "@/lib/datetime";
 import { teacherZone } from "../students/queries";
 
 export type AgendaResult =
