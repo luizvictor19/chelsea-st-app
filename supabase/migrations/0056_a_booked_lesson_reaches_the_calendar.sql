@@ -25,9 +25,12 @@
 --   2. The app sends them right after its answer (after() in the action) and
 --      once a day (Vercel Cron), reading them through calendar_invites_due
 --      and marking each through calendar_invite_sent or calendar_invite_failed.
---      How many attempts before giving up is the app's (outbox.ts).
---   3. A cancel goes only where the request went: a request not sent yet is
---      skipped, and so is the cancel, since there is no event to take out.
+--      How many attempts before giving up is the app's (outbox.ts); a row
+--      waits 30 minutes between two attempts.
+--   3. A cancel goes only where the request may have gone: sent, or tried at
+--      least once (a send that timed out may have reached the calendar). A
+--      request never tried is skipped, and so is its cancel: there is no
+--      event to take out.
 --
 -- Who reads and writes (Q1, as 0049): nobody writes the queue through the
 -- API. The three functions are executed by service_role alone, the trigger
@@ -50,6 +53,8 @@ create table public.calendar_invites (
   status text not null default 'pending'
     constraint calendar_invites_status_known
       check (status in ('pending', 'sent', 'skipped', 'abandoned')),
+  -- The times the e-mail was handed to Resend; a row given up before any
+  -- send (no address, the lesson started) keeps 0.
   attempts integer not null default 0
     constraint calendar_invites_attempts_not_negative check (attempts >= 0),
   -- A code (resend_422_validation_error, no_address, lesson_started), never
@@ -110,13 +115,15 @@ begin
   end if;
 
   if new.status = 'cancelled' and old.status is distinct from 'cancelled' then
-    -- A cancel goes where the request went. A request still waiting is not
-    -- sent any more, and its cancel is skipped with it.
+    -- A cancel goes where the request may have gone: sent, or tried (a send
+    -- that timed out may have arrived). A request still waiting is not sent
+    -- any more; never tried, its cancel is skipped with it.
     insert into public.calendar_invites (lesson_id, method, recipient, status)
       select new.id, 'cancel', r.recipient,
              case when exists (select 1 from public.calendar_invites i
                                 where i.lesson_id = new.id and i.method = 'request'
-                                  and i.recipient = r.recipient and i.status = 'sent')
+                                  and i.recipient = r.recipient
+                                  and (i.status = 'sent' or i.attempts > 0))
                   then 'pending' else 'skipped' end
         from (values ('student'), ('teacher')) r (recipient)
         on conflict (lesson_id, method, recipient) do nothing;
@@ -129,7 +136,7 @@ end;
 $$;
 
 comment on function public.lessons_invite_calendar() is
-  'After a lesson with a teacher is inserted scheduled and ahead, queues two calendar requests (student, teacher); after it turns cancelled, two cancels, pending where the request was sent and skipped otherwise, and skips the requests not sent yet (#294). Executed by nobody: a trigger.';
+  'After a lesson with a teacher is inserted scheduled and ahead, queues two calendar requests (student, teacher); after it turns cancelled, two cancels, pending where the request was sent or tried and skipped otherwise, and skips the requests not sent yet (#294). Executed by nobody: a trigger.';
 
 create trigger lessons_invite_calendar
   after insert or update of status on public.lessons
@@ -145,15 +152,19 @@ create trigger lessons_invite_calendar
 -- of any (p_lesson null: the daily routine), with everything the e-mail
 -- needs: the student's account e-mail (auth.users), the teacher's calendar
 -- e-mail (teachers), both names, the zone of the person the row goes to
--- (profiles), the Meet and the time. An address that is null is the app's to
--- give up on.
-create function public.calendar_invites_due(p_lesson uuid, p_limit integer)
+-- (profiles), the Meet and the time; and when the row was written, the
+-- DTSTAMP of the .ics, so every attempt sends the same bytes under the same
+-- idempotency key. An address that is null is the app's to give up on. A
+-- row tried less than 30 minutes ago waits: an outage of the mail provider
+-- does not spend every attempt of a row in a few minutes of bookings.
+create function public.calendar_invites_due(p_limit integer, p_lesson uuid default null)
 returns table (
   id uuid,
   lesson_id uuid,
   method text,
   recipient text,
   attempts integer,
+  created_at timestamptz,
   scheduled_at timestamptz,
   duration_minutes integer,
   student_name text,
@@ -167,7 +178,7 @@ stable
 security definer
 set search_path = ''
 as $$
-  select i.id, i.lesson_id, i.method, i.recipient, i.attempts,
+  select i.id, i.lesson_id, i.method, i.recipient, i.attempts, i.created_at,
          l.scheduled_at, l.duration_minutes,
          sp.full_name, u.email,
          tp.full_name, t.calendar_email,
@@ -180,19 +191,21 @@ as $$
     join public.profiles tp on tp.id = t.user_id
     left join auth.users u on u.id = l.student_id
    where i.status = 'pending'
+     and (i.last_attempt_at is null or i.last_attempt_at <= now() - interval '30 minutes')
      and (p_lesson is null or i.lesson_id = p_lesson)
    order by i.created_at, i.lesson_id, i.method desc, i.recipient
    limit greatest(coalesce(p_limit, 0), 0);
 $$;
 
-comment on function public.calendar_invites_due(uuid, integer) is
-  'The pending calendar e-mails, oldest first, of one lesson or (null) of any, at most p_limit, with the addresses, names, zone of the recipient, Meet and time the e-mail needs (#294). Executed by service_role alone.';
+comment on function public.calendar_invites_due(integer, uuid) is
+  'The pending calendar e-mails not tried in the last 30 minutes, oldest first, of one lesson or (null) of any, at most p_limit, with the addresses, names, zone of the recipient, Meet, time and the row''s birth the e-mail needs (#294). Executed by service_role alone.';
 
 -- The e-mail went. Marks the row sent once (the first sender to finish
 -- wins); a request that a cancel skipped meanwhile had in fact gone, so its
--- skipped cancel waits to go too.
+-- skipped cancel waits to go too, and the answer is true: the app sends it
+-- at once instead of leaving it to the daily routine.
 create function public.calendar_invite_sent(p_id uuid)
-returns void
+returns boolean
 language plpgsql
 security definer
 set search_path = ''
@@ -210,44 +223,48 @@ begin
        set status = 'pending'
      where i.lesson_id = v_row.lesson_id and i.method = 'cancel'
        and i.recipient = v_row.recipient and i.status = 'skipped';
+    return found;
   end if;
+  return false;
 end;
 $$;
 
 comment on function public.calendar_invite_sent(uuid) is
-  'Marks a calendar e-mail sent, once; when a request goes after its lesson was cancelled, its skipped cancel turns pending (#294). Executed by service_role alone.';
+  'Marks a calendar e-mail sent, once; when a request goes after its lesson was cancelled, its skipped cancel turns pending and the answer is true (#294). Executed by service_role alone.';
 
--- The e-mail did not go: one attempt more and its code; abandoned when the
--- app gives up (attempts spent, no address, the lesson started). Only a
--- pending row changes: one another sender marked sent stays sent.
-create function public.calendar_invite_failed(p_id uuid, p_error text, p_give_up boolean)
+-- The e-mail did not go: its code, one attempt more when it was handed to
+-- Resend (p_tried), and abandoned when the app gives up (attempts spent, no
+-- address, the lesson started). Only a pending row changes: one another
+-- sender marked sent stays sent.
+create function public.calendar_invite_failed(
+  p_id uuid, p_error text, p_give_up boolean, p_tried boolean)
 returns void
 language sql
 security definer
 set search_path = ''
 as $$
   update public.calendar_invites i
-     set attempts = i.attempts + 1,
+     set attempts = i.attempts + case when p_tried then 1 else 0 end,
          last_error = left(p_error, 200),
          last_attempt_at = now(),
          status = case when p_give_up then 'abandoned' else i.status end
    where i.id = p_id and i.status = 'pending';
 $$;
 
-comment on function public.calendar_invite_failed(uuid, text, boolean) is
-  'Records a failed calendar e-mail: one attempt more, its code (never an address), and abandoned when the app gives up (#294). Executed by service_role alone.';
+comment on function public.calendar_invite_failed(uuid, text, boolean, boolean) is
+  'Records a failed calendar e-mail: its code (never an address), one attempt more when it was handed to the mail provider, and abandoned when the app gives up (#294). Executed by service_role alone.';
 
 
 -- Who executes what (0047) --------------------------------------------------------------
 
 revoke all on function public.lessons_invite_calendar() from public, anon, authenticated, service_role;
-revoke all on function public.calendar_invites_due(uuid, integer) from public, anon, authenticated;
+revoke all on function public.calendar_invites_due(integer, uuid) from public, anon, authenticated;
 revoke all on function public.calendar_invite_sent(uuid) from public, anon, authenticated;
-revoke all on function public.calendar_invite_failed(uuid, text, boolean) from public, anon, authenticated;
+revoke all on function public.calendar_invite_failed(uuid, text, boolean, boolean) from public, anon, authenticated;
 
-grant execute on function public.calendar_invites_due(uuid, integer) to service_role;
+grant execute on function public.calendar_invites_due(integer, uuid) to service_role;
 grant execute on function public.calendar_invite_sent(uuid) to service_role;
-grant execute on function public.calendar_invite_failed(uuid, text, boolean) to service_role;
+grant execute on function public.calendar_invite_failed(uuid, text, boolean, boolean) to service_role;
 
 
 -- The lessons already booked (Q2) --------------------------------------------------------

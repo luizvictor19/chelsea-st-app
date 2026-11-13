@@ -7058,13 +7058,16 @@ $$;
 -- function by nobody. book_lesson queues two pending requests, one per
 -- person; a booking refused after its lesson was written (no credits) queues
 -- nothing. The due rows carry the student's account e-mail, the teacher's
--- calendar e-mail, both names, the recipient's zone, the Meet and the time.
--- A failure counts an attempt and keeps its code; giving up abandons the row;
--- neither touches a row already sent, nor does a second "sent". cancel_lesson
--- queues the cancel where the request went and skips it, with the request,
--- where it did not; a request that goes after its lesson was cancelled makes
--- its skipped cancel pending; an abandoned request skips its cancel. A lesson
--- without a teacher queues nothing. Nothing written here is kept.
+-- calendar e-mail, both names, the recipient's zone, the Meet, the time and
+-- the row's birth. A failure handed to the provider counts an attempt and
+-- keeps its code, and the row waits 30 minutes before it is due again; giving
+-- up abandons the row; neither touches a row already sent, nor does a second
+-- "sent". cancel_lesson queues the cancel where the request went or was
+-- tried and skips it, with the request, where it was never tried; a request
+-- that goes after its lesson was cancelled makes its skipped cancel pending,
+-- and says so; a request given up before any send skips its cancel. A lesson
+-- without a teacher, or written already past, queues nothing. Nothing written
+-- here is kept.
 do $$
 declare
   c_student constant uuid := '22222222-2222-2222-2222-222222222222';
@@ -7074,9 +7077,9 @@ declare
   c_people constant uuid[] := array[c_teacher, c_poor, c_outsider];
   c_zone constant text := 'America/Sao_Paulo';
   c_service_role constant regprocedure[] := array[
-    'public.calendar_invites_due(uuid, integer)',
+    'public.calendar_invites_due(integer, uuid)',
     'public.calendar_invite_sent(uuid)',
-    'public.calendar_invite_failed(uuid, text, boolean)']::regprocedure[];
+    'public.calendar_invite_failed(uuid, text, boolean, boolean)']::regprocedure[];
   v_uid text := current_setting('test.uid', true);
   v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
   v_day date := (now() at time zone c_zone)::date + 2;
@@ -7089,6 +7092,7 @@ declare
   v_student_request uuid;
   v_teacher_request uuid;
   v_due record;
+  v_flipped boolean;
   v_fn regprocedure;
   v_role text;
   v_privilege text;
@@ -7216,25 +7220,25 @@ begin
   perform verify.expect_refused_undone('a teacher removing an invite', '42501',
     format('delete from calendar_invites where id = %L', v_student_request));
   perform verify.expect_refused_undone('a teacher reading the due invites', '42501',
-    format('select * from calendar_invites_due(%L, 10)', v_lesson));
+    format('select * from calendar_invites_due(10, %L)', v_lesson));
   perform verify.expect_refused_undone('a teacher marking an invite sent through the function', '42501',
     format('select calendar_invite_sent(%L)', v_student_request));
   reset role;
 
   -- 5. The due rows, as service_role: both, with what the e-mail needs.
   set local role service_role;
-  select * into v_due from calendar_invites_due(v_lesson, 10) where recipient = 'student';
+  select * into v_due from calendar_invites_due(10, v_lesson) where recipient = 'student';
   v_before := (select count(*) from verify.failures);
-  if (select count(*) from calendar_invites_due(v_lesson, 10)) <> 2
-     or (select count(*) from calendar_invites_due(null, 1)) <> 1
-     or (select count(*) from calendar_invites_due(gen_random_uuid(), 10)) <> 0
+  if (select count(*) from calendar_invites_due(10, v_lesson)) <> 2
+     or (select count(*) from calendar_invites_due(1)) <> 1
+     or (select count(*) from calendar_invites_due(10, gen_random_uuid())) <> 0
      or (v_due.id, v_due.method, v_due.student_email, v_due.teacher_email, v_due.student_name,
          v_due.teacher_name, v_due.meet_url, v_due.scheduled_at, v_due.duration_minutes,
-         v_due.recipient_timezone)::text
+         v_due.recipient_timezone, v_due.created_at is not null)::text
         is distinct from (v_student_request, 'request', 'student@example.com', 'calendar-agenda@example.com',
                           'student', 'Calendar Teacher', 'https://meet.example.com/calendar', v_ten, 50,
-                          c_zone)::text
-     or (select recipient_timezone from calendar_invites_due(v_lesson, 10) where recipient = 'teacher')
+                          c_zone, true)::text
+     or (select recipient_timezone from calendar_invites_due(10, v_lesson) where recipient = 'teacher')
         <> 'Europe/London' then
     insert into verify.failures values ('calendar_invites_due does not give the two rows with the addresses, names, zone, Meet and time');
   end if;
@@ -7242,9 +7246,9 @@ begin
     raise notice 'calendar_invites_due gives the pending rows of a lesson or of any, with the account e-mail, the calendar e-mail, the names, the recipient''s zone, the Meet and the time';
   end if;
 
-  -- 6. A failure counts an attempt and keeps its code; then it goes; a late
-  -- failure and a second "sent" change nothing.
-  perform calendar_invite_failed(v_student_request, 'resend_500_internal_server_error', false);
+  -- 6. A failure counts an attempt and keeps its code, and the row waits 30
+  -- minutes; then it goes; a late failure and a second "sent" change nothing.
+  perform calendar_invite_failed(v_student_request, 'resend_500_internal_server_error', false, true);
   reset role;
   v_before := (select count(*) from verify.failures);
   if (select (status, attempts, last_error, last_attempt_at is not null, sent_at)::text
@@ -7253,8 +7257,17 @@ begin
     insert into verify.failures values ('a failed send did not leave the row pending with one attempt and its code');
   end if;
   set local role service_role;
+  if exists (select 1 from calendar_invites_due(10, v_lesson) where id = v_student_request) then
+    insert into verify.failures values ('a row tried a moment ago is due again at once');
+  end if;
+  reset role;
+  update calendar_invites set last_attempt_at = now() - interval '31 minutes' where id = v_student_request;
+  set local role service_role;
+  if not exists (select 1 from calendar_invites_due(10, v_lesson) where id = v_student_request) then
+    insert into verify.failures values ('a row tried 31 minutes ago is not due again');
+  end if;
   perform calendar_invite_sent(v_student_request);
-  perform calendar_invite_failed(v_student_request, 'late', false);
+  perform calendar_invite_failed(v_student_request, 'late', false, true);
   perform calendar_invite_sent(v_student_request);
   reset role;
   if (select (status, attempts, last_error, sent_at is not null)::text
@@ -7263,7 +7276,7 @@ begin
     insert into verify.failures values ('a sent row was changed by a later failure or a second sent');
   end if;
   if (select count(*) from verify.failures) = v_before then
-    raise notice 'a failure counts an attempt and keeps its code; a sent row stays sent, once';
+    raise notice 'a failure counts an attempt, keeps its code and waits 30 minutes; a sent row stays sent, once';
   end if;
 
   -- 7. Her cancel: the cancel goes to her, whose request went; the teacher's
@@ -7279,31 +7292,35 @@ begin
     insert into verify.failures values ('cancel_lesson did not queue the cancel where the request went and skip it where it did not');
   end if;
   set local role service_role;
-  if (select string_agg(format('%s/%s', method, recipient), ', ') from calendar_invites_due(v_lesson, 10))
+  if (select string_agg(format('%s/%s', method, recipient), ', ') from calendar_invites_due(10, v_lesson))
      is distinct from 'cancel/student' then
     insert into verify.failures values ('after the cancel, the due rows are not the student''s cancel alone');
   end if;
   -- The teacher's request had in fact gone (a sender finishing late): its
   -- cancel waits to go too.
-  perform calendar_invite_sent(v_teacher_request);
+  v_flipped := calendar_invite_sent(v_teacher_request);
   reset role;
   if (select status from calendar_invites where lesson_id = v_lesson and method = 'cancel' and recipient = 'teacher')
-     <> 'pending' then
+     <> 'pending' or v_flipped is distinct from true then
     insert into verify.failures values ('a request sent after its cancel left the cancel skipped');
   end if;
   if (select count(*) from verify.failures) = v_before then
-    raise notice 'cancel_lesson queues the cancel where the request went and skips both where it did not; a request that goes late makes its cancel pending';
+    raise notice 'cancel_lesson queues the cancel where the request went and skips both where it was never tried; a request that goes late makes its cancel pending and says so';
   end if;
 
-  -- 8. An abandoned request skips its cancel.
+  -- 8. A request tried once (a timeout: it may have arrived) gets its
+  -- cancel; one given up before any send (no address) does not.
   perform set_config('test.uid', c_student::text, false);
   set local role authenticated;
   select lesson_id into v_second from book_lesson(v_teacher, v_ten + interval '3 hours');
   reset role;
   select id into v_teacher_request from calendar_invites
    where lesson_id = v_second and method = 'request' and recipient = 'teacher';
+  select id into v_student_request from calendar_invites
+   where lesson_id = v_second and method = 'request' and recipient = 'student';
   set local role service_role;
-  perform calendar_invite_failed(v_teacher_request, 'no_address', true);
+  perform calendar_invite_failed(v_teacher_request, 'no_address', true, false);
+  perform calendar_invite_failed(v_student_request, 'timeout', false, true);
   reset role;
   set local role authenticated;
   perform cancel_lesson(v_second);
@@ -7311,11 +7328,11 @@ begin
   v_before := (select count(*) from verify.failures);
   if (select string_agg(format('%s/%s/%s/%s', method, recipient, status, attempts), ', ' order by method, recipient)
         from calendar_invites where lesson_id = v_second)
-     is distinct from 'cancel/student/skipped/0, cancel/teacher/skipped/0, request/student/skipped/0, request/teacher/abandoned/1' then
-    insert into verify.failures values ('giving up did not abandon the row, or its cancel was queued');
+     is distinct from 'cancel/student/pending/0, cancel/teacher/skipped/0, request/student/skipped/1, request/teacher/abandoned/0' then
+    insert into verify.failures values ('a tried request did not get its cancel, or one given up before any send did');
   end if;
   if (select count(*) from verify.failures) = v_before then
-    raise notice 'giving up abandons the row, and an abandoned request skips its cancel';
+    raise notice 'a request tried once gets its cancel; one given up before any send is abandoned without an attempt and skips its cancel';
   end if;
 
   -- 9. A lesson without a teacher queues nothing, booked or cancelled; nor
