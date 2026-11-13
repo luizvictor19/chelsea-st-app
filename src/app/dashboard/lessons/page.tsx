@@ -6,6 +6,7 @@ import { destinationFor, practicesOnly, studies } from "@/lib/access";
 import { readAccess } from "@/lib/auth";
 import { formatLessonDate, formatLessonTime } from "@/lib/datetime";
 import { refusalSentence } from "@/lib/lessons/refusals";
+import { bookHorizonWeeksFrom } from "@/lib/lessons/rules";
 import {
   creditsLabel,
   groupSlotsByDay,
@@ -85,11 +86,16 @@ export default async function LessonsPage({
 
   const zone = profile.timezone;
   const now = new Date();
-  const [teachersRead, mineRead, balanceRead] = await Promise.all([
+  const [teachersRead, mineRead, balanceRead, rulesRead] = await Promise.all([
     supabase.rpc("bookable_teachers"),
     supabase.rpc("my_lessons"),
     supabase.rpc("credits_balance", { p_person: user.id }),
+    supabase.rpc("lesson_rules"),
   ]);
+  // The last week the booking reaches, from lesson_rules; this week alone
+  // when it cannot be read.
+  const horizon = rulesRead.error ? null : bookHorizonWeeksFrom(rulesRead.data);
+  const lastWeek = horizon === null ? 0 : horizon - 1;
   const teachers = (teachersRead.data ?? []) as BookableTeacher[];
   const mine = (mineRead.data ?? []) as MyLesson[];
 
@@ -98,7 +104,7 @@ export default async function LessonsPage({
     : params.professor;
   const chosen =
     teachers.find((teacher) => teacher.teacher_id === professor) ?? teachers[0];
-  const week = readWeek(params.semana);
+  const week = readWeek(params.semana, lastWeek);
   const span = weekSpan(now, week);
   const slotsRead =
     chosen === undefined
@@ -145,6 +151,9 @@ export default async function LessonsPage({
             meetUrl: lesson.meet_url,
             refundNote: refundNote(lesson, now, zone),
             started: start <= now,
+            // A lesson of the fixed agenda has no teacher: its student did
+            // not book it and does not cancel it (cancel_lesson, 0052).
+            booked: lesson.teacher_name !== null,
           };
         })}
         teachers={teachers.map((teacher) => ({
@@ -162,6 +171,7 @@ export default async function LessonsPage({
         }
         balance={balanceRead.error ? null : balanceRead.data}
         week={week}
+        lastWeek={lastWeek}
         days={groupSlotsByDay(
           (slotsRead?.data ?? []).map((slot) => slot.starts_at),
           zone,

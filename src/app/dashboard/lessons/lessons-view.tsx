@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRef, useState, useTransition } from "react";
 
-import { creditsLabel, MAX_WEEK, type SlotDay } from "@/lib/lessons/slots";
+import { creditsLabel, type SlotDay } from "@/lib/lessons/slots";
 
 import { bookLesson, cancelMyLesson, type LessonResult } from "./actions";
 
@@ -15,6 +15,8 @@ type MyLessonItem = {
   /** What her cancel would do now, said in the confirmation. */
   readonly refundNote: string;
   readonly started: boolean;
+  /** Booked by her; a lesson of the fixed agenda is the teacher's to move. */
+  readonly booked: boolean;
 };
 
 type Chosen = {
@@ -63,6 +65,7 @@ export function LessonsView({
   chosen,
   balance,
   week,
+  lastWeek,
   days,
   zone,
 }: {
@@ -72,6 +75,7 @@ export function LessonsView({
   readonly chosen: Chosen | null;
   readonly balance: number | null;
   readonly week: number;
+  readonly lastWeek: number;
   readonly days: readonly SlotDay[];
   readonly zone: string;
 }) {
@@ -165,7 +169,7 @@ export function LessonsView({
               ) : (
                 <span />
               )}
-              {week < MAX_WEEK ? (
+              {week < lastWeek ? (
                 <Link
                   href={weekHref(chosen.id, week + 1)}
                   className={buttonClass}
@@ -301,7 +305,7 @@ function MyLessonRow({
             Entrar na aula
           </a>
         )
-      ) : (
+      ) : lesson.booked ? (
         <button
           type="button"
           disabled={pending}
@@ -310,6 +314,10 @@ function MyLessonRow({
         >
           Cancelar
         </button>
+      ) : (
+        <span className="text-muted text-sm">
+          Para mudar esta aula, fale com o professor.
+        </span>
       )}
       <dialog ref={dialog} aria-labelledby={titleId} className={dialogClass}>
         <div className="flex flex-col gap-4">

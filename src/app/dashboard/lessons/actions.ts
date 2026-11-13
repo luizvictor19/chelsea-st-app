@@ -53,7 +53,10 @@ export async function bookLesson(
 
 /**
  * Cancels her lesson through cancel_lesson (0052), and says what the ledger
- * did: the credits back, or none because the time to get them back ended.
+ * did: how many credits came back, or that none did. None can be the time to
+ * get them back having ended, or the charge that paid for them having been
+ * refunded (credit_refund skips a voided lot), so the sentence says only
+ * what happened.
  */
 export async function cancelMyLesson(lessonId: string): Promise<LessonResult> {
   const { supabase } = await signedIn();
@@ -77,7 +80,7 @@ export async function cancelMyLesson(lessonId: string): Promise<LessonResult> {
     ok: true,
     message:
       (lesson?.credits_debited ?? 0) > 0
-        ? "Aula cancelada, sem devolução de créditos."
+        ? "Aula cancelada. Nenhum crédito voltou para o seu saldo."
         : "Aula cancelada.",
   };
 }
