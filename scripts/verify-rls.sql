@@ -376,6 +376,65 @@ language plpgsql security definer as $$ begin end; $$;
 -- 0051.
 \i supabase/migrations/0052_a_lesson_is_booked_and_paid.sql
 
+-- 0056 creates calendar_invites, the trigger lessons_invite_calendar on
+-- lessons, the three functions service_role executes, and queues the
+-- requests of the lessons ahead, scheduled, with a teacher, that exist when
+-- it is applied. Four lessons written just before it, by postgres past every
+-- function, hold that backfill: one ahead and scheduled with a teacher (two
+-- requests), one past, one cancelled and one without a teacher (none). They
+-- go right after the check. Its block, "A booked lesson reaches the calendar
+-- (0056)", runs after the block of 0052.
+insert into auth.users (id, email) values
+  ('b0560000-0000-4000-8000-0000000000a1', 'backfill-teacher@example.com'),
+  ('b0560000-0000-4000-8000-0000000000a2', 'backfill-student@example.com');
+insert into organization_members (organization_id, user_id, role) values
+  ((select id from organizations where slug = 'chelsea-st'), 'b0560000-0000-4000-8000-0000000000a1', 'teacher'),
+  ((select id from organizations where slug = 'chelsea-st'), 'b0560000-0000-4000-8000-0000000000a2', 'student');
+insert into students (id, organization_id)
+  values ('b0560000-0000-4000-8000-0000000000a2', (select id from organizations where slug = 'chelsea-st'));
+insert into teachers (id, organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+  values ('b0560000-0000-4000-8000-0000000000b1', (select id from organizations where slug = 'chelsea-st'),
+          'b0560000-0000-4000-8000-0000000000a1', 'teacher', 'https://meet.example.com/backfill',
+          'backfill-calendar@example.com', true);
+insert into lessons (id, organization_id, student_id, teacher_id, scheduled_at, duration_minutes, status) values
+  ('b0560000-0000-4000-8000-0000000000c1', (select id from organizations where slug = 'chelsea-st'),
+   'b0560000-0000-4000-8000-0000000000a2', 'b0560000-0000-4000-8000-0000000000b1', now() + interval '3 days', 50, 'scheduled'),
+  ('b0560000-0000-4000-8000-0000000000c2', (select id from organizations where slug = 'chelsea-st'),
+   'b0560000-0000-4000-8000-0000000000a2', 'b0560000-0000-4000-8000-0000000000b1', now() - interval '3 days', 50, 'scheduled'),
+  ('b0560000-0000-4000-8000-0000000000c3', (select id from organizations where slug = 'chelsea-st'),
+   'b0560000-0000-4000-8000-0000000000a2', 'b0560000-0000-4000-8000-0000000000b1', now() + interval '4 days', 50, 'cancelled'),
+  ('b0560000-0000-4000-8000-0000000000c4', (select id from organizations where slug = 'chelsea-st'),
+   'b0560000-0000-4000-8000-0000000000a2', null, now() + interval '5 days', 45, 'scheduled');
+
+\i supabase/migrations/0056_a_booked_lesson_reaches_the_calendar.sql
+
+do $$
+declare
+  v_queued text;
+begin
+  select string_agg(format('%s/%s/%s/%s', right(lesson_id::text, 2), method, recipient, status),
+                    ', ' order by lesson_id, recipient)
+    into v_queued
+    from calendar_invites;
+  if v_queued is distinct from 'c1/request/student/pending, c1/request/teacher/pending' then
+    raise exception 'the backfill of 0056 queued %, expected the two requests of the lesson ahead, scheduled, with a teacher',
+      coalesce(v_queued, 'nothing');
+  end if;
+  raise notice 'the backfill of 0056 queues two requests for a lesson ahead, scheduled, with a teacher, and none for one past, cancelled or without a teacher';
+
+  delete from lessons where student_id = 'b0560000-0000-4000-8000-0000000000a2';
+  if exists (select 1 from calendar_invites) then
+    raise exception 'a lesson removed left its calendar_invites';
+  end if;
+  delete from teachers where id = 'b0560000-0000-4000-8000-0000000000b1';
+  delete from students where id = 'b0560000-0000-4000-8000-0000000000a2';
+  delete from organization_members
+   where user_id in ('b0560000-0000-4000-8000-0000000000a1', 'b0560000-0000-4000-8000-0000000000a2');
+  delete from auth.users
+   where id in ('b0560000-0000-4000-8000-0000000000a1', 'b0560000-0000-4000-8000-0000000000a2');
+end;
+$$;
+
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
   ('22222222-2222-2222-2222-222222222222', 'student@example.com', null);
@@ -6987,6 +7046,321 @@ begin
     raise exception 'a lesson is booked and paid: %', v_failures;
   end if;
   raise notice 'a lesson is booked and paid: the teacher writes her own hours and the student reads none; the six functions are executed by authenticated alone and the debit by nobody; a booking is refused by name off a free slot, in another organization, without a teacher or without the credits, and leaves nothing then; it debits the caller by credit_cost under lesson:<id>; two lessons that cross are refused by the database; a booked lesson changes only through the functions; her cancel gives back until 1 hour before, the teacher''s always, and what was paid';
+end;
+$$;
+
+-- A booked lesson reaches the calendar (0056) -------------------------------------------
+--
+-- Nobody writes calendar_invites through the API; whoever teaches in the
+-- organization reads its rows, the student and a teacher of another
+-- organization none. calendar_invites_due, calendar_invite_sent and
+-- calendar_invite_failed are executed by service_role alone, the trigger
+-- function by nobody. book_lesson queues two pending requests, one per
+-- person; a booking refused after its lesson was written (no credits) queues
+-- nothing. The due rows carry the student's account e-mail, the teacher's
+-- calendar e-mail, both names, the recipient's zone, the Meet and the time.
+-- A failure counts an attempt and keeps its code; giving up abandons the row;
+-- neither touches a row already sent, nor does a second "sent". cancel_lesson
+-- queues the cancel where the request went and skips it, with the request,
+-- where it did not; a request that goes after its lesson was cancelled makes
+-- its skipped cancel pending; an abandoned request skips its cancel. A lesson
+-- without a teacher queues nothing. Nothing written here is kept.
+do $$
+declare
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  c_teacher constant uuid := 'b0560000-0000-4000-8000-000000000001';
+  c_poor constant uuid := 'b0560000-0000-4000-8000-000000000002';
+  c_outsider constant uuid := 'b0560000-0000-4000-8000-000000000003';
+  c_people constant uuid[] := array[c_teacher, c_poor, c_outsider];
+  c_zone constant text := 'America/Sao_Paulo';
+  c_service_role constant regprocedure[] := array[
+    'public.calendar_invites_due(uuid, integer)',
+    'public.calendar_invite_sent(uuid)',
+    'public.calendar_invite_failed(uuid, text, boolean)']::regprocedure[];
+  v_uid text := current_setting('test.uid', true);
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_day date := (now() at time zone c_zone)::date + 2;
+  v_ten timestamptz;
+  v_plan uuid;
+  v_teacher uuid;
+  v_lesson uuid;
+  v_second uuid;
+  v_old uuid;
+  v_student_request uuid;
+  v_teacher_request uuid;
+  v_due record;
+  v_fn regprocedure;
+  v_role text;
+  v_privilege text;
+  v_n bigint;
+  v_before integer;
+  v_failures text;
+begin
+  delete from verify.failures;
+  v_ten := (v_day + time '10:00') at time zone c_zone;
+
+  -- A teacher of Chelsea St who takes bookings all day, with a calendar
+  -- e-mail of her own; the student of the fixtures with a trial of 20
+  -- credits and a lesson at 4 (made-up numbers); a student with none; and a
+  -- teacher of Escola B alone.
+  insert into auth.users (id, email, raw_user_meta_data) values
+    (c_teacher, 'calendar-teacher@example.com', '{"full_name":"Calendar Teacher"}'),
+    (c_poor, 'calendar-poor@example.com', '{"full_name":"Calendar Poor"}'),
+    (c_outsider, 'calendar-outsider@example.com', '{"full_name":"Calendar Outsider"}');
+  update profiles set timezone = 'Europe/London' where id = c_teacher;
+  insert into organization_members (organization_id, user_id, role) values
+    (v_chelsea, c_teacher, 'teacher'),
+    (v_chelsea, c_poor, 'student'),
+    ((select id from organizations where slug = 'escola-b'), c_outsider, 'teacher');
+  insert into students (id, organization_id) values (c_poor, v_chelsea);
+  insert into teachers (organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+    values (v_chelsea, c_teacher, 'teacher', 'https://meet.example.com/calendar',
+            'calendar-agenda@example.com', true)
+    returning id into v_teacher;
+  insert into teacher_availability (organization_id, teacher_id, weekday, start_time, end_time, timezone)
+    select v_chelsea, v_teacher, d, '00:00', '24:00', c_zone from generate_series(0, 6) d;
+  insert into plans (brand, key, name, monthly_price_cents, annual_price_cents, monthly_credits,
+                     trail_minutes_per_day, opens_voice_question, opens_free_conversation, opens_video,
+                     trial_days, trial_credits, credit_ceiling_months, credit_days_after_cancel)
+    values ('chelsea-st', 'calendar', 'Calendar', 1000, 10000, 10, 15, true, false, false, 14, 20, 3, 30)
+    returning id into v_plan;
+  insert into credit_costs (brand, action, credits) values ('chelsea-st', 'teacher_lesson', 4);
+  perform billing_customer(c_student, repeat('f', 64));
+  perform billing_open_subscription(c_student, v_plan, 'monthly', 'pix', 1000, true,
+    (now() at time zone c_zone)::date + 14, null, 'cus_calendar', 'sub_calendar');
+
+  -- 1. Privileges: authenticated selects alone, under the policy; nobody
+  -- writes; the three functions for service_role alone, the trigger's for
+  -- nobody.
+  v_before := (select count(*) from verify.failures);
+  foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+    foreach v_privilege in array array['select', 'insert', 'update', 'delete'] loop
+      if has_table_privilege(v_role, 'public.calendar_invites', v_privilege)
+         <> (v_role = 'authenticated' and v_privilege = 'select') then
+        insert into verify.failures
+          values (format('%s %s on calendar_invites is not as it should be', v_role, v_privilege));
+      end if;
+    end loop;
+  end loop;
+  foreach v_fn in array c_service_role loop
+    if not has_function_privilege('service_role', v_fn, 'execute') then
+      insert into verify.failures values (format('service_role does not execute %s', v_fn));
+    end if;
+    foreach v_role in array array['anon', 'authenticated'] loop
+      if has_function_privilege(v_role, v_fn, 'execute') then
+        insert into verify.failures values (format('%s executes %s', v_role, v_fn));
+      end if;
+    end loop;
+  end loop;
+  foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+    if has_function_privilege(v_role, 'public.lessons_invite_calendar()', 'execute') then
+      insert into verify.failures values (format('%s executes lessons_invite_calendar', v_role));
+    end if;
+  end loop;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'authenticated only reads calendar_invites and nobody writes it through the API; service_role alone executes the three calendar functions, nobody the trigger''s';
+  end if;
+
+  -- 2. A booking queues two pending requests, one per person, of its
+  -- organization.
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  select lesson_id into v_lesson from book_lesson(v_teacher, v_ten);
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if (select string_agg(format('%s/%s/%s/%s', method, recipient, status, attempts), ', ' order by recipient)
+        from calendar_invites where lesson_id = v_lesson)
+     is distinct from 'request/student/pending/0, request/teacher/pending/0'
+     or exists (select 1 from calendar_invites where lesson_id = v_lesson and organization_id <> v_chelsea) then
+    insert into verify.failures values ('book_lesson did not queue a pending request for the student and one for the teacher');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'book_lesson queues a pending calendar request for the student and one for the teacher';
+  end if;
+  select id into v_student_request from calendar_invites
+   where lesson_id = v_lesson and method = 'request' and recipient = 'student';
+  select id into v_teacher_request from calendar_invites
+   where lesson_id = v_lesson and method = 'request' and recipient = 'teacher';
+
+  -- 3. A booking refused after its lesson was written queues nothing.
+  perform set_config('test.uid', c_poor::text, false);
+  set local role authenticated;
+  perform verify.expect_refused_undone('a booking without the credits', '23514 credits_not_negative',
+    format('select * from book_lesson(%L, %L)', v_teacher, v_ten + interval '2 hours'));
+  reset role;
+  if (select count(*) from calendar_invites) <> 2 then
+    insert into verify.failures values ('a refused booking left a row in calendar_invites');
+  else
+    raise notice 'a booking refused after its lesson was written queues nothing';
+  end if;
+
+  -- 4. Who reads: the teacher of the lesson's organization; not the student,
+  -- not a teacher of another organization. Nobody writes through the API.
+  set local role authenticated;
+  perform set_config('test.uid', c_student::text, false);
+  v_n := (select count(*) from calendar_invites);
+  perform set_config('test.uid', c_outsider::text, false);
+  v_n := v_n * 10 + (select count(*) from calendar_invites);
+  perform set_config('test.uid', c_teacher::text, false);
+  v_n := v_n * 10 + (select count(*) from calendar_invites);
+  if v_n <> 2 then
+    insert into verify.failures
+      values (format('the student, a teacher of another organization and the teacher read %s rows, expected 0, 0, 2', lpad(v_n::text, 3, '0')));
+  else
+    raise notice 'whoever teaches in the organization reads its calendar_invites; the student and a teacher of another organization read none';
+  end if;
+  perform verify.expect_refused_undone('a teacher writing a calendar invite', '42501',
+    format($q$insert into calendar_invites (lesson_id, method, recipient) values (%L, 'cancel', 'student')$q$, v_lesson));
+  perform verify.expect_refused_undone('a teacher marking an invite sent', '42501',
+    format($q$update calendar_invites set status = 'sent', sent_at = now() where id = %L$q$, v_student_request));
+  perform verify.expect_refused_undone('a teacher removing an invite', '42501',
+    format('delete from calendar_invites where id = %L', v_student_request));
+  perform verify.expect_refused_undone('a teacher reading the due invites', '42501',
+    format('select * from calendar_invites_due(%L, 10)', v_lesson));
+  perform verify.expect_refused_undone('a teacher marking an invite sent through the function', '42501',
+    format('select calendar_invite_sent(%L)', v_student_request));
+  reset role;
+
+  -- 5. The due rows, as service_role: both, with what the e-mail needs.
+  set local role service_role;
+  select * into v_due from calendar_invites_due(v_lesson, 10) where recipient = 'student';
+  v_before := (select count(*) from verify.failures);
+  if (select count(*) from calendar_invites_due(v_lesson, 10)) <> 2
+     or (select count(*) from calendar_invites_due(null, 1)) <> 1
+     or (select count(*) from calendar_invites_due(gen_random_uuid(), 10)) <> 0
+     or (v_due.id, v_due.method, v_due.student_email, v_due.teacher_email, v_due.student_name,
+         v_due.teacher_name, v_due.meet_url, v_due.scheduled_at, v_due.duration_minutes,
+         v_due.recipient_timezone)::text
+        is distinct from (v_student_request, 'request', 'student@example.com', 'calendar-agenda@example.com',
+                          'student', 'Calendar Teacher', 'https://meet.example.com/calendar', v_ten, 50,
+                          c_zone)::text
+     or (select recipient_timezone from calendar_invites_due(v_lesson, 10) where recipient = 'teacher')
+        <> 'Europe/London' then
+    insert into verify.failures values ('calendar_invites_due does not give the two rows with the addresses, names, zone, Meet and time');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'calendar_invites_due gives the pending rows of a lesson or of any, with the account e-mail, the calendar e-mail, the names, the recipient''s zone, the Meet and the time';
+  end if;
+
+  -- 6. A failure counts an attempt and keeps its code; then it goes; a late
+  -- failure and a second "sent" change nothing.
+  perform calendar_invite_failed(v_student_request, 'resend_500_internal_server_error', false);
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if (select (status, attempts, last_error, last_attempt_at is not null, sent_at)::text
+        from calendar_invites where id = v_student_request)
+     is distinct from ('pending', 1, 'resend_500_internal_server_error', true, null::timestamptz)::text then
+    insert into verify.failures values ('a failed send did not leave the row pending with one attempt and its code');
+  end if;
+  set local role service_role;
+  perform calendar_invite_sent(v_student_request);
+  perform calendar_invite_failed(v_student_request, 'late', false);
+  perform calendar_invite_sent(v_student_request);
+  reset role;
+  if (select (status, attempts, last_error, sent_at is not null)::text
+        from calendar_invites where id = v_student_request)
+     is distinct from ('sent', 2, null::text, true)::text then
+    insert into verify.failures values ('a sent row was changed by a later failure or a second sent');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a failure counts an attempt and keeps its code; a sent row stays sent, once';
+  end if;
+
+  -- 7. Her cancel: the cancel goes to her, whose request went; the teacher's
+  -- request had not gone, so it and its cancel are skipped.
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  perform cancel_lesson(v_lesson);
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if (select string_agg(format('%s/%s/%s', method, recipient, status), ', ' order by method, recipient)
+        from calendar_invites where lesson_id = v_lesson)
+     is distinct from 'cancel/student/pending, cancel/teacher/skipped, request/student/sent, request/teacher/skipped' then
+    insert into verify.failures values ('cancel_lesson did not queue the cancel where the request went and skip it where it did not');
+  end if;
+  set local role service_role;
+  if (select string_agg(format('%s/%s', method, recipient), ', ') from calendar_invites_due(v_lesson, 10))
+     is distinct from 'cancel/student' then
+    insert into verify.failures values ('after the cancel, the due rows are not the student''s cancel alone');
+  end if;
+  -- The teacher's request had in fact gone (a sender finishing late): its
+  -- cancel waits to go too.
+  perform calendar_invite_sent(v_teacher_request);
+  reset role;
+  if (select status from calendar_invites where lesson_id = v_lesson and method = 'cancel' and recipient = 'teacher')
+     <> 'pending' then
+    insert into verify.failures values ('a request sent after its cancel left the cancel skipped');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'cancel_lesson queues the cancel where the request went and skips both where it did not; a request that goes late makes its cancel pending';
+  end if;
+
+  -- 8. An abandoned request skips its cancel.
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  select lesson_id into v_second from book_lesson(v_teacher, v_ten + interval '3 hours');
+  reset role;
+  select id into v_teacher_request from calendar_invites
+   where lesson_id = v_second and method = 'request' and recipient = 'teacher';
+  set local role service_role;
+  perform calendar_invite_failed(v_teacher_request, 'no_address', true);
+  reset role;
+  set local role authenticated;
+  perform cancel_lesson(v_second);
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if (select string_agg(format('%s/%s/%s/%s', method, recipient, status, attempts), ', ' order by method, recipient)
+        from calendar_invites where lesson_id = v_second)
+     is distinct from 'cancel/student/skipped/0, cancel/teacher/skipped/0, request/student/skipped/0, request/teacher/abandoned/1' then
+    insert into verify.failures values ('giving up did not abandon the row, or its cancel was queued');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'giving up abandons the row, and an abandoned request skips its cancel';
+  end if;
+
+  -- 9. A lesson without a teacher queues nothing, booked or cancelled; nor
+  -- does one with a teacher written already past (by postgres).
+  insert into lessons (organization_id, student_id, scheduled_at, duration_minutes)
+    values (v_chelsea, c_poor, v_ten + interval '1 day', 45)
+    returning id into v_old;
+  update lessons set status = 'cancelled' where id = v_old;
+  if exists (select 1 from calendar_invites where lesson_id = v_old) then
+    insert into verify.failures values ('a lesson without a teacher queued a calendar invite');
+  else
+    raise notice 'a lesson without a teacher queues no calendar invite';
+  end if;
+  insert into lessons (organization_id, student_id, teacher_id, scheduled_at, duration_minutes)
+    values (v_chelsea, c_poor, v_teacher, now() - interval '2 days', 50)
+    returning id into v_second;
+  if exists (select 1 from calendar_invites where lesson_id = v_second) then
+    insert into verify.failures values ('a lesson written already past queued a calendar request');
+  else
+    raise notice 'a lesson written already past queues no calendar request';
+  end if;
+
+  -- Nothing written here is kept: the lessons take their rows.
+  perform set_config('session_replication_role', 'replica', true);
+  delete from credit_entries;
+  perform set_config('session_replication_role', 'origin', true);
+  delete from lessons where teacher_id = v_teacher or id = v_old;
+  delete from teachers where id = v_teacher;
+  delete from subscriptions;
+  delete from billing_customers;
+  delete from credit_costs;
+  delete from plans;
+  delete from students where id = any (c_people);
+  delete from organization_members where user_id = any (c_people);
+  delete from auth.users where id = any (c_people);
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+  if exists (select 1 from calendar_invites) then
+    insert into verify.failures values ('calendar_invites kept rows of lessons removed');
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a booked lesson reaches the calendar: %', v_failures;
+  end if;
+  raise notice 'a booked lesson reaches the calendar: book_lesson queues a request per person and cancel_lesson the cancel where the request went; only service_role sends, through three functions; whoever teaches reads the state, the student nothing';
 end;
 $$;
 
