@@ -1,11 +1,11 @@
 /**
- * What the screen says when the database refuses a booking, a cancel or a
+ * What the screen says when the database refuses a booking, a cancel, a
  * teacher's hours (0052, and the ledger's credits_not_negative and
- * credit_cost_known of 0050). Every refusal there names its rule at the start
- * of its message, because the API passes the message on and not the
- * constraint; a refusal Postgres raises itself (an exclusion, a check) names
- * it inside the message. refusals.test.ts holds every name 0052 raises to a
- * sentence here.
+ * credit_cost_known of 0050) or a lesson proposal (0057). Every refusal there
+ * names its rule at the start of its message, because the API passes the
+ * message on and not the constraint; a refusal Postgres raises itself (an
+ * exclusion, a check, a unique index) names it inside the message.
+ * refusals.test.ts holds every name 0052 and 0057 raise to a sentence here.
  */
 
 const SENTENCES: Readonly<Record<string, string>> = {
@@ -39,7 +39,28 @@ const SENTENCES: Readonly<Record<string, string>> = {
     "O fim da janela precisa vir depois do início.",
   teacher_time_off_ends_after_start:
     "O fim da folga precisa vir depois do início.",
+  lesson_proposal_open: "Essa proposta já não está aberta.",
+  lesson_proposal_answer_allowed: "Essa proposta não é sua para responder.",
+  lesson_proposal_withdraw_allowed: "Só quem fez a proposta pode retirá-la.",
+  lesson_proposal_slot_taken:
+    "Uma das aulas da proposta bate com outra aula. Nada foi debitado.",
+  lesson_proposal_window:
+    "Cada aula precisa começar a mais de 1 hora daqui e até 8 semanas à frente.",
+  lesson_proposal_has_lessons: "Escolha pelo menos uma aula.",
+  lesson_proposal_same_organization: "Esse aluno não é da sua organização.",
+  lesson_proposal_teacher_active:
+    "O professor não está aceitando aulas agora. Nada foi debitado.",
+  lesson_proposal_student_active: "Esse aluno não está ativo.",
+  lesson_proposal_one_open:
+    "Você já tem uma proposta aberta para esse professor. Retire-a para propor outra.",
+  lesson_proposal_items_no_overlap: "Duas aulas da proposta se cruzam.",
 };
+
+/**
+ * Said to the teacher when her yes to a student's proposal is refused for
+ * the student's balance: the sentence above speaks to the student.
+ */
+export const STUDENT_BALANCE_SHORT = "O saldo do aluno não cobre estas aulas.";
 
 /** Said when the refusal names no rule this screen knows. */
 export const UNKNOWN_REFUSAL =
