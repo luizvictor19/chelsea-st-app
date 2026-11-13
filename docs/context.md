@@ -176,17 +176,20 @@ architecture question for Luiz.
   60 min, the booking closing 12 h before and opening 8 weeks ahead, the student's refund up to 1 h
   before. `lessons` gained `teacher_id` (null on the fixed agenda until #295; the teacher of the
   lesson's organization by `lessons_teacher_fkey`), `credits_debited`, `credits_refunded`,
-  `cancelled_at` and `cancelled_by`. Two scheduled lessons of one teacher, or of one student, never
-  cross (`lessons_teacher_no_overlap`, `lessons_student_no_overlap`, exclusion constraints on
-  `btree_gist`, in `extensions`); a lesson without a teacher takes the slot of every teacher of its
-  organization. A booked lesson changes only through the functions (`lessons_booked_through_functions`
+  `cancelled_at` and `cancelled_by`. Two scheduled lessons of one row of `teachers`, or of one
+  student, never cross (`lessons_teacher_no_overlap`, `lessons_student_no_overlap`, exclusion
+  constraints on `btree_gist`, in `extensions`). A lesson without a teacher takes the slot of every
+  teacher of its organization in the booking, but the fixed agenda can still write one over another
+  student's booked lesson until #295; and `materialize_lessons` fails whole when one occurrence
+  crosses a lesson the student booked. A person teaching in two organizations is held apart by the
+  lock of `book_lesson` (every row of hers) and by the slots. A booked lesson changes only through the functions (`lessons_booked_through_functions`
   refuses to anyone but the table's owner a lesson inserted with a teacher or a debit, a change of the
   status, time, length, student or teacher of a booked lesson, any change of the debit, the refund or
   the cancel, and the delete of a booked lesson); "Parei aqui" and the note still pass.
   `authenticated` executes six functions, all for `auth.uid()`: `lesson_rules`, `bookable_teachers`,
   `bookable_slots`, `my_lessons`, `book_lesson` (writes the lesson and calls
   `credit_debit(her, 'teacher_lesson', 1, 'lesson:<id>')` in the same transaction) and
-  `cancel_lesson` (the student until the start, with `credit_refund` up to 1 h before; the lesson's
+  `cancel_lesson` (the student of a booked lesson until the start, with `credit_refund` up to 1 h before; the lesson's
   teacher, the organization's admin or the platform admin until the planned end, always with
   `credit_refund`). The cost is read through the ledger's `credit_price` alone, so #292 changes it
   there. Nobody executes `lesson_booker_organization`, `lesson_open_slots` or the trigger function,

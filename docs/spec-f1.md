@@ -178,7 +178,7 @@ selo Fundador, a #292.
   `lesson:<id da aula>`. Saldo que não cobre recusa tudo: nem aula, nem débito. O custo vem de
   `credit_cost` (#273), nunca do código.
 - **Cancelar:**
-  - o aluno cancela a própria aula até o início; até 1 h antes recebe de volta o que pagou
+  - o aluno cancela a aula que reservou até o início (a aula da agenda fixa é do professor); até 1 h antes recebe de volta o que pagou
     (não o preço do dia); depois, a aula é cancelada e nada volta;
   - o professor da aula, o admin da organização ou o admin da plataforma cancelam até o fim
     previsto, e o estorno é sempre integral;
@@ -186,7 +186,9 @@ selo Fundador, a #292.
   - remarcar é cancelar e reservar de novo.
 - **Duas aulas no mesmo horário:** o banco recusa duas aulas do mesmo professor, ou do mesmo
   aluno, que se cruzem, venham de onde vierem. Uma aula da agenda fixa (sem professor) ocupa o
-  horário de todos os professores da organização dela.
+  horário de todos os professores da organização dela na reserva; a agenda fixa, porém, ainda pode
+  gravar uma aula sua por cima da aula reservada de outro aluno, até a #295. Um professor em duas
+  organizações tem o horário ocupado nas duas.
 - **Escrever direto em `lessons`:** ninguém cria aula com professor nem muda status, horário,
   aluno, professor, débito ou cancelamento de uma aula reservada pelo navegador; só as funções da
   reserva e do cancelamento. "Parei aqui" e a nota continuam.
