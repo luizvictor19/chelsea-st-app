@@ -252,11 +252,14 @@ comment on column public.lessons.credits_refunded is
 
 create index lessons_by_teacher on public.lessons (teacher_id, scheduled_at) where teacher_id is not null;
 
--- Q4: two scheduled lessons of one teacher, or of one student, that cross,
--- even by a minute, are refused by the database, whatever wrote them. A
--- lesson without a teacher is held by the student's alone (and by
--- lesson_open_slots, which counts it as taking every teacher of its
--- organization).
+-- Q4: two scheduled lessons of one teacher (one row of teachers), or of one
+-- student, that cross, even by a minute, are refused by the database,
+-- whatever wrote them. A lesson without a teacher (the fixed agenda, until
+-- #295) is held by the student's constraint alone: lesson_open_slots counts
+-- it as taking every teacher of its organization, so no booking lands on
+-- it, but the fixed agenda can still write one over a booked lesson of
+-- another student (Q6). A person teaching in two organizations has two
+-- rows: the lock of book_lesson and lesson_open_slots hold her apart.
 alter table public.lessons
   add constraint lessons_teacher_no_overlap exclude using gist (
     teacher_id with =,
@@ -425,26 +428,46 @@ as $$
                  / r.slot_minutes)::integer) n (k)
      where span.lo <= span.hi
        and extract(dow from ((span.lo at time zone a.timezone)::date - 1 + g.i)) = a.weekday
+  ),
+  -- What takes a slot, gathered once by three indexed lookups and her time
+  -- off, then held against every candidate: a lesson of hers in any of her
+  -- organizations, a lesson without a teacher in this one, and a lesson of
+  -- the student's. Only the lessons near the span: none lasts a day.
+  busy as (
+    select tstzrange(l.scheduled_at, l.scheduled_at + make_interval(mins => l.duration_minutes)) as during
+      from t
+      join public.teachers o on o.user_id = t.user_id
+      join public.lessons l on l.teacher_id = o.id
+      cross join span
+     where l.status = 'scheduled'
+       and l.scheduled_at between span.lo - interval '1 day' and span.hi + interval '1 day'
+    union all
+    select tstzrange(l.scheduled_at, l.scheduled_at + make_interval(mins => l.duration_minutes))
+      from t
+      join public.lessons l on l.organization_id = t.organization_id and l.teacher_id is null
+      cross join span
+     where l.status = 'scheduled'
+       and l.scheduled_at between span.lo - interval '1 day' and span.hi + interval '1 day'
+    union all
+    select tstzrange(l.scheduled_at, l.scheduled_at + make_interval(mins => l.duration_minutes))
+      from public.lessons l
+      cross join span
+     where l.student_id = p_student
+       and l.status = 'scheduled'
+       and l.scheduled_at between span.lo - interval '1 day' and span.hi + interval '1 day'
+    union all
+    select tstzrange(o.starts_at, o.ends_at)
+      from t
+      join public.teacher_time_off o on o.teacher_id = t.id
   )
   select distinct c.starts_at
     from candidate c
     cross join r
     cross join span
-    cross join t
    where c.starts_at between span.lo and span.hi
      and not exists (
-       select 1 from public.teacher_time_off o
-        where o.teacher_id = t.id
-          and tstzrange(o.starts_at, o.ends_at)
-              && tstzrange(c.starts_at, c.starts_at + make_interval(mins => r.lesson_minutes)))
-     and not exists (
-       select 1 from public.lessons l
-        where l.status = 'scheduled'
-          and (l.teacher_id in (select o.id from public.teachers o where o.user_id = t.user_id)
-               or (l.teacher_id is null and l.organization_id = t.organization_id)
-               or l.student_id = p_student)
-          and tstzrange(l.scheduled_at, l.scheduled_at + make_interval(mins => l.duration_minutes))
-              && tstzrange(c.starts_at, c.starts_at + make_interval(mins => r.lesson_minutes)))
+       select 1 from busy b
+        where b.during && tstzrange(c.starts_at, c.starts_at + make_interval(mins => r.lesson_minutes)))
    order by c.starts_at;
 $$;
 
@@ -546,8 +569,9 @@ comment on function public.my_lessons() is
 -- Booking -------------------------------------------------------------------------------
 --
 -- Q5: for auth.uid() alone, at the cost the ledger reads, in one
--- transaction. The teacher's row is locked, so two bookings of hers wait for
--- each other; the exclusion constraints hold underneath all the same. The
+-- transaction. The teacher's rows are locked (all of them, when she teaches
+-- in more than one organization), so two bookings of hers wait for each
+-- other; the exclusion constraints hold underneath all the same. The
 -- lesson is written first, so the debit names it; a balance that does not
 -- cover the cost refuses the debit (credits_not_negative), and the lesson
 -- goes back with it. credits_debited is what the ledger wrote, read back.
@@ -566,7 +590,13 @@ declare
   v_debited integer;
 begin
   v_org := public.lesson_booker_organization(p_teacher);
-  perform 1 from public.teachers t where t.id = p_teacher for update;
+  -- Every row of the person who teaches, in any organization: a lesson with
+  -- her in one takes the slot in the others (lesson_open_slots), and the
+  -- exclusion constraint holds one row of teachers only.
+  perform 1 from public.teachers t
+   where t.user_id = (select o.user_id from public.teachers o where o.id = p_teacher)
+   order by t.id
+   for update;
 
   if p_starts_at is null or not exists (
        select 1 from public.lesson_open_slots(p_teacher, v_me, p_starts_at, p_starts_at) s
@@ -597,13 +627,14 @@ comment on function public.book_lesson(uuid, timestamptz) is
 
 -- Cancelling ----------------------------------------------------------------------------
 --
--- The student cancels her own lesson until it starts, and gets back what
+-- The student cancels a lesson she booked until it starts, and gets back what
 -- she paid (credit_refund gives back the debit, not today's price) up to
 -- refund_until_before the start; after that nothing comes back. The
 -- lesson's teacher, the organization's admin or the platform admin cancel
 -- until its planned end, and the refund is always whole: the absence is
 -- theirs. A lesson of the fixed agenda (no teacher) is cancelled by whoever
--- teaches in its organization, as before. Returns the credits given back.
+-- teaches in its organization, as before, and never by its student, who
+-- did not book it. Returns the credits given back.
 create function public.cancel_lesson(p_lesson uuid, out refunded_credits integer)
 language plpgsql
 security definer
@@ -618,7 +649,7 @@ begin
   select * into v_rules from public.lesson_rules();
   select * into v_lesson from public.lessons l where l.id = p_lesson for update;
 
-  if v_me is not null and v_lesson.student_id = v_me then
+  if v_me is not null and v_lesson.student_id = v_me and v_lesson.teacher_id is not null then
     if now() >= v_lesson.scheduled_at then
       raise exception 'lesson_cancel_before_start: a student cancels her lesson before it starts'
         using errcode = 'check_violation', constraint = 'lesson_cancel_before_start';
@@ -661,7 +692,7 @@ end;
 $$;
 
 comment on function public.cancel_lesson(uuid) is
-  'Cancels a scheduled lesson and returns the credits given back. The student, until it starts, with her debit back up to lesson_rules().refund_until_before the start; the lesson''s teacher, the organization''s admin or the platform admin (whoever teaches there, for a lesson without a teacher), until its planned end, always with the debit back. Refuses by name: lesson_cancel_allowed, lesson_cancel_before_start, lesson_cancel_before_end, lesson_cancel_scheduled.';
+  'Cancels a scheduled lesson and returns the credits given back. The student of a booked lesson, until it starts, with her debit back up to lesson_rules().refund_until_before the start; the lesson''s teacher, the organization''s admin or the platform admin (whoever teaches there, for a lesson without a teacher), until its planned end, always with the debit back. Refuses by name: lesson_cancel_allowed, lesson_cancel_before_start, lesson_cancel_before_end, lesson_cancel_scheduled.';
 
 
 -- Who executes what (0047) --------------------------------------------------------------

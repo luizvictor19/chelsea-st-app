@@ -6428,6 +6428,8 @@ $$;
 -- time off, on a slot taken, with a teacher of another organization, in an
 -- organization without a teacher, with a teacher who takes no booking, and
 -- with a balance that does not cover it, which leaves no lesson and no entry.
+-- A lesson with a teacher takes her slot in every organization she teaches
+-- in; a student does not cancel a lesson of the fixed agenda.
 -- A booking debits the caller, by credit_cost, with the lesson as the
 -- reference. Two scheduled lessons of one teacher or of one student that
 -- cross are refused by the database, also when postgres writes them; a lesson
@@ -6481,6 +6483,7 @@ do $$
 declare
   c_student constant uuid := '22222222-2222-2222-2222-222222222222';
   c_teacher_b_school constant uuid := '33333333-3333-3333-3333-333333333333';
+  c_student_b_school constant uuid := '44444444-4444-4444-4444-444444444444';
   c_teacher_a constant uuid := 'b0520000-0000-4000-8000-000000000001';
   c_teacher_b constant uuid := 'b0520000-0000-4000-8000-000000000002';
   c_other constant uuid := 'b0520000-0000-4000-8000-000000000003';
@@ -6511,6 +6514,7 @@ declare
   v_a uuid;
   v_b uuid;
   v_c uuid;
+  v_a2 uuid;
   v_lesson uuid;
   v_second uuid;
   v_old uuid;
@@ -6645,6 +6649,15 @@ begin
     returning id into v_c;
   insert into teacher_availability (organization_id, teacher_id, weekday, start_time, end_time, timezone)
     select v_school_b, v_c, d, '00:00', '24:00', c_zone from generate_series(0, 6) d;
+  -- A teaches in Escola B too, with a row and a whole day there as well.
+  reset role;
+  insert into organization_members (organization_id, user_id, role) values (v_school_b, c_teacher_a, 'teacher');
+  insert into teachers (organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+    values (v_school_b, c_teacher_a, 'teacher', 'https://meet.example.com/a2', 'a@example.com', true)
+    returning id into v_a2;
+  insert into teacher_availability (organization_id, teacher_id, weekday, start_time, end_time, timezone)
+    select v_school_b, v_a2, d, '00:00', '24:00', c_zone from generate_series(0, 6) d;
+  set local role authenticated;
 
   -- 4. A student makes no teacher of herself and reads none of the three.
   perform set_config('test.uid', c_student::text, false);
@@ -6764,6 +6777,16 @@ begin
   end if;
   perform verify.expect_refused_undone('a slot that crosses a lesson of hers', '23514 lesson_slot_bookable',
     format('select * from book_lesson(%L, %L)', v_b, v_ten));
+  -- A is taken at 10h in Escola B too, where she has another row.
+  perform set_config('test.uid', c_student_b_school::text, false);
+  if exists (select 1 from bookable_slots(v_a2, v_ten, v_ten))
+     or not exists (select 1 from bookable_slots(v_a2, v_ten + interval '1 hour', v_ten + interval '1 hour')) then
+    insert into verify.failures values ('a lesson with A in one organization does not take her slot in the other');
+  else
+    raise notice 'a lesson with a teacher in one organization takes her slot in every organization she teaches in';
+  end if;
+  perform verify.expect_refused_undone('the same teacher at the same hour in another organization', '23514 lesson_slot_bookable',
+    format('select * from book_lesson(%L, %L)', v_a2, v_ten));
 
   -- 9. A balance that does not cover a lesson: no lesson, no entry.
   perform set_config('test.uid', c_poor::text, false);
@@ -6805,6 +6828,10 @@ begin
   end if;
   perform verify.expect_refused_undone('a slot a lesson without a teacher holds', '23514 lesson_slot_bookable',
     format('select * from book_lesson(%L, %L)', v_a, v_ten + interval '1 hour'));
+  -- Its student did not book it, and does not cancel it.
+  perform set_config('test.uid', c_poor::text, false);
+  perform verify.expect_refused_undone('a student cancelling a lesson of the fixed agenda', '42501 lesson_cancel_allowed',
+    format('select cancel_lesson(%L)', v_old));
 
   -- 12. Whoever teaches writes a booked lesson's note, and nothing that
   -- books, pays or cancels it.
@@ -6945,7 +6972,7 @@ begin
   delete from credit_entries;
   perform set_config('session_replication_role', 'origin', true);
   delete from lessons where teacher_id in (v_a, v_b, v_c) or id = v_old;
-  delete from teachers where id in (v_a, v_b, v_c);
+  delete from teachers where id in (v_a, v_b, v_c, v_a2);
   delete from subscriptions;
   delete from billing_customers;
   delete from credit_costs;
