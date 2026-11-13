@@ -5,8 +5,9 @@ import { notFound } from "next/navigation";
 import { requireTeacher } from "@/lib/content/queries";
 import { formatLessonDate, formatLessonTime } from "@/lib/datetime";
 
+import { mayCancel } from "../agenda";
 import { progressLine } from "../progress";
-import { readAgenda, teacherZone } from "../queries";
+import { readAgenda, readCancelRights, teacherZone } from "../queries";
 
 import { AgendaView } from "./agenda-view";
 
@@ -30,11 +31,12 @@ export default async function StudentAgendaPage({
   // Not a uuid is no student; asking Postgres would answer with an error.
   if (!UUID.test(id)) notFound();
 
-  const { supabase, user } = await requireTeacher();
+  const { supabase, user, access } = await requireTeacher();
   const now = new Date();
-  const [agenda, zone] = await Promise.all([
+  const [agenda, zone, rights] = await Promise.all([
     readAgenda(supabase, id, now),
     teacherZone(supabase, user.id),
+    readCancelRights(supabase, user.id, access.platformAdmin),
   ]);
 
   return (
@@ -59,6 +61,7 @@ export default async function StudentAgendaPage({
             id: lesson.id,
             label: `${formatLessonDate(start, zone)}, ${formatLessonTime(start, zone)}`,
             running: start <= now,
+            cancellable: mayCancel(rights, lesson),
           };
         })}
       />

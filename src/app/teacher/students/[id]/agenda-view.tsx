@@ -3,12 +3,14 @@
 import { useRef, useTransition, type ReactNode, type RefObject } from "react";
 
 import { notices } from "../../notices";
-import { cancelLesson, type AgendaResult } from "../actions";
+import { cancelBookedLesson, type AgendaResult } from "../../agenda/actions";
 
 type LessonItem = {
   readonly id: string;
   readonly label: string;
   readonly running: boolean;
+  /** Hers to cancel: its teacher, the organization's admin or the platform admin. */
+  readonly cancellable: boolean;
 };
 
 const buttonClass =
@@ -123,14 +125,20 @@ function LessonRow({ lesson }: { readonly lesson: LessonItem }) {
           <span className="text-accent text-sm"> · em andamento</span>
         ) : null}
       </span>
-      <button
-        type="button"
-        disabled={pending}
-        onClick={() => cancelDialog.current?.showModal()}
-        className={quietClass}
-      >
-        {pending ? "cancelando" : "Cancelar aula"}
-      </button>
+      {lesson.cancellable ? (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => cancelDialog.current?.showModal()}
+          className={quietClass}
+        >
+          {pending ? "cancelando" : "Cancelar aula"}
+        </button>
+      ) : (
+        <span className="text-faint text-xs">
+          Só o professor da aula ou o admin cancela.
+        </span>
+      )}
 
       <Confirm
         id={`cancelar-${lesson.id}`}
@@ -139,7 +147,7 @@ function LessonRow({ lesson }: { readonly lesson: LessonItem }) {
         dialog={cancelDialog}
         onConfirm={() => {
           cancelDialog.current?.close();
-          run(() => cancelLesson(lesson.id));
+          run(() => cancelBookedLesson(lesson.id));
         }}
       >
         <p className="text-muted text-sm">

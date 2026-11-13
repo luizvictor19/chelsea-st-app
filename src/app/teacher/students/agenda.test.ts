@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { instantIn, WEEKDAYS } from "./agenda.ts";
+import { instantIn, mayCancel, WEEKDAYS, type CancelRights } from "./agenda.ts";
 
 const SP = "America/Sao_Paulo";
 
@@ -33,5 +33,44 @@ describe("instantIn", () => {
       instantIn("2026-07-10", "19:00", "America/New_York").toISOString(),
       "2026-07-10T23:00:00.000Z",
     );
+  });
+});
+
+describe("mayCancel", () => {
+  const lesson = { organizationId: "org-a", teacherId: "teacher-row-a" };
+  const none: CancelRights = {
+    platformAdmin: false,
+    adminOf: new Set(),
+    teacherRows: new Set(),
+  };
+
+  test("the lesson's teacher cancels it", () => {
+    assert.equal(
+      mayCancel({ ...none, teacherRows: new Set(["teacher-row-a"]) }, lesson),
+      true,
+    );
+  });
+
+  test("another teacher of the organization does not", () => {
+    assert.equal(
+      mayCancel({ ...none, teacherRows: new Set(["teacher-row-b"]) }, lesson),
+      false,
+    );
+    assert.equal(mayCancel(none, lesson), false);
+  });
+
+  test("the admin of the lesson's organization does, of another one not", () => {
+    assert.equal(
+      mayCancel({ ...none, adminOf: new Set(["org-a"]) }, lesson),
+      true,
+    );
+    assert.equal(
+      mayCancel({ ...none, adminOf: new Set(["org-b"]) }, lesson),
+      false,
+    );
+  });
+
+  test("the platform admin does", () => {
+    assert.equal(mayCancel({ ...none, platformAdmin: true }, lesson), true);
   });
 });

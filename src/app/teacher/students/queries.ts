@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 
 import { requireTeacher } from "@/lib/content/queries";
 
-import type { AgendaLesson } from "./agenda";
+import type { AgendaLesson, CancelRights } from "./agenda";
 import { progressOf, type Mark, type Progress } from "./progress";
 
 type Supabase = Awaited<ReturnType<typeof requireTeacher>>["supabase"];
@@ -57,7 +57,9 @@ async function readUpcoming(
   );
   let query = supabase
     .from("lessons")
-    .select("id, student_id, scheduled_at, duration_minutes, status")
+    .select(
+      "id, student_id, organization_id, teacher_id, scheduled_at, duration_minutes, status",
+    )
     .eq("status", "scheduled")
     .gte("scheduled_at", earliest.toISOString())
     .order("scheduled_at", { ascending: true });
@@ -73,10 +75,35 @@ async function readUpcoming(
     .map((row) => ({
       id: row.id,
       studentId: row.student_id,
+      organizationId: row.organization_id,
+      teacherId: row.teacher_id,
       scheduledAt: row.scheduled_at,
       status: row.status,
       durationMinutes: row.duration_minutes,
     }));
+}
+
+/** Her rows of teachers and the organizations she is an admin of. */
+export async function readCancelRights(
+  supabase: Supabase,
+  userId: string,
+  platformAdmin: boolean,
+): Promise<CancelRights> {
+  const [rows, admin] = await Promise.all([
+    supabase.from("teachers").select("id").eq("user_id", userId),
+    supabase
+      .from("organization_members")
+      .select("organization_id")
+      .eq("user_id", userId)
+      .eq("role", "admin"),
+  ]);
+  if (rows.error) throw new Error(rows.error.message);
+  if (admin.error) throw new Error(admin.error.message);
+  return {
+    platformAdmin,
+    adminOf: new Set(admin.data.map((row) => row.organization_id)),
+    teacherRows: new Set(rows.data.map((row) => row.id)),
+  };
 }
 
 /**
