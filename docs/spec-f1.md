@@ -224,16 +224,17 @@ Antes da aula, o professor vê em cada reserva onde o aluno parou (o último "Pa
   professor.
 - O cancelamento, por quem for, manda o cancelamento do mesmo evento (`METHOD:CANCEL`, mesmo
   `UID`), e o evento sai das duas agendas. Remarcar é cancelar e reservar de novo. O cancelamento
-  só vai para quem recebeu o convite: se o convite de alguém ainda não tinha saído, nenhum dos dois
-  sai para essa pessoa.
+  vai para quem recebeu o convite ou para quem o envio foi tentado (um envio que demorou pode ter
+  chegado); se o convite de alguém nunca foi tentado, nenhum dos dois sai para essa pessoa.
 - O organizador do evento é a plataforma, `agenda@chelsea-st.com`, não o professor. Responder
   "Não" na agenda não cancela a aula: a resposta vira um e-mail para esse endereço. Cancelar é só
   pela plataforma, e o e-mail e o convite dizem isso.
 - O e-mail sai pela Resend depois da resposta da reserva ou do cancelamento, fora da transação: um
   envio que falha não desfaz nada. O banco guarda o que falta mandar (`calendar_invites`), e o
   envio é tentado de novo na próxima reserva ou cancelamento de qualquer aula e na rotina diária
-  (13h UTC). Depois de 5 tentativas, ou quando a aula já começou, o convite é dado como não
-  enviado, e o professor vê "Convite de agenda não enviado" na aula, em `/teacher/agenda`.
+  (13h UTC), com pelo menos meia hora entre duas tentativas. Depois de 5 tentativas, ou quando a
+  aula já começou, o convite é dado como não enviado, e o professor vê "Convite de agenda não
+  enviado" na aula, em `/teacher/agenda`.
 - Fora: a API do Google Agenda, atualizar um evento já mandado (troca do Meet), lembrete antes da
   aula, ler na plataforma as respostas "Sim" e "Não".
 

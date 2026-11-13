@@ -201,13 +201,16 @@ architecture question for Luiz.
   `cancel_lesson` (or any write that turns a lesson with a teacher cancelled), queues one row of
   `calendar_invites` per lesson, kind (`request`, `cancel`) and person (`student`, `teacher`): two
   requests for a lesson born scheduled and ahead, two cancels for one that turns cancelled,
-  `pending` where the request was sent and `skipped`, with the unsent request, where it was not.
-  The app sends after the commit (`after()` in the three actions that book or cancel, and the
-  Vercel Cron `/api/calendar/daily` at 13h UTC behind `CRON_SECRET`), through three `security
-definer` functions only `service_role` executes, the same exception to "service_role gets none"
-  as billing's: `calendar_invites_due` (with the student's auth e-mail and the teacher's
-  `calendar_email`), `calendar_invite_sent` and `calendar_invite_failed`. 5 attempts, a constant
-  in `src/lib/calendar/outbox.ts`, then `abandoned`, which the teacher sees on `/teacher/agenda`.
+  `pending` where the request was sent or tried (a send that timed out may have arrived) and
+  `skipped`, with the request, where it was never tried. The app sends after the commit
+  (`after()` in the three actions that book or cancel, and the Vercel Cron `/api/calendar/daily`
+  at 13h UTC behind `CRON_SECRET`), through three `security definer` functions only
+  `service_role` executes, the same exception to "service_role gets none" as billing's:
+  `calendar_invites_due` (with the student's auth e-mail and the teacher's `calendar_email`; a row
+  tried less than 30 minutes ago waits), `calendar_invite_sent` and `calendar_invite_failed`.
+  Every attempt of a row sends the same bytes (the `.ics` is stamped with the row's birth) under
+  one Resend `Idempotency-Key` per lesson, kind and person. 5 attempts, a constant in
+  `src/lib/calendar/outbox.ts`, then `abandoned`, which the teacher sees on `/teacher/agenda`.
   Whoever teaches in the organization reads the rows (state and code, never an address); the
   student reads none; nobody writes them through the API. The invite is a `.ics` attached
   (`METHOD:REQUEST`/`CANCEL`, one UID per lesson, UTC times), from `agenda@chelsea-st.com`, the
@@ -330,8 +333,8 @@ definer` functions only `service_role` executes, the same exception to "service_
 - `.env.local` is never read, printed or committed. Worktrees get a copy with `cp`.
 - API keys are server-only, never `NEXT_PUBLIC_`.
 - `SUPABASE_SERVICE_ROLE_KEY` is read by `src/lib/supabase/admin.ts`, to send invite emails (#96)
-  and the signup's (#275),
-  by `src/lib/billing/supabase-store.ts` (#72, Q2), which calls only the ten `billing_*`
+  and the signup's (#275), and by `src/lib/supabase/service.ts`, the client of the two callers
+  below: `src/lib/billing/supabase-store.ts` (#72, Q2), which calls only the ten `billing_*`
   functions of 0049 and `credit_settle_payment` and `credit_daily` of 0050 (#273), and reads a
   person's e-mail from auth for the overdue e-mails, and by `src/lib/calendar/supabase-outbox.ts`
   (#294), which calls only the three `calendar_*` functions of 0056. It passes every policy: never use it to read or
