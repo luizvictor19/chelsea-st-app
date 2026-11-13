@@ -16,7 +16,11 @@ export type PlanState =
  * Creates a plan, or changes the one named by id, with the platform admin's
  * own client: plans_insert and plans_update decide (0049). A price changed
  * here reaches new subscriptions only; one that exists keeps its value at the
- * provider.
+ * provider, and a founder whose terms are fixed keeps hers (0058).
+ *
+ * A personal plan (personal=1) is only changed here, never created: it is
+ * born on /teacher/invites, for an e-mail. Its update is held to rows that
+ * are personal, so the flag cannot turn a public plan's audience away.
  */
 export async function savePlan(
   _previous: PlanState,
@@ -27,18 +31,35 @@ export async function savePlan(
   if (!read.ok) return { status: "error", message: read.message };
 
   const id = String(formData.get("id") ?? "");
+  const personal = formData.get("personal") === "1";
+  if (id === "" && personal) {
+    return {
+      status: "error",
+      message: "Um plano personalizado nasce em Convites.",
+    };
+  }
+  const update = supabase
+    .from("plans")
+    .update({ ...read.values, updated_at: new Date().toISOString() })
+    .eq("id", id);
   const { error } =
     id === ""
       ? await supabase.from("plans").insert(read.values)
-      : await supabase
-          .from("plans")
-          .update({ ...read.values, updated_at: new Date().toISOString() })
-          .eq("id", id);
+      : personal
+        ? await update.eq("audience", "person")
+        : await update.neq("audience", "person");
   if (error) {
     if (error.code === "23505") {
       return {
         status: "error",
         message: "Já existe um plano com essa chave nessa marca.",
+      };
+    }
+    if (error.message.includes("plans_founder_stays_on_sale")) {
+      return {
+        status: "error",
+        message:
+          "Este é o único Plano Fundador à venda. Ponha outro à venda antes de tirar este, ou de mudar quem o vê.",
       };
     }
     return {
@@ -47,6 +68,7 @@ export async function savePlan(
     };
   }
   revalidatePath("/teacher/plans");
+  revalidatePath("/teacher/invites");
   revalidatePath("/dashboard/plano");
   return { status: "saved", name: read.values.name };
 }

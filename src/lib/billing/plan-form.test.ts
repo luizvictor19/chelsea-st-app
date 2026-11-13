@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { readPlanForm, readReais } from "./plan-form.ts";
+import { readPersonalPlanForm, readPlanForm, readReais } from "./plan-form.ts";
 
 function form(over: Record<string, string> = {}): FormData {
   const data = new FormData();
@@ -65,7 +65,7 @@ describe("readPlanForm", () => {
       { monthly_price: "0" },
       { annual_price: "x" },
       { monthly_credits: "-1" },
-      { trail_minutes_per_day: "0" },
+      { trail_minutes_per_day: "-1" },
       { trail_minutes_per_day: "241" },
       { trial_days: "61" },
       { trial_credits: "1.5" },
@@ -99,5 +99,73 @@ describe("the ceiling and the days after a cancel", () => {
     const days = readPlanForm(form({ credit_days_after_cancel: "366" }));
     assert.equal(days.ok, false);
     if (!days.ok) assert.match(days.message, /0 a 365/);
+  });
+});
+
+describe("the audience, the lesson and the trail of 0058", () => {
+  test("no audience is everyone; founder is kept; person is refused here", () => {
+    const plain = readPlanForm(form());
+    assert.equal(plain.ok && plain.values.audience, "public");
+    const founder = readPlanForm(form({ audience: "founder" }));
+    assert.equal(founder.ok && founder.values.audience, "founder");
+    for (const audience of ["person", "everyone"]) {
+      const read = readPlanForm(form({ audience }));
+      assert.equal(read.ok, false, audience);
+      if (!read.ok) assert.match(read.message, /quem vê/);
+    }
+  });
+
+  test("a founder plan is of the brand chelsea-st only (plans_founder_is_chelsea_st)", () => {
+    const read = readPlanForm(form({ audience: "founder", brand: "grifoai" }));
+    assert.equal(read.ok, false);
+  });
+
+  test("a personal plan's form keeps its audience: the values carry none", () => {
+    const read = readPlanForm(form({ personal: "1", audience: "public" }));
+    assert.equal(read.ok, true);
+    if (read.ok) assert.equal("audience" in read.values, false);
+  });
+
+  test("the cost of a lesson: empty is the brand's, 0 and negative refused", () => {
+    const empty = readPlanForm(form());
+    assert.equal(empty.ok && empty.values.teacher_lesson_credits, null);
+    const two = readPlanForm(form({ teacher_lesson_credits: " 2 " }));
+    assert.equal(two.ok && two.values.teacher_lesson_credits, 2);
+    for (const bad of ["0", "-1", "1.5", "x"]) {
+      const read = readPlanForm(form({ teacher_lesson_credits: bad }));
+      assert.equal(read.ok, false, bad);
+    }
+  });
+
+  test("0 minutes of trail is a plan without it; 241 is refused", () => {
+    const zero = readPlanForm(form({ trail_minutes_per_day: "0" }));
+    assert.equal(zero.ok && zero.values.trail_minutes_per_day, 0);
+    const over = readPlanForm(form({ trail_minutes_per_day: "241" }));
+    assert.equal(over.ok, false);
+    if (!over.ok) assert.match(over.message, /0 \(sem trilha\) a 240/);
+  });
+});
+
+describe("readPersonalPlanForm", () => {
+  test("the e-mail lower-cased and trimmed, the brand chelsea-st, the audience person", () => {
+    const read = readPersonalPlanForm(
+      form({ person_email: "  Ana@Example.COM ", brand: "grifoai" }),
+    );
+    assert.equal(read.ok, true);
+    if (!read.ok) return;
+    assert.equal(read.values.person_email, "ana@example.com");
+    assert.equal(read.values.brand, "chelsea-st");
+    assert.equal(read.values.audience, "person");
+  });
+
+  test("refuses what is not an e-mail, and the numbers as any plan", () => {
+    for (const bad of ["", "ana", "ana@example", "a b@example.com"]) {
+      const read = readPersonalPlanForm(form({ person_email: bad }));
+      assert.equal(read.ok, false, bad);
+    }
+    const numbers = readPersonalPlanForm(
+      form({ person_email: "ana@example.com", monthly_price: "0" }),
+    );
+    assert.equal(numbers.ok, false);
   });
 });
