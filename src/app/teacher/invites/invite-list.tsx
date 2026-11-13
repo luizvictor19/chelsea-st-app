@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 
 import type { OrganizationRole } from "@/lib/access";
 import { roleLabel } from "@/lib/invites";
@@ -8,6 +8,7 @@ import { roleLabel } from "@/lib/invites";
 import { notices } from "../notices";
 
 import { cancelInvite, resendInvite, type RowResult } from "./actions";
+import { endPersonalPlan, resendPersonalPlan } from "./personal-plan-actions";
 
 export type OpenInvite = {
   readonly id: string;
@@ -23,6 +24,13 @@ export type OpenInvite = {
   readonly hasTeacher: boolean;
 };
 
+/** A Plano Fundador Personalizado still waiting for its account (0058). */
+export type WaitingPersonalPlan = {
+  readonly id: string;
+  readonly name: string;
+  readonly email: string;
+};
+
 const DAY = new Intl.DateTimeFormat("pt-BR", {
   day: "2-digit",
   month: "2-digit",
@@ -32,16 +40,18 @@ const DAY = new Intl.DateTimeFormat("pt-BR", {
 export function InviteList({
   invites,
   showOrganization,
+  personalPlans = [],
 }: {
   readonly invites: readonly OpenInvite[];
   readonly showOrganization: boolean;
+  readonly personalPlans?: readonly WaitingPersonalPlan[];
 }) {
   return (
     <section aria-labelledby="open-invites" className="flex flex-col gap-3">
       <h2 id="open-invites" className="text-xl font-bold tracking-tight">
         Convites em aberto
       </h2>
-      {invites.length === 0 ? (
+      {invites.length === 0 && personalPlans.length === 0 ? (
         <p className="text-muted">Nenhum convite esperando resposta.</p>
       ) : (
         <ul className="border-rule divide-rule divide-y rounded-sm border">
@@ -52,9 +62,88 @@ export function InviteList({
               showOrganization={showOrganization}
             />
           ))}
+          {personalPlans.map((plan) => (
+            <PersonalPlanRow key={plan.id} plan={plan} />
+          ))}
         </ul>
       )}
     </section>
+  );
+}
+
+function PersonalPlanRow({ plan }: { readonly plan: WaitingPersonalPlan }) {
+  const [isPending, startTransition] = useTransition();
+  const [confirming, setConfirming] = useState(false);
+
+  function run(action: (id: string) => Promise<RowResult>) {
+    startTransition(async () => {
+      const result = await action(plan.id);
+      if (result.status === "error") {
+        notices.push("error", result.message);
+      } else if (result.status === "sent") {
+        notices.push("success", `E-mail reenviado para ${plan.email}.`);
+      } else {
+        notices.push("success", `${plan.name} saiu de venda.`);
+      }
+    });
+  }
+
+  return (
+    <li className="flex flex-col gap-3 p-4">
+      <div className="flex min-w-0 flex-col gap-1">
+        <span className="truncate font-mono text-sm">{plan.email}</span>
+        <span className="text-muted text-sm">
+          Plano personalizado · {plan.name} · aguardando cadastro
+        </span>
+      </div>
+      {!confirming ? (
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => run(resendPersonalPlan)}
+            className="border-rule hover:border-foreground rounded-sm border px-3 py-1.5 text-sm disabled:opacity-60"
+          >
+            Reenviar
+          </button>
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => setConfirming(true)}
+            className="text-muted hover:text-foreground rounded-sm px-3 py-1.5 text-sm disabled:opacity-60"
+          >
+            Tirar de venda
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2 text-sm">
+          <p>
+            Tirar {plan.name} de venda? O plano some para essa pessoa, e o link
+            do e-mail não leva mais a ele.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={() => {
+                setConfirming(false);
+                run(endPersonalPlan);
+              }}
+              className="bg-accent text-on-accent rounded-sm px-3 py-1.5 font-semibold disabled:opacity-60"
+            >
+              Sim, tirar de venda
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              className="border-rule rounded-sm border px-3 py-1.5"
+            >
+              Não, manter
+            </button>
+          </div>
+        </div>
+      )}
+    </li>
   );
 }
 

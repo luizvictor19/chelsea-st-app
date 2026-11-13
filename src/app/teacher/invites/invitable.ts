@@ -3,7 +3,7 @@ import { invitableRoles } from "@/lib/invites";
 import type { createClient } from "@/lib/supabase/server";
 
 import type { InvitableOrganization } from "./invite-form";
-import type { OpenInvite } from "./invite-list";
+import type { OpenInvite, WaitingPersonalPlan } from "./invite-list";
 
 type Client = Awaited<ReturnType<typeof createClient>>;
 
@@ -20,31 +20,37 @@ export async function readInvitableOrganizations(
   if (platformAdmin) {
     const { data, error } = await supabase
       .from("organizations")
-      .select("id, name, has_teacher")
+      .select("id, name, has_teacher, open_signup")
       .order("name");
     if (error) throw new Error(error.message);
-    return data.map(({ id, name, has_teacher }) => ({
+    return data.map(({ id, name, has_teacher, open_signup }) => ({
       id,
       name,
       hasTeacher: has_teacher,
-      roles: invitableRoles(true, [], has_teacher),
+      roles: invitableRoles(true, [], has_teacher, open_signup),
     }));
   }
 
   const { data, error } = await supabase
     .from("organization_members")
-    .select("role, organizations!inner(id, name, has_teacher)")
+    .select("role, organizations!inner(id, name, has_teacher, open_signup)")
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
 
   const byOrganization = new Map<
     string,
-    { name: string; hasTeacher: boolean; roles: OrganizationRole[] }
+    {
+      name: string;
+      hasTeacher: boolean;
+      openSignup: boolean;
+      roles: OrganizationRole[];
+    }
   >();
   for (const { role, organizations } of data) {
     const entry = byOrganization.get(organizations.id) ?? {
       name: organizations.name,
       hasTeacher: organizations.has_teacher,
+      openSignup: organizations.open_signup,
       roles: [],
     };
     entry.roles.push(role);
@@ -52,11 +58,11 @@ export async function readInvitableOrganizations(
   }
 
   return [...byOrganization]
-    .map(([id, { name, hasTeacher, roles }]) => ({
+    .map(([id, { name, hasTeacher, openSignup, roles }]) => ({
       id,
       name,
       hasTeacher,
-      roles: invitableRoles(false, roles, hasTeacher),
+      roles: invitableRoles(false, roles, hasTeacher, openSignup),
     }))
     .filter((organization) => organization.roles.length > 0)
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
@@ -117,4 +123,26 @@ export function openInvites(
       },
     ];
   });
+}
+
+/**
+ * The personal plans still waiting for their account, on sale (0058), for
+ * the platform admin: plans_read_admin gives them to her alone.
+ */
+export async function readWaitingPersonalPlans(
+  supabase: Client,
+): Promise<WaitingPersonalPlan[]> {
+  const { data, error } = await supabase
+    .from("plans")
+    .select("id, name, person_email")
+    .eq("audience", "person")
+    .eq("is_active", true)
+    .is("person_id", null)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return data.flatMap((plan) =>
+    plan.person_email === null
+      ? []
+      : [{ id: plan.id, name: plan.name, email: plan.person_email }],
+  );
 }
