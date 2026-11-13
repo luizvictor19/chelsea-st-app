@@ -6440,6 +6440,43 @@ $$;
 -- name, her Meet and until when the cancel gives back. Nothing written here
 -- is kept.
 
+-- A refusal expected here, and a statement accepted by mistake undone: a
+-- clause cut to watch it fail then fails alone, instead of the row it let in
+-- breaking every check after it.
+create function verify.named_refusal_undone(p_sql text) returns text
+language plpgsql as $$
+declare
+  v_name text;
+begin
+  begin
+    execute p_sql;
+    raise exception using errcode = 'P0052';
+  exception when sqlstate 'P0052' then
+    return null;
+  end;
+exception when others then
+  get stacked diagnostics v_name = constraint_name;
+  return sqlstate || coalesce(' ' || nullif(v_name, ''), '');
+end;
+$$;
+
+create function verify.expect_refused_undone(p_what text, p_expected text, p_sql text)
+returns void
+language plpgsql as $$
+declare
+  v_by text := verify.named_refusal_undone(p_sql);
+begin
+  if v_by is null then
+    insert into verify.failures values (format('%s: accepted', p_what));
+  elsif v_by <> p_expected then
+    insert into verify.failures
+      values (format('%s: refused by %s, expected %s', p_what, v_by, p_expected));
+  else
+    raise notice '%: refused by %', p_what, v_by;
+  end if;
+end;
+$$;
+
 do $$
 declare
   c_student constant uuid := '22222222-2222-2222-2222-222222222222';
@@ -6573,13 +6610,13 @@ begin
   -- the whole day after it off for A. And the teacher of Escola B.
   perform set_config('test.uid', c_teacher_a::text, false);
   set local role authenticated;
-  perform verify.expect_named_refusal('an active teacher without a Meet', '23514 teachers_active_needs_contact',
+  perform verify.expect_refused_undone('an active teacher without a Meet', '23514 teachers_active_needs_contact',
     format($q$insert into teachers (organization_id, user_id, member_role, calendar_email, is_active)
               values (%L, %L, 'teacher', 'a@example.com', true)$q$, v_chelsea, c_teacher_a));
-  perform verify.expect_named_refusal('a Meet that is not https', '23514 teachers_meet_url_https',
+  perform verify.expect_refused_undone('a Meet that is not https', '23514 teachers_meet_url_https',
     format($q$insert into teachers (organization_id, user_id, member_role, meet_url)
               values (%L, %L, 'teacher', 'http://meet.example.com/a')$q$, v_chelsea, c_teacher_a));
-  perform verify.expect_named_refusal('a teacher writing the row of another', '42501',
+  perform verify.expect_refused_undone('a teacher writing the row of another', '42501',
     format($q$insert into teachers (organization_id, user_id, member_role) values (%L, %L, 'teacher')$q$,
       v_chelsea, c_teacher_b));
   insert into teachers (organization_id, user_id, member_role, meet_url, calendar_email, is_active)
@@ -6587,10 +6624,10 @@ begin
     returning id into v_a;
   insert into teacher_availability (organization_id, teacher_id, weekday, start_time, end_time, timezone)
     select v_chelsea, v_a, d, '00:00', '24:00', c_zone from generate_series(0, 6) d;
-  perform verify.expect_named_refusal('a window in an unknown zone', '23514 teacher_availability_timezone_known',
+  perform verify.expect_refused_undone('a window in an unknown zone', '23514 teacher_availability_timezone_known',
     format($q$insert into teacher_availability (organization_id, teacher_id, weekday, start_time, end_time, timezone)
               values (%L, %L, 1, '09:00', '10:00', 'Mars/Olympus')$q$, v_chelsea, v_a));
-  perform verify.expect_named_refusal('a window that ends before it starts', '23514 teacher_availability_ends_after_start',
+  perform verify.expect_refused_undone('a window that ends before it starts', '23514 teacher_availability_ends_after_start',
     format($q$insert into teacher_availability (organization_id, teacher_id, weekday, start_time, end_time, timezone)
               values (%L, %L, 1, '10:00', '09:00', %L)$q$, v_chelsea, v_a, c_zone));
   insert into teacher_time_off (organization_id, teacher_id, starts_at, ends_at)
@@ -6611,7 +6648,7 @@ begin
 
   -- 4. A student makes no teacher of herself and reads none of the three.
   perform set_config('test.uid', c_student::text, false);
-  perform verify.expect_named_refusal('a student making herself a teacher', '42501',
+  perform verify.expect_refused_undone('a student making herself a teacher', '42501',
     format($q$insert into teachers (organization_id, user_id, member_role) values (%L, %L, 'student')$q$,
       v_chelsea, c_student));
   v_before := (select count(*) from verify.failures);
@@ -6647,33 +6684,33 @@ begin
     raise notice 'a student reads her organization''s teachers at what a lesson costs her, and their free slots on the grid of their windows, in their zone';
   end if;
   perform set_config('test.uid', c_employee::text, false);
-  perform verify.expect_named_refusal('an employee reading the teachers', '42501 lesson_booking_needs_teacher',
+  perform verify.expect_refused_undone('an employee reading the teachers', '42501 lesson_booking_needs_teacher',
     'select * from bookable_teachers()');
-  perform verify.expect_named_refusal('an employee booking', '42501 lesson_booking_needs_teacher',
+  perform verify.expect_refused_undone('an employee booking', '42501 lesson_booking_needs_teacher',
     format('select * from book_lesson(%L, %L)', v_a, v_ten));
 
   -- 6. A booking refused by name, before any debit.
   perform set_config('test.uid', c_student::text, false);
-  perform verify.expect_named_refusal('a slot outside the window', '23514 lesson_slot_bookable',
+  perform verify.expect_refused_undone('a slot outside the window', '23514 lesson_slot_bookable',
     format('select * from book_lesson(%L, %L)', v_b, v_ten + interval '5 hours'));
-  perform verify.expect_named_refusal('a start off the grid', '23514 lesson_slot_bookable',
+  perform verify.expect_refused_undone('a start off the grid', '23514 lesson_slot_bookable',
     format('select * from book_lesson(%L, %L)', v_a, v_ten + interval '30 minutes'));
-  perform verify.expect_named_refusal('a slot in the past', '23514 lesson_slot_bookable',
+  perform verify.expect_refused_undone('a slot in the past', '23514 lesson_slot_bookable',
     format('select * from book_lesson(%L, %L)', v_a, date_trunc('hour', now()) - interval '1 day'));
-  perform verify.expect_named_refusal('a slot under 12 hours ahead', '23514 lesson_slot_bookable',
+  perform verify.expect_refused_undone('a slot under 12 hours ahead', '23514 lesson_slot_bookable',
     format('select * from book_lesson(%L, %L)', v_a, date_trunc('hour', now()) + interval '3 hours'));
-  perform verify.expect_named_refusal('a slot past 8 weeks', '23514 lesson_slot_bookable',
+  perform verify.expect_refused_undone('a slot past 8 weeks', '23514 lesson_slot_bookable',
     format('select * from book_lesson(%L, %L)', v_a, date_trunc('hour', now()) + interval '9 weeks'));
-  perform verify.expect_named_refusal('a slot in a time off', '23514 lesson_slot_bookable',
+  perform verify.expect_refused_undone('a slot in a time off', '23514 lesson_slot_bookable',
     format('select * from book_lesson(%L, %L)', v_a, v_ten + interval '1 day'));
-  perform verify.expect_named_refusal('a teacher of another organization', '42501 lesson_booking_same_organization',
+  perform verify.expect_refused_undone('a teacher of another organization', '42501 lesson_booking_same_organization',
     format('select * from book_lesson(%L, %L)', v_c, v_ten));
-  perform verify.expect_named_refusal('the slots of a teacher of another organization', '42501 lesson_booking_same_organization',
+  perform verify.expect_refused_undone('the slots of a teacher of another organization', '42501 lesson_booking_same_organization',
     format('select * from bookable_slots(%L, now(), now() + interval ''1 week'')', v_c));
   perform set_config('test.uid', c_teacher_b::text, false);
   update teachers set is_active = false where id = v_b;
   perform set_config('test.uid', c_student::text, false);
-  perform verify.expect_named_refusal('a teacher who takes no booking', '23514 lesson_teacher_active',
+  perform verify.expect_refused_undone('a teacher who takes no booking', '23514 lesson_teacher_active',
     format('select * from book_lesson(%L, %L)', v_b, v_ten));
   perform set_config('test.uid', c_teacher_b::text, false);
   update teachers set is_active = true where id = v_b;
@@ -6718,19 +6755,19 @@ begin
   if exists (select 1 from bookable_slots(v_a, v_ten, v_ten) ) then
     insert into verify.failures values ('a booked slot is still offered');
   end if;
-  perform verify.expect_named_refusal('a slot already booked', '23514 lesson_slot_bookable',
+  perform verify.expect_refused_undone('a slot already booked', '23514 lesson_slot_bookable',
     format('select * from book_lesson(%L, %L)', v_a, v_ten));
   -- Nor is the hour she already has with A offered to her with B.
   perform set_config('test.uid', c_student::text, false);
   if exists (select 1 from bookable_slots(v_b, v_ten, v_ten)) then
     insert into verify.failures values ('a slot that crosses a lesson of hers is offered to her');
   end if;
-  perform verify.expect_named_refusal('a slot that crosses a lesson of hers', '23514 lesson_slot_bookable',
+  perform verify.expect_refused_undone('a slot that crosses a lesson of hers', '23514 lesson_slot_bookable',
     format('select * from book_lesson(%L, %L)', v_b, v_ten));
 
   -- 9. A balance that does not cover a lesson: no lesson, no entry.
   perform set_config('test.uid', c_poor::text, false);
-  perform verify.expect_named_refusal('a booking without the credits', '23514 credits_not_negative',
+  perform verify.expect_refused_undone('a booking without the credits', '23514 credits_not_negative',
     format('select * from book_lesson(%L, %L)', v_a, v_ten + interval '1 hour'));
   reset role;
   v_before := (select count(*) from verify.failures);
@@ -6743,17 +6780,17 @@ begin
   end if;
 
   -- 10. Two lessons that cross, written by postgres past every function.
-  perform verify.expect_named_refusal('two lessons of one teacher that cross', '23P01 lessons_teacher_no_overlap',
+  perform verify.expect_refused_undone('two lessons of one teacher that cross', '23P01 lessons_teacher_no_overlap',
     format($q$insert into lessons (organization_id, student_id, teacher_id, scheduled_at, duration_minutes)
               values (%L, %L, %L, %L, 50)$q$, v_chelsea, c_other, v_a, v_ten + interval '30 minutes'));
-  perform verify.expect_named_refusal('two lessons of one student that cross', '23P01 lessons_student_no_overlap',
+  perform verify.expect_refused_undone('two lessons of one student that cross', '23P01 lessons_student_no_overlap',
     format($q$insert into lessons (organization_id, student_id, teacher_id, scheduled_at, duration_minutes)
               values (%L, %L, %L, %L, 50)$q$, v_chelsea, c_student, v_b, v_ten + interval '20 minutes'));
 
   -- 11. A lesson of the fixed agenda at 11h takes 11h from every teacher of
   -- Chelsea St.
   insert into lessons (organization_id, student_id, scheduled_at, duration_minutes)
-    values (v_chelsea, c_other, v_ten + interval '1 hour', 45)
+    values (v_chelsea, c_poor, v_ten + interval '1 hour', 45)
     returning id into v_old;
   perform set_config('test.uid', c_student::text, false);
   set local role authenticated;
@@ -6766,22 +6803,22 @@ begin
   if (select count(*) from verify.failures) = v_before then
     raise notice 'a lesson of the fixed agenda takes its slot from every teacher of its organization';
   end if;
-  perform verify.expect_named_refusal('a slot a lesson without a teacher holds', '23514 lesson_slot_bookable',
+  perform verify.expect_refused_undone('a slot a lesson without a teacher holds', '23514 lesson_slot_bookable',
     format('select * from book_lesson(%L, %L)', v_a, v_ten + interval '1 hour'));
 
   -- 12. Whoever teaches writes a booked lesson's note, and nothing that
   -- books, pays or cancels it.
   perform set_config('test.uid', c_teacher_a::text, false);
-  perform verify.expect_named_refusal('a teacher cancelling a booked lesson by hand', '42501 lessons_booked_through_functions',
+  perform verify.expect_refused_undone('a teacher cancelling a booked lesson by hand', '42501 lessons_booked_through_functions',
     format($q$update lessons set status = 'cancelled' where id = %L$q$, v_lesson));
-  perform verify.expect_named_refusal('a teacher moving a booked lesson by hand', '42501 lessons_booked_through_functions',
+  perform verify.expect_refused_undone('a teacher moving a booked lesson by hand', '42501 lessons_booked_through_functions',
     format($q$update lessons set scheduled_at = scheduled_at + interval '1 day' where id = %L$q$, v_lesson));
-  perform verify.expect_named_refusal('a teacher removing a booked lesson', '42501 lessons_booked_through_functions',
+  perform verify.expect_refused_undone('a teacher removing a booked lesson', '42501 lessons_booked_through_functions',
     format('delete from lessons where id = %L', v_lesson));
-  perform verify.expect_named_refusal('a teacher inserting a booked lesson', '42501 lessons_booked_through_functions',
+  perform verify.expect_refused_undone('a teacher inserting a booked lesson', '42501 lessons_booked_through_functions',
     format($q$insert into lessons (organization_id, student_id, teacher_id, scheduled_at)
               values (%L, %L, %L, %L)$q$, v_chelsea, c_other, v_a, v_ten + interval '3 hours'));
-  perform verify.expect_named_refusal('a teacher writing a debit on a lesson', '42501 lessons_booked_through_functions',
+  perform verify.expect_refused_undone('a teacher writing a debit on a lesson', '42501 lessons_booked_through_functions',
     format('update lessons set credits_debited = 9 where id = %L', v_old));
   perform verify.expect_accepted('a teacher writing the note of a booked lesson',
     format($q$update lessons set teacher_note = 'nota' where id = %L$q$, v_lesson));
@@ -6850,14 +6887,14 @@ begin
   update lessons set scheduled_at = now() + interval '30 minutes' where id = v_second;
   perform set_config('test.uid', c_teacher_b::text, false);
   set local role authenticated;
-  perform verify.expect_named_refusal('another teacher cancelling A''s lesson', '42501 lesson_cancel_allowed',
+  perform verify.expect_refused_undone('another teacher cancelling A''s lesson', '42501 lesson_cancel_allowed',
     format('select cancel_lesson(%L)', v_second));
   perform set_config('test.uid', c_other::text, false);
-  perform verify.expect_named_refusal('another student cancelling her lesson', '42501 lesson_cancel_allowed',
+  perform verify.expect_refused_undone('another student cancelling her lesson', '42501 lesson_cancel_allowed',
     format('select cancel_lesson(%L)', v_second));
   perform set_config('test.uid', c_teacher_a::text, false);
   v_int := (select refunded_credits from cancel_lesson(v_second));
-  perform verify.expect_named_refusal('a lesson cancelled twice', '23514 lesson_cancel_scheduled',
+  perform verify.expect_refused_undone('a lesson cancelled twice', '23514 lesson_cancel_scheduled',
     format('select cancel_lesson(%L)', v_second));
   reset role;
   v_before := (select count(*) from verify.failures);
@@ -6875,13 +6912,13 @@ begin
   reset role;
   update lessons set scheduled_at = now() - interval '10 minutes' where id = v_second;
   set local role authenticated;
-  perform verify.expect_named_refusal('her cancel after the start', '23514 lesson_cancel_before_start',
+  perform verify.expect_refused_undone('her cancel after the start', '23514 lesson_cancel_before_start',
     format('select cancel_lesson(%L)', v_second));
   reset role;
   update lessons set scheduled_at = now() - interval '2 hours' where id = v_second;
   perform set_config('test.uid', c_teacher_a::text, false);
   set local role authenticated;
-  perform verify.expect_named_refusal('the teacher''s cancel after the end', '23514 lesson_cancel_before_end',
+  perform verify.expect_refused_undone('the teacher''s cancel after the end', '23514 lesson_cancel_before_end',
     format('select cancel_lesson(%L)', v_second));
   reset role;
 
