@@ -1,6 +1,7 @@
 import { toStored } from "@/lib/billing/supabase-store";
 import type { StoredSubscription } from "@/lib/billing/store";
 import type { PlanForSale } from "@/lib/billing/subscribe";
+import { summarize, type CreditSummary } from "@/lib/credits/summary";
 import { createClient } from "@/lib/supabase/server";
 
 export type PlanOnSale = PlanForSale & { readonly monthlyCredits: number };
@@ -77,4 +78,23 @@ export async function readPlanForSale(
         annualPriceCents: data.annual_price_cents,
         trialDays: data.trial_days,
       };
+}
+
+/**
+ * Her live lots, read with her own client. credit_live_lots is security
+ * definer (0050): what keeps it to her is credit_check_reader, which refuses
+ * anyone signed in asking for another person, not row level security.
+ */
+export async function readCredits(personId: string): Promise<CreditSummary> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("credit_live_lots", {
+    p_person: personId,
+  });
+  if (error) throw new Error(`credit_live_lots: ${error.message}`);
+  return summarize(
+    (data ?? []).map((lot) => ({
+      remaining: lot.remaining,
+      expiresAt: lot.expires_at,
+    })),
+  );
 }

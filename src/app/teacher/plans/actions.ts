@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 
 import { requirePlatformAdmin } from "@/lib/auth";
 import { readPlanForm } from "@/lib/billing/plan-form";
+import { CREDIT_ACTION_LABEL } from "@/lib/credits/actions";
+import { readCostForm } from "@/lib/credits/cost-form";
 
 export type PlanState =
   | { status: "idle" }
@@ -47,4 +49,42 @@ export async function savePlan(
   revalidatePath("/teacher/plans");
   revalidatePath("/dashboard/plano");
   return { status: "saved", name: read.values.name };
+}
+
+export type CostState =
+  | { status: "idle" }
+  | { status: "saved"; label: string }
+  | { status: "error"; message: string };
+
+/**
+ * Writes what one unit of an action costs in a brand, new or changed, with
+ * the platform admin's own client: credit_costs_insert and
+ * credit_costs_update decide (0050). The cost is read by credit_cost from
+ * here on, the next debit included.
+ */
+export async function saveCost(
+  _previous: CostState,
+  formData: FormData,
+): Promise<CostState> {
+  const { supabase } = await requirePlatformAdmin();
+  const read = readCostForm(formData);
+  if (!read.ok) return { status: "error", message: read.message };
+
+  const { error } = await supabase
+    .from("credit_costs")
+    .upsert(
+      { ...read.values, updated_at: new Date().toISOString() },
+      { onConflict: "brand,action" },
+    );
+  if (error) {
+    return {
+      status: "error",
+      message: `Não foi possível salvar: ${error.message}`,
+    };
+  }
+  revalidatePath("/teacher/plans");
+  return {
+    status: "saved",
+    label: `${CREDIT_ACTION_LABEL[read.values.action]}: ${read.values.credits}`,
+  };
 }

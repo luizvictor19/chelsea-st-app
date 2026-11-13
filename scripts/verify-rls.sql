@@ -349,6 +349,14 @@ language plpgsql security definer as $$ begin end; $$;
 -- (0049)", runs after the fixtures, which give it a Chelsea St student.
 \i supabase/migrations/0049_a_plan_is_paid_through_asaas.sql
 
+-- 0050 creates the credit ledger and the cost of each action, adds
+-- plans.credit_ceiling_months and plans.credit_days_after_cancel, copies them
+-- and monthly_credits onto each new subscription, and touches no older row. A subscription with a trial now opens a trial lot when it starts
+-- running, so the block of 0049 clears the ledger before its subscriptions.
+-- Its own block, "Credits are entries in a ledger (0050)", runs after the
+-- block of 0049.
+\i supabase/migrations/0050_a_credit_is_an_entry_never_an_edit.sql
+
 -- 0051 gives organizations open_signup, opens it on Chelsea St, and makes the
 -- trigger of the first confirmation also call join_by_signup. No fixture below
 -- signs up, so none joins by it; its block, "A signup opens one door (0051)",
@@ -5000,7 +5008,7 @@ declare
   c_plan_cols constant text :=
     'brand, key, name, monthly_price_cents, annual_price_cents, monthly_credits, '
     'trail_minutes_per_day, opens_voice_question, opens_free_conversation, opens_video, '
-    'trial_days, trial_credits';
+    'trial_days, trial_credits, credit_ceiling_months, credit_days_after_cancel';
 begin
   delete from verify.failures;
 
@@ -5016,13 +5024,13 @@ begin
   perform set_config('test.uid', c_teacher::text, false);
   set local role authenticated;
   execute format('insert into plans (%s) values (%s) returning id', c_plan_cols,
-    $v$'chelsea-st', 'one', 'One', 1000, 10000, 10, 15, true, false, false, 14, 5$v$)
+    $v$'chelsea-st', 'one', 'One', 1000, 10000, 10, 15, true, false, false, 14, 5, 3, 30$v$)
     into v_plan;
   execute format('insert into plans (%s, is_active) values (%s, false) returning id', c_plan_cols,
-    $v$'chelsea-st', 'old', 'Old', 1000, 10000, 10, 15, true, false, false, 14, 5$v$)
+    $v$'chelsea-st', 'old', 'Old', 1000, 10000, 10, 15, true, false, false, 14, 5, 3, 30$v$)
     into v_inactive;
   execute format('insert into plans (%s) values (%s) returning id', c_plan_cols,
-    $v$'grifoai', 'seat', 'Seat', 1000, 10000, 10, 15, true, false, false, 0, 0$v$)
+    $v$'grifoai', 'seat', 'Seat', 1000, 10000, 10, 15, true, false, false, 0, 0, 3, 30$v$)
     into v_grifo;
   update plans set name = 'One plan' where id = v_plan;
   get diagnostics v_rows = row_count;
@@ -5031,7 +5039,7 @@ begin
   end if;
   perform verify.expect_named_refusal('a plan of an organization', '23514 plans_is_common',
     format('insert into plans (%s, organization_id) values (%s, %L)', c_plan_cols,
-      $v$'chelsea-st', 'org', 'Org', 1000, 10000, 10, 15, true, false, false, 14, 5$v$,
+      $v$'chelsea-st', 'org', 'Org', 1000, 10000, 10, 15, true, false, false, 14, 5, 3, 30$v$,
       (select id from organizations where slug = 'chelsea-st')));
 
   -- A student reads the active plans and writes none.
@@ -5042,7 +5050,7 @@ begin
   end if;
   insert into verify.failures select 'a student wrote a plan'
    where verify.named_refusal(format('insert into plans (%s) values (%s)', c_plan_cols,
-     $v$'chelsea-st', 'mine', 'Mine', 1, 1, 1, 15, true, true, true, 60, 999$v$)) is null;
+     $v$'chelsea-st', 'mine', 'Mine', 1, 1, 1, 15, true, true, true, 60, 999, 3, 30$v$)) is null;
   update plans set monthly_price_cents = 1 where id = v_plan;
   get diagnostics v_rows = row_count;
   if v_rows <> 0 then
@@ -5283,7 +5291,12 @@ begin
   end if;
   reset role;
 
-  -- Leave nothing behind for the blocks after, nor for the types.
+  -- Leave nothing behind for the blocks after, nor for the types. The trial
+  -- lots its subscriptions opened (0050) go first, past the trigger that
+  -- refuses a delete, as a restore passes it.
+  perform set_config('session_replication_role', 'replica', true);
+  delete from credit_entries;
+  perform set_config('session_replication_role', 'origin', true);
   delete from overdue_steps;
   delete from payments;
   delete from subscriptions;
@@ -5301,6 +5314,842 @@ begin
   raise notice 'billing rows are read by their person and the platform admin, written only through the ten billing functions, which service_role alone executes; billing reaches Chelsea St students only; one CPF per person and person per CPF, one trial, one subscription alive; a pending checkout is replaced, a canceled subscription stays canceled; an event and an overdue step are taken once; a charge keeps its subscription';
 end;
 $$;
+
+-- Credits are entries in a ledger (0050) -------------------------------------------------
+--
+-- The ledger is read by its person and the platform admin and written by
+-- nobody through the API: anon, authenticated and service_role hold no write
+-- on credit_entries, and no row is ever changed or removed, not even by
+-- postgres (credit_entries_append_only). The cost of each action is read by
+-- anyone and written by the platform admin. Only service_role executes the
+-- settle, the daily routine and the quote; nobody executes the debit and the
+-- refund, which another security definer function calls; a person reads her
+-- own balance, lots and costs, nobody else's. A charge grants every month it
+-- started, once, without an end, up to the plan's ceiling, only while it is
+-- paid, with the credits the subscription kept from its plan, in the
+-- subscription's organization; when its money goes back (refund or
+-- chargeback) its lots are voided and its debits stay. A debit grants her
+-- started months first, spends the lot that ends first, the lots without an
+-- end last and the oldest first, and is refused by name when the balance does
+-- not cover it, when the action has no cost in her brand and when its
+-- reference was used; a row that would take a lot below zero is refused by
+-- the lot's trigger. A refund goes back once, to its lot while it lives, to a
+-- new lot after, and never from a voided lot. After a cancel her lots end the
+-- plan's days after what she paid for; subscribing again within them brings
+-- them back without an end, and after them a closed lot stays closed. The
+-- routine closes each ended lot once; then the sum of a person's rows is her
+-- balance. A subscription with a trial gets its trial lot once. The
+-- proportional refund rounds up. Two debits of the same person at once are
+-- held apart by the person's lock: that one runs in the block after this,
+-- over two connections.
+
+do $$
+declare
+  c_teacher constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  c_monthly constant uuid := 'b0500000-0000-4000-8000-000000000001';
+  c_annual constant uuid := 'b0500000-0000-4000-8000-000000000002';
+  c_refunded constant uuid := 'b0500000-0000-4000-8000-000000000003';
+  c_gone constant uuid := 'b0500000-0000-4000-8000-000000000004';
+  c_window constant uuid := 'b0500000-0000-4000-8000-000000000005';
+  c_quote constant uuid := 'b0500000-0000-4000-8000-000000000006';
+  c_late constant uuid := 'b0500000-0000-4000-8000-000000000007';
+  c_employee constant uuid := 'b0500000-0000-4000-8000-000000000008';
+  c_ahead constant uuid := 'b0500000-0000-4000-8000-000000000009';
+  c_extend constant uuid := 'b0500000-0000-4000-8000-00000000000a';
+  c_back constant uuid := 'b0500000-0000-4000-8000-00000000000b';
+  c_back2 constant uuid := 'b0500000-0000-4000-8000-00000000000c';
+  c_people constant uuid[] := array[c_monthly, c_annual, c_refunded, c_gone,
+                                    c_window, c_quote, c_late, c_ahead,
+                                    c_extend, c_back, c_back2];
+  c_plan_cols constant text :=
+    'brand, key, name, monthly_price_cents, annual_price_cents, monthly_credits, '
+    'trail_minutes_per_day, opens_voice_question, opens_free_conversation, opens_video, '
+    'trial_days, trial_credits, credit_ceiling_months, credit_days_after_cancel';
+  c_service constant regprocedure[] := array[
+    'public.credit_settle_payment(text)',
+    'public.credit_daily()',
+    'public.credit_refund_quote(text)']::regprocedure[];
+  c_nobody constant regprocedure[] := array[
+    'public.credit_debit(uuid, text, integer, text)',
+    'public.credit_refund(uuid, text)',
+    'public.credit_price(uuid, text)',
+    'public.credit_settle(text)',
+    'public.credit_grant_started(uuid)',
+    'public.credit_close_expired(uuid)',
+    'public.credit_lock_person(uuid)',
+    'public.credit_payment_lots(text)',
+    'public.credit_payment_open_lots(text)',
+    'public.credit_payment_grants(public.payments)',
+    'public.credit_payment_taken_back(public.payments)',
+    'public.credit_alive(uuid)',
+    'public.credit_deadline(uuid)',
+    'public.credit_lots_of(uuid)',
+    'public.credit_balance_of(uuid)',
+    'public.credit_check_reader(uuid)',
+    'public.credit_month_starts(date, integer)']::regprocedure[];
+  c_reader constant regprocedure[] := array[
+    'public.credits_balance(uuid)',
+    'public.credit_live_lots(uuid)',
+    'public.credit_cost(uuid, text)']::regprocedure[];
+  v_uid text := current_setting('test.uid', true);
+  v_today date := (now() at time zone 'America/Sao_Paulo')::date;
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_plan uuid;
+  v_small uuid;
+  v_sub1 uuid;
+  v_sub2 uuid;
+  v_sub3 uuid;
+  v_sub4 uuid;
+  v_sub6 uuid;
+  v_sub7 uuid;
+  v_sub8 uuid;
+  v_sub9 uuid;
+  v_sub_a uuid;
+  v_sub_b uuid;
+  v_due3 date := (v_today - interval '2 months' - interval '5 days')::date;
+  v_trial_lot uuid;
+  v_plan_lot uuid;
+  v_lot uuid;
+  v_n bigint;
+  v_int integer;
+  v_text text;
+  v_at timestamptz;
+  v_by text;
+  v_fn regprocedure;
+  v_role text;
+  v_privilege text;
+  v_daily record;
+  v_quote record;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  -- Chelsea St students and a company's employee.
+  insert into auth.users (id, email, raw_user_meta_data)
+    select p, 'credit-' || right(p::text, 2) || '@example.com', '{"full_name":"Credit"}'
+      from unnest(c_people || c_employee) p;
+  insert into organization_members (organization_id, user_id, role)
+    select v_chelsea, p, 'student' from unnest(c_people) p;
+  insert into organization_members (organization_id, user_id, role)
+    values ((select id from organizations where slug = 'grifoai'), c_employee, 'student');
+
+  -- The catalog and the costs, as the platform admin writes them. Made-up
+  -- numbers: 10 credits a month, a ceiling of 3 months, 30 days after a
+  -- cancel; and a small plan of 3 credits, a ceiling of 1 month.
+  perform set_config('test.uid', c_teacher::text, false);
+  set local role authenticated;
+  execute format('insert into plans (%s) values (%s) returning id', c_plan_cols,
+    $v$'chelsea-st', 'month', 'Month', 1000, 10000, 10, 15, true, false, false, 14, 5, 3, 30$v$)
+    into v_plan;
+  execute format('insert into plans (%s) values (%s) returning id', c_plan_cols,
+    $v$'chelsea-st', 'small', 'Small', 1000, 10000, 3, 15, true, false, false, 0, 0, 1, 0$v$)
+    into v_small;
+  perform verify.expect_named_refusal('a ceiling of no month', '23514 plans_credit_ceiling_months_range',
+    format('update plans set credit_ceiling_months = 0 where id = %L', v_plan));
+  perform verify.expect_named_refusal('a year and a day after a cancel', '23514 plans_credit_days_after_cancel_range',
+    format('update plans set credit_days_after_cancel = 366 where id = %L', v_plan));
+  insert into credit_costs (brand, action, credits) values
+    ('chelsea-st', 'teacher_lesson', 4),
+    ('chelsea-st', 'voice_minute', 1),
+    ('grifoai', 'voice_minute', 2);
+  perform verify.expect_named_refusal('a second cost for the same brand and action',
+    '23505 credit_costs_one_per_brand_action',
+    $q$insert into credit_costs (brand, action, credits) values ('chelsea-st', 'teacher_lesson', 5)$q$);
+  perform verify.expect_named_refusal('a cost for an unknown action', '23514 credit_costs_action_known',
+    $q$insert into credit_costs (brand, action, credits) values ('chelsea-st', 'chat_question', 1)$q$);
+  perform verify.expect_named_refusal('a cost of zero', '23514 credit_costs_credits_positive',
+    $q$insert into credit_costs (brand, action, credits) values ('grifoai', 'teacher_lesson', 0)$q$);
+  perform verify.expect_named_refusal('a cost of an organization', '23514 credit_costs_is_common',
+    format($q$insert into credit_costs (organization_id, brand, action, credits) values (%L, 'grifoai', 'video_minute', 1)$q$,
+      v_chelsea));
+
+  -- A student reads the costs and writes none.
+  perform set_config('test.uid', c_student::text, false);
+  if (select count(*) from credit_costs) <> 3 then
+    insert into verify.failures values ('a student does not read the 3 costs');
+  end if;
+  perform verify.expect_named_refusal('a student writing a cost', '42501',
+    $q$insert into credit_costs (brand, action, credits) values ('grifoai', 'video_minute', 1)$q$);
+  update credit_costs set credits = 1 where action = 'teacher_lesson';
+  get diagnostics v_n = row_count;
+  if v_n <> 0 then
+    insert into verify.failures values ('a student changed a cost');
+  end if;
+  reset role;
+  set local role anon;
+  select count(*) into v_n from credit_costs;
+  v_by := verify.named_refusal('select 1 from credit_entries');
+  reset role;
+  if v_n <> 3 then
+    insert into verify.failures values ('anon does not read the 3 costs');
+  end if;
+  if v_by is distinct from '42501' then
+    insert into verify.failures values (format('anon reading the ledger: %s, expected 42501', coalesce(v_by, 'accepted')));
+  end if;
+
+  -- 1. Privileges: nobody writes the ledger through the API; authenticated
+  -- alone reads it. anon and authenticated read the costs; only
+  -- authenticated writes them, under the platform admin's policies.
+  foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+    foreach v_privilege in array array['insert', 'update', 'delete'] loop
+      if has_table_privilege(v_role, 'public.credit_entries', v_privilege) then
+        insert into verify.failures values (format('%s has %s on credit_entries', v_role, v_privilege));
+      end if;
+    end loop;
+    if has_table_privilege(v_role, 'public.credit_entries', 'select') <> (v_role = 'authenticated') then
+      insert into verify.failures values (format('%s reading credit_entries is not as it should be', v_role));
+    end if;
+    if has_table_privilege(v_role, 'public.credit_costs', 'select') <> (v_role <> 'service_role') then
+      insert into verify.failures values (format('%s reading credit_costs is not as it should be', v_role));
+    end if;
+    foreach v_privilege in array array['insert', 'update'] loop
+      if has_table_privilege(v_role, 'public.credit_costs', v_privilege) <> (v_role = 'authenticated') then
+        insert into verify.failures values (format('%s %s on credit_costs is not as it should be', v_role, v_privilege));
+      end if;
+    end loop;
+    if has_table_privilege(v_role, 'public.credit_costs', 'delete') then
+      insert into verify.failures values (format('%s deletes credit_costs', v_role));
+    end if;
+  end loop;
+
+  -- 2. Execution.
+  foreach v_fn in array c_service loop
+    if not has_function_privilege('service_role', v_fn, 'execute') then
+      insert into verify.failures values (format('service_role does not execute %s', v_fn));
+    end if;
+    foreach v_role in array array['anon', 'authenticated'] loop
+      if has_function_privilege(v_role, v_fn, 'execute') then
+        insert into verify.failures values (format('%s executes %s', v_role, v_fn));
+      end if;
+    end loop;
+  end loop;
+  foreach v_fn in array c_nobody loop
+    foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+      if has_function_privilege(v_role, v_fn, 'execute') then
+        insert into verify.failures values (format('%s executes %s', v_role, v_fn));
+      end if;
+    end loop;
+  end loop;
+  foreach v_fn in array c_reader loop
+    if not has_function_privilege('authenticated', v_fn, 'execute')
+       or not has_function_privilege('service_role', v_fn, 'execute')
+       or has_function_privilege('anon', v_fn, 'execute') then
+      insert into verify.failures values (format('%s is not executed by authenticated and service_role alone', v_fn));
+    end if;
+  end loop;
+
+  -- The subscriptions, all on the plan before its credits change (Q5).
+  perform set_config('test.uid', '', false);
+  set local role service_role;
+  perform billing_customer(c_student, repeat('1', 64));
+  perform billing_customer(c_monthly, repeat('2', 64));
+  perform billing_customer(c_annual, repeat('3', 64));
+  perform billing_customer(c_refunded, repeat('4', 64));
+  perform billing_customer(c_gone, repeat('5', 64));
+  perform billing_customer(c_window, repeat('6', 64));
+  perform billing_customer(c_quote, repeat('7', 64));
+  perform billing_customer(c_late, repeat('8', 64));
+  perform billing_customer(c_ahead, repeat('a', 64));
+  perform billing_customer(c_extend, repeat('b', 64));
+  perform billing_customer(c_back, repeat('c', 64));
+  perform billing_customer(c_back2, repeat('d', 64));
+  v_sub1 := billing_open_subscription(c_student, v_plan, 'monthly', 'pix', 1000, true,
+    v_today + 14, null, 'cus_c1', 'sub_c1');
+  -- Events that came late: her first charge is already due.
+  perform billing_open_subscription(c_late, v_plan, 'monthly', 'pix', 1000, true,
+    v_today - 1, null, 'cus_c7', 'sub_c7');
+  v_sub2 := billing_open_subscription(c_monthly, v_plan, 'monthly', 'pix', 1000, false,
+    (v_today - interval '2 months')::date, null, 'cus_c2', 'sub_c2');
+  v_sub3 := billing_open_subscription(c_annual, v_plan, 'annual', 'pix', 10000, false,
+    v_due3, null, 'cus_c3', 'sub_c3');
+  v_sub4 := billing_open_subscription(c_refunded, v_plan, 'monthly', 'pix', 1000, false,
+    v_today - 3, null, 'cus_c4', 'sub_c4');
+  v_sub6 := billing_open_subscription(c_gone, v_plan, 'monthly', 'pix', 1000, false,
+    v_today - 70, null, 'cus_c5', 'sub_c5');
+  v_sub7 := billing_open_subscription(c_window, v_plan, 'monthly', 'pix', 1000, false,
+    v_today - 40, null, 'cus_c6', 'sub_c6');
+  v_sub8 := billing_open_subscription(c_quote, v_small, 'monthly', 'pix', 1000, false,
+    v_today - 3, null, 'cus_c8', 'sub_c8');
+  v_sub9 := billing_open_subscription(c_ahead, v_plan, 'monthly', 'pix', 1000, false,
+    v_today - 1, null, 'cus_c9', 'sub_c9');
+  reset role;
+
+  -- 15. The credits of the month, the ceiling and the days after a cancel
+  -- were kept on the subscription (Q5, question 9 on PR #304): a change to
+  -- the plan afterwards does not reach them. Every grant and every end below
+  -- reads the subscription's 10 credits, 3 months and 30 days, not the
+  -- plan's 99, 1 and 0.
+  perform set_config('test.uid', c_teacher::text, false);
+  set local role authenticated;
+  update plans set monthly_credits = 99, credit_ceiling_months = 1, credit_days_after_cancel = 0
+   where id = v_plan;
+  reset role;
+  perform set_config('test.uid', '', false);
+  if (select (monthly_credits, credit_ceiling_months, credit_days_after_cancel)::text
+        from subscriptions where id = v_sub2) is distinct from '(10,3,30)' then
+    insert into verify.failures values ('a subscription did not keep its plan''s credits, ceiling and days after a cancel');
+  end if;
+
+  -- 13. The trial: a lot when a subscription with a trial starts running,
+  -- once, ending at midnight of its first charge; none once that day passed.
+  select id into v_trial_lot from credit_entries where person_id = c_student and kind = 'trial';
+  if v_trial_lot is null
+     or (select amount from credit_entries where id = v_trial_lot) <> 5
+     or (select expires_at from credit_entries where id = v_trial_lot)
+        <> (v_today + 14)::timestamp at time zone 'America/Sao_Paulo' then
+    insert into verify.failures values ('a subscription with a trial did not get its trial lot, of the plan''s trial credits, until its first charge');
+  end if;
+  set local role service_role;
+  perform billing_apply_subscription(v_sub1, null, null, 'active', v_today + 40, null, null);
+  perform billing_apply_subscription(v_sub1, null, null, 'trialing', null, null, null);
+  reset role;
+  if (select count(*) from credit_entries where person_id = c_student and kind = 'trial') <> 1 then
+    insert into verify.failures values ('a trial lot was granted more than once');
+  end if;
+  if exists (select 1 from credit_entries where person_id = c_late) then
+    insert into verify.failures values ('a trial whose first charge is already due granted credits');
+  end if;
+
+  -- The charges, as the webhook writes them.
+  set local role service_role;
+  perform billing_save_payment('pay_c1', v_sub1, 'cycle', 1000, 'CONFIRMED', false, v_today - 3, now(), 0, null);
+  perform billing_save_payment('pay_c2_m2', v_sub2, 'cycle', 1000, 'RECEIVED', false, (v_today - interval '2 months')::date, now(), 0, null);
+  perform billing_save_payment('pay_c2_m1', v_sub2, 'cycle', 1000, 'RECEIVED', false, (v_today - interval '1 month')::date, now(), 0, null);
+  perform billing_save_payment('pay_c2', v_sub2, 'cycle', 1000, 'CONFIRMED', false, v_today - 3, now(), 0, null);
+  perform billing_save_payment('pay_c2_over', v_sub2, 'cycle', 1000, 'CONFIRMED', false, v_today - 2, now(), 0, null);
+  perform billing_save_payment('pay_c2_next', v_sub2, 'cycle', 1000, 'RECEIVED', false, v_today + 10, now(), 0, null);
+  perform billing_save_payment('pay_c3', v_sub3, 'cycle', 10000, 'CONFIRMED', false, v_due3, now(), 0, null);
+  perform billing_save_payment('pay_c4_pending', v_sub4, 'cycle', 1000, 'PENDING', false, v_today - 3, null, 0, null);
+  perform billing_save_payment('pay_c4_deleted', v_sub4, 'cycle', 1000, 'CONFIRMED', true, v_today - 3, now(), 0, null);
+  perform billing_save_payment('pay_c4_refunded', v_sub4, 'cycle', 1000, 'RECEIVED', false, v_today - 3, now(), 500, null);
+  perform billing_save_payment('pay_c4', v_sub4, 'cycle', 1000, 'CONFIRMED', false, v_today - 3, now(), 0, null);
+  perform billing_save_payment('pay_c6', v_sub6, 'cycle', 1000, 'RECEIVED', false, v_today - 70, now(), 0, null);
+  perform billing_save_payment('pay_c7', v_sub7, 'cycle', 1000, 'RECEIVED', false, v_today - 40, now(), 0, null);
+  perform billing_save_payment('pay_c8', v_sub8, 'cycle', 1000, 'CONFIRMED', false, v_today - 3, now(), 0, null);
+  -- Paid ahead: its month started at midnight, and nothing settled it since.
+  perform billing_save_payment('pay_c9', v_sub9, 'cycle', 1000, 'RECEIVED', false, v_today - 1, now(), 0, null);
+
+  -- 5. A charge settled twice grants its month once, without an end; 15,
+  -- with the credits the subscription kept; 17, in the subscription's
+  -- organization. The ceiling of 3 months (30 credits): a fourth month grants
+  -- nothing, and stays decided.
+  perform credit_settle_payment('pay_c2_m2');
+  perform credit_settle_payment('pay_c2_m1');
+  v_int := credit_settle_payment('pay_c2');
+  v_n := credit_settle_payment('pay_c2');
+  if v_int <> 10 or v_n <> 0 then
+    insert into verify.failures values ('settling a charge twice did not grant 10 and then 0');
+  end if;
+  v_int := credit_settle_payment('pay_c2_over');
+  if v_int <> 0 then
+    insert into verify.failures values (format('a month past the ceiling granted %s', v_int));
+  end if;
+  perform credit_settle_payment('pay_c1');
+  -- 6. A charge due ahead grants nothing yet; an annual one due two months
+  -- ago grants the three months it started, and not the fourth.
+  if credit_settle_payment('pay_c2_next') <> 0 then
+    insert into verify.failures values ('a charge paid ahead of its due day granted its month');
+  end if;
+  if credit_settle_payment('pay_c3') <> 30 then
+    insert into verify.failures values ('an annual charge did not grant the three months it started');
+  end if;
+  -- 7. Pending, deleted or refunded: nothing.
+  v_int := credit_settle_payment('pay_c4_pending') + credit_settle_payment('pay_c4_deleted')
+           + credit_settle_payment('pay_c4_refunded');
+  if v_int <> 0 then
+    insert into verify.failures values ('a charge pending, deleted or refunded granted credits');
+  end if;
+  perform credit_settle_payment('pay_c4');
+  perform credit_settle_payment('pay_c6');
+  perform credit_settle_payment('pay_c7');
+  reset role;
+
+  if (select count(*) from credit_entries where asaas_payment_id = 'pay_c2') <> 1
+     or (select amount from credit_entries where asaas_payment_id = 'pay_c2') <> 10
+     or (select expires_at from credit_entries where asaas_payment_id = 'pay_c2') is not null then
+    insert into verify.failures values ('the month was not granted once, with the 10 credits the subscription kept, without an end');
+  end if;
+  if (select amount from credit_entries where asaas_payment_id = 'pay_c2_over') is distinct from 0
+     or credit_balance_of(c_monthly) <> 30 then
+    insert into verify.failures values ('the month past the ceiling was not decided at 0, with her balance at the ceiling of 30');
+  end if;
+  if exists (select 1 from credit_entries where asaas_payment_id = 'pay_c2_next') then
+    insert into verify.failures values ('a lot was granted for a month that has not started');
+  end if;
+  if (select string_agg(period::text, ',' order by period) from credit_entries where asaas_payment_id = 'pay_c3')
+     is distinct from '0,1,2' then
+    insert into verify.failures values ('the annual charge did not grant its months 0, 1 and 2 alone');
+  end if;
+  if (select count(*) from credit_entries where person_id = c_refunded) <> 1 then
+    insert into verify.failures values ('a charge that does not pay opened a lot');
+  end if;
+  -- 17. Every lot is in its subscription's organization.
+  if exists (select 1 from credit_entries e
+               join subscriptions s on s.id = e.subscription_id
+              where e.organization_id <> s.organization_id) then
+    insert into verify.failures values ('a lot is not in the organization of its subscription');
+  end if;
+
+  -- 8. The debit, as the function of #276 would call it. The trial, which
+  -- ends, before the month, which does not; one row per lot touched.
+  select id into v_plan_lot from credit_entries where asaas_payment_id = 'pay_c1';
+  if credit_debit(c_student, 'teacher_lesson', 1, 'lesson:1') <> 11 then
+    insert into verify.failures values ('a debit did not leave 15 - 4');
+  end if;
+  if (select lot_id from credit_entries where reference = 'lesson:1') <> v_trial_lot then
+    insert into verify.failures values ('a debit did not spend the lot that ends first');
+  end if;
+  v_int := credit_debit(c_student, 'teacher_lesson', 1, 'lesson:2');
+  if v_int <> 7
+     or (select string_agg(format('%s:%s', case lot_id when v_trial_lot then 'trial' when v_plan_lot then 'plan' end, amount), ','
+                           order by amount desc)
+           from credit_entries where reference = 'lesson:2') is distinct from 'trial:-1,plan:-3' then
+    insert into verify.failures values ('a debit across two lots is not one row per lot, the one that ends emptied first');
+  end if;
+  -- Among lots without an end, the oldest first; then the ceiling has room
+  -- for 4 of the next month.
+  perform credit_debit(c_monthly, 'teacher_lesson', 1, 'lesson:m');
+  if (select g.asaas_payment_id from credit_entries d join credit_entries g on g.id = d.lot_id
+       where d.reference = 'lesson:m') is distinct from 'pay_c2_m2' then
+    insert into verify.failures values ('a debit among lots without an end did not spend the oldest');
+  end if;
+  set local role service_role;
+  perform billing_save_payment('pay_c2_more', v_sub2, 'cycle', 1000, 'CONFIRMED', false, v_today - 1, now(), 0, null);
+  v_int := credit_settle_payment('pay_c2_more');
+  reset role;
+  if v_int <> 4 or credit_balance_of(c_monthly) <> 30 then
+    insert into verify.failures values (format('a month under the ceiling granted %s, expected the 4 of room', v_int));
+  end if;
+  perform verify.expect_named_refusal('a debit the balance does not cover', '23514 credits_not_negative',
+    format('select credit_debit(%L, %L, 2, %L)', c_student, 'teacher_lesson', 'lesson:3'));
+  if exists (select 1 from credit_entries where reference = 'lesson:3') then
+    insert into verify.failures values ('a debit refused for the balance wrote something');
+  end if;
+  perform verify.expect_named_refusal('a debit of an action without a cost in her brand', '23514 credit_cost_known',
+    format('select credit_debit(%L, %L, 1, %L)', c_student, 'video_minute', 'video:1'));
+  perform verify.expect_named_refusal('a debit with a reference already used', '23505 credit_debit_reference_used',
+    format('select credit_debit(%L, %L, 1, %L)', c_student, 'voice_minute', 'lesson:1'));
+  perform verify.expect_named_refusal('a debit of no unit', '23514 credit_debit_quantity_positive',
+    format('select credit_debit(%L, %L, 0, %L)', c_student, 'voice_minute', 'voice:0'));
+
+  -- 10. The lot's trigger, past every function, and the shapes.
+  perform verify.expect_named_refusal('a debit larger than its lot', '23514 credit_entries_lot_not_negative',
+    format($q$insert into credit_entries (organization_id, person_id, kind, amount, lot_id, action, reference)
+              values (%L, %L, 'debit', -100, %L, 'teacher_lesson', 'direct')$q$,
+      v_chelsea, c_student, v_plan_lot));
+  perform verify.expect_named_refusal('a debit in another person''s lot', '23514 credit_entries_lot_is_hers',
+    format($q$insert into credit_entries (organization_id, person_id, kind, amount, lot_id, action, reference)
+              values (%L, %L, 'debit', -1, %L, 'teacher_lesson', 'direct')$q$,
+      v_chelsea, c_monthly, v_plan_lot));
+  perform verify.expect_named_refusal('a debit that adds', '23514 credit_entries_amount_sign',
+    format($q$insert into credit_entries (organization_id, person_id, kind, amount, lot_id, action, reference)
+              values (%L, %L, 'debit', 1, %L, 'teacher_lesson', 'direct')$q$,
+      v_chelsea, c_student, v_plan_lot));
+  perform verify.expect_named_refusal('a debit with an end', '23514 credit_entries_lot_shape',
+    format($q$insert into credit_entries (organization_id, person_id, kind, amount, lot_id, expires_at, action, reference)
+              values (%L, %L, 'debit', -1, %L, now(), 'teacher_lesson', 'direct')$q$,
+      v_chelsea, c_student, v_plan_lot));
+  perform verify.expect_named_refusal('a month''s lot with an end', '23514 credit_entries_lot_shape',
+    format($q$insert into credit_entries (organization_id, person_id, kind, amount, expires_at, asaas_payment_id, period, subscription_id)
+              values (%L, %L, 'plan', 1, now() + interval '1 day', 'pay_c1', 7, %L)$q$,
+      v_chelsea, c_student, v_sub1));
+  perform verify.expect_named_refusal('a month''s lot without its charge', '23514 credit_entries_source_shape',
+    format($q$insert into credit_entries (organization_id, person_id, kind, amount, subscription_id)
+              values (%L, %L, 'plan', 1, %L)$q$,
+      v_chelsea, c_student, v_sub1));
+
+  -- 11. A lesson canceled: back to the same lots while they live, once.
+  v_int := credit_refund(c_student, 'lesson:2');
+  v_n := credit_refund(c_student, 'lesson:2') + credit_refund(c_student, 'lesson:none');
+  if v_int <> 4 or v_n <> 0 then
+    insert into verify.failures values ('a refund did not give 4 back once, and 0 after');
+  end if;
+  if exists (select 1 from credit_entries where kind = 'refund' and reference = 'lesson:2'
+                                            and (expires_at is not null or lot_id is null)) then
+    insert into verify.failures values ('a refund to a live lot opened a lot of its own');
+  end if;
+  if credit_balance_of(c_student) <> 11 then
+    insert into verify.failures values (format('her balance after the refund is %s, expected 11', credit_balance_of(c_student)));
+  end if;
+
+  -- 7. Refunded after it granted: what is left is voided, the debit stays,
+  -- settling again grants nothing, and the lesson canceled after gives
+  -- nothing back.
+  perform credit_debit(c_refunded, 'teacher_lesson', 1, 'lesson:r');
+  set local role service_role;
+  perform billing_save_payment('pay_c4', v_sub4, 'cycle', 1000, 'REFUNDED', false, v_today - 3, now(), 1000, null);
+  v_int := credit_settle_payment('pay_c4');
+  v_n := credit_settle_payment('pay_c4');
+  reset role;
+  if v_int <> -6 or v_n <> 0 then
+    insert into verify.failures values ('a charge refunded after its grant did not void the 6 left, once');
+  end if;
+  if credit_balance_of(c_refunded) <> 0
+     or not exists (select 1 from credit_entries where person_id = c_refunded and kind = 'debit')
+     or (select count(*) from credit_entries where person_id = c_refunded and kind = 'plan') <> 1 then
+    insert into verify.failures values ('a refunded charge left credits, lost its debit or granted again');
+  end if;
+  v_int := credit_refund(c_refunded, 'lesson:r');
+  if v_int <> 0 or credit_balance_of(c_refunded) <> 0 then
+    insert into verify.failures values ('a debit from a voided lot was given back');
+  end if;
+
+  -- 8. A month paid ahead started at midnight, before the routine: the debit
+  -- grants it first, and spends from it. 7. A chargeback voids what is left.
+  v_int := credit_debit(c_ahead, 'teacher_lesson', 1, 'lesson:ahead');
+  if v_int <> 6 then
+    insert into verify.failures values (format(
+      'a debit did not grant the month paid ahead that started: left %s, expected 6', v_int));
+  end if;
+  set local role service_role;
+  perform billing_save_payment('pay_c9', v_sub9, 'cycle', 1000, 'CHARGEBACK_REQUESTED', false, v_today - 1, now(), 0, null);
+  v_int := credit_settle_payment('pay_c9');
+  reset role;
+  if v_int <> -6 or credit_balance_of(c_ahead) <> 0 then
+    insert into verify.failures values ('a charge charged back did not void the 6 left');
+  end if;
+
+  -- 12. After a cancel. She paid until 40 days ago and the plan gives 30
+  -- days: her credits ended 9 days ago, at once, before any routine.
+  perform credit_debit(c_gone, 'teacher_lesson', 1, 'lesson:gone');
+  set local role service_role;
+  perform billing_apply_subscription(v_sub6, null, null, 'canceled', v_today - 40, null, 'person');
+  reset role;
+  if credit_balance_of(c_gone) <> 0 then
+    insert into verify.failures values (format(
+      'credits past the days after a cancel still count: %s', credit_balance_of(c_gone)));
+  end if;
+  -- She subscribes again after them: what ended stays ended.
+  set local role service_role;
+  perform billing_open_subscription(c_gone, v_plan, 'monthly', 'pix', 1000, false,
+    v_today + 5, null, 'cus_c5b', 'sub_c5b');
+  reset role;
+  if credit_balance_of(c_gone) <> 0
+     or (select e.amount from credit_entries e join credit_entries l on l.id = e.lot_id
+          where l.asaas_payment_id = 'pay_c6' and e.kind = 'expire') is distinct from -6 then
+    insert into verify.failures values ('credits that ended came back with a new subscription');
+  end if;
+  -- Q8: the lesson of a lot that ended comes back as a lot of its own,
+  -- without an end now that she is subscribed again.
+  v_int := credit_refund(c_gone, 'lesson:gone');
+  if v_int <> 4
+     or (select string_agg(coalesce(expires_at::text, 'none'), ',') from credit_entries
+          where kind = 'refund' and reference = 'lesson:gone' and lot_id is null) is distinct from 'none'
+     or credit_balance_of(c_gone) <> 4 then
+    insert into verify.failures values ('a refund whose lot ended is not a lot of its own without an end');
+  end if;
+  -- She paid until 10 days ago: with 30 days, her credits last 21 more.
+  set local role service_role;
+  perform billing_apply_subscription(v_sub7, null, null, 'canceled', v_today - 10, null, 'person');
+  reset role;
+  v_at := (select l.expires_at from credit_lots_of(c_window) l limit 1);
+  if credit_balance_of(c_window) <> 10
+     or v_at is distinct from (v_today + 21)::timestamp at time zone 'America/Sao_Paulo' then
+    insert into verify.failures values (format(
+      'credits within the days after a cancel: balance %s, end %s; expected 10 until midnight of %s',
+      credit_balance_of(c_window), v_at, v_today + 21));
+  end if;
+  -- She subscribes again within them: her lots have no end again.
+  set local role service_role;
+  perform billing_open_subscription(c_window, v_plan, 'monthly', 'pix', 1000, false,
+    v_today + 5, null, 'cus_c6b', 'sub_c6b');
+  reset role;
+  if (select string_agg(coalesce(l.expires_at::text, 'none'), ',') from credit_lots_of(c_window) l)
+     is distinct from 'none' then
+    insert into verify.failures values ('subscribing again within the days after a cancel did not take the end away');
+  end if;
+  -- A trial lot past its own end, while she is subscribed.
+  insert into credit_entries (organization_id, person_id, kind, amount, expires_at, subscription_id)
+    values (v_chelsea, c_window, 'trial', 5, now() - interval '1 day', v_sub7)
+    returning id into v_lot;
+  if credit_balance_of(c_window) <> 10 then
+    insert into verify.failures values ('a trial lot past its end still counts');
+  end if;
+
+  -- The plan back to the numbers the subscriptions below are born with
+  -- (the two subscriptions opened again above were born with 99, 1 and 0,
+  -- and nothing below reads their numbers).
+  update plans set monthly_credits = 10, credit_ceiling_months = 3, credit_days_after_cancel = 30
+   where id = v_plan;
+
+  -- The end after a cancel is the latest one a paid subscription bought: a
+  -- subscription opened and never paid, or one paid for less, does not move
+  -- it. She paid until 10 days ago: 21 more days.
+  set local role service_role;
+  v_sub_a := billing_open_subscription(c_extend, v_plan, 'monthly', 'pix', 1000, false,
+    v_today - 40, null, 'cus_ca', 'sub_ca');
+  perform billing_save_payment('pay_ca', v_sub_a, 'cycle', 1000, 'RECEIVED', false, v_today - 40, now(), 0, null);
+  perform credit_settle_payment('pay_ca');
+  perform billing_apply_subscription(v_sub_a, null, null, 'canceled', v_today - 10, null, 'person');
+  v_sub_b := billing_open_subscription(c_extend, v_plan, 'monthly', 'pix', 1000, false,
+    v_today, null, 'cus_cb', 'sub_cb');
+  perform billing_apply_subscription(v_sub_b, null, null, 'canceled', null, null, 'overdue');
+  v_sub_b := billing_open_subscription(c_extend, v_plan, 'monthly', 'pix', 1000, false,
+    v_today, null, 'cus_cc', 'sub_cc');
+  perform billing_apply_subscription(v_sub_b, null, null, 'canceled', v_today - 20, null, 'person');
+  reset role;
+  v_at := (select l.expires_at from credit_lots_of(c_extend) l limit 1);
+  if v_at is distinct from (v_today + 21)::timestamp at time zone 'America/Sao_Paulo' then
+    insert into verify.failures values (format(
+      'a later subscription moved the end of her credits to %s, expected midnight of %s', v_at, v_today + 21));
+  end if;
+
+  -- A charge refunded with the cancel that rolls her days back: its lot is
+  -- past her end already, and is still voided; and a lesson from a lot whose
+  -- charge was refunded after the lot ended does not come back. The small
+  -- plan gives 0 days after a cancel.
+  set local role service_role;
+  v_sub_a := billing_open_subscription(c_back, v_small, 'monthly', 'pix', 1000, false,
+    v_today - 40, null, 'cus_cd', 'sub_cd');
+  perform billing_save_payment('pay_cd', v_sub_a, 'cycle', 1000, 'RECEIVED', false, v_today - 40, now(), 0, null);
+  perform credit_settle_payment('pay_cd');
+  reset role;
+  perform credit_debit(c_back, 'voice_minute', 1, 'voice:back');
+  set local role service_role;
+  perform billing_apply_subscription(v_sub_a, null, null, 'canceled', null, null, 'provider');
+  perform billing_save_payment('pay_cd', v_sub_a, 'cycle', 1000, 'REFUNDED', false, v_today - 40, now(), 1000, null);
+  v_int := credit_settle_payment('pay_cd');
+  reset role;
+  if v_int <> -2 then
+    insert into verify.failures values (format(
+      'a refunded charge whose lot was past her end voided %s, expected 2', -v_int));
+  end if;
+  set local role service_role;
+  v_sub_b := billing_open_subscription(c_back2, v_small, 'monthly', 'pix', 1000, false,
+    v_today - 40, null, 'cus_ce', 'sub_ce');
+  perform billing_save_payment('pay_ce', v_sub_b, 'cycle', 1000, 'RECEIVED', false, v_today - 40, now(), 0, null);
+  perform credit_settle_payment('pay_ce');
+  reset role;
+  perform credit_debit(c_back2, 'voice_minute', 1, 'voice:back2');
+  set local role service_role;
+  perform billing_apply_subscription(v_sub_b, null, null, 'canceled', null, null, 'provider');
+  reset role;
+  -- Her lot ends and is closed before the refund arrives.
+  perform credit_refund(c_back2, 'nothing');
+  set local role service_role;
+  perform billing_save_payment('pay_ce', v_sub_b, 'cycle', 1000, 'REFUNDED', false, v_today - 40, now(), 1000, null);
+  perform credit_settle_payment('pay_ce');
+  reset role;
+  v_int := credit_refund(c_back2, 'voice:back2');
+  if v_int <> 0 then
+    insert into verify.failures values (format(
+      'a lesson from a lot whose charge was refunded gave back %s', v_int));
+  end if;
+
+  -- The routine: it grants the charge the webhook missed and closes the
+  -- trial lot that ended; run again, it does nothing.
+  set local role service_role;
+  select * into v_daily from credit_daily();
+  if (v_daily.granted, v_daily.closed) is distinct from (1, 2) then
+    insert into verify.failures values (format('the routine granted %s and closed %s; expected 1 (the charge of the quote) and 2 (the trial lot, the voided lot past her end)',
+      v_daily.granted, v_daily.closed));
+  end if;
+  select * into v_daily from credit_daily();
+  if (v_daily.granted, v_daily.closed) is distinct from (0, 0) then
+    insert into verify.failures values ('the routine run twice did something twice');
+  end if;
+  reset role;
+  if (select amount from credit_entries where kind = 'expire' and lot_id = v_lot) is distinct from -5 then
+    insert into verify.failures values ('the trial lot past its end was not closed with an expire of 5');
+  end if;
+  if (select sum(amount) from credit_entries where person_id = c_gone) <> credit_balance_of(c_gone) then
+    insert into verify.failures values ('once closed, the sum of her rows is not her balance');
+  end if;
+
+  -- 16. The proportional refund, rounded up: 1 credit of 3 left on 1000
+  -- cents is 334, and 116 of an annual 120 on 10000 cents is 9667.
+  perform credit_debit(c_quote, 'voice_minute', 2, 'voice:q');
+  perform credit_debit(c_annual, 'teacher_lesson', 1, 'lesson:a');
+  set local role service_role;
+  select * into v_quote from credit_refund_quote('pay_c8');
+  if (v_quote.payment_credits, v_quote.unused_credits, v_quote.refund_cents) is distinct from (3, 1, 334) then
+    insert into verify.failures values (format('the quote of a monthly charge is %s/%s/%s, expected 3/1/334',
+      v_quote.payment_credits, v_quote.unused_credits, v_quote.refund_cents));
+  end if;
+  select * into v_quote from credit_refund_quote('pay_c3');
+  if (v_quote.payment_credits, v_quote.unused_credits, v_quote.refund_cents) is distinct from (120, 116, 9667) then
+    insert into verify.failures values (format('the quote of an annual charge is %s/%s/%s, expected 120/116/9667',
+      v_quote.payment_credits, v_quote.unused_credits, v_quote.refund_cents));
+  end if;
+  -- A month the ceiling decided at 0 was paid for and never received: all of
+  -- it comes back.
+  select * into v_quote from credit_refund_quote('pay_c2_over');
+  if (v_quote.payment_credits, v_quote.unused_credits, v_quote.refund_cents) is distinct from (10, 10, 1000) then
+    insert into verify.failures values (format('the quote of a month cut by the ceiling is %s/%s/%s, expected 10/10/1000',
+      v_quote.payment_credits, v_quote.unused_credits, v_quote.refund_cents));
+  end if;
+  select * into v_quote from credit_refund_quote('pay_c4_pending');
+  if (v_quote.payment_credits, v_quote.unused_credits, v_quote.refund_cents) is distinct from (0, 0, 0) then
+    insert into verify.failures values ('a charge that does not grant has a refund quote');
+  end if;
+  reset role;
+
+  -- 3. Reading: a person her own rows, balance and lots; the platform admin
+  -- everyone's.
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  select count(*) into v_n from credit_entries;
+  if v_n = 0 or exists (select 1 from credit_entries where person_id <> c_student) then
+    insert into verify.failures values ('a student does not read exactly her own entries');
+  end if;
+  perform verify.expect_named_refusal('a student reading another person''s balance', '42501',
+    format('select credits_balance(%L)', c_monthly));
+  perform verify.expect_named_refusal('a student reading another person''s lots', '42501',
+    format('select * from credit_live_lots(%L)', c_monthly));
+  if credits_balance(c_student) <> 11 or (select count(*) from credit_live_lots(c_student)) <> 2 then
+    insert into verify.failures values ('a student does not read her own balance and lots');
+  end if;
+  -- 14. The cost: her own, and nobody else's.
+  if credit_cost(c_student, 'teacher_lesson') <> 4 then
+    insert into verify.failures values ('a student does not read the cost of her lesson');
+  end if;
+  perform verify.expect_named_refusal('a student reading another person''s cost', '42501',
+    format('select credit_cost(%L, %L)', c_monthly, 'teacher_lesson'));
+  perform verify.expect_named_refusal('a cost the brand does not sell', '23514 credit_cost_known',
+    format('select credit_cost(%L, %L)', c_student, 'video_minute'));
+  perform set_config('test.uid', c_employee::text, false);
+  if credit_cost(c_employee, 'voice_minute') <> 2 then
+    insert into verify.failures values ('a company''s employee does not read the cost of the grifoai brand');
+  end if;
+  perform set_config('test.uid', c_teacher::text, false);
+  if (select count(distinct person_id) from credit_entries) < 7
+     or credit_cost(c_monthly, 'teacher_lesson') <> 4
+     or credits_balance(c_monthly) <> 30 then
+    insert into verify.failures values ('the platform admin does not read every ledger, balance and cost');
+  end if;
+  reset role;
+  perform set_config('test.uid', '', false);
+  set local role service_role;
+  if credit_cost(c_monthly, 'teacher_lesson') <> 4 or credits_balance(c_monthly) <> 30 then
+    insert into verify.failures values ('service_role does not read a person''s cost and balance');
+  end if;
+  reset role;
+
+  -- 4. Only new rows, even for postgres. Last, so that without the trigger
+  -- the rows taken away leave nothing else to fail on.
+  perform verify.expect_named_refusal('an entry changed', '23001 credit_entries_append_only',
+    format('update credit_entries set amount = 0 where person_id = %L', c_student));
+  perform verify.expect_named_refusal('an entry removed', '23001 credit_entries_append_only',
+    format('delete from credit_entries where person_id = %L', c_student));
+  perform verify.expect_named_refusal('the ledger truncated', '23001 credit_entries_append_only',
+    'truncate credit_entries');
+
+  -- Leave nothing behind for the blocks after, nor for the types. The ledger
+  -- goes past the trigger that refuses a delete, as a restore passes it.
+  perform set_config('session_replication_role', 'replica', true);
+  delete from credit_entries;
+  perform set_config('session_replication_role', 'origin', true);
+  delete from payments;
+  delete from subscriptions;
+  delete from billing_customers;
+  delete from credit_costs;
+  delete from plans;
+  delete from organization_members where user_id = any (c_people || c_employee);
+  delete from auth.users where id = any (c_people || c_employee);
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'credits are entries in a ledger: %', v_failures;
+  end if;
+  raise notice 'the ledger is read by its person and the platform admin, written by no API role and never edited; costs are read by all and written by the platform admin; a person reads her own balance, lots and costs only; service_role alone settles, runs the routine and quotes, nobody debits or refunds but another function; a charge grants each started month once, without an end, up to the ceiling, with the subscription''s credits, in its organization, and one whose money went back is voided; the debit grants her started months, spends the lot that ends first and the oldest without an end, and refuses by name; a lot never goes below zero; a refund goes back once, never from a voided lot, to a lot of its own when its own ended; after a cancel her credits end the plan''s days after what she paid, come back without an end when she subscribes within them and stay ended after; the routine closes once; the trial is granted once; the refund quote rounds up';
+end;
+$$;
+
+-- Two debits of the same person at once (0050) ---------------------------------------------
+--
+-- A second connection (dblink, created here only, in the verify schema, and
+-- dropped after) debits and holds its transaction open. A debit of the same
+-- person in this session waits for it: with lock_timeout it is refused with
+-- 55P03. Once the other commits, the same debit sees the balance it left and
+-- is refused by credits_not_negative: the balance never goes below zero.
+-- The fixture is committed first, since the other connection only sees what
+-- is committed, and removed after.
+
+create extension dblink schema verify;
+
+do $$
+declare
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  v_plan uuid;
+begin
+  insert into plans (brand, key, name, monthly_price_cents, annual_price_cents, monthly_credits,
+                     trail_minutes_per_day, opens_voice_question, opens_free_conversation, opens_video,
+                     trial_days, trial_credits, credit_ceiling_months, credit_days_after_cancel)
+    values ('chelsea-st', 'race', 'Race', 1000, 10000, 10, 15, true, false, false, 14, 5, 3, 30)
+    returning id into v_plan;
+  insert into credit_costs (brand, action, credits) values ('chelsea-st', 'teacher_lesson', 4);
+  perform billing_customer(c_student, repeat('9', 64));
+  -- A trial of 5 credits: one lesson of 4 fits, two do not.
+  perform billing_open_subscription(c_student, v_plan, 'monthly', 'pix', 1000, true,
+    (now() at time zone 'America/Sao_Paulo')::date + 14, null, 'cus_race', 'sub_race');
+end;
+$$;
+
+do $$
+declare
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  v_by text;
+  v_failures text;
+begin
+  delete from verify.failures;
+  if credits_balance(c_student) <> 5 then
+    raise exception 'two debits at once: the fixture has % credits, expected 5', credits_balance(c_student);
+  end if;
+
+  perform verify.dblink_connect('race',
+    format('dbname=%s user=%s', current_database(), current_user));
+  perform verify.dblink_exec('race', 'begin');
+  perform * from verify.dblink('race',
+    format('select public.credit_debit(%L, %L, 1, %L)', c_student, 'teacher_lesson', 'lesson:race:other'))
+    as t (balance integer);
+
+  perform set_config('lock_timeout', '300ms', true);
+  v_by := verify.named_refusal(format('select credit_debit(%L, %L, 1, %L)',
+    c_student, 'teacher_lesson', 'lesson:race:this'));
+  perform set_config('lock_timeout', '0', true);
+  if v_by is distinct from '55P03' then
+    insert into verify.failures values (format(
+      'a debit did not wait for another debit of the same person in flight: %s, expected 55P03',
+      coalesce(v_by, 'accepted')));
+  else
+    raise notice 'a debit waits for another debit of the same person in flight: refused by 55P03 under lock_timeout';
+  end if;
+
+  perform verify.dblink_exec('race', 'commit');
+  perform verify.dblink_disconnect('race');
+
+  perform verify.expect_named_refusal('a debit after the other one committed',
+    '23514 credits_not_negative',
+    format('select credit_debit(%L, %L, 1, %L)', c_student, 'teacher_lesson', 'lesson:race:after'));
+  if credits_balance(c_student) <> 1 then
+    insert into verify.failures values (format(
+      'two debits at once left a balance of %s, expected 1', credits_balance(c_student)));
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'two debits at once: %', v_failures;
+  end if;
+  raise notice 'two debits of the same person at once: the second waits for the first, then is refused by credits_not_negative; the balance stays at 1';
+end;
+$$;
+
+do $$
+begin
+  perform set_config('session_replication_role', 'replica', true);
+  delete from credit_entries;
+  perform set_config('session_replication_role', 'origin', true);
+  delete from subscriptions;
+  delete from billing_customers;
+  delete from credit_costs;
+  delete from plans;
+end;
+$$;
+
+drop extension dblink;
+
 
 -- A signup opens one door (0051) ------------------------------------------------------
 --

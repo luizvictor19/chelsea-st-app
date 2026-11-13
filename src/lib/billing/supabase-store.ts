@@ -1,7 +1,8 @@
 /**
- * The BillingStore over the billing functions of 0049, called with the
- * service role. Server only: the client holds the key that passes every
- * policy, and this file names no table, only billing_* functions.
+ * The BillingStore over the billing functions of 0049 and the credit
+ * functions of 0050, called with the service role. Server only: the client
+ * holds the key that passes every policy, and this file names no table, only
+ * billing_* and credit_* functions.
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -13,6 +14,7 @@ import {
   StoreError,
   StoreRefusal,
   type BillingStore,
+  type CreditDailyReport,
   type StoredSubscription,
 } from "./store.ts";
 
@@ -23,7 +25,7 @@ if (typeof window !== "undefined") {
 }
 
 type Functions = Database["public"]["Functions"];
-type Name = keyof Functions & `billing_${string}`;
+type Name = keyof Functions & (`billing_${string}` | `credit_${string}`);
 
 /** The constraints the app turns into sentences; others stay errors. */
 const NAMED = [
@@ -32,6 +34,9 @@ const NAMED = [
   "billing_one_trial_per_person",
   "billing_plan_active",
   "subscriptions_one_alive_per_person",
+  "credits_not_negative",
+  "credit_cost_known",
+  "credit_debit_reference_used",
 ];
 
 type Row = Database["public"]["Tables"]["subscriptions"]["Row"];
@@ -190,6 +195,21 @@ export function createSupabaseBillingStore(
         p_outcome: outcome,
         p_emailed: emailed,
       });
+    },
+
+    async settleCredits(paymentId) {
+      await call("credit_settle_payment", { p_payment_id: paymentId });
+    },
+
+    async creditDaily() {
+      const data: unknown = await call("credit_daily", {});
+      // One row of out parameters: PostgREST answers it as an object.
+      const row = (Array.isArray(data) ? data[0] : data) as
+        Partial<CreditDailyReport> | undefined;
+      return {
+        granted: row?.granted ?? 0,
+        closed: row?.closed ?? 0,
+      };
     },
   };
 }

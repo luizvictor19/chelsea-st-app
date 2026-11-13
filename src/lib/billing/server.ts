@@ -10,6 +10,7 @@ import { CHELSEA } from "@/lib/brand";
 import { createAsaasProvider } from "./asaas.ts";
 import { asaasConfig, cpfKey, webhookToken } from "./config.ts";
 import { createResendMailer, type Mailer } from "./mailer.ts";
+import type { BillingStore } from "./store.ts";
 import {
   createServiceClient,
   createSupabaseBillingStore,
@@ -54,9 +55,15 @@ export function billingDeps(): SyncDeps {
     ),
     store: createSupabaseBillingStore(),
     cpfKey: cpfKey({ BILLING_CPF_KEY: process.env.BILLING_CPF_KEY }),
-    // #273 grants the credits of a confirmed charge here, once by its id.
-    onPaymentConfirmed: async () => {},
   };
+}
+
+/**
+ * The store alone, without the provider: the credits' daily step runs also
+ * where billing is not open (closing a lot needs no Asaas key).
+ */
+export function billingStore(): BillingStore {
+  return createSupabaseBillingStore();
 }
 
 export function billingWebhookToken(): string {
