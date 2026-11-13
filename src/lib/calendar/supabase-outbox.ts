@@ -4,7 +4,7 @@
  * policy, and this file names no table, only calendar_* functions.
  */
 
-import { createServiceClient } from "../billing/supabase-store.ts";
+import { createServiceClient } from "../supabase/service.ts";
 
 import type { DueInvite } from "./invite-mail.ts";
 import type { InviteQueue } from "./outbox.ts";
