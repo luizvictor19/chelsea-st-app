@@ -17,9 +17,12 @@ Read this before writing code in this repository.
 
 ## Content and licensing
 
-The teaching material in this product is written by Luiz, belongs to GrifoAI
-(ADR 0006) and is common to every organization on the platform, written only by the platform admin
-(ADR 0004, ADR 0005); no organization holds content of its own. This
+The teaching material in this product is written by Luiz, belongs to Chelsea St,
+Luiz's company (ADR 0007), and is common to every organization on the platform,
+written only by the platform admin (ADR 0004, ADR 0005); no organization holds
+content of its own. The AI tutor tools (Robin and Grifo as tutors, live voice,
+video, the judge, speech recognition) belong to GrifoAI (ADR 0007). Which
+directory belongs to which company is mapped in `docs/context.md`. This
 platform does not serve published course books or their page images.
 Extraction targets and the teacher's own working notes, derived from
 books he owns and used for his own lessons, are his material and may be
@@ -27,9 +30,10 @@ stored here. Book page images are never committed to this repository.
 The wording of every generated practice sentence is original.
 
 The repository is public for reading only: `LICENSE` reserves every right to
-Luiz, for the code and the teaching material (#139), until GrifoAI's legal
-entity exists (ADR 0006), and `package.json` says
-`UNLICENSED`. Nothing here is offered under an open licence.
+Luiz, for the code and the teaching material (#139), until the partners'
+agreement assigns the code and the material to Chelsea St and to GrifoAI
+(ADR 0007), and `package.json` says `UNLICENSED`. Nothing here is offered
+under an open licence.
 
 ## Stack
 

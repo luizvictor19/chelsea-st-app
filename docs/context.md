@@ -5,22 +5,94 @@ architecture question for Luiz.
 
 ## The product
 
-- One company, two lines, on one app and one database (ADR 0005, ADR 0006 of 12/11/2026):
-  - GrifoAI is the company. Its B2B line sells AI automation to companies; their employees practise
+- Two companies in partnership, on one app and one database (ADR 0005, ADR 0006, ADR 0007 of
+  13/11/2026):
+  - Chelsea St (Luiz's company) is the B2C side, sold to people: Robin, a voice tutor for daily
+    practice (not built yet), and lessons with a teacher booked and paid with credits (one trial
+    class given on 02/10/2026; no students yet). It owns the teaching material, the methodology and
+    the generic platform (giving a lesson, the agenda, booking, "Parei aqui", sign-up, plans,
+    credits, billing), and the Plano Fundador.
+  - GrifoAI is the B2B side: it sells AI automation to companies, and their employees practise
     English with the tutor (Grifo) only, with no teacher and no teacher tools, under the GrifoAI
-    brand (griffin mascot), billed on the automation contract.
-  - "Chelsea St by GrifoAI" is the B2C line, sold to people: Robin, a voice tutor for daily practice
-    (not built yet), and lessons with a teacher booked and paid with credits (one trial class given
-    on 02/10/2026; no students yet).
-  - The teaching material belongs to GrifoAI and serves both lines.
+    brand (griffin mascot). It owns the AI tutor tools (Robin and Grifo as tutors, live voice,
+    video, the judge, speech recognition), the screens that exist only for companies, and the
+    plans with AI.
+  - Who receives: the Plano Fundador and the Plano Fundador Personalizado are paid into Chelsea
+    St's Asaas account; Essencial, Fluência and Imersão into GrifoAI's Asaas account (#306).
+    Companies pay GrifoAI outside the app until #282. The plan, not the brand of the domain, says
+    which account receives it.
+  - The Plano Fundador holds lessons with a teacher only; the AI tools show a lock that leads to
+    the switch (#274). The switch to a plan with AI is immediate and paid into GrifoAI's account;
+    the credits left move with it, each lot keeping the company that received it and its expiry;
+    the seal lets the person come back to the Plano Fundador (#292, #296).
+  - In GrifoAI's plans the teacher is a contractor paid per lesson. A credit paid to one company
+    and spent on the other's tool or lesson goes into a monthly settlement between them, paid
+    outside the app (#307).
+  - GrifoAI takes companies only: interest form (#309), contract and payment outside the app, then
+    the platform admin creates the organization and invites (#205). Direct sign-up exists only on
+    Chelsea St's domain (#275). The link from the GrifoAI landing to that sign-up carries
+    `?origem=grifoai`, which hides the whole founder offer (#296).
+  - The licences between the two companies live in the partners' agreement, outside this
+    repository.
 - Three levels of practice on one engine (ADR 0006): the trail (Robin v1, minutes per day, no
   credit), live voice (a voice question inside the trail, free conversation) and video (the same
   engine with an avatar). The plan opens the doors, credits pay for what goes through them; a
-  question by chat spends none. Chelsea St pays through Asaas (#72). Robin always leads the trail:
-  the reviewer mode of 07/11 is withdrawn.
+  question by chat spends none. Robin always leads the trail: the reviewer mode of 07/11 is
+  withdrawn.
 - English schools are not customers. Each tenant is an organization: Chelsea St, or one company.
 - Today only Luiz uses the platform, as teacher. Students will sign in later.
 - Offer and prices live outside this repository and do not drive code decisions without an issue.
+
+## Who owns which code
+
+ADR 0007 splits the product between the two companies; this map says where each part lives. A new
+module follows the owner of the tool it serves, and lands in this map in the PR that creates it.
+The AI that writes content (the suggestions by Claude, the word images, the OCR extraction) is a
+content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
+
+- **GrifoAI, AI tutor tools.**
+  - Code: `src/lib/tutor`, `src/lib/judge`, `src/lib/stt`, `src/lib/audio`;
+    `src/app/teacher/session-preview`, `src/app/teacher/audio-test`;
+    `src/app/dashboard/robin-practice.tsx`; `scripts/measure-stt.ts`, `measure-judge.ts`,
+    `report-stt.ts`, `report-judge.ts`, `stt-cases.json`.
+  - Data: no table today. The tutor session tables (#248, #71) and the tutor's audio in Storage
+    (#252, #256) when they arrive; the Grifo art in `public/grifo/` when it arrives.
+- **GrifoAI, B2B.**
+  - Code: `src/app/team` (the HR panel), `src/lib/team.ts`; the organization's balance (#299), the
+    company form (#309) and company billing (#282) when they arrive.
+  - Data: the tables of those three, when they arrive.
+- **Chelsea St, content and methodology.**
+  - Code: `src/app/teacher/content` (with the suggestions by Claude and the images),
+    `src/lib/content`, `src/lib/questions`, `src/lib/extraction`, `src/lib/images`,
+    `src/lib/text`; the extraction and content scripts (every other `scripts/measure-*`, `books.ts`,
+    `dump-block-points.ts`, `diagnose-table-rows.ts`, `calibrate-extraction.ts`,
+    `smoke-reconciliation.ts`, `truth-file.ts`, `suggestion-lessons.json`,
+    `drawable-kinds.test.ts`); `docs/spec-ingestao.md`, `docs/spec-imagens.md`,
+    `docs/extract_prototype.py`, `docs/design/`.
+  - Data: `books`, `lessons_content`, `points`, `blocks`, `vocabulary_items`, `image_attempts`,
+    `scenes`, `contrast_sets`, `contrast_set_items`, `questions`; the `vocabulary-images` bucket;
+    `public/robin/` and `public/brand/chelsea/` (Chelsea St's art and marks).
+- **Chelsea St, generic platform.**
+  - Code: the rest of `src/app/teacher` (`lesson`, `agenda`, `students`, `invites`,
+    `organizations`, `plans`, the layout, the nav and the notices); `src/app/dashboard` except
+    Robin's practice; `src/app/cadastro`, `login`, `auth`, `forgot-password`, `set-password`,
+    `src/app/api` (`asaas`, `billing`, `calendar`); `src/lib/billing`, `credits`, `lessons`,
+    `calendar`, `mail`, `supabase`, and the loose files of `src/lib` (`auth*`, `access`, `invites`,
+    `organizations`, `signup`, `turnstile`, `magic-link`, `link-request`, `session-cookies`,
+    `safe-redirect`, `brand*`, `current-site`, `credentials`, `cron-auth`, `heartbeat`,
+    `renamed-paths`, `datetime`, `env`); `scripts/asaas-*`, `calendar-smoke.ts`, `verify-rls.sql`,
+    `rls-visibility.sql`, `catalog-fingerprint.sql`, `row-counts.sql`, `restore-outside-public.sql`,
+    `gen-types.sh`, `migrations.test.ts`; `docs/spec-f1.md`, `docs/spec-pagamento.md`,
+    `docs/spec-creditos.md`.
+  - Data: `profiles`, `organizations`, `organization_members`, `organization_invites`,
+    `platform_admins`, `students`, `teachers`, `teacher_availability`, `teacher_time_off`,
+    `lessons`, `calendar_invites`, `assignments`, `assignment_items`, `attempts`,
+    `review_schedule`, `leads`, `plans`, `billing_customers`, `subscriptions`, `payments`,
+    `billing_events`, `overdue_steps`, `credit_costs`, `credit_entries`. The migration sequence is
+    one, and belongs to nobody in particular.
+- **The boundary.** On 13/11 nothing outside the AI tutor tools imported `lib/stt`, `lib/judge` or
+  `lib/audio`. The first module to cross it (Robin's session reading the content, #248) goes
+  through an interface of the content, named in its issue.
 
 ## Environments
 
