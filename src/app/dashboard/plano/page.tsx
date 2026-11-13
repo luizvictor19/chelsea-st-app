@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { studies } from "@/lib/access";
 import { readAccess } from "@/lib/auth";
+import { founderLine } from "@/lib/badges";
 import { billingDay } from "@/lib/billing/dates";
 import { billingOpen } from "@/lib/billing/server";
 import { createClient } from "@/lib/supabase/server";
@@ -24,7 +25,12 @@ export const metadata: Metadata = {
  * refuses anyone who is not a student of a chelsea-st organization, and this
  * screen says so instead of offering a form.
  */
-export default async function PlanPage() {
+export default async function PlanPage({
+  searchParams,
+}: {
+  readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -70,8 +76,12 @@ export default async function PlanPage() {
     );
   }
 
-  const [{ plans, current, pastDueSince, trialUsed }, credits] =
+  const [{ plans, current, pastDueSince, trialUsed, seal }, credits] =
     await Promise.all([readPlanScreen(user.id), readCredits(user.id)]);
+  // ?plano=<id>: the checkout of that plan open (the personal plan's way in,
+  // from the front door). A plan she may not read is simply not there.
+  const asked = typeof params.plano === "string" ? params.plano : null;
+  const chosen = plans.find((each) => each.id === asked)?.id ?? null;
   const today = billingDay(new Date());
   const alive = current !== null && current.status !== "canceled";
   // A checkout left unfinished does not hold the door: subscribing again
@@ -82,6 +92,12 @@ export default async function PlanPage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-xl flex-col gap-6 p-6">
       {header}
+
+      {seal !== null && (
+        <p className="border-rule bg-surface rounded-sm border p-4 text-sm">
+          {founderLine(seal.grantedAt)}
+        </p>
+      )}
 
       <CreditsCard summary={credits} />
 
@@ -124,6 +140,7 @@ export default async function PlanPage() {
         ) : (
           <SubscribeForm
             plans={plans}
+            chosenPlanId={chosen}
             // One trial per person (Q4): a second subscription has none.
             trialDays={
               !trialUsed && (plans[0]?.trialDays ?? 0) > 0

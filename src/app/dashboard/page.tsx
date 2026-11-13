@@ -13,6 +13,7 @@ import { SignOutButton } from "../auth/sign-out-button";
 import { BrandMark } from "../brand-mark";
 import { AccountPending } from "./account-pending";
 import { DailyChallenge } from "./daily-challenge";
+import { FounderBadge } from "./founder-badge";
 import { NextLessonCard } from "./next-lesson-card";
 import { readPlanScreen } from "./plano/queries";
 import { RobinPractice } from "./robin-practice";
@@ -80,6 +81,8 @@ export default async function DashboardPage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-6 p-6">
       <Greeting name={profile.full_name} team={manages(access)} />
+      {/* The Founder seal (#292). */}
+      <FounderBadge />
 
       <PendingInvites />
 

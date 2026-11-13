@@ -146,6 +146,39 @@ describe("startSubscription", () => {
     assert.equal(priceOf(PLAN, "monthly"), 1000);
     assert.equal(priceOf(PLAN, "annual"), 10000);
   });
+
+  test("a founder with her terms fixed pays them, not the plan's of the day", async () => {
+    const founder: PlanForSale = {
+      ...PLAN,
+      terms: { monthlyPriceCents: 700, annualPriceCents: 7000 },
+    };
+    assert.equal(priceOf(founder, "monthly"), 700);
+    assert.equal(priceOf(founder, "annual"), 7000);
+    assert.equal(priceOf({ ...PLAN, terms: null }, "annual"), 10000);
+    await start({ plan: founder, billingType: "card" });
+    assert.equal([...store.rows.values()][0].valueCents, 700);
+  });
+
+  test("a plan outside her audience, or a value not hers, is said in Portuguese", async () => {
+    for (const constraint of [
+      "billing_plan_audience",
+      "billing_value_matches",
+    ]) {
+      provider = createFakeProvider();
+      store = createFakeStore();
+      store.refuseOpenWith = constraint;
+      const result = await start();
+      assert.deepEqual(result, {
+        kind: "refused",
+        message: SUBSCRIBE_REFUSALS[constraint],
+      });
+      assert.ok(SUBSCRIBE_REFUSALS[constraint]);
+      // The provider's subscription made for the Pix is undone.
+      assert.ok(
+        [...provider.subscriptions.values()].every((made) => made.deleted),
+      );
+    }
+  });
 });
 
 describe("cancelSubscription", () => {

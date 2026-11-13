@@ -17,10 +17,13 @@ const fieldClass =
  */
 export function SubscribeForm({
   plans,
+  chosenPlanId = null,
   trialDays,
   defaultName,
 }: {
   readonly plans: readonly PlanOnSale[];
+  /** The plan the link asked for (?plano=), checked instead of the first. */
+  readonly chosenPlanId?: string | null;
   readonly trialDays: number | null;
   readonly defaultName: string;
 }) {
@@ -40,7 +43,9 @@ export function SubscribeForm({
               type="radio"
               name="plan"
               value={plan.id}
-              defaultChecked={index === 0}
+              defaultChecked={
+                chosenPlanId === null ? index === 0 : plan.id === chosenPlanId
+              }
               required
               className="mt-1"
             />
@@ -50,6 +55,8 @@ export function SubscribeForm({
                 {formatCents(plan.monthlyPriceCents)} por mês ou{" "}
                 {formatCents(plan.annualPriceCents)} por ano ·{" "}
                 {plan.monthlyCredits} créditos por mês
+                {plan.teacherLessonCredits !== null &&
+                  ` · Aula com professor: ${plan.teacherLessonCredits} ${plan.teacherLessonCredits === 1 ? "crédito" : "créditos"}`}
               </span>
             </span>
           </label>
