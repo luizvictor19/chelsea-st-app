@@ -7793,8 +7793,8 @@ declare
   c_nobody constant regprocedure[] := array[
     'public.lesson_proposal_rules()',
     'public.lesson_proposals_queue_mail()',
-    'public.lesson_write_paid(uuid, uuid, uuid, timestamptz)',
-    'public.lesson_proposal_check_free(uuid, uuid, timestamptz[])',
+    'public.lesson_write_paid(uuid, uuid, uuid, timestamptz, integer)',
+    'public.lesson_proposal_check_free(uuid, uuid, timestamptz[], integer)',
     'public.lesson_proposal_write(uuid, uuid, uuid, text, timestamptz[])',
     'public.lesson_proposal_cost(uuid)',
     'public.lesson_proposal_for_answer(uuid)',
@@ -8208,6 +8208,26 @@ begin
     raise notice 'my_lesson_proposals gives each side its proposals with both names, the starts and what a lesson costs the student';
   end if;
 
+  -- 11b. An organization without a teacher books no lesson, by proposal
+  -- either: Chelsea St turned so for a moment, past its triggers as a restore
+  -- passes them, the teacher's proposal and the student's yes are refused.
+  -- Its open signup goes with it (organizations_open_signup_chelsea).
+  v_text := (select open_signup::text from organizations where id = v_chelsea);
+  perform set_config('session_replication_role', 'replica', true);
+  update organizations set has_teacher = false, open_signup = false where id = v_chelsea;
+  perform set_config('session_replication_role', 'origin', true);
+  set local role authenticated;
+  perform set_config('test.uid', c_teacher::text, false);
+  perform verify.expect_refused_undone('a proposal in an organization without a teacher', '42501 lesson_booking_needs_teacher',
+    format('select propose_lessons_to_student(%L, %L::timestamptz[])', c_student, array[v_ten + interval '9 days']));
+  perform set_config('test.uid', c_student::text, false);
+  perform verify.expect_refused_undone('a yes in an organization without a teacher', '42501 lesson_booking_needs_teacher',
+    format('select * from accept_lesson_proposal(%L)', v_p1));
+  reset role;
+  perform set_config('session_replication_role', 'replica', true);
+  update organizations set has_teacher = true, open_signup = v_text::boolean where id = v_chelsea;
+  perform set_config('session_replication_role', 'origin', true);
+
   -- 12. The yes to the series: three lessons scheduled, each debited 4 under
   -- lesson:<id>, six calendar requests, the balance down by 12, each lesson
   -- of the proposal tied to its lesson, the proposal accepted by her and its
@@ -8218,7 +8238,9 @@ begin
   reset role;
   v_before := (select count(*) from verify.failures);
   if (v_accepted.lesson_count, v_accepted.credits_debited, v_accepted.balance) is distinct from (3, 12, 8)
-     or credit_balance_of(c_student) <> 8 then
+     or credit_balance_of(c_student) <> 8
+     or v_accepted.lesson_ids is distinct from
+        (select array_agg(lesson_id order by starts_at) from lesson_proposal_items where proposal_id = v_p1) then
     insert into verify.failures values (format('the yes returned %s, and the balance is %s; expected (3,12,8) and 8',
       v_accepted, credit_balance_of(c_student)));
   end if;
@@ -8336,14 +8358,17 @@ begin
   end if;
 
   -- 16. The teacher's yes to the student's proposal: two lessons, 8 debited
-  -- from the student, who has 0 left.
+  -- from the student, who has 0 left, each of the length the proposal was
+  -- made with (45 minutes here, written by postgres), not today's rule.
+  update lesson_proposal_items set duration_minutes = 45 where proposal_id = v_ps;
   perform set_config('test.uid', c_teacher::text, false);
   set local role authenticated;
   select * into v_accepted from accept_lesson_proposal(v_ps);
   reset role;
   if (v_accepted.lesson_count, v_accepted.credits_debited, v_accepted.balance) is distinct from (2, 8, 0)
      or (select count(*) from lesson_proposal_items i join lessons l on l.id = i.lesson_id
-          where i.proposal_id = v_ps and l.student_id = c_student and l.credits_debited = 4) <> 2
+          where i.proposal_id = v_ps and l.student_id = c_student and l.credits_debited = 4
+            and l.duration_minutes = 45) <> 2
      or (select (status, answered_by)::text from lesson_proposals where id = v_ps)
         is distinct from ('accepted', c_teacher)::text then
     insert into verify.failures values (format('the teacher''s yes returned %s, expected (2,8,0) with two lessons of the student', v_accepted));
@@ -8390,6 +8415,13 @@ begin
   reset role;
   if (select status from lesson_proposal_mails where proposal_id = v_exp) <> 'skipped' then
     insert into verify.failures values ('the e-mail of a proposal past its time is not skipped when due');
+  end if;
+  if (select string_agg(format('%s/%s/%s', status, answered_at = expires_at, answered_by is null), ', ' order by id)
+        from lesson_proposals where id in (v_exp, v_near))
+     is distinct from 'expired/t/t, expired/t/t' then
+    insert into verify.failures values (format('lesson_proposal_mails_due did not write expired on the teacher''s proposals past their time: %s',
+      (select string_agg(format('%s/%s/%s', status, answered_at = expires_at, answered_by is null), ', ' order by id)
+         from lesson_proposals where id in (v_exp, v_near))));
   end if;
   -- The other student's proposal to T2, past its time: a new one to T2
   -- closes it as expired at its expires_at, and is written.

@@ -2099,6 +2099,7 @@ export type Database = {
           balance: number;
           credits_debited: number;
           lesson_count: number;
+          lesson_ids: string[];
         }[];
       };
       accept_my_organization_invite: {
@@ -2436,7 +2437,12 @@ export type Database = {
         }[];
       };
       lesson_proposal_check_free: {
-        Args: { p_starts: string[]; p_student: string; p_teacher: string };
+        Args: {
+          p_minutes: number;
+          p_starts: string[];
+          p_student: string;
+          p_teacher: string;
+        };
         Returns: undefined;
       };
       lesson_proposal_cost: { Args: { p_student: string }; Returns: number };
@@ -2509,6 +2515,7 @@ export type Database = {
       };
       lesson_write_paid: {
         Args: {
+          p_minutes: number;
           p_organization: string;
           p_starts_at: string;
           p_student: string;

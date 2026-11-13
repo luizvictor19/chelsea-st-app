@@ -55,8 +55,11 @@ comment on function public.lesson_proposal_rules() is
 -- open proposal never changes: editing one is withdrawing it and proposing
 -- again. expires_at is when it stops being open, written once: the validity
 -- or 1 hour before its first lesson, the sooner. Its state is read against
--- the clock (open and expires_at ahead); the function that meets one past
--- that time writes expired, and no routine is needed.
+-- the clock (open and expires_at ahead), so a reader is never wrong; the
+-- table catches up without a routine of its own: a new proposal of the same
+-- person, and lesson_proposal_mails_due (after every proposal and in the
+-- daily routine of the calendar), write expired on every open proposal past
+-- its time.
 create table public.lesson_proposals (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations on delete restrict,
@@ -234,12 +237,13 @@ create trigger lesson_proposals_queue_mail
 -- writes and pays a lesson the same way: the lesson first, so the debit names
 -- it; credit_debit(student, 'teacher_lesson', 1, 'lesson:<id>'), at what
 -- credit_price says at that moment; credits_debited read back from the
--- ledger. A balance that does not cover it refuses the debit
+-- ledger. The length is the caller's: lesson_rules() for a booking, the one
+-- the proposal was made with for a yes. A balance that does not cover it refuses the debit
 -- (credits_not_negative) and the lesson goes back with it. Executed by
 -- nobody: its callers are security definer functions of postgres, so the
 -- insert passes lessons_booked_through_functions as the owner.
 create function public.lesson_write_paid(
-  p_organization uuid, p_student uuid, p_teacher uuid, p_starts_at timestamptz)
+  p_organization uuid, p_student uuid, p_teacher uuid, p_starts_at timestamptz, p_minutes integer)
 returns table (lesson_id uuid, credits_debited integer, balance integer)
 language plpgsql
 set search_path = ''
@@ -252,8 +256,7 @@ declare
 begin
   insert into public.lessons
     (id, organization_id, student_id, teacher_id, scheduled_at, duration_minutes)
-    values (v_id, p_organization, p_student, p_teacher, p_starts_at,
-            (select r.lesson_minutes from public.lesson_rules() r));
+    values (v_id, p_organization, p_student, p_teacher, p_starts_at, p_minutes);
 
   v_balance := public.credit_debit(p_student, 'teacher_lesson', 1, v_reference);
 
@@ -266,7 +269,7 @@ begin
 end;
 $$;
 
-comment on function public.lesson_write_paid(uuid, uuid, uuid, timestamptz) is
+comment on function public.lesson_write_paid(uuid, uuid, uuid, timestamptz, integer) is
   'Writes a scheduled lesson and debits what a lesson costs the student (credit_debit, reference lesson:<id>), reading the debit back onto the lesson (#319). The one way a lesson is born, for book_lesson and accept_lesson_proposal. Executed by nobody.';
 
 -- book_lesson, the same signature and the same effect: its checks, then the
@@ -299,7 +302,8 @@ begin
 
   return query
     select w.lesson_id, w.credits_debited, w.balance
-      from public.lesson_write_paid(v_org, v_me, p_teacher, p_starts_at) w;
+      from public.lesson_write_paid(v_org, v_me, p_teacher, p_starts_at,
+                                    (select r.lesson_minutes from public.lesson_rules() r)) w;
 end;
 $$;
 
@@ -311,19 +315,21 @@ comment on function public.book_lesson(uuid, timestamptz) is
 --
 -- Executed by nobody: called only by the security definer functions below.
 
--- Refuses lesson_proposal_slot_taken when one of the starts crosses a
--- scheduled lesson of the teacher, in any of her organizations (every row of
--- teachers of the same person), or of the student. A lesson of the proposal
+-- Refuses lesson_proposal_slot_taken when one of the starts, each of
+-- p_minutes, crosses a scheduled lesson of the teacher, in any of her
+-- organizations (every row of teachers of the same person), or of the
+-- student. The same lessons take a slot in the busy set of
+-- lesson_open_slots (0054), less the time off, which a proposal skips: a
+-- change to what takes a slot changes both. A lesson of the proposal
 -- crossing another of it is the items' own exclusion.
 create function public.lesson_proposal_check_free(
-  p_teacher uuid, p_student uuid, p_starts timestamptz[])
+  p_teacher uuid, p_student uuid, p_starts timestamptz[], p_minutes integer)
 returns void
 language plpgsql
 stable
 set search_path = ''
 as $$
 declare
-  v_minutes integer := (select r.lesson_minutes from public.lesson_rules() r);
   v_taken timestamptz;
 begin
   select s.starts_at into v_taken
@@ -337,7 +343,7 @@ begin
                                         where o.user_id = (select t.user_id from public.teachers t
                                                             where t.id = p_teacher)))
               and tstzrange(l.scheduled_at, l.scheduled_at + make_interval(mins => l.duration_minutes))
-                  && tstzrange(s.starts_at, s.starts_at + make_interval(mins => v_minutes)))
+                  && tstzrange(s.starts_at, s.starts_at + make_interval(mins => p_minutes)))
    order by s.starts_at
    limit 1;
   if v_taken is not null then
@@ -347,7 +353,7 @@ begin
 end;
 $$;
 
-comment on function public.lesson_proposal_check_free(uuid, uuid, timestamptz[]) is
+comment on function public.lesson_proposal_check_free(uuid, uuid, timestamptz[], integer) is
   'Refuses (lesson_proposal_slot_taken) a start that crosses a scheduled lesson of the teacher, in any of her organizations, or of the student (#319). Called by the proposal functions only.';
 
 -- Writes an open proposal and its lessons after checking each start: at least
@@ -378,7 +384,7 @@ begin
       v_rules.refund_until_before, v_rules.book_opens_ahead
       using errcode = 'check_violation', constraint = 'lesson_proposal_window';
   end if;
-  perform public.lesson_proposal_check_free(p_teacher, p_student, p_starts);
+  perform public.lesson_proposal_check_free(p_teacher, p_student, p_starts, v_rules.lesson_minutes);
 
   insert into public.lesson_proposals
     (id, organization_id, teacher_id, student_id, proposed_by, expires_at)
@@ -440,6 +446,18 @@ begin
     raise exception 'lesson_proposal_same_organization: the student is not of an organization you teach in'
       using errcode = 'insufficient_privilege', constraint = 'lesson_proposal_same_organization';
   end if;
+  -- As lesson_booker_organization: an organization without a teacher books
+  -- no lesson, whatever row of teachers is left there.
+  if not exists (select 1 from public.organizations o
+                  where o.id = v_teacher.organization_id and o.has_teacher) then
+    raise exception 'lesson_booking_needs_teacher: an organization without a teacher books no lesson'
+      using errcode = 'insufficient_privilege', constraint = 'lesson_booking_needs_teacher';
+  end if;
+
+  -- Her own proposals past their time are written expired.
+  update public.lesson_proposals p
+     set status = 'expired', answered_at = p.expires_at
+   where p.teacher_id = v_teacher.id and p.status = 'open' and p.expires_at <= now();
   if not v_teacher.is_active then
     raise exception 'lesson_proposal_teacher_active: the teacher takes no lesson now'
       using errcode = 'check_violation', constraint = 'lesson_proposal_teacher_active';
@@ -482,11 +500,17 @@ begin
   end if;
   v_org := public.lesson_booker_organization(p_teacher);
 
+  -- Her own proposals past their time are written expired, the one to this
+  -- teacher too, so the open one of lesson_proposal_one_open is alive.
   update public.lesson_proposals p
      set status = 'expired', answered_at = p.expires_at
-   where p.teacher_id = p_teacher and p.student_id = v_me
-     and p.status = 'open' and p.expires_at <= now();
+   where p.student_id = v_me and p.status = 'open' and p.expires_at <= now();
 
+  -- The balance as credit_debit would see it: her lock, the months that
+  -- started granted and what ended closed, first.
+  perform public.credit_lock_person(v_me);
+  perform public.credit_grant_started(v_me);
+  perform public.credit_close_expired(v_me);
   v_total := public.credit_price(v_me, 'teacher_lesson')::bigint * coalesce(cardinality(p_starts), 0);
   v_balance := public.credit_balance_of(v_me);
   if v_balance < v_total then
@@ -546,9 +570,10 @@ comment on function public.lesson_proposal_for_answer(uuid) is
 -- written and paid by lesson_write_paid, soonest first, and tied to its item.
 -- A balance that does not cover the whole series refuses all of it
 -- (credits_not_negative) and the proposal stays open. Returns how many
--- lessons were born, what was debited in all and her balance.
+-- lessons were born, what was debited in all, her balance and the lessons,
+-- soonest first, for the calendar invites to go after the answer.
 create function public.accept_lesson_proposal(p_proposal uuid)
-returns table (lesson_count integer, credits_debited integer, balance integer)
+returns table (lesson_count integer, credits_debited integer, balance integer, lesson_ids uuid[])
 language plpgsql
 security definer
 set search_path = ''
@@ -561,6 +586,8 @@ declare
   v_count integer := 0;
   v_debited integer := 0;
   v_balance integer;
+  v_minutes integer;
+  v_ids uuid[] := '{}';
 begin
   v_proposal := public.lesson_proposal_for_answer(p_proposal);
 
@@ -576,20 +603,31 @@ begin
     raise exception 'lesson_proposal_student_active: the student is not active'
       using errcode = 'check_violation', constraint = 'lesson_proposal_student_active';
   end if;
+  if not exists (select 1 from public.organizations o
+                  where o.id = v_proposal.organization_id and o.has_teacher) then
+    raise exception 'lesson_booking_needs_teacher: an organization without a teacher books no lesson'
+      using errcode = 'insufficient_privilege', constraint = 'lesson_booking_needs_teacher';
+  end if;
 
+  -- The length the proposal was made with, the same for every lesson of it:
+  -- what both sides saw is what is written.
+  select max(i.duration_minutes) into v_minutes
+    from public.lesson_proposal_items i where i.proposal_id = v_proposal.id;
   perform public.lesson_proposal_check_free(
     v_proposal.teacher_id, v_proposal.student_id,
-    array(select i.starts_at from public.lesson_proposal_items i where i.proposal_id = v_proposal.id));
+    array(select i.starts_at from public.lesson_proposal_items i where i.proposal_id = v_proposal.id),
+    v_minutes);
 
   for v_item in
-    select i.id, i.starts_at from public.lesson_proposal_items i
+    select i.id, i.starts_at, i.duration_minutes from public.lesson_proposal_items i
      where i.proposal_id = v_proposal.id
      order by i.starts_at
   loop
     select * into v_written
       from public.lesson_write_paid(v_proposal.organization_id, v_proposal.student_id,
-                                    v_proposal.teacher_id, v_item.starts_at);
+                                    v_proposal.teacher_id, v_item.starts_at, v_item.duration_minutes);
     update public.lesson_proposal_items i set lesson_id = v_written.lesson_id where i.id = v_item.id;
+    v_ids := v_ids || v_written.lesson_id;
     v_count := v_count + 1;
     v_debited := v_debited + v_written.credits_debited;
     v_balance := v_written.balance;
@@ -599,12 +637,12 @@ begin
      set status = 'accepted', answered_at = now(), answered_by = v_me
    where p.id = v_proposal.id;
 
-  return query select v_count, v_debited, v_balance;
+  return query select v_count, v_debited, v_balance, v_ids;
 end;
 $$;
 
 comment on function public.accept_lesson_proposal(uuid) is
-  'The other side''s yes to a proposal (#319): every lesson written and paid as book_lesson does (lesson_write_paid), in one transaction, and the proposal accepted. Refuses by name: lesson_proposal_answer_allowed, lesson_proposal_open, lesson_proposal_teacher_active, lesson_proposal_student_active, lesson_proposal_slot_taken, credits_not_negative (the whole series or nothing). Returns the lessons born, the credits debited and the student''s balance.';
+  'The other side''s yes to a proposal (#319): every lesson written and paid as book_lesson does (lesson_write_paid), in one transaction, and the proposal accepted. Refuses by name: lesson_proposal_answer_allowed, lesson_proposal_open, lesson_proposal_teacher_active, lesson_proposal_student_active, lesson_booking_needs_teacher, lesson_proposal_slot_taken, credits_not_negative (the whole series or nothing). Returns how many lessons were born, the credits debited, the student''s balance and the lessons.';
 
 create function public.decline_lesson_proposal(p_proposal uuid)
 returns void
@@ -730,8 +768,9 @@ comment on function public.my_lesson_proposals() is
 -- action) or of any (null: the daily routine), with what the e-mail needs:
 -- the recipient's address (the student's account e-mail, or the teacher's
 -- calendar e-mail), her name and zone, the proposer's name, the starts and
--- the length. Volatile: a pending row whose proposal is no longer open by the
--- clock turns skipped first. A row tried less than 30 minutes ago waits.
+-- the length. Volatile: every open proposal past its time is written
+-- expired first, and a pending row whose proposal is no longer open turns
+-- skipped. A row tried less than 30 minutes ago waits.
 create function public.lesson_proposal_mails_due(p_limit integer, p_proposal uuid default null)
 returns table (
   id uuid,
@@ -752,11 +791,16 @@ security definer
 set search_path = ''
 as $$
 begin
+  -- Every open proposal past its time is written expired (its pending
+  -- e-mail turns skipped by the trigger); then a pending e-mail of a
+  -- proposal closed some other way.
+  update public.lesson_proposals p
+     set status = 'expired', answered_at = p.expires_at
+   where p.status = 'open' and p.expires_at <= now();
   update public.lesson_proposal_mails m
      set status = 'skipped'
     from public.lesson_proposals p
-   where p.id = m.proposal_id and m.status = 'pending'
-     and (p.status <> 'open' or p.expires_at <= now());
+   where p.id = m.proposal_id and m.status = 'pending' and p.status <> 'open';
 
   return query
     select m.id, m.proposal_id, m.recipient, m.attempts, m.created_at, p.proposed_by,
@@ -783,7 +827,7 @@ end;
 $$;
 
 comment on function public.lesson_proposal_mails_due(integer, uuid) is
-  'The pending proposal e-mails not tried in the last 30 minutes, oldest first, of one proposal or (null) of any, at most p_limit, with the recipient''s address, name and zone, the proposer''s name, the starts and the length (#319). Skips first the pending rows of a proposal no longer open. Executed by service_role alone.';
+  'The pending proposal e-mails not tried in the last 30 minutes, oldest first, of one proposal or (null) of any, at most p_limit, with the recipient''s address, name and zone, the proposer''s name, the starts and the length (#319). Writes expired first on every open proposal past its time, and skips the pending rows of a proposal no longer open. Executed by service_role alone.';
 
 create function public.lesson_proposal_mail_sent(p_id uuid)
 returns void
@@ -823,8 +867,8 @@ comment on function public.lesson_proposal_mail_failed(uuid, text, boolean, bool
 
 revoke all on function public.lesson_proposal_rules() from public, anon, authenticated, service_role;
 revoke all on function public.lesson_proposals_queue_mail() from public, anon, authenticated, service_role;
-revoke all on function public.lesson_write_paid(uuid, uuid, uuid, timestamptz) from public, anon, authenticated, service_role;
-revoke all on function public.lesson_proposal_check_free(uuid, uuid, timestamptz[]) from public, anon, authenticated, service_role;
+revoke all on function public.lesson_write_paid(uuid, uuid, uuid, timestamptz, integer) from public, anon, authenticated, service_role;
+revoke all on function public.lesson_proposal_check_free(uuid, uuid, timestamptz[], integer) from public, anon, authenticated, service_role;
 revoke all on function public.lesson_proposal_write(uuid, uuid, uuid, text, timestamptz[]) from public, anon, authenticated, service_role;
 revoke all on function public.lesson_proposal_cost(uuid) from public, anon, authenticated, service_role;
 revoke all on function public.lesson_proposal_for_answer(uuid) from public, anon, authenticated, service_role;
