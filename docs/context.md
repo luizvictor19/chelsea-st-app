@@ -389,8 +389,9 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
     or hyphens (`founder_coupon_hash`), with a brand, `max_uses` and `expires_at`; created only by
     `create_founder_coupon` (platform admin, else 42501), never deleted (ended by `expires_at`). The
     platform admin alone reads it and updates `label`, `max_uses`, `expires_at`.
-    `founder_coupon_redemptions` (primary key coupon and person: once per person, also after a
-    revoke) is written only by `redeem_founder_coupon`, internal and never raising, which locks the
+    `founder_coupon_redemptions` (unique coupon and person, `founder_coupon_redemptions_once_per_person`:
+    once per person, also after a revoke; a deleted account leaves its row with `person_id` null,
+    `on delete set null`, so the use stays counted and a personal coupon never comes back) is written only by `redeem_founder_coupon`, internal and never raising, which locks the
     coupon row, then the row of `founder_program` (so a seal given meanwhile by another coupon of hers
     is seen), and checks: exists, already a founder (no use spent), expiry, once per person, a
     student of an organization of its brand, uses left, then `badge_grant`, and writes the use only

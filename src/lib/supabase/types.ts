@@ -632,21 +632,24 @@ export type Database = {
       founder_coupon_redemptions: {
         Row: {
           coupon_id: string;
+          id: string;
           organization_id: string | null;
-          person_id: string;
+          person_id: string | null;
           redeemed_at: string;
         };
         ComputedFields: never;
         Insert: {
           coupon_id: string;
+          id?: string;
           organization_id?: string | null;
-          person_id: string;
+          person_id?: string | null;
           redeemed_at?: string;
         };
         Update: {
           coupon_id?: string;
+          id?: string;
           organization_id?: string | null;
-          person_id?: string;
+          person_id?: string | null;
           redeemed_at?: string;
         };
         Relationships: [

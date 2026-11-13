@@ -9919,6 +9919,24 @@ begin
   perform verify.holds_0059('[0059] the platform admin ends a coupon by its validity and cancels an open invite',
     redeem_founder_coupon(c_c, 'SPARE0059') = 'expired' and v_n = 1);
 
+  -- 18. A deleted account keeps its use (Luiz, 13/11, option A): the
+  -- account goes, its row stays with no person, the personal coupon stays
+  -- used, and nobody else redeems it.
+  delete from students where id = c_b;
+  delete from organization_members where user_id = c_b;
+  v_text := verify.named_refusal(format('delete from auth.users where id = %L', c_b));
+  perform verify.holds_0059(format('[0059 #18] an account that redeemed a personal coupon is deleted (%s); its use stays, with no person',
+                                   coalesce(v_text, 'deleted')),
+    v_text is null
+    and not exists (select 1 from profiles where id = c_b)
+    and (select count(*) from founder_coupon_redemptions where coupon_id = v_single) = 1
+    and (select count(*) from founder_coupon_redemptions where coupon_id = v_single and person_id is null) = 1);
+  perform set_config('test.uid', c_c::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #18] the personal coupon of a deleted account, by another person',
+    '23514 founder_coupon_exhausted', $q$select redeem_my_founder_coupon('SINGLE0059')$q$);
+  reset role;
+
   -- 17. No security definer of public is executable by anon but the two
   -- doors of 0058.
   insert into verify.failures

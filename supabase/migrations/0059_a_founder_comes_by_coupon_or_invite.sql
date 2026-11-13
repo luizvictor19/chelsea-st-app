@@ -11,8 +11,9 @@
 --      brand, a validity and a number of uses, written by the admin, never
 --      in the code. Never deleted: a coupon ends by its validity.
 --   2. founder_coupon_redemptions: who used which coupon, one row per coupon
---      and person (the primary key): a coupon counts once per person, also
---      after her seal is taken back.
+--      and person (founder_coupon_redemptions_once_per_person): a coupon
+--      counts once per person, also after her seal is taken back. A deleted
+--      account leaves its uses with no person, still counted (Luiz, 13/11).
 --   3. founder_invites: a founder invite for one e-mail, written by the
 --      platform admin on /teacher/invites. The seal comes on the first
 --      confirmation of that e-mail, or at once when an account is already
@@ -91,21 +92,26 @@ grant select on public.founder_coupons to authenticated;
 grant update (label, max_uses, expires_at) on public.founder_coupons to authenticated;
 
 create table public.founder_coupon_redemptions (
+  id uuid primary key default gen_random_uuid(),
   organization_id uuid references public.organizations on delete restrict
     constraint founder_coupon_redemptions_is_common check (organization_id is null),
   -- A coupon used is never deleted: its uses are its history.
   coupon_id uuid not null references public.founder_coupons on delete restrict,
-  person_id uuid not null references public.profiles on delete cascade,
+  -- Null once her account is deleted (Luiz, 13/11, option A): the use stays
+  -- counted, so a personal coupon never becomes good again, and the account
+  -- can still be deleted.
+  person_id uuid references public.profiles on delete set null,
   redeemed_at timestamptz not null default now(),
-  -- A coupon counts once per person.
-  constraint founder_coupon_redemptions_pkey primary key (coupon_id, person_id)
+  -- A coupon counts once per person. Nulls are distinct: the uses of
+  -- several deleted accounts all stay.
+  constraint founder_coupon_redemptions_once_per_person unique (coupon_id, person_id)
 );
 
 create index founder_coupon_redemptions_person_idx
   on public.founder_coupon_redemptions (person_id);
 
 comment on table public.founder_coupon_redemptions is
-  'Who used which founder coupon: one row per coupon and person, written only by redeem_founder_coupon when the seal is given. A coupon whose seal finds no seat writes no row. Read by the platform admin alone.';
+  'Who used which founder coupon: one row per coupon and person, written only by redeem_founder_coupon when the seal is given. A coupon whose seal finds no seat writes no row. A deleted account leaves its rows with person_id null: the use stays counted. Read by the platform admin alone.';
 
 alter table public.founder_coupon_redemptions enable row level security;
 
