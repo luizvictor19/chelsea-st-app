@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { requireTeacher } from "@/lib/content/queries";
 import { formatLessonDate, formatLessonTime } from "@/lib/datetime";
 
+import { ProposalTo } from "../../agenda/agenda-view";
 import { mayCancel } from "../agenda";
 import { progressLine } from "../progress";
 import { readAgenda, readCancelRights, teacherZone } from "../queries";
@@ -65,6 +66,10 @@ export default async function StudentAgendaPage({
           };
         })}
       />
+
+      <section aria-label="Propor aula" className="flex flex-col gap-3">
+        <ProposalTo students={[{ id, name: agenda.name }]} zone={zone} />
+      </section>
     </section>
   );
 }

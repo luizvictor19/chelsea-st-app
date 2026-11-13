@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { requireTeacher } from "@/lib/content/queries";
 import { formatLessonDate, formatLessonTime } from "@/lib/datetime";
+import { proposalItem } from "@/lib/lessons/proposals/view";
 import { creditsLabel } from "@/lib/lessons/slots";
 
 import { WEEKDAYS } from "../students/agenda";
@@ -9,7 +10,11 @@ import { progressLine } from "../students/progress";
 import { teacherZone } from "../students/queries";
 
 import { TeacherAgendaView } from "./agenda-view";
-import { readTeacherAgenda } from "./queries";
+import {
+  readProposalStudents,
+  readTeacherAgenda,
+  readTeacherProposals,
+} from "./queries";
 
 export const metadata: Metadata = {
   title: "Agenda",
@@ -37,6 +42,17 @@ export default async function TeacherAgendaPage() {
     teacherZone(supabase, user.id),
   ]);
   const organization = agenda.teachable[0];
+  // The proposals are a section of the agenda, not the agenda: a failed
+  // read says so there and leaves the hours and the lessons on the screen.
+  const [proposals, students] =
+    agenda.profile === null
+      ? [[], []]
+      : await Promise.all([
+          readTeacherProposals(supabase).catch(() => null),
+          readProposalStudents(supabase, agenda.profile.organizationId).catch(
+            () => [],
+          ),
+        ]);
 
   return (
     <section className="flex max-w-3xl flex-col gap-8">
@@ -78,6 +94,15 @@ export default async function TeacherAgendaPage() {
             const to = dayMonth(last, zone);
             return { id: t.id, label: from === to ? from : `${from} a ${to}` };
           })}
+          proposals={(proposals ?? []).map((row) =>
+            proposalItem(row, {
+              zone,
+              balance: null,
+              timeOff: agenda.timeOff,
+            }),
+          )}
+          proposalsReadFailed={proposals === null}
+          students={students}
           lessons={agenda.lessons.map((lesson) => {
             const start = new Date(lesson.scheduledAt);
             return {

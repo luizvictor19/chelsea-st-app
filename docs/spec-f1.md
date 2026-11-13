@@ -228,6 +228,43 @@ Antes da aula, o professor vê em cada reserva onde o aluno parou (o último "Pa
 - Fora: a API do Google Agenda, atualizar um evento já mandado (troca do Meet), lembrete antes da
   aula, ler na plataforma as respostas "Sim" e "Não".
 
+## Proposta de aula (#319, migration 0057)
+
+- Uma aula combinada fora dos horários livres vira proposta. O professor propõe a um aluno dele,
+  em `/teacher/agenda` (seção "Propostas") ou na ficha do aluno; o aluno propõe a um professor da
+  organização dele, em `/dashboard/lessons` ("Propor outro horário"). Quem propõe espera o outro
+  lado aceitar; a reserva nos horários livres continua imediata, como antes.
+- A proposta é uma aula ou uma série (dias da semana, hora, primeira e última data). A tela mostra
+  a lista exata das aulas antes de enviar, no fuso de quem propõe; o banco guarda os instantes, não
+  a regra da série. A hora vai de 15 em 15 minutos.
+- Ao propor, cada aula começa a mais de 1 hora de agora e até 8 semanas à frente, não cruza aula
+  marcada do professor (em qualquer organização dele) nem do aluno, e não cruza outra aula da
+  mesma proposta. As janelas e as folgas do professor não contam: a proposta existe para ficar
+  fora delas; a seção "Propostas" avisa o professor quando uma aula cai numa folga dele.
+- Nada é debitado e o horário não fica preso enquanto o outro lado não responde: nenhuma aula em
+  `lessons`, nenhuma entrada no razão. Na proposta do aluno, o saldo dele precisa cobrir a
+  proposta no momento em que ele propõe (um aviso cedo, não uma reserva). Um aluno tem no máximo
+  uma proposta aberta por professor; o professor não tem limite.
+- A proposta vale 3 dias e vence antes, 1 hora antes da primeira aula. Vencida, ninguém aceita,
+  recusa nem retira; a tela mostra "Vencida".
+- O outro lado recebe um e-mail de `agenda@` com a lista das aulas no fuso dele e o link para a
+  tela onde responde (o aluno, no e-mail da conta; o professor, no e-mail da agenda). O aluno vê a
+  proposta do professor num cartão no topo de `/dashboard`, com o custo, o saldo antes e depois do
+  aceite (ou quantas aulas o saldo cobre), e os botões "Aceitar" e "Recusar".
+- Só o outro lado responde; só quem propôs retira, enquanto está aberta. O admin da organização e
+  o admin da plataforma leem e não respondem. Aceitar, recusar e retirar pedem confirmação.
+- No aceite, numa transação só: cada aula é conferida de novo contra as aulas marcadas (uma que
+  passou a bater recusa tudo, sem débito), e cada uma nasce como uma aula reservada, pela mesma
+  peça do `book_lesson`: um débito por aula, pelo custo da aula do plano do aluno naquele
+  instante, com a referência `lesson:<id>`; o convite de agenda de cada aula; "Parei aqui"; e o
+  cancelamento até 1 hora antes com os créditos de volta. Um saldo que não cobre a série inteira
+  recusa tudo, e a proposta segue aberta até vencer.
+- Recusa, retirada e vencimento não debitam nada e não mandam e-mail: quem propôs vê o estado na
+  tela por 7 dias.
+- Fora: editar uma proposta (é retirar e propor de novo), contraproposta, aceitar só parte de uma
+  série, mensagem junto da proposta, o admin propor em nome do professor, série além de 8 semanas,
+  e-mail na recusa, na retirada ou no vencimento (a aba de avisos é a #308).
+
 ## Critérios de aceite
 
 1. Pedir magic link com e-mail cadastrado leva à sessão ativa depois do clique.

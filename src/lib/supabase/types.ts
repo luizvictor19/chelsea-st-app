@@ -764,6 +764,180 @@ export type Database = {
         };
         Relationships: [];
       };
+      lesson_proposal_items: {
+        Row: {
+          duration_minutes: number;
+          id: string;
+          lesson_id: string | null;
+          organization_id: string;
+          proposal_id: string;
+          starts_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          duration_minutes: number;
+          id?: string;
+          lesson_id?: string | null;
+          organization_id: string;
+          proposal_id: string;
+          starts_at: string;
+        };
+        Update: {
+          duration_minutes?: number;
+          id?: string;
+          lesson_id?: string | null;
+          organization_id?: string;
+          proposal_id?: string;
+          starts_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "lesson_proposal_items_lesson_id_fkey";
+            columns: ["lesson_id"];
+            isOneToOne: true;
+            referencedRelation: "lessons";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lesson_proposal_items_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lesson_proposal_items_proposal_id_fkey";
+            columns: ["proposal_id"];
+            isOneToOne: false;
+            referencedRelation: "lesson_proposals";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      lesson_proposal_mails: {
+        Row: {
+          attempts: number;
+          created_at: string;
+          id: string;
+          last_attempt_at: string | null;
+          last_error: string | null;
+          organization_id: string;
+          proposal_id: string;
+          recipient: string;
+          sent_at: string | null;
+          status: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          attempts?: number;
+          created_at?: string;
+          id?: string;
+          last_attempt_at?: string | null;
+          last_error?: string | null;
+          organization_id: string;
+          proposal_id: string;
+          recipient: string;
+          sent_at?: string | null;
+          status?: string;
+        };
+        Update: {
+          attempts?: number;
+          created_at?: string;
+          id?: string;
+          last_attempt_at?: string | null;
+          last_error?: string | null;
+          organization_id?: string;
+          proposal_id?: string;
+          recipient?: string;
+          sent_at?: string | null;
+          status?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "lesson_proposal_mails_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lesson_proposal_mails_proposal_id_fkey";
+            columns: ["proposal_id"];
+            isOneToOne: true;
+            referencedRelation: "lesson_proposals";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      lesson_proposals: {
+        Row: {
+          answered_at: string | null;
+          answered_by: string | null;
+          created_at: string;
+          expires_at: string;
+          id: string;
+          organization_id: string;
+          proposed_by: string;
+          status: string;
+          student_id: string;
+          teacher_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          answered_at?: string | null;
+          answered_by?: string | null;
+          created_at?: string;
+          expires_at: string;
+          id?: string;
+          organization_id: string;
+          proposed_by: string;
+          status?: string;
+          student_id: string;
+          teacher_id: string;
+        };
+        Update: {
+          answered_at?: string | null;
+          answered_by?: string | null;
+          created_at?: string;
+          expires_at?: string;
+          id?: string;
+          organization_id?: string;
+          proposed_by?: string;
+          status?: string;
+          student_id?: string;
+          teacher_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "lesson_proposals_answered_by_fkey";
+            columns: ["answered_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lesson_proposals_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lesson_proposals_student_fkey";
+            columns: ["organization_id", "student_id"];
+            isOneToOne: false;
+            referencedRelation: "students";
+            referencedColumns: ["organization_id", "id"];
+          },
+          {
+            foreignKeyName: "lesson_proposals_teacher_fkey";
+            columns: ["organization_id", "teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "teachers";
+            referencedColumns: ["organization_id", "id"];
+          },
+        ];
+      };
       lessons: {
         Row: {
           cancelled_at: string | null;
@@ -1919,6 +2093,15 @@ export type Database = {
       };
     };
     Functions: {
+      accept_lesson_proposal: {
+        Args: { p_proposal: string };
+        Returns: {
+          balance: number;
+          credits_debited: number;
+          lesson_count: number;
+          lesson_ids: string[];
+        }[];
+      };
       accept_my_organization_invite: {
         Args: { p_invite: string };
         Returns: undefined;
@@ -2216,6 +2399,10 @@ export type Database = {
       };
       credits_balance: { Args: { p_person: string }; Returns: number };
       dearmor: { Args: { "": string }; Returns: string };
+      decline_lesson_proposal: {
+        Args: { p_proposal: string };
+        Returns: undefined;
+      };
       delete_question: { Args: { p_question_id: string }; Returns: undefined };
       dissolve_contrast_set: { Args: { p_set_id: string }; Returns: undefined };
       gen_random_uuid: { Args: Record<PropertyKey, never>; Returns: string };
@@ -2249,9 +2436,96 @@ export type Database = {
           starts_at: string;
         }[];
       };
+      lesson_proposal_check_free: {
+        Args: {
+          p_minutes: number;
+          p_starts: string[];
+          p_student: string;
+          p_teacher: string;
+        };
+        Returns: undefined;
+      };
+      lesson_proposal_cost: { Args: { p_student: string }; Returns: number };
+      lesson_proposal_for_answer: {
+        Args: { p_proposal: string };
+        Returns: {
+          answered_at: string | null;
+          answered_by: string | null;
+          created_at: string;
+          expires_at: string;
+          id: string;
+          organization_id: string;
+          proposed_by: string;
+          status: string;
+          student_id: string;
+          teacher_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "lesson_proposals";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      lesson_proposal_mail_failed: {
+        Args: {
+          p_error: string;
+          p_give_up: boolean;
+          p_id: string;
+          p_tried: boolean;
+        };
+        Returns: undefined;
+      };
+      lesson_proposal_mail_sent: { Args: { p_id: string }; Returns: undefined };
+      lesson_proposal_mails_due: {
+        Args: { p_limit: number; p_proposal?: string };
+        Returns: {
+          attempts: number;
+          created_at: string;
+          duration_minutes: number;
+          expires_at: string;
+          id: string;
+          proposal_id: string;
+          proposed_by: string;
+          proposer_name: string;
+          recipient: string;
+          recipient_email: string;
+          recipient_name: string;
+          recipient_timezone: string;
+          starts_at: string[];
+        }[];
+      };
+      lesson_proposal_rules: {
+        Args: Record<PropertyKey, never>;
+        Returns: string;
+      };
+      lesson_proposal_write: {
+        Args: {
+          p_organization: string;
+          p_proposed_by: string;
+          p_starts: string[];
+          p_student: string;
+          p_teacher: string;
+        };
+        Returns: string;
+      };
       lesson_rules: {
         Args: Record<PropertyKey, never>;
         Returns: Record<string, unknown>;
+      };
+      lesson_write_paid: {
+        Args: {
+          p_minutes: number;
+          p_organization: string;
+          p_starts_at: string;
+          p_student: string;
+          p_teacher: string;
+        };
+        Returns: {
+          balance: number;
+          credits_debited: number;
+          lesson_id: string;
+        }[];
       };
       materialize_points: {
         Args: {
@@ -2260,6 +2534,26 @@ export type Database = {
           p_last_point: number;
         };
         Returns: number;
+      };
+      my_lesson_proposals: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          answered_at: string;
+          created_at: string;
+          duration_minutes: number;
+          expires_at: string;
+          lesson_credits: number;
+          my_side: string;
+          organization_id: string;
+          proposal_id: string;
+          proposed_by: string;
+          starts_at: string[];
+          status: string;
+          student_id: string;
+          student_name: string;
+          teacher_id: string;
+          teacher_name: string;
+        }[];
       };
       my_lessons: {
         Args: Record<PropertyKey, never>;
@@ -2288,6 +2582,14 @@ export type Database = {
       pgp_armor_headers: {
         Args: { "": string };
         Returns: Record<string, unknown>[];
+      };
+      propose_lessons_to_student: {
+        Args: { p_starts: string[]; p_student: string };
+        Returns: string;
+      };
+      propose_lessons_to_teacher: {
+        Args: { p_starts: string[]; p_teacher: string };
+        Returns: string;
       };
       reorder_questions: {
         Args: { p_ids: string[]; p_point_id: string };
@@ -2322,6 +2624,10 @@ export type Database = {
           minutes_this_month: number;
           person_id: string;
         }[];
+      };
+      withdraw_lesson_proposal: {
+        Args: { p_proposal: string };
+        Returns: undefined;
       };
     };
     Enums: {

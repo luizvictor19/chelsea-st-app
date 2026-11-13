@@ -9,26 +9,35 @@ import {
   UNKNOWN_REFUSAL,
 } from "./refusals.ts";
 
-const MIGRATION = readFileSync(
-  join(
-    import.meta.dirname,
-    "../../../supabase/migrations/0052_a_lesson_is_booked_and_paid.sql",
-  ),
-  "utf8",
-);
+function migration(name: string): string {
+  return readFileSync(
+    join(import.meta.dirname, "../../../supabase/migrations", name),
+    "utf8",
+  );
+}
 
-/** Every name 0052 refuses under: its raises and its named constraints. */
-function namesOf0052(): string[] {
-  const raised = [...MIGRATION.matchAll(/constraint = '([a-z_]+)'/g)].map(
+const MIGRATION = migration("0052_a_lesson_is_booked_and_paid.sql");
+const PROPOSALS = migration("0057_a_proposed_lesson_waits_for_a_yes.sql");
+
+/** Every name a migration refuses under: its raises and its named constraints. */
+function namesOf(sql: string, kinds = "check|exclude"): string[] {
+  const raised = [...sql.matchAll(/constraint = '([a-z_]+)'/g)].map(
     (match) => match[1],
   );
   const declared = [
-    ...MIGRATION.matchAll(/constraint ([a-z_]+)\s+(?:check|exclude)/g),
+    ...sql.matchAll(new RegExp(`constraint ([a-z_]+)\\s+(?:${kinds})`, "g")),
   ].map((match) => match[1]);
-  const exclusions = [
-    ...MIGRATION.matchAll(/add constraint ([a-z_]+) exclude/g),
-  ].map((match) => match[1]);
-  return [...new Set([...raised, ...declared, ...exclusions])];
+  const exclusions = [...sql.matchAll(/add constraint ([a-z_]+) exclude/g)].map(
+    (match) => match[1],
+  );
+  const indexes = [...sql.matchAll(/create unique index ([a-z_]+)/g)].map(
+    (match) => match[1],
+  );
+  return [...new Set([...raised, ...declared, ...exclusions, ...indexes])];
+}
+
+function namesOf0052(): string[] {
+  return namesOf(MIGRATION);
 }
 
 describe("refusalSentence", () => {
@@ -48,6 +57,48 @@ describe("refusalSentence", () => {
       if (unseen.has(name)) continue;
       assert.ok(KNOWN_REFUSALS.includes(name), `${name} has no sentence`);
     }
+  });
+
+  test("every refusal a person can meet in 0057 has a sentence", () => {
+    const names = namesOf(PROPOSALS, "check|exclude|unique");
+    // The shapes no screen sends: a state, a side, a time or a length the
+    // functions write themselves, and the e-mail queue nobody writes.
+    const unseen = new Set([
+      "lesson_proposals_proposed_by_known",
+      "lesson_proposals_status_known",
+      "lesson_proposals_expires_after_creation",
+      "lesson_proposals_answered_when_closed",
+      "lesson_proposals_answered_by_a_side",
+      "lesson_proposal_items_duration_positive",
+      "lesson_proposal_items_lesson_once",
+      "lesson_proposal_items_whole_minute",
+      "lesson_proposal_mails_one_per_proposal",
+      "lesson_proposal_mails_recipient_known",
+      "lesson_proposal_mails_status_known",
+      "lesson_proposal_mails_attempts_not_negative",
+      "lesson_proposal_mails_last_error_short",
+      "lesson_proposal_mails_sent_has_time",
+    ]);
+    assert.ok(names.length > 25, `read ${names.length} names from 0057`);
+    for (const name of names) {
+      if (unseen.has(name)) continue;
+      assert.ok(KNOWN_REFUSALS.includes(name), `${name} has no sentence`);
+    }
+  });
+
+  test("a proposal's refusals, raised and from an index", () => {
+    assert.equal(
+      refusalSentence(
+        "lesson_proposal_open: the proposal is not open any more",
+      ),
+      "Essa proposta já não está aberta.",
+    );
+    assert.equal(
+      refusalSentence(
+        'duplicate key value violates unique constraint "lesson_proposal_one_open"',
+      ),
+      "Você já tem uma proposta aberta para esse professor. Retire-a para propor outra.",
+    );
   });
 
   test("finds the rule at the start of a raised message", () => {
