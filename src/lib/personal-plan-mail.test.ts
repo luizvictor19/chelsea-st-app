@@ -18,8 +18,9 @@ describe("personalPlanEmail", () => {
     assert.match(PERSONAL_PLAN_FROM, /<agenda@chelsea-st\.com>$/);
   });
 
-  test("names the plan and says no number", () => {
+  test("names the plan and the address it is for, and says no number", () => {
     assert.match(MAIL.text, /Plano da Ana/);
+    assert.match(MAIL.text, /este mesmo e-mail, ana\+plano@example\.com,/);
     const withoutLinks = MAIL.text.replace(/https:\/\/\S+/g, "");
     assert.doesNotMatch(withoutLinks, /\d/);
   });

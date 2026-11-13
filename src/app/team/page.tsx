@@ -37,6 +37,8 @@ export default async function TeamPage() {
     readInvitableOrganizations(supabase, user.id, access.platformAdmin),
     readOpenInvites(supabase),
   ]);
+  // A company never takes signups (open_signup is chelsea-st's), so here
+  // the roles offered are the roles managed.
   const organizations = invitable.filter(
     (organization) => !organization.hasTeacher,
   );

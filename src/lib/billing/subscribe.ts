@@ -34,15 +34,6 @@ export type PlanForSale = {
   readonly monthlyPriceCents: number;
   readonly annualPriceCents: number;
   readonly trialDays: number;
-  /**
-   * The founder's terms, on a Plano Fundador whose holder has them fixed
-   * (0058): the prices she subscribes at, whatever the plan says today.
-   * billing_open_subscription refuses any other value (billing_value_matches).
-   */
-  readonly terms?: {
-    readonly monthlyPriceCents: number;
-    readonly annualPriceCents: number;
-  } | null;
 };
 
 export type StartResult =
@@ -50,11 +41,13 @@ export type StartResult =
   | { readonly kind: "pix"; readonly rowId: string }
   | { readonly kind: "refused"; readonly message: string };
 
+/**
+ * On a Plano Fundador whose holder has her terms fixed (0058) the prices are
+ * already hers (withFounderTerms): billing_open_subscription refuses any
+ * other value (billing_value_matches).
+ */
 export function priceOf(plan: PlanForSale, cycle: Cycle): number {
-  const prices = plan.terms ?? plan;
-  return cycle === "monthly"
-    ? prices.monthlyPriceCents
-    : prices.annualPriceCents;
+  return cycle === "monthly" ? plan.monthlyPriceCents : plan.annualPriceCents;
 }
 
 function refusal(cause: unknown): StartResult | null {

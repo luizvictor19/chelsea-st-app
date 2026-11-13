@@ -4,6 +4,7 @@ import { destinationFor, manages, teaches, type Access } from "@/lib/access";
 import { isBrandKey, type BrandKey } from "@/lib/brand";
 import { homeSite } from "@/lib/brand-home";
 import { currentSite, siteConfig } from "@/lib/current-site";
+import { billingOpen } from "@/lib/billing/server";
 import { pendingPersonalPlan } from "@/lib/personal-plan-way";
 import { createClient } from "@/lib/supabase/server";
 
@@ -134,9 +135,10 @@ async function readMemberBrands(
  * front door instead (homeSite, #195): the session is per domain, so she signs
  * in there once more.
  *
- * A student with a Plano Fundador Personalizado bound to her, on sale, and no
- * subscription alive goes to its checkout (#292, pendingPersonalPlan): the
- * way in of the plan's e-mail, after the login and after the signup.
+ * A student with a Plano Fundador Personalizado bound to her, on sale, while
+ * the subscription is open, with no subscription alive and none of that plan
+ * that ever ran, goes to its checkout (#292, pendingPersonalPlan): the way in
+ * of the plan's e-mail, after the login and after the signup.
  */
 export async function resolveDestination(): Promise<Destination> {
   const supabase = await createClient();
@@ -161,7 +163,7 @@ export async function resolveDestination(): Promise<Destination> {
   });
   if (there) return new URL("/", there.origin);
   const destination = destinationFor(access);
-  if (destination !== "/dashboard") return destination;
+  if (destination !== "/dashboard" || !billingOpen()) return destination;
   return (await personalPlanCheckout(supabase, user.id)) ?? destination;
 }
 
@@ -178,13 +180,21 @@ async function personalPlanCheckout(
       .eq("person_id", userId)
       .eq("is_active", true)
       .order("created_at", { ascending: false }),
-    supabase.from("subscriptions").select("status").eq("person_id", userId),
+    supabase
+      .from("subscriptions")
+      .select("plan_id, status, cancel_reason")
+      .eq("person_id", userId),
   ]);
   // A read that fails sends her to /dashboard, as before: never to a guess.
   if (plans === null || subscriptions === null) return null;
   return pendingPersonalPlan({
     destination: "/dashboard",
+    billingOpen: billingOpen(),
     plans: plans.map((plan) => ({ id: plan.id, isActive: plan.is_active })),
-    subscriptionStatuses: subscriptions.map((row) => row.status),
+    subscriptions: subscriptions.map((row) => ({
+      planId: row.plan_id,
+      status: row.status,
+      cancelReason: row.cancel_reason,
+    })),
   });
 }

@@ -142,11 +142,7 @@ export default async function PlanPage({
             plans={plans}
             chosenPlanId={chosen}
             // One trial per person (Q4): a second subscription has none.
-            trialDays={
-              !trialUsed && (plans[0]?.trialDays ?? 0) > 0
-                ? plans[0].trialDays
-                : null
-            }
+            trialAvailable={!trialUsed}
             defaultName={profile?.full_name ?? ""}
           />
         ))}

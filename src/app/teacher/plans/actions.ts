@@ -42,12 +42,19 @@ export async function savePlan(
     .from("plans")
     .update({ ...read.values, updated_at: new Date().toISOString() })
     .eq("id", id);
-  const { error } =
+  const { data: written, error } =
     id === ""
-      ? await supabase.from("plans").insert(read.values)
+      ? await supabase.from("plans").insert(read.values).select("id")
       : personal
-        ? await update.eq("audience", "person")
-        : await update.neq("audience", "person");
+        ? await update.eq("audience", "person").select("id")
+        : await update.neq("audience", "person").select("id");
+  // An update that reached no row saved nothing: say so, never "salvo".
+  if (!error && written.length === 0) {
+    return {
+      status: "error",
+      message: "Este plano mudou em outra aba. Recarregue a página.",
+    };
+  }
   if (error) {
     if (error.code === "23505") {
       return {

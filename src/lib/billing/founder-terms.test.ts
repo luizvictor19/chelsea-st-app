@@ -33,10 +33,6 @@ describe("withFounderTerms", () => {
     assert.equal(shown.monthlyCredits, 8);
     // Null in her terms is the brand's cost, as on a plan.
     assert.equal(shown.teacherLessonCredits, null);
-    assert.deepEqual(shown.terms, {
-      monthlyPriceCents: 500,
-      annualPriceCents: 5000,
-    });
   });
 
   test("no seal, no terms yet, or a plan that is not the founder's: the plan as it is", () => {

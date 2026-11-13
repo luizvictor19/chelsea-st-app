@@ -17,8 +17,11 @@ export function InviteTypes({
   readonly organizations: readonly InvitableOrganization[];
   readonly platformAdmin: boolean;
 }) {
+  // Where the signup is the door, a teacher who is not the admin offers no
+  // role, and the organization has no form (its open invites still list).
+  const offerable = organizations.filter((each) => each.roles.length > 0);
   const kinds = [
-    ...(organizations.length > 0
+    ...(offerable.length > 0
       ? [{ key: "organization", label: "Organização" } as const]
       : []),
     ...(platformAdmin
@@ -51,7 +54,7 @@ export function InviteTypes({
         </fieldset>
       )}
       {kind === "organization" ? (
-        <InviteForm organizations={organizations} />
+        <InviteForm organizations={offerable} />
       ) : (
         <PersonalPlanForm />
       )}

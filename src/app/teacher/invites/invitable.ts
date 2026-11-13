@@ -28,6 +28,7 @@ export async function readInvitableOrganizations(
       name,
       hasTeacher: has_teacher,
       roles: invitableRoles(true, [], has_teacher, open_signup),
+      manageRoles: invitableRoles(true, [], has_teacher),
     }));
   }
 
@@ -63,8 +64,9 @@ export async function readInvitableOrganizations(
       name,
       hasTeacher,
       roles: invitableRoles(false, roles, hasTeacher, openSignup),
+      manageRoles: invitableRoles(false, roles, hasTeacher),
     }))
-    .filter((organization) => organization.roles.length > 0)
+    .filter((organization) => organization.manageRoles.length > 0)
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 }
 
@@ -117,7 +119,7 @@ export function openInvites(
         role: invite.role,
         expiresAt: invite.expires_at,
         expired: new Date(invite.expires_at) <= now,
-        manageable: organization.roles.includes(invite.role),
+        manageable: organization.manageRoles.includes(invite.role),
         organizationName: organization.name,
         hasTeacher: organization.hasTeacher,
       },

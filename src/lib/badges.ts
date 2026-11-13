@@ -54,9 +54,14 @@ const DAY = new Intl.DateTimeFormat("pt-BR", {
   timeZone: "America/Sao_Paulo",
 });
 
+/** A moment as its day in São Paulo, "dd/mm/aaaa". */
+export function daySaoPaulo(at: string): string {
+  return DAY.format(new Date(at));
+}
+
 /** "Selo de fundador · desde dd/mm/aaaa", the day in São Paulo. */
 export function founderSince(grantedAt: string): string {
-  return `Selo de fundador · desde ${DAY.format(new Date(grantedAt))}`;
+  return `Selo de fundador · desde ${daySaoPaulo(grantedAt)}`;
 }
 
 /** The line above the plans for whoever holds the seal. */

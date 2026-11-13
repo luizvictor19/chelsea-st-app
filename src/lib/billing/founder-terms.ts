@@ -22,10 +22,6 @@ export type ShownPlan = {
   readonly annualPriceCents: number;
   readonly monthlyCredits: number;
   readonly teacherLessonCredits: number | null;
-  readonly terms?: {
-    readonly monthlyPriceCents: number;
-    readonly annualPriceCents: number;
-  } | null;
 };
 
 export function withFounderTerms<P extends ShownPlan>(
@@ -42,15 +38,11 @@ export function withFounderTerms<P extends ShownPlan>(
   ) {
     return plan;
   }
-  const terms = {
-    monthlyPriceCents: seal.monthlyPriceCents,
-    annualPriceCents: seal.annualPriceCents,
-  };
   return {
     ...plan,
-    ...terms,
+    monthlyPriceCents: seal.monthlyPriceCents,
+    annualPriceCents: seal.annualPriceCents,
     monthlyCredits: seal.monthlyCredits,
     teacherLessonCredits: seal.teacherLessonCredits,
-    terms,
   };
 }

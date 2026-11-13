@@ -35,7 +35,7 @@ export function personalPlanEmail(input: {
       "Olá,",
       "",
       `O seu plano personalizado, ${input.planName}, está pronto no ${CHELSEA.name}.`,
-      "Entre com este e-mail e você vai direto para a assinatura.",
+      `Entre com este mesmo e-mail, ${input.to}, e você vai direto para a assinatura. O plano é de quem usar este endereço.`,
       "",
       `Já tem conta? Entre: ${login}`,
       `Ainda não tem? Crie a sua conta: ${signup}`,

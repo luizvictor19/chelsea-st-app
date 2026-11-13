@@ -18,17 +18,23 @@ const fieldClass =
 export function SubscribeForm({
   plans,
   chosenPlanId = null,
-  trialDays,
+  trialAvailable,
   defaultName,
 }: {
   readonly plans: readonly PlanOnSale[];
   /** The plan the link asked for (?plano=), checked instead of the first. */
   readonly chosenPlanId?: string | null;
-  readonly trialDays: number | null;
+  /** Whether her one trial is still unused (Q4). */
+  readonly trialAvailable: boolean;
   readonly defaultName: string;
 }) {
   const [state, formAction, isPending] = useActionState(subscribe, INITIAL);
   const [billingType, setBillingType] = useState<"card" | "pix">("card");
+  const [planId, setPlanId] = useState(chosenPlanId ?? plans[0]?.id);
+  // The trial said is the chosen plan's, as startSubscription reads it: a
+  // personal or founder plan may have none while another plan has some.
+  const chosenTrial = plans.find((plan) => plan.id === planId)?.trialDays ?? 0;
+  const trialDays = trialAvailable && chosenTrial > 0 ? chosenTrial : null;
 
   return (
     <form
@@ -37,15 +43,14 @@ export function SubscribeForm({
     >
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-2 font-semibold">Plano</legend>
-        {plans.map((plan, index) => (
+        {plans.map((plan) => (
           <label key={plan.id} className="flex items-start gap-3">
             <input
               type="radio"
               name="plan"
               value={plan.id}
-              defaultChecked={
-                chosenPlanId === null ? index === 0 : plan.id === chosenPlanId
-              }
+              checked={plan.id === planId}
+              onChange={() => setPlanId(plan.id)}
               required
               className="mt-1"
             />

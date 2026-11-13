@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, test } from "node:test";
 
 import { cpfHmac } from "./cpf.ts";
+import { withFounderTerms } from "./founder-terms.ts";
 import {
   createFakeProvider,
   createFakeStore,
@@ -148,13 +149,23 @@ describe("startSubscription", () => {
   });
 
   test("a founder with her terms fixed pays them, not the plan's of the day", async () => {
-    const founder: PlanForSale = {
-      ...PLAN,
-      terms: { monthlyPriceCents: 700, annualPriceCents: 7000 },
-    };
+    const founder = withFounderTerms(
+      {
+        ...PLAN,
+        audience: "founder",
+        monthlyCredits: 6,
+        teacherLessonCredits: 3,
+      },
+      {
+        termsFixedAt: "2026-11-13T12:00:00Z",
+        monthlyPriceCents: 700,
+        annualPriceCents: 7000,
+        monthlyCredits: 8,
+        teacherLessonCredits: 2,
+      },
+    );
     assert.equal(priceOf(founder, "monthly"), 700);
     assert.equal(priceOf(founder, "annual"), 7000);
-    assert.equal(priceOf({ ...PLAN, terms: null }, "annual"), 10000);
     await start({ plan: founder, billingType: "card" });
     assert.equal([...store.rows.values()][0].valueCents, 700);
   });

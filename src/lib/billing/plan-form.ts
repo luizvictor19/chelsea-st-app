@@ -12,6 +12,7 @@
 
 import { isPlanAudience, type PlanAudience } from "../badges.ts";
 import { CHELSEA } from "../brand.ts";
+import { looksLikeEmail, normalizeEmail } from "../credentials.ts";
 
 export type PlanNumbers = {
   readonly brand: "chelsea-st" | "grifoai";
@@ -103,10 +104,10 @@ export function readPlanForm(form: FormData): PlanRead {
  * e-mail as the database keeps it (lower-cased, plans_person_email_shape).
  */
 export function readPersonalPlanForm(form: FormData): PersonalPlanRead {
-  const email = String(form.get("person_email") ?? "")
-    .trim()
-    .toLowerCase();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+  // As auth and the invites keep an address (credentials.ts), which is what
+  // bind_personal_plans compares.
+  const email = normalizeEmail(form.get("person_email"));
+  if (!looksLikeEmail(email)) {
     return { ok: false, message: "Digite um e-mail válido." };
   }
   // The brand is always chelsea-st, and the key is the caller's to make

@@ -2,7 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { requirePlatformAdmin } from "@/lib/auth";
-import { BADGE_SOURCE_LABEL, founderSince, isBadgeSource } from "@/lib/badges";
+import {
+  BADGE_SOURCE_LABEL,
+  daySaoPaulo,
+  founderSince,
+  isBadgeSource,
+} from "@/lib/badges";
 
 import { FounderList, type Founder } from "./founder-list";
 import { RepairGrant } from "./repair-grant";
@@ -11,13 +16,6 @@ import { SeatsForm } from "./seats-form";
 export const metadata: Metadata = {
   title: "Fundadores",
 };
-
-const DAY = new Intl.DateTimeFormat("pt-BR", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-  timeZone: "America/Sao_Paulo",
-});
 
 /**
  * The founders (#292, 0058), for the platform admin alone: the seats, who
@@ -74,9 +72,7 @@ export default async function FoundersPage() {
       ? BADGE_SOURCE_LABEL[seal.source]
       : seal.source,
     termsSince:
-      seal.terms_fixed_at === null
-        ? null
-        : DAY.format(new Date(seal.terms_fixed_at)),
+      seal.terms_fixed_at === null ? null : daySaoPaulo(seal.terms_fixed_at),
   }));
   const sealed = new Set(founders.map((founder) => founder.personId));
   const students = (members ?? [])
