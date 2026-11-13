@@ -80,6 +80,21 @@ export function couponRefusal(error: { readonly message?: string }): string {
     : TRY_AGAIN;
 }
 
+export type RedeemState =
+  | { readonly status: "idle" }
+  | { readonly status: "granted"; readonly message: string }
+  | { readonly status: "error"; readonly message: string };
+
+/** The answer of redeem_my_founder_coupon, as /dashboard/plano says it. */
+export function redeemAnswer(answer: {
+  readonly data: unknown;
+  readonly error: { readonly message?: string } | null;
+}): Exclude<RedeemState, { readonly status: "idle" }> {
+  return answer.error === null
+    ? { status: "granted", message: couponGranted(answer.data) }
+    : { status: "error", message: couponRefusal(answer.error) };
+}
+
 /** What redeem_my_founder_coupon returned, as the screen says it. */
 export function couponGranted(result: unknown): string {
   return result === "already_founder"

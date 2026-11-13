@@ -9,6 +9,7 @@ import { billingDay } from "@/lib/billing/dates";
 import { billingOpen } from "@/lib/billing/server";
 import { createClient } from "@/lib/supabase/server";
 
+import { CouponForm } from "./coupon-form";
 import { CreditsCard } from "./credits-card";
 import { formatDay } from "./format";
 import { readCredits, readPlanScreen } from "./queries";
@@ -76,8 +77,17 @@ export default async function PlanPage({
     );
   }
 
-  const [{ plans, current, pastDueSince, trialUsed, seal }, credits] =
-    await Promise.all([readPlanScreen(user.id), readCredits(user.id)]);
+  const [{ plans, current, pastDueSince, trialUsed, seal }, credits, seats] =
+    await Promise.all([
+      readPlanScreen(user.id),
+      readCredits(user.id),
+      supabase.rpc("founder_seats_left"),
+    ]);
+  // A coupon typed at the signup waits in her metadata for the first
+  // confirmation (#296, 0059); with no seal now, it did not count.
+  const signupCoupon = user.user_metadata?.founder_coupon;
+  const signupCouponFailed =
+    typeof signupCoupon === "string" && signupCoupon.trim() !== "";
   // ?plano=<id>: the checkout of that plan open (the personal plan's way in,
   // from the front door). A plan she may not read is simply not there.
   const asked = typeof params.plano === "string" ? params.plano : null;
@@ -93,10 +103,15 @@ export default async function PlanPage({
     <main className="mx-auto flex min-h-dvh max-w-xl flex-col gap-6 p-6">
       {header}
 
-      {seal !== null && (
+      {seal !== null ? (
         <p className="border-rule bg-surface rounded-sm border p-4 text-sm">
           {founderLine(seal.grantedAt)}
         </p>
+      ) : (
+        <CouponForm
+          signupCouponFailed={signupCouponFailed}
+          seatsEnded={seats.error === null && seats.data === 0}
+        />
       )}
 
       <CreditsCard summary={credits} />

@@ -14,6 +14,7 @@ import {
   normalizeCode,
   personalCode,
   readCouponForm,
+  redeemAnswer,
   signupCoupon,
 } from "./founder-coupon.ts";
 
@@ -235,5 +236,38 @@ describe("couponLink", () => {
     const url = new URL(couponLink("https://app.example.com", "abcdefghjkmn"));
     assert.equal(url.pathname, "/cadastro");
     assert.equal(url.searchParams.get("cupom"), "ABCD-EFGH-JKMN");
+  });
+});
+
+describe("redeemAnswer: the coupon on /dashboard/plano", () => {
+  const refused = (rule: string) =>
+    redeemAnswer({ data: null, error: { message: `${rule}: whatever` } });
+
+  test("a valid coupon gives the seal", () => {
+    assert.deepEqual(redeemAnswer({ data: "granted", error: null }), {
+      status: "granted",
+      message: couponGranted("granted"),
+    });
+  });
+
+  test("a founder already spends nothing and is told so", () => {
+    assert.deepEqual(redeemAnswer({ data: "already_founder", error: null }), {
+      status: "granted",
+      message: "Você já tem o selo de fundador.",
+    });
+  });
+
+  test("expired, exhausted, repeated, of another brand, with no seat, unknown", () => {
+    const cases: [string, string][] = [
+      ["founder_coupon_expired", "Esse cupom venceu."],
+      ["founder_coupon_exhausted", COUPON_REFUSALS.founder_coupon_exhausted],
+      ["founder_coupon_once_per_person", "Você já usou esse cupom."],
+      ["founder_coupon_brand", "Esse cupom não vale para a sua conta."],
+      ["founder_coupon_seats", "As vagas de fundador acabaram."],
+      ["founder_coupon_exists", COUPON_REFUSALS.founder_coupon_exists],
+    ];
+    for (const [rule, message] of cases) {
+      assert.deepEqual(refused(rule), { status: "error", message }, rule);
+    }
   });
 });
