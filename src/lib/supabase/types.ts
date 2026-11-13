@@ -434,6 +434,143 @@ export type Database = {
           },
         ];
       };
+      credit_costs: {
+        Row: {
+          action: string;
+          brand: string;
+          created_at: string;
+          credits: number;
+          id: string;
+          organization_id: string | null;
+          updated_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          action: string;
+          brand: string;
+          created_at?: string;
+          credits: number;
+          id?: string;
+          organization_id?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          action?: string;
+          brand?: string;
+          created_at?: string;
+          credits?: number;
+          id?: string;
+          organization_id?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "credit_costs_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      credit_entries: {
+        Row: {
+          action: string | null;
+          amount: number;
+          asaas_payment_id: string | null;
+          created_at: string;
+          expires_at: string | null;
+          id: string;
+          kind: string;
+          lot_id: string | null;
+          organization_id: string;
+          period: number | null;
+          person_id: string;
+          reference: string | null;
+          refers_to: string | null;
+          seq: number;
+          subscription_id: string | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          action?: string | null;
+          amount: number;
+          asaas_payment_id?: string | null;
+          created_at?: string;
+          expires_at?: string | null;
+          id?: string;
+          kind: string;
+          lot_id?: string | null;
+          organization_id: string;
+          period?: number | null;
+          person_id: string;
+          reference?: string | null;
+          refers_to?: string | null;
+          seq?: never;
+          subscription_id?: string | null;
+        };
+        Update: {
+          action?: string | null;
+          amount?: number;
+          asaas_payment_id?: string | null;
+          created_at?: string;
+          expires_at?: string | null;
+          id?: string;
+          kind?: string;
+          lot_id?: string | null;
+          organization_id?: string;
+          period?: number | null;
+          person_id?: string;
+          reference?: string | null;
+          refers_to?: string | null;
+          seq?: never;
+          subscription_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "credit_entries_asaas_payment_id_fkey";
+            columns: ["asaas_payment_id"];
+            isOneToOne: false;
+            referencedRelation: "payments";
+            referencedColumns: ["asaas_payment_id"];
+          },
+          {
+            foreignKeyName: "credit_entries_lot_id_fkey";
+            columns: ["lot_id"];
+            isOneToOne: false;
+            referencedRelation: "credit_entries";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "credit_entries_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "credit_entries_person_id_fkey";
+            columns: ["person_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "credit_entries_refers_to_fkey";
+            columns: ["refers_to"];
+            isOneToOne: false;
+            referencedRelation: "credit_entries";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "credit_entries_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: false;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       image_attempts: {
         Row: {
           completed_at: string | null;
@@ -888,8 +1025,10 @@ export type Database = {
           subscription_id: string | null;
           updated_at: string;
           value_cents: number;
+          credit_payment_grants: boolean | null;
+          credit_payment_taken_back: boolean | null;
         };
-        ComputedFields: never;
+        ComputedFields: "credit_payment_grants" | "credit_payment_taken_back";
         Insert: {
           asaas_payment_id: string;
           asaas_status: string;
@@ -951,6 +1090,8 @@ export type Database = {
           annual_price_cents: number;
           brand: string;
           created_at: string;
+          credit_ceiling_months: number;
+          credit_days_after_cancel: number;
           id: string;
           is_active: boolean;
           key: string;
@@ -972,6 +1113,8 @@ export type Database = {
           annual_price_cents: number;
           brand: string;
           created_at?: string;
+          credit_ceiling_months: number;
+          credit_days_after_cancel: number;
           id?: string;
           is_active?: boolean;
           key: string;
@@ -992,6 +1135,8 @@ export type Database = {
           annual_price_cents?: number;
           brand?: string;
           created_at?: string;
+          credit_ceiling_months?: number;
+          credit_days_after_cancel?: number;
           id?: string;
           is_active?: boolean;
           key?: string;
@@ -1397,9 +1542,12 @@ export type Database = {
           cancel_reason: string | null;
           canceled_at: string | null;
           created_at: string;
+          credit_ceiling_months: number;
+          credit_days_after_cancel: number;
           cycle: string;
           first_due_on: string;
           id: string;
+          monthly_credits: number;
           organization_id: string;
           paid_through: string | null;
           past_due_since: string | null;
@@ -1419,9 +1567,12 @@ export type Database = {
           cancel_reason?: string | null;
           canceled_at?: string | null;
           created_at?: string;
+          credit_ceiling_months: number;
+          credit_days_after_cancel: number;
           cycle: string;
           first_due_on: string;
           id?: string;
+          monthly_credits: number;
           organization_id: string;
           paid_through?: string | null;
           past_due_since?: string | null;
@@ -1440,9 +1591,12 @@ export type Database = {
           cancel_reason?: string | null;
           canceled_at?: string | null;
           created_at?: string;
+          credit_ceiling_months?: number;
+          credit_days_after_cancel?: number;
           cycle?: string;
           first_due_on?: string;
           id?: string;
+          monthly_credits?: number;
           organization_id?: string;
           paid_through?: string | null;
           past_due_since?: string | null;
@@ -1628,9 +1782,12 @@ export type Database = {
           cancel_reason: string | null;
           canceled_at: string | null;
           created_at: string;
+          credit_ceiling_months: number;
+          credit_days_after_cancel: number;
           cycle: string;
           first_due_on: string;
           id: string;
+          monthly_credits: number;
           organization_id: string;
           paid_through: string | null;
           past_due_since: string | null;
@@ -1725,6 +1882,111 @@ export type Database = {
         };
         Returns: undefined;
       };
+      credit_alive: { Args: { p_person: string }; Returns: boolean };
+      credit_balance_of: { Args: { p_person: string }; Returns: number };
+      credit_check_reader: { Args: { p_person: string }; Returns: undefined };
+      credit_close_expired: { Args: { p_person: string }; Returns: number };
+      credit_cost: {
+        Args: { p_action: string; p_person: string };
+        Returns: number;
+      };
+      credit_daily: {
+        Args: Record<PropertyKey, never>;
+        Returns: Record<string, unknown>;
+      };
+      credit_deadline: { Args: { p_person: string }; Returns: string };
+      credit_debit: {
+        Args: {
+          p_action: string;
+          p_person: string;
+          p_quantity: number;
+          p_reference: string;
+        };
+        Returns: number;
+      };
+      credit_grant_started: { Args: { p_person: string }; Returns: undefined };
+      credit_live_lots: {
+        Args: { p_person: string };
+        Returns: {
+          expires_at: string;
+          kind: string;
+          lot_id: string;
+          remaining: number;
+        }[];
+      };
+      credit_lock_person: { Args: { p_person: string }; Returns: undefined };
+      credit_lots_of: {
+        Args: { p_person: string };
+        Returns: {
+          expires_at: string;
+          kind: string;
+          lot_id: string;
+          organization_id: string;
+          remaining: number;
+          seq: number;
+        }[];
+      };
+      credit_month_starts: {
+        Args: { p_due_on: string; p_month: number };
+        Returns: string;
+      };
+      credit_payment_grants: {
+        Args: {
+          p_payment: Omit<
+            Database["public"]["Tables"]["payments"]["Row"],
+            Database["public"]["Tables"]["payments"]["ComputedFields"]
+          >;
+        };
+        Returns: boolean;
+      };
+      credit_payment_lots: {
+        Args: { p_payment_id: string };
+        Returns: {
+          lot_id: string;
+          organization_id: string;
+          person_id: string;
+          remaining: number;
+        }[];
+      };
+      credit_payment_open_lots: {
+        Args: { p_payment_id: string };
+        Returns: {
+          lot_id: string;
+          organization_id: string;
+          person_id: string;
+          remaining: number;
+        }[];
+      };
+      credit_payment_taken_back: {
+        Args: {
+          p_payment: Omit<
+            Database["public"]["Tables"]["payments"]["Row"],
+            Database["public"]["Tables"]["payments"]["ComputedFields"]
+          >;
+        };
+        Returns: boolean;
+      };
+      credit_price: {
+        Args: { p_action: string; p_person: string };
+        Returns: number;
+      };
+      credit_refund: {
+        Args: { p_person: string; p_reference: string };
+        Returns: number;
+      };
+      credit_refund_quote: {
+        Args: { p_payment_id: string };
+        Returns: Record<string, unknown>;
+      };
+      credit_settle: {
+        Args: { p_payment_id: string };
+        Returns: Record<string, unknown>;
+      };
+      credit_settle_payment: {
+        Args: { p_payment_id: string };
+        Returns: number;
+      };
+      credits_balance: { Args: { p_person: string }; Returns: number };
       dearmor: { Args: { "": string }; Returns: string };
       delete_question: { Args: { p_question_id: string }; Returns: undefined };
       dissolve_contrast_set: { Args: { p_set_id: string }; Returns: undefined };

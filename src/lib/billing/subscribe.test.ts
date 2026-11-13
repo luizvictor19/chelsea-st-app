@@ -33,7 +33,7 @@ let provider: FakeProvider;
 let store: FakeStore;
 
 function deps(): SyncDeps {
-  return { provider, store, cpfKey: KEY, onPaymentConfirmed: async () => {} };
+  return { provider, store, cpfKey: KEY };
 }
 
 function start(over: Partial<Parameters<typeof startSubscription>[1]> = {}) {

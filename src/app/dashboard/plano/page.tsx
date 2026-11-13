@@ -8,8 +8,9 @@ import { billingDay } from "@/lib/billing/dates";
 import { billingOpen } from "@/lib/billing/server";
 import { createClient } from "@/lib/supabase/server";
 
+import { CreditsCard } from "./credits-card";
 import { formatDay } from "./format";
-import { readPlanScreen } from "./queries";
+import { readCredits, readPlanScreen } from "./queries";
 import { SubscribeForm } from "./subscribe-form";
 import { SubscriptionCard } from "./subscription-card";
 
@@ -69,9 +70,8 @@ export default async function PlanPage() {
     );
   }
 
-  const { plans, current, pastDueSince, trialUsed } = await readPlanScreen(
-    user.id,
-  );
+  const [{ plans, current, pastDueSince, trialUsed }, credits] =
+    await Promise.all([readPlanScreen(user.id), readCredits(user.id)]);
   const today = billingDay(new Date());
   const alive = current !== null && current.status !== "canceled";
   // A checkout left unfinished does not hold the door: subscribing again
@@ -82,6 +82,8 @@ export default async function PlanPage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-xl flex-col gap-6 p-6">
       {header}
+
+      <CreditsCard summary={credits} />
 
       {alive && current !== null && (
         <SubscriptionCard

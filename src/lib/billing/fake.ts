@@ -16,6 +16,7 @@ import {
 import {
   StoreRefusal,
   type BillingStore,
+  type CreditDailyReport,
   type OverdueDay,
   type OverdueOutcome,
   type StoredSubscription,
@@ -265,6 +266,12 @@ export type FakeStore = BillingStore & {
     string,
     { outcome: OverdueOutcome | null; emailed: boolean }
   >;
+  /** The charges settleCredits was called with, in order. */
+  readonly settled: string[];
+  /** What creditDaily answers. */
+  dailyReport: CreditDailyReport;
+  /** When set, settleCredits alone fails with this error. */
+  settleFailWith: Error | null;
   /** When set, every call fails with this error. */
   failWith: Error | null;
 };
@@ -277,6 +284,9 @@ export function createFakeStore(): FakeStore {
     payments: new Map(),
     events: new Map(),
     steps: new Map(),
+    settled: [],
+    dailyReport: { granted: 0, closed: 0 },
+    settleFailWith: null,
     failWith: null,
 
     async customer(personId, cpfHmac) {
@@ -475,6 +485,21 @@ export function createFakeStore(): FakeStore {
     async finishOverdueStep(paymentId, day, outcome, emailed) {
       check();
       store.steps.set(`${paymentId}|${day}`, { outcome, emailed });
+    },
+
+    async settleCredits(paymentId) {
+      check();
+      if (store.settleFailWith !== null) throw store.settleFailWith;
+      // As 0050 reads it: the charge it settles is one already written.
+      if (!store.payments.has(paymentId)) {
+        throw new Error(`settled ${paymentId} before it was written`);
+      }
+      store.settled.push(paymentId);
+    },
+
+    async creditDaily() {
+      check();
+      return store.dailyReport;
     },
   };
 
