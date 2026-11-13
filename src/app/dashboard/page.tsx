@@ -22,12 +22,6 @@ export const metadata: Metadata = {
   title: "Minha aula",
 };
 
-/**
- * Wider than any real lesson. Only narrows the rows fetched; the exact test for
- * "has this one finished" happens below, per lesson, against its own duration.
- */
-const LONGEST_PLAUSIBLE_LESSON_MINUTES = 8 * 60;
-
 export default async function DashboardPage() {
   const supabase = await createClient();
 
@@ -45,11 +39,7 @@ export default async function DashboardPage() {
       .eq("id", user.id)
       .maybeSingle(),
     readAccess(supabase, user.id),
-    supabase
-      .from("students")
-      .select("meet_url")
-      .eq("id", user.id)
-      .maybeSingle(),
+    supabase.from("students").select("id").eq("id", user.id).maybeSingle(),
   ]);
 
   // A teacher, or the admin of a company (0042), signs in through the same
@@ -78,31 +68,15 @@ export default async function DashboardPage() {
   }
 
   const now = new Date();
-  const earliest = new Date(
-    now.getTime() - LONGEST_PLAUSIBLE_LESSON_MINUTES * 60_000,
-  );
-
   const [{ data: lessons }, startsTrial] = await Promise.all([
-    supabase
-      .from("lessons")
-      .select("id, scheduled_at, duration_minutes, meet_url")
-      .eq("student_id", user.id)
-      .eq("status", "scheduled")
-      .gte("scheduled_at", earliest.toISOString())
-      .order("scheduled_at", { ascending: true })
-      .limit(10),
+    // Her lessons not finished yet, soonest first, with the room (#276): the
+    // teacher's Meet for a booked lesson, her own for one of the fixed
+    // agenda until #295. A lesson still running is in it: running late is
+    // normal.
+    supabase.rpc("my_lessons"),
     offersTrial(supabase, user.id),
   ]);
-
-  // The next lesson is the first one that has not finished. Reaching back by the
-  // duration rather than cutting at now() is what keeps a lesson that is already
-  // running on the screen, because running late is normal.
-  const nextLesson = (lessons ?? []).find(
-    (lesson) =>
-      new Date(lesson.scheduled_at).getTime() +
-        lesson.duration_minutes * 60_000 >
-      now.getTime(),
-  );
+  const nextLesson = (lessons ?? []).at(0);
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-6 p-6">
@@ -117,9 +91,9 @@ export default async function DashboardPage() {
           scheduledAt={nextLesson.scheduled_at}
           durationMinutes={nextLesson.duration_minutes}
           timeZone={profile.timezone}
-          // The room is fixed per student; the lesson column is an override for
-          // the odd class that happens somewhere else.
-          meetUrl={nextLesson.meet_url ?? student.meet_url}
+          // Null when no room is set yet: the generated types call every
+          // column of a function's table non-null.
+          meetUrl={nextLesson.meet_url as string | null}
           serverNow={now.toISOString()}
         />
       ) : (
@@ -130,18 +104,29 @@ export default async function DashboardPage() {
           <p className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
             Próxima aula
           </p>
-          <p className="text-muted">
-            Nenhuma aula marcada por enquanto. Quando o professor marcar, ela
-            aparece aqui.
-          </p>
+          <p className="text-muted">Nenhuma aula marcada por enquanto.</p>
+          <Link
+            href="/dashboard/lessons"
+            className="bg-accent text-accent-foreground self-start rounded-sm px-5 py-3 font-semibold transition-colors hover:opacity-90"
+          >
+            Reservar aula
+          </Link>
         </section>
       )}
 
       <DailyChallenge />
 
-      <Link href="/dashboard/plano" className="text-muted text-sm underline">
-        Plano e pagamento
-      </Link>
+      <div className="flex flex-wrap gap-4">
+        <Link
+          href="/dashboard/lessons"
+          className="text-muted text-sm underline"
+        >
+          Aulas
+        </Link>
+        <Link href="/dashboard/plano" className="text-muted text-sm underline">
+          Plano e pagamento
+        </Link>
+      </div>
     </main>
   );
 }
