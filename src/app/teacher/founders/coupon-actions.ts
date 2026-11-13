@@ -29,7 +29,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * A founder coupon (#296), through create_founder_coupon with the platform
  * admin's own client: the database hashes the code and keeps only the hash.
  * The code goes back to the screen once, now, and never again. The brand is
- * Chelsea St's: the founder offer is Chelsea St's alone (ADR 0007).
+ * chelsea-st: the founder offer is that brand's alone (ADR 0007).
  */
 export async function createCoupon(
   _previous: CouponState,

@@ -26,7 +26,7 @@ function mailer(): Mailer | null {
     : createResendMailer({ apiKey, from: FOUNDER_INVITE_FROM });
 }
 
-/** The founder offer is Chelsea St's alone (ADR 0007): its site. */
+/** The founder offer is the chelsea-st brand's alone (ADR 0007): its site. */
 function origin(): string | null {
   return siteOfBrand("chelsea-st", siteConfig())?.origin ?? null;
 }

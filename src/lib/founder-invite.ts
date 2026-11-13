@@ -33,7 +33,7 @@ export type FounderInviteDeps = {
   readonly accepted: (id: string) => Promise<boolean>;
   /** Null when the app has no key to send with. */
   readonly mailer: Mailer | null;
-  /** The origin of the Chelsea St site; null when there is none. */
+  /** The origin of the chelsea-st site; null when there is none. */
   readonly origin: string | null;
   readonly now: () => Date;
 };
