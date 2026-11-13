@@ -2,18 +2,25 @@
 
 import { useRef, useTransition, type FormEvent } from "react";
 
+import type { ProposalItem } from "@/lib/lessons/proposals/view";
+
+import { ProposalForm } from "../../proposal-form";
+import { ProposalList } from "../../proposal-list";
 import { notices } from "../notices";
 import { WEEKDAYS } from "../students/agenda";
 import {
   addTimeOff,
   addWindow,
+  answerProposal,
   cancelBookedLesson,
+  proposeLessons,
   removeTimeOff,
   removeWindow,
   saveTeacherProfile,
+  withdrawProposal,
   type AgendaResult,
 } from "./actions";
-import type { TeacherProfile } from "./queries";
+import type { ProposalStudent, TeacherProfile } from "./queries";
 
 type WindowItem = {
   readonly id: string;
@@ -84,6 +91,8 @@ export function TeacherAgendaView({
   zone,
   windows,
   timeOff,
+  proposals,
+  students,
   lessons,
 }: {
   readonly organizationId: string;
@@ -92,6 +101,8 @@ export function TeacherAgendaView({
   readonly zone: string;
   readonly windows: readonly WindowItem[];
   readonly timeOff: readonly TimeOffItem[];
+  readonly proposals: readonly ProposalItem[];
+  readonly students: readonly ProposalStudent[];
   readonly lessons: readonly LessonItem[];
 }) {
   return (
@@ -111,6 +122,11 @@ export function TeacherAgendaView({
           <TimeOffSection
             teacherId={profile.id}
             timeOff={timeOff}
+            zone={zone}
+          />
+          <ProposalSection
+            proposals={proposals}
+            students={students}
             zone={zone}
           />
           <LessonSection lessons={lessons} />
@@ -339,6 +355,66 @@ function TimeOffSection({
         continua: cancele-a abaixo se não for dar.
       </p>
     </section>
+  );
+}
+
+/** The proposals she made and the students' ones to her (#319), and the form. */
+export function ProposalSection({
+  proposals,
+  students,
+  zone,
+}: {
+  readonly proposals: readonly ProposalItem[];
+  readonly students: readonly ProposalStudent[];
+  readonly zone: string;
+}) {
+  return (
+    <section aria-labelledby="proposals" className="flex flex-col gap-3">
+      <h2 id="proposals" className="text-xl font-bold tracking-tight">
+        Propostas
+      </h2>
+      <p className="text-muted max-w-prose text-sm">
+        Uma aula combinada fora dos horários livres vira proposta: quem recebe
+        aceita ou recusa, e os créditos saem só no aceite.
+      </p>
+      {proposals.length === 0 ? (
+        <p className="text-muted text-sm">Nenhuma proposta nos últimos dias.</p>
+      ) : (
+        <ProposalList
+          items={proposals}
+          answer={answerProposal}
+          withdraw={withdrawProposal}
+          acceptNote="Os créditos saem do saldo do aluno, pelo custo da aula do plano dele, e cada aula chega na agenda dos dois."
+        />
+      )}
+      <ProposalTo students={students} zone={zone} />
+    </section>
+  );
+}
+
+/** The form, to one student (her page) or to any active one (the agenda). */
+export function ProposalTo({
+  students,
+  zone,
+}: {
+  readonly students: readonly ProposalStudent[];
+  readonly zone: string;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <h3 className="text-base font-bold tracking-tight">Propor aula</h3>
+      {students.length === 0 ? (
+        <p className="text-muted text-sm">Nenhum aluno ativo para propor.</p>
+      ) : (
+        <ProposalForm
+          target={{ field: "student_id", label: "Aluno", options: students }}
+          zone={zone}
+          action={proposeLessons}
+          submitLabel="Enviar proposta"
+          note={`Hora no seu fuso (${zone}). A aula pode cair fora das suas janelas, nunca em cima de outra aula. A proposta vale 3 dias, ou até 1 hora antes da primeira aula, e nada é debitado antes do aceite do aluno.`}
+        />
+      )}
+    </div>
   );
 }
 
