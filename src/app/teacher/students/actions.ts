@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 
 import { requireTeacher } from "@/lib/content/queries";
 import { parseMeetUrl } from "@/lib/lessons/meet-url";
+import { refusalSentence } from "@/lib/lessons/refusals";
+import { creditsLabel } from "@/lib/lessons/slots";
 
 import {
   instantIn,
@@ -21,6 +23,8 @@ export type AgendaResult =
 type Supabase = Awaited<ReturnType<typeof requireTeacher>>["supabase"];
 
 const UNIQUE_VIOLATION = "23505";
+/** Two lessons of hers that cross (lessons_student_no_overlap, 0052). */
+const EXCLUSION_VIOLATION = "23P01";
 
 /** The list and every agenda under it read what these actions write. */
 function refresh() {
@@ -154,6 +158,8 @@ export async function removeSchedule(
     .select("id, scheduled_at, status")
     .eq("student_id", schedule.student_id)
     .eq("status", "scheduled")
+    // A booked lesson (0052) is not the schedule's: it stays.
+    .is("teacher_id", null)
     .gt("scheduled_at", now.toISOString());
   if (aheadError) return { ok: false, error: aheadError.message };
 
@@ -212,20 +218,27 @@ export async function generateLessons(
   return { ok: true, message: text[0].toUpperCase() + text.slice(1) + "." };
 }
 
+/**
+ * Cancels through cancel_lesson (0052), as /teacher/agenda does: a lesson of
+ * the fixed agenda is cancelled by whoever teaches there, as before, and a
+ * booked one gives the student's credits back. Since 0052 a booked lesson
+ * no longer changes by a direct update.
+ */
 export async function cancelLesson(lessonId: string): Promise<AgendaResult> {
   const { supabase } = await requireTeacher();
-  const { data, error } = await supabase
-    .from("lessons")
-    .update({ status: "cancelled" })
-    .eq("id", lessonId)
-    .eq("status", "scheduled")
-    .select("id");
-  if (error) return { ok: false, error: error.message };
-  if (data.length === 0) {
-    return { ok: false, error: "Essa aula já não estava agendada." };
-  }
+  const { data, error } = await supabase.rpc("cancel_lesson", {
+    p_lesson: lessonId,
+  });
+  if (error) return { ok: false, error: refusalSentence(error.message) };
   refresh();
-  return { ok: true, message: "Aula cancelada." };
+  revalidatePath("/teacher/agenda");
+  return {
+    ok: true,
+    message:
+      data > 0
+        ? `Aula cancelada · ${creditsLabel(data)} de volta para o aluno.`
+        : "Aula cancelada.",
+  };
 }
 
 /**
@@ -249,13 +262,22 @@ export async function rescheduleLesson(
   const { data: original, error: readError } = await supabase
     .from("lessons")
     .select(
-      "student_id, organization_id, scheduled_at, duration_minutes, meet_url, status",
+      "student_id, organization_id, scheduled_at, duration_minutes, meet_url, status, teacher_id",
     )
     .eq("id", lessonId)
     .maybeSingle();
   if (readError) return { ok: false, error: readError.message };
   if (original === null || original.status !== "scheduled") {
     return { ok: false, error: "Essa aula já não está agendada." };
+  }
+  // A booked lesson (0052) is moved by cancelling it and booking again: its
+  // credits go back through cancel_lesson, never by hand.
+  if (original.teacher_id !== null) {
+    return {
+      ok: false,
+      error:
+        "Aula reservada: cancele, e o aluno reserva outro horário com os créditos de volta.",
+    };
   }
 
   const start = instantIn(date, time, await teacherZone(supabase, user.id));
@@ -277,7 +299,8 @@ export async function rescheduleLesson(
     return {
       ok: false,
       error:
-        insertError.code === UNIQUE_VIOLATION
+        insertError.code === UNIQUE_VIOLATION ||
+        insertError.code === EXCLUSION_VIOLATION
           ? "A aluna já tem aula nesse horário."
           : insertError.message,
     };

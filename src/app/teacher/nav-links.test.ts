@@ -12,6 +12,7 @@ describe("teacherLinks", () => {
         "Imagens",
         "Perguntas",
         "Aula ao vivo",
+        "Agenda",
         "Alunos",
         "Convites",
       ],
@@ -21,7 +22,7 @@ describe("teacherLinks", () => {
   test("a teacher sees only what she teaches with, in the same order", () => {
     assert.deepEqual(
       teacherLinks(false).map(({ label }) => label),
-      ["Aula ao vivo", "Alunos", "Convites"],
+      ["Aula ao vivo", "Agenda", "Alunos", "Convites"],
     );
     assert.ok(
       teacherLinks(false).every(
