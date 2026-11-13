@@ -9,6 +9,7 @@ import {
   isBadgeSource,
 } from "@/lib/badges";
 
+import { Coupons, type CouponRow } from "./coupons";
 import { FounderList, type Founder } from "./founder-list";
 import { RepairGrant } from "./repair-grant";
 import { SeatsForm } from "./seats-form";
@@ -18,28 +19,37 @@ export const metadata: Metadata = {
 };
 
 /**
- * The founders (#292, 0058), for the platform admin alone: the seats, who
- * holds a live Founder seal, the seal given by hand as a repair, and the seal
- * taken back. The seal comes normally by a coupon or an invite (#296). Every
- * write goes through the admin's own client: founder_program's policies,
- * grant_badge and revoke_badge decide.
+ * The founders (#292, 0058), for the platform admin alone: the seats, the
+ * coupons (#296, 0059), who holds a live Founder seal, the seal given by hand
+ * as a repair, and the seal taken back. The seal comes normally by a coupon
+ * or a founder invite (/teacher/invites). Every write goes through the
+ * admin's own client: founder_program's policies, create_founder_coupon,
+ * founder_coupons_update, grant_badge and revoke_badge decide.
  */
 export default async function FoundersPage() {
   const { supabase } = await requirePlatformAdmin();
 
-  const [program, left, seals, signupDoor] = await Promise.all([
-    supabase.from("founder_program").select("seats_total").maybeSingle(),
-    supabase.rpc("founder_seats_left"),
-    supabase
-      .from("person_badges")
-      .select(
-        "person_id, source, granted_at, terms_fixed_at, profiles!person_badges_person_id_fkey(full_name)",
-      )
-      .eq("badge", "founder")
-      .is("revoked_at", null)
-      .order("granted_at"),
-    supabase.from("organizations").select("id").eq("open_signup", true),
-  ]);
+  const [program, left, seals, signupDoor, couponRows, origins] =
+    await Promise.all([
+      supabase.from("founder_program").select("seats_total").maybeSingle(),
+      supabase.rpc("founder_seats_left"),
+      supabase
+        .from("person_badges")
+        .select(
+          "person_id, source, granted_at, terms_fixed_at, profiles!person_badges_person_id_fkey(full_name)",
+        )
+        .eq("badge", "founder")
+        .is("revoked_at", null)
+        .order("granted_at"),
+      supabase.from("organizations").select("id").eq("open_signup", true),
+      supabase
+        .from("founder_coupons")
+        .select(
+          "id, label, max_uses, expires_at, founder_coupon_redemptions(count)",
+        )
+        .order("created_at", { ascending: false }),
+      supabase.from("signup_origins").select("person_id, origin"),
+    ]);
   if (program.error)
     throw new Error(`founder_program: ${program.error.message}`);
   if (left.error) throw new Error(`founder_seats_left: ${left.error.message}`);
@@ -47,6 +57,32 @@ export default async function FoundersPage() {
   if (signupDoor.error) {
     throw new Error(`organizations: ${signupDoor.error.message}`);
   }
+  if (couponRows.error) {
+    throw new Error(`founder_coupons: ${couponRows.error.message}`);
+  }
+  if (origins.error) {
+    throw new Error(`signup_origins: ${origins.error.message}`);
+  }
+
+  const now = new Date();
+  const coupons: CouponRow[] = couponRows.data.map((coupon) => {
+    const open = new Date(coupon.expires_at) > now;
+    return {
+      id: coupon.id,
+      label: coupon.label,
+      uses: coupon.founder_coupon_redemptions[0]?.count ?? 0,
+      maxUses: coupon.max_uses,
+      validity: open
+        ? `vale até ${daySaoPaulo(coupon.expires_at)}`
+        : `vencido em ${daySaoPaulo(coupon.expires_at)}`,
+      open,
+    };
+  });
+  // Where a signup came from (#296, Q4): beside the name, where the repair
+  // decides.
+  const cameFrom = new Map(
+    origins.data.map((row) => [row.person_id, row.origin]),
+  );
 
   // The students of the organization a signup enters (open_signup: Chelsea
   // St's), without a live seal: who the repair may reach.
@@ -79,7 +115,10 @@ export default async function FoundersPage() {
     .filter((member) => !sealed.has(member.user_id))
     .map((member) => ({
       id: member.user_id,
-      name: member.profiles?.full_name ?? "Sem nome",
+      name: originLabel(
+        member.profiles?.full_name ?? "Sem nome",
+        cameFrom.get(member.user_id),
+      ),
     }))
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
@@ -114,6 +153,13 @@ export default async function FoundersPage() {
         />
       </section>
 
+      <section aria-labelledby="coupons" className="flex flex-col gap-3">
+        <h2 id="coupons" className="text-xl font-bold tracking-tight">
+          Cupons
+        </h2>
+        <Coupons coupons={coupons} />
+      </section>
+
       <section aria-labelledby="founders" className="flex flex-col gap-3">
         <h2 id="founders" className="text-xl font-bold tracking-tight">
           Fundadores
@@ -129,4 +175,9 @@ export default async function FoundersPage() {
       </section>
     </section>
   );
+}
+
+/** "Ana · veio pela GrifoAI" when her signup came from the GrifoAI landing. */
+function originLabel(name: string, origin: string | undefined): string {
+  return origin === "grifoai" ? `${name} · veio pela GrifoAI` : name;
 }
