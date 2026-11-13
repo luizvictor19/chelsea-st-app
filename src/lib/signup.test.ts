@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, test } from "node:test";
 
 import { resolveSite, sitesFromEnv, type Site } from "./brand.ts";
@@ -8,7 +10,10 @@ import {
   requestSignup,
   signupDoor,
   signupName,
+  SIGNUP_ORIGINS,
+  signupFounderView,
   signupOptions,
+  signupOrigin,
   signupSend,
   type SignupCalls,
 } from "./signup.ts";
@@ -266,5 +271,128 @@ describe("requestSignup: the answer of /cadastro", () => {
       assert.equal(h.tasks.length, 1, kind);
       await h.tasks[0]();
     }
+  });
+});
+
+describe("the founder coupon and the origin of a signup (#296)", () => {
+  test("ride in the metadata only when there is one", () => {
+    assert.deepEqual(
+      signupOptions(CHELSEA, "Ana", { coupon: "abcd-efgh", origin: "grifoai" })
+        .data,
+      {
+        signup: true,
+        full_name: "Ana",
+        founder_coupon: "abcd-efgh",
+        origin: "grifoai",
+      },
+    );
+    for (const extras of [{}, { coupon: "", origin: null }]) {
+      assert.deepEqual(signupOptions(CHELSEA, "Ana", extras).data, {
+        signup: true,
+        full_name: "Ana",
+      });
+    }
+  });
+
+  test("the origin is only grifoai", () => {
+    assert.equal(signupOrigin("grifoai"), "grifoai");
+    assert.equal(signupOrigin(["grifoai", "x"]), "grifoai");
+    for (const raw of ["GrifoAI", "facebook", "", null, undefined, ["x"]]) {
+      assert.equal(signupOrigin(raw), null);
+    }
+  });
+
+  test("the origins are exactly the ones signup_origins_known accepts", () => {
+    const sql = readFileSync(
+      join(
+        import.meta.dirname,
+        "..",
+        "..",
+        "supabase",
+        "migrations",
+        "0059_a_founder_comes_by_coupon_or_invite.sql",
+      ),
+      "utf8",
+    );
+    const list = /signup_origins_known check \(origin in \(([^)]*)\)\)/.exec(
+      sql,
+    )?.[1];
+    assert.ok(list !== undefined, "signup_origins_known not found");
+    assert.deepEqual(
+      [...list.matchAll(/'([^']*)'/g)].map((m) => m[1]).sort(),
+      [...SIGNUP_ORIGINS].sort(),
+    );
+  });
+
+  test("the send carries them into the invite", async () => {
+    const c = calls(async () => ({ error: null }));
+    await signupSend(EMAIL, "Ana", CHELSEA, c.calls, {
+      coupon: "FUNDADOR",
+      origin: "grifoai",
+    });
+    const options = c.recorded.invite[0][1] as ReturnType<typeof signupOptions>;
+    assert.equal(options.data.founder_coupon, "FUNDADOR");
+    assert.equal(options.data.origin, "grifoai");
+  });
+});
+
+describe("signupFounderView: the founders on /cadastro", () => {
+  test("?cupom= fills the field, which shows", () => {
+    assert.deepEqual(
+      signupFounderView({
+        coupon: " ABCD-EFGH ",
+        origin: undefined,
+        seatsLeft: 3,
+      }),
+      {
+        coupon: "ABCD-EFGH",
+        origin: null,
+        showCoupon: true,
+        seatsEnded: false,
+      },
+    );
+  });
+
+  test("?origem=grifoai hides the field and the seats, and keeps ?cupom=", () => {
+    assert.deepEqual(
+      signupFounderView({
+        coupon: "FUNDADOR",
+        origin: "grifoai",
+        seatsLeft: 0,
+      }),
+      {
+        coupon: "FUNDADOR",
+        origin: "grifoai",
+        showCoupon: false,
+        seatsEnded: false,
+      },
+    );
+  });
+
+  test("0 seats left says so; no total, or the number unread, says nothing", () => {
+    assert.equal(
+      signupFounderView({ coupon: undefined, origin: undefined, seatsLeft: 0 })
+        .seatsEnded,
+      true,
+    );
+    assert.equal(
+      signupFounderView({
+        coupon: undefined,
+        origin: undefined,
+        seatsLeft: null,
+      }).seatsEnded,
+      false,
+    );
+  });
+
+  test("an origin unknown is no origin; a list of values takes the first", () => {
+    const view = signupFounderView({
+      coupon: ["A1B2C3", "x"],
+      origin: "facebook",
+      seatsLeft: 1,
+    });
+    assert.equal(view.origin, null);
+    assert.equal(view.showCoupon, true);
+    assert.equal(view.coupon, "A1B2C3");
   });
 });

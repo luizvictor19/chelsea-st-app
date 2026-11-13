@@ -6,19 +6,31 @@ import { after } from "next/server";
 import { normalizeEmail } from "@/lib/credentials";
 import { currentSite } from "@/lib/current-site";
 import type { LinkRequestState } from "@/lib/link-request";
-import { requestSignup, signupName, signupSend } from "@/lib/signup";
+import { signupCoupon } from "@/lib/founder-coupon";
+import {
+  requestSignup,
+  signupName,
+  signupOrigin,
+  signupSend,
+} from "@/lib/signup";
 import { createInviteMailer } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { TOKEN_FIELD, verifyChallenge } from "@/lib/turnstile";
 
 import { signupDoorHere } from "./door";
 
-// The name and the address go back to the form on an error: React resets the
-// fields when the action ends.
+// The name, the address and the coupon go back to the form on an error: React
+// resets the fields when the action ends.
 export type SignupState =
   | { status: "idle" }
   | Extract<LinkRequestState, { status: "sent" }>
-  | { status: "error"; message: string; name: string; email: string };
+  | {
+      status: "error";
+      message: string;
+      name: string;
+      email: string;
+      coupon: string;
+    };
 
 /**
  * The signup of the chelsea-st brand (#275): an invite the person asks for herself.
@@ -32,6 +44,10 @@ export type SignupState =
  *
  * The site, the mailer and the client are built before the answer: inside
  * `after` the request is over.
+ *
+ * A founder coupon and the origin ride into the metadata (#296, 0059) and
+ * are dealt with by the first confirmation. The answer is the same with any
+ * coupon, good or not: the anonymous form says nothing about a code.
  */
 export async function signUp(
   _previous: SignupState,
@@ -41,12 +57,15 @@ export async function signUp(
   const door = signupDoorHere(site);
   const name = signupName(formData.get("name"));
   const email = normalizeEmail(formData.get("email"));
+  const coupon = signupCoupon(formData.get("founder_coupon"));
+  const origin = signupOrigin(formData.get("origin"));
   if (door !== "open") {
     return {
       status: "error",
       message: "As inscrições ainda não abriram por aqui.",
       name,
       email,
+      coupon,
     };
   }
 
@@ -69,14 +88,20 @@ export async function signUp(
         fetch,
       }),
     send: () =>
-      signupSend(email, name, site, {
-        invite: (address, options) =>
-          mailer.inviteUserByEmail(address, options),
-        magicLink: (address, options) =>
-          supabase.auth.signInWithOtp({ email: address, options }),
-      }),
+      signupSend(
+        email,
+        name,
+        site,
+        {
+          invite: (address, options) =>
+            mailer.inviteUserByEmail(address, options),
+          magicLink: (address, options) =>
+            supabase.auth.signInWithOtp({ email: address, options }),
+        },
+        { coupon, origin },
+      ),
     schedule: after,
     log: console,
   });
-  return state.status === "error" ? { ...state, name, email } : state;
+  return state.status === "error" ? { ...state, name, email, coupon } : state;
 }

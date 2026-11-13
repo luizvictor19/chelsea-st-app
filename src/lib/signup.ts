@@ -18,7 +18,9 @@ import type { ChallengeResult } from "./turnstile.ts";
  * { signup: true, full_name }; GoTrue's own signup stays off (#109), so the
  * public key creates no account from any host. The metadata only says "came
  * from the signup": the database picks the organization, the one with
- * open_signup, on the first confirmation (0051).
+ * open_signup, on the first confirmation (0051). Since #296 it may also carry
+ * founder_coupon, redeemed by that confirmation, and origin, recorded by it
+ * (0059).
  *
  * What GoTrue does with each kind of address, measured on the local stack on
  * 2026-11-12 (step 0 of the plan): a new one gets the account, unconfirmed,
@@ -68,23 +70,94 @@ export function signupDoor(
 }
 
 /**
+ * Where a signup may say it came from (#296, Q4): the list of the check
+ * signup_origins_known (0059), held equal by signup.test.ts. Any other value
+ * of ?origem= is no origin.
+ */
+export const SIGNUP_ORIGINS = ["grifoai"] as const;
+export type SignupOrigin = (typeof SIGNUP_ORIGINS)[number];
+
+/** The origin of ?origem= or of the form, only a known one. */
+export function signupOrigin(raw: unknown): SignupOrigin | null {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return (SIGNUP_ORIGINS as readonly unknown[]).includes(value)
+    ? (value as SignupOrigin)
+    : null;
+}
+
+/**
+ * What the signup carries besides the name (#296), into the metadata the
+ * first confirmation reads (0059): the founder coupon as typed (made normal
+ * and checked by the database, never here) and the origin.
+ */
+export type SignupExtras = {
+  readonly coupon?: string;
+  readonly origin?: SignupOrigin | null;
+};
+
+export type SignupData = {
+  signup: true;
+  full_name: string;
+  founder_coupon?: string;
+  origin?: SignupOrigin;
+};
+
+/**
  * Options of inviteUserByEmail for the signup. The link leads back to the
  * chelsea-st site the person asked from, the dev server's own origin
  * included: unlike an invite (inviteOptions), the person who asked is the
  * one who opens the email. Any other site sends no redirect, so the Site
- * URL, which is Chelsea's.
+ * URL, which is Chelsea's. The coupon and the origin go only when there is
+ * one: GoTrue keeps the metadata of the first send of an address, so an
+ * empty key would say nothing anyway.
  */
 export function signupOptions(
   site: Site | null,
   name: string,
+  extras: SignupExtras = {},
 ): {
-  data: { signup: true; full_name: string };
+  data: SignupData;
   redirectTo?: string;
 } {
-  const data = { signup: true as const, full_name: name };
+  const data: SignupData = { signup: true, full_name: name };
+  if (extras.coupon !== undefined && extras.coupon !== "") {
+    data.founder_coupon = extras.coupon;
+  }
+  if (extras.origin) {
+    data.origin = extras.origin;
+  }
   return site?.brand.key === "chelsea-st"
     ? { data, redirectTo: site.origin }
     : { data };
+}
+
+/**
+ * What /cadastro shows about the founders (#296). From the GrifoAI landing
+ * (?origem=grifoai) nothing: no coupon field and no seats, though a coupon in
+ * the address still goes (the note of 12/11). Otherwise "Tenho um cupom",
+ * open when the address brings one (?cupom=, the landing's button), and the
+ * sentence of the seats when none is left: the number founder_seats_left
+ * already gives anyone, so the form says nothing about any code.
+ */
+export function signupFounderView(input: {
+  readonly coupon: unknown;
+  readonly origin: unknown;
+  readonly seatsLeft: number | null;
+}): {
+  readonly coupon: string;
+  readonly origin: SignupOrigin | null;
+  readonly showCoupon: boolean;
+  readonly seatsEnded: boolean;
+} {
+  const raw = Array.isArray(input.coupon) ? input.coupon[0] : input.coupon;
+  const coupon = typeof raw === "string" ? raw.trim().slice(0, 128) : "";
+  const origin = signupOrigin(input.origin);
+  return {
+    coupon,
+    origin,
+    showCoupon: origin === null,
+    seatsEnded: origin === null && input.seatsLeft === 0,
+  };
 }
 
 /** GoTrue's error, as supabase-js returns it. */
@@ -115,8 +188,12 @@ export async function signupSend(
   name: string,
   site: Site | null,
   calls: SignupCalls,
+  extras: SignupExtras = {},
 ): Promise<SendOutcome> {
-  const { error } = await calls.invite(email, signupOptions(site, name));
+  const { error } = await calls.invite(
+    email,
+    signupOptions(site, name, extras),
+  );
   if (error === null) {
     return null;
   }
