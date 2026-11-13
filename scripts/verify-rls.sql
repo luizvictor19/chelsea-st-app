@@ -6990,6 +6990,337 @@ begin
 end;
 $$;
 
+-- One way to book a lesson (0054) ------------------------------------------------------
+--
+-- 0054 moves every lesson of the fixed agenda to the one active teacher of
+-- its organization, and refuses whole while an organization with such a
+-- lesson has none or more than one. So it is applied here, after the blocks
+-- that still call lesson_schedules and materialize_lessons (0042, 0047,
+-- 0048) and the one that holds a lesson without a teacher (0052), and only
+-- after the script has shown it refusing.
+--
+-- The lessons these fixtures leave: two scheduled in Chelsea St, one in
+-- Escola B, and one in Empresa C, written by postgres in the block of 0042
+-- for an organization without a teacher. Production has no lesson outside
+-- Chelsea St (measured 2026-11-13), and a lesson of an organization without a
+-- teacher has nobody to move to: the guard would refuse it, which is the
+-- design. That one leaves here. Chelsea St gets the history production has:
+-- a past lesson with "Parei aqui" and a note, a cancelled one ahead and one
+-- scheduled ahead.
+
+delete from lessons
+ where organization_id in (select id from organizations where not has_teacher);
+
+insert into lessons (student_id, scheduled_at, duration_minutes, status, teacher_note, stopped_at_point_id)
+values
+  ('22222222-2222-2222-2222-222222222222', now() - interval '10 days', 45, 'scheduled',
+   'a note of the fixed agenda', (select id from points where number = 53)),
+  ('22222222-2222-2222-2222-222222222222', now() + interval '20 days', 45, 'cancelled', null, null),
+  ('22222222-2222-2222-2222-222222222222', now() + interval '21 days', 45, 'scheduled', null, null);
+
+-- Someone who teaches in Escola B and nowhere else: the teacher of the
+-- fixtures there also teaches in Chelsea St.
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('b0540000-0000-4000-8000-000000000001', 'outsider-0054@example.com', '{"full_name":"Outsider"}');
+insert into organization_members (organization_id, user_id, role) values
+  ((select id from organizations where slug = 'escola-b'), 'b0540000-0000-4000-8000-000000000001', 'teacher');
+
+-- The migration as text, to run it inside a savepoint and watch it refuse;
+-- applied for good by the \i below.
+\set m0054 `cat supabase/migrations/0054_one_way_to_book_a_lesson.sql`
+select set_config('verify.m0054', :'m0054', false) is not null as m0054_loaded \gset
+
+-- What 0054 must keep, by the plan's query of #295: the count and a
+-- fingerprint of every lesson's student, time, length, status, mark and note.
+create function verify.lessons_fingerprint()
+returns table (lessons bigint, scheduled bigint, cancelled bigint, marked bigint,
+               noted bigint, fingerprint text)
+language sql stable as $$
+  select count(*),
+         count(*) filter (where status = 'scheduled'),
+         count(*) filter (where status = 'cancelled'),
+         count(*) filter (where stopped_at_point_id is not null),
+         count(*) filter (where teacher_note is not null),
+         md5(string_agg(
+               id::text || '|' || student_id::text || '|' || scheduled_at::text || '|' ||
+               duration_minutes::text || '|' || status::text || '|' ||
+               coalesce(stopped_at_point_id::text, '') || '|' || coalesce(teacher_note, ''),
+               ',' order by id))
+    from public.lessons;
+$$;
+
+-- Runs 0054 and undoes whatever it did; returns how it was refused, the
+-- message included, or null when it went in.
+create function verify.m0054_refusal() returns text
+language plpgsql as $$
+declare
+  v_name text;
+  v_message text;
+begin
+  begin
+    execute current_setting('verify.m0054');
+    raise exception using errcode = 'P0054';
+  exception when sqlstate 'P0054' then
+    return null;
+  end;
+exception when others then
+  get stacked diagnostics v_name = constraint_name, v_message = message_text;
+  return sqlstate || ' ' || coalesce(nullif(v_name, ''), '-') || ' ' || v_message;
+end;
+$$;
+
+do $$
+declare
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_first uuid;
+  v_second uuid;
+  v_by text;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  -- Escola B has its one teacher; Chelsea St has two with a profile, both
+  -- taking bookings.
+  insert into teachers (organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+    select m.organization_id, m.user_id, m.role, 'https://meet.example.com/escola-b',
+           'escola-b@example.com', true
+      from organization_members m
+      join organizations o on o.id = m.organization_id
+     where o.slug = 'escola-b' and m.role = 'teacher'
+     order by m.user_id
+     limit 1;
+  insert into teachers (organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+    select m.organization_id, m.user_id, m.role, 'https://meet.example.com/two-' || row_number() over (),
+           'two-' || row_number() over () || '@example.com', true
+      from organization_members m
+     where m.organization_id = v_chelsea and m.role in ('teacher', 'admin')
+     order by m.role desc, m.user_id
+     limit 2;
+  select min(id::text)::uuid, max(id::text)::uuid into v_first, v_second
+    from teachers where organization_id = v_chelsea;
+
+  -- 1. Two active teachers: refused, by name, with the count, and nothing moved.
+  v_by := verify.m0054_refusal();
+  if v_by is null then
+    insert into verify.failures values ('0054 moved the lessons of an organization with two active teachers');
+  elsif v_by not like '23514 lessons_move_to_one_teacher %(chelsea-st: 2 active teachers, 5 lessons)' then
+    insert into verify.failures values ('0054 with two active teachers refused with: ' || v_by);
+  else
+    raise notice 'with two active teachers in Chelsea St, 0054 refuses: %', v_by;
+  end if;
+
+  -- 2. None active: refused the same way.
+  update teachers set is_active = false where organization_id = v_chelsea;
+  v_by := verify.m0054_refusal();
+  if v_by is null then
+    insert into verify.failures values ('0054 moved the lessons of an organization with no active teacher');
+  elsif v_by not like '23514 lessons_move_to_one_teacher %(chelsea-st: 0 active teachers, 5 lessons)' then
+    insert into verify.failures values ('0054 with no active teacher refused with: ' || v_by);
+  else
+    raise notice 'with no active teacher in Chelsea St, 0054 refuses: %', v_by;
+  end if;
+
+  -- A refusal changed nothing.
+  if exists (select 1 from lessons where teacher_id is not null)
+     or to_regclass('public.lesson_schedules') is null
+     or to_regprocedure('public.materialize_lessons(uuid, integer)') is null then
+    insert into verify.failures values ('a refused 0054 left something changed');
+  end if;
+
+  -- Then one active teacher per organization with lessons, as Luiz does
+  -- before the push: the first of Chelsea St.
+  update teachers set is_active = true where id = v_first;
+  delete from teachers where id = v_second;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'one way to book a lesson, before: %', v_failures;
+  end if;
+end;
+$$;
+
+create temporary table lessons_before_0054 as select * from verify.lessons_fingerprint();
+
+\i supabase/migrations/0054_one_way_to_book_a_lesson.sql
+
+do $$
+declare
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  c_outsider constant uuid := 'b0540000-0000-4000-8000-000000000001';
+  v_uid text := current_setting('test.uid', true);
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_teacher record;
+  v_ahead uuid;
+  v_past uuid;
+  v_mine record;
+  v_int integer;
+  v_before integer;
+  v_failures text;
+begin
+  delete from verify.failures;
+  select * into v_teacher from teachers where organization_id = v_chelsea and is_active;
+  select id into v_ahead from lessons
+   where student_id = c_student and status = 'scheduled' and scheduled_at > now() + interval '20 days';
+  select id into v_past from lessons
+   where student_id = c_student and stopped_at_point_id is not null and scheduled_at < now();
+
+  -- 1. Every lesson, its status, time, length, mark and note, as before.
+  if (select row(f.*)::text from verify.lessons_fingerprint() f)
+     is distinct from (select row(b.*)::text from lessons_before_0054 b) then
+    insert into verify.failures values (format('the lessons changed under 0054: before %s, after %s',
+      (select row(b.*)::text from lessons_before_0054 b),
+      (select row(f.*)::text from verify.lessons_fingerprint() f)));
+  else
+    raise notice 'every lesson keeps its status, time, length, mark and note: %',
+      (select row(f.*)::text from verify.lessons_fingerprint() f);
+  end if;
+
+  -- 2. Every lesson has the active teacher of its organization, for good;
+  -- none was debited, and the ledger got no entry.
+  v_before := (select count(*) from verify.failures);
+  if exists (select 1 from lessons l
+              where not exists (select 1 from teachers t
+                                 where t.id = l.teacher_id
+                                   and t.organization_id = l.organization_id
+                                   and t.is_active)) then
+    insert into verify.failures values ('a lesson is without the active teacher of its organization');
+  end if;
+  if not (select attnotnull from pg_attribute
+           where attrelid = 'public.lessons'::regclass and attname = 'teacher_id') then
+    insert into verify.failures values ('lessons.teacher_id still takes null');
+  end if;
+  if exists (select 1 from lessons where credits_debited <> 0 or credits_refunded)
+     or exists (select 1 from credit_entries) then
+    insert into verify.failures values ('a moved lesson was debited, or the ledger got an entry');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'every lesson has the one active teacher of its organization, teacher_id is not null, and nothing was debited';
+  end if;
+
+  -- 3. The fixed agenda is gone.
+  v_before := (select count(*) from verify.failures);
+  if to_regclass('public.lesson_schedules') is not null then
+    insert into verify.failures values ('lesson_schedules still exists');
+  end if;
+  if to_regprocedure('public.materialize_lessons(uuid, integer)') is not null then
+    insert into verify.failures values ('materialize_lessons still exists');
+  end if;
+  if exists (select 1 from information_schema.columns
+              where table_schema = 'public' and column_name = 'meet_url'
+                and table_name in ('students', 'lessons')) then
+    insert into verify.failures values ('students.meet_url or lessons.meet_url still exists');
+  end if;
+  if to_regclass('public.lessons_student_slot_idx') is not null then
+    insert into verify.failures values ('lessons_student_slot_idx still exists');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'lesson_schedules, materialize_lessons, students.meet_url, lessons.meet_url and lessons_student_slot_idx are gone';
+  end if;
+
+  -- 4. Through the API a lesson is born and changes status only through the
+  -- functions: authenticated inserts, deletes and updates nothing but the
+  -- mark and the note.
+  v_before := (select count(*) from verify.failures);
+  if has_table_privilege('authenticated', 'public.lessons', 'insert')
+     or has_table_privilege('authenticated', 'public.lessons', 'delete')
+     or has_table_privilege('authenticated', 'public.lessons', 'update')
+     or not has_table_privilege('authenticated', 'public.lessons', 'select')
+     or not has_column_privilege('authenticated', 'public.lessons', 'stopped_at_point_id', 'update')
+     or not has_column_privilege('authenticated', 'public.lessons', 'teacher_note', 'update')
+     or (select count(*) from information_schema.column_privileges
+          where table_schema = 'public' and table_name = 'lessons'
+            and grantee = 'authenticated' and privilege_type = 'UPDATE') <> 2 then
+    insert into verify.failures values ('authenticated holds more on lessons than select and the update of the mark and the note');
+  end if;
+  if exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'lessons'
+                                         and policyname = 'lessons_write') then
+    insert into verify.failures values ('lessons_write still exists');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'authenticated selects lessons and updates only stopped_at_point_id and teacher_note';
+  end if;
+
+  perform set_config('test.uid', v_teacher.user_id::text, false);
+  set local role authenticated;
+  perform verify.expect_refused_undone('a teacher inserting a lesson', '42501',
+    format($q$insert into lessons (organization_id, student_id, teacher_id, scheduled_at)
+              values (%L, %L, %L, now() + interval '30 days')$q$, v_chelsea, c_student, v_teacher.id));
+  perform verify.expect_refused_undone('a teacher removing a lesson', '42501',
+    format('delete from lessons where id = %L', v_ahead));
+  perform verify.expect_refused_undone('a teacher cancelling a lesson by hand', '42501',
+    format($q$update lessons set status = 'cancelled' where id = %L$q$, v_ahead));
+  perform verify.expect_refused_undone('a teacher moving a lesson by hand', '42501',
+    format($q$update lessons set scheduled_at = scheduled_at + interval '1 day' where id = %L$q$, v_ahead));
+  perform verify.expect_accepted('a teacher writing the note of a moved lesson',
+    format($q$update lessons set teacher_note = 'nota 0054' where id = %L$q$, v_ahead));
+  perform verify.expect_accepted('a teacher marking where she stopped on a moved lesson',
+    format($q$update lessons set stopped_at_point_id = (select id from points where number = 54) where id = %L$q$, v_ahead));
+
+  -- 5. The note is written by whoever teaches in the lesson's organization:
+  -- not by its student, who reads it, nor by a teacher of another one.
+  perform set_config('test.uid', c_student::text, false);
+  update lessons set teacher_note = 'by the student' where id = v_ahead;
+  perform set_config('test.uid', c_outsider::text, false);
+  update lessons set teacher_note = 'by another organization' where id = v_ahead;
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if (select (teacher_note, (select number from points where id = stopped_at_point_id))::text
+        from lessons where id = v_ahead) is distinct from '("nota 0054",54)' then
+    insert into verify.failures values (format('the note of a lesson was written by its student or another organization: %s',
+      (select teacher_note from lessons where id = v_ahead)));
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'the note is written by whoever teaches in the organization, not by the student nor another organization';
+  end if;
+
+  -- 6. my_lessons gives a moved lesson with the teacher's name and Meet,
+  -- and nothing to give back.
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  select * into v_mine from my_lessons() where lesson_id = v_ahead;
+  reset role;
+  if v_mine.lesson_id is null
+     or v_mine.meet_url is distinct from v_teacher.meet_url
+     or v_mine.teacher_name is distinct from (select full_name from profiles where id = v_teacher.user_id)
+     or v_mine.credits_debited <> 0
+     or v_mine.refund_until is not null then
+    insert into verify.failures values ('my_lessons does not give the moved lesson with the teacher''s name and Meet');
+  else
+    raise notice 'my_lessons gives a moved lesson with the teacher''s name and Meet, and nothing to give back';
+  end if;
+
+  -- 7. Cancelled through cancel_lesson, by its teacher: nothing comes back,
+  -- and the ledger gets no entry. Its student may cancel it too.
+  perform set_config('test.uid', v_teacher.user_id::text, false);
+  set local role authenticated;
+  v_int := (select refunded_credits from cancel_lesson(v_ahead));
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if v_int <> 0
+     or (select (status, credits_refunded, cancelled_by)::text from lessons where id = v_ahead)
+        is distinct from (('cancelled'::lesson_status, false, v_teacher.user_id))::text
+     or exists (select 1 from credit_entries) then
+    insert into verify.failures values (format('cancelling a moved lesson gave back %s or wrote the ledger', v_int));
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a moved lesson is cancelled through cancel_lesson, with nothing given back and no entry';
+  end if;
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  perform verify.expect_refused_undone('a past lesson cancelled by its student', '23514 lesson_cancel_before_start',
+    format('select cancel_lesson(%L)', v_past));
+  reset role;
+
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'one way to book a lesson: %', v_failures;
+  end if;
+  raise notice 'one way to book a lesson: 0054 refuses with none or two active teachers and changes nothing; with one, every lesson gets her and keeps the rest; the fixed agenda and the Meet per student are gone; authenticated writes only the mark and the note, as whoever teaches there; a moved lesson is cancelled through cancel_lesson with nothing given back';
+end;
+$$;
+
 -- A restored copy gets back what the dump leaves out (#101, #104) --------------------
 --
 -- supabase db dump writes the schemas of the project, not storage or auth, so
