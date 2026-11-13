@@ -19,6 +19,7 @@ describe("teacherLinks", () => {
       "Convites",
       "Aulas",
       "Planos e custos",
+      "Fundadores",
       "Organizações",
     ]);
   });
@@ -38,10 +39,12 @@ describe("teacherLinks", () => {
     for (const { href } of teacherLinks(false)) {
       assert.ok(href === null || !href.startsWith("/teacher/content"));
       assert.notEqual(href, "/teacher/plans");
+      assert.notEqual(href, "/teacher/founders");
       assert.notEqual(href, "/teacher/organizations");
     }
     const admin = teacherLinks(true).map(({ href }) => href);
     assert.ok(admin.includes("/teacher/plans"));
+    assert.ok(admin.includes("/teacher/founders"));
     assert.ok(admin.includes("/teacher/organizations"));
   });
 
