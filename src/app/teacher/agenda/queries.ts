@@ -213,7 +213,8 @@ async function readBooked(
   ]);
   if (students.error) throw new Error(students.error.message);
   if (notes.error) throw new Error(notes.error.message);
-  if (invites.error) throw new Error(invites.error.message);
+  // The warnings are an aside: a failed read leaves them out, not the agenda.
+  const inviteRows = invites.error ? [] : invites.data;
 
   const names = new Map(
     students.data.map((row) => [row.id, row.profiles.full_name]),
@@ -231,7 +232,7 @@ async function readBooked(
       notes.data.find((note) => note.student_id === row.student_id)
         ?.teacher_note ?? null,
     inviteWarnings: inviteWarnings(
-      invites.data.filter((invite) => invite.lesson_id === row.id),
+      inviteRows.filter((invite) => invite.lesson_id === row.id),
     ),
   }));
 }
