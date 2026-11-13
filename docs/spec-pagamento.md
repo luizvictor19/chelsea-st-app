@@ -193,6 +193,56 @@ falhas seguidas, a fila para (os eventos ficam guardados por até 14 dias).
 - **A trilha**: 0 minutos por dia é um plano sem trilha (o Plano Fundador, hoje).
 - **O custo da aula** de cada plano: ver `docs/spec-creditos.md`, "O custo de cada ação".
 
+## A entrada do fundador (0059, #296)
+
+O selo chega por dois caminhos, os dois pelo `badge_grant` da 0058: só com vaga, e sem vaga nada
+é gasto. Dar o selo à mão em `/teacher/founders` fica como reparo.
+
+- **O cupom** (`founder_coupons`), criado pelo admin da plataforma na seção Cupons de
+  `/teacher/founders`:
+  - **geral**: ele escolhe o código (para um post, por exemplo), o número de usos e a validade;
+  - **pessoal**: o app gera um código de 12 caracteres (`XXXX-XXXX-XXXX`, sem I, L, O nem U), de
+    um uso, com validade.
+  - O código aparece uma vez, na criação, com o link `/cadastro?cupom=<código>`. O banco guarda só
+    o `sha256` do código em maiúsculas, sem espaços nem hífens: a lista mostra o nome, os usos e a
+    validade, nunca o código. "Encerrar" põe a validade em agora; um cupom nunca é apagado.
+  - O resgate confere, com a linha do cupom travada: existe, quem já tem o selo não gasta uso, não
+    venceu, a pessoa nunca o usou (também depois de perder o selo), ela é aluna de uma organização
+    da marca do cupom, ainda tem uso, e há vaga. O uso só é gravado com o selo dado.
+  - Onde se usa: no cadastro (o campo "Tenho um cupom", ou `?cupom=` da landing), que guarda o
+    código nos metadados da conta e o resgata na primeira confirmação do e-mail, depois da entrada
+    no Chelsea St; e em `/dashboard/plano`, "Tenho um cupom de fundador", para quem está sem selo,
+    com o motivo de cada recusa:
+
+    | Regra                            | Frase                                                       |
+    | -------------------------------- | ----------------------------------------------------------- |
+    | `founder_coupon_exists`          | "Esse cupom não existe. Confira o código, letra por letra." |
+    | `founder_coupon_expired`         | "Esse cupom venceu."                                        |
+    | `founder_coupon_exhausted`       | "Esse cupom já foi usado todas as vezes que podia."         |
+    | `founder_coupon_once_per_person` | "Você já usou esse cupom."                                  |
+    | `founder_coupon_brand`           | "Esse cupom não vale para a sua conta."                     |
+    | `founder_coupon_seats`           | "As vagas de fundador acabaram."                            |
+
+  - O cadastro responde igual com qualquer cupom, válido ou não. A única coisa que ele diz é o que
+    `founder_seats_left()` já diz a qualquer um: com 0 vagas, "As vagas de fundador acabaram. Você
+    pode se cadastrar e assinar outro plano."
+- **O convite de fundador** (`founder_invites`), tipo "Fundador" de `/teacher/invites`, só para o
+  admin da plataforma: um e-mail e a validade em dias, com as vagas restantes ao lado. O app manda
+  da agenda@ "Você foi convidada como fundadora", com o link `/cadastro#fundador&email=<e-mail>` (o
+  e-mail no fragmento, fora dos logs). O selo entra na primeira confirmação daquele e-mail; se a
+  conta já está confirmada, entra na hora e o e-mail é "Você ganhou o selo de fundadora". O convite
+  não guarda vaga: sem vaga na confirmação, fica aberto; sem vaga para uma conta já confirmada, a
+  gravação é recusada ("Não há vagas de fundador. Aumente o total em Fundadores."). A lista de
+  convites abertos tem Reenviar (renova pelo mesmo número de dias e manda de novo), Copiar link e
+  Cancelar. Sem `RESEND_API_KEY`, a tela mostra o link para mandar à mão.
+- **`?origem=grifoai`** (o link da seção do Chelsea St na landing da GrifoAI): o cadastro não mostra
+  o campo do cupom, nem as vagas, nem fala de fundador; um `?cupom=` na mesma URL ainda vale. A
+  origem vai nos metadados e é gravada em `signup_origins` na primeira confirmação; a tela de
+  reparo de `/teacher/founders` mostra "veio pela GrifoAI" ao lado do nome.
+- **Metadados da primeira vez**: um segundo `/cadastro` do mesmo e-mail ainda não confirmado reenvia
+  o e-mail com os metadados que ele já tinha. O cupom ou a origem do segundo cadastro não entram;
+  o caminho é "Tenho um cupom" em `/dashboard/plano`.
+
 ## Ambientes
 
 - O endereço da Asaas sai do prefixo da chave: `$aact_hmlg_` é o sandbox, `$aact_prod_` a produção.

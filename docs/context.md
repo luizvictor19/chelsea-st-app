@@ -382,6 +382,38 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
   - **The trail**: `trail_minutes_per_day` takes 0, a plan that does not open the trail.
   - The organization a signup enters (`open_signup`) is no longer offered student invites on
     `/teacher/invites`: the signup is that door. The database (0031) still accepts one.
+- A founder comes by coupon or invite since 0059 (#296, `docs/spec-pagamento.md`, "A entrada do
+  fundador"); every seal goes through `badge_grant` (source `coupon` or `invite`), so within the
+  seats:
+  - **Coupons**: `founder_coupons` keeps only the `sha256` of the code in capitals without spaces
+    or hyphens (`founder_coupon_hash`), with a brand, `max_uses` and `expires_at`; created only by
+    `create_founder_coupon` (platform admin, else 42501), never deleted (ended by `expires_at`). The
+    platform admin alone reads it and updates `label`, `max_uses`, `expires_at`.
+    `founder_coupon_redemptions` (primary key coupon and person: once per person, also after a
+    revoke) is written only by `redeem_founder_coupon`, internal and never raising, which locks the
+    coupon row and checks: exists, already a founder (no use spent), expiry, once per person, a
+    student of an organization of its brand, uses left, then `badge_grant`, and writes the use only
+    after the seal (no seat: no use). `redeem_my_founder_coupon` (`authenticated`) turns each
+    refusal into 23514 named by its rule (`founder_coupon_exists`, `_expired`, `_once_per_person`,
+    `_brand`, `_exhausted`, `_seats`).
+  - **Founder invites**: `founder_invites`, one open per e-mail (`founder_invites_one_open`), read,
+    written, renewed (`expires_at`) and cancelled (open only) by the platform admin through the API.
+    `accept_founder_invites` (internal, never raises) gives the seal on the first confirmation and
+    marks `accepted_at`; with no seat the invite stays open. The trigger
+    `founder_invites_grant_confirmed` (after insert or update of `expires_at`) gives it at once to
+    an account already confirmed with the e-mail, and lets `founder_seats_available` refuse the
+    write.
+  - **Origin**: `signup_origins` (one row per person, `origin` only `grifoai`,
+    `signup_origins_known`), written only by `record_signup_origin` (internal, never raises) from
+    the metadata of the first confirmation, read by the platform admin alone. Not on `profiles`,
+    which the person rewrites.
+  - **The first confirmation** (`accept_organization_invites_on_confirmation`, recreated by 0059 on
+    0058's body) runs, in order: organization invites, `join_by_signup`, `bind_personal_plans`,
+    `accept_founder_invites`, `redeem_founder_coupon` of the metadata's `founder_coupon` (after the
+    signup, because the coupon's brand is checked against her organization), `record_signup_origin`.
+    None of the last three raises: a bad coupon never stops a confirmation.
+  - The signup carries `founder_coupon` and `origin` in the metadata only when present
+    (`signupOptions`); GoTrue keeps the metadata of the first send of an address.
 - `leads` receives rows only through `submit_lead` (0038), executed by `anon` alone: the site's
   function calls it with the publishable key. Nobody reads `leads` through the API, and the
   service role holds nothing on it. A number sent twice is two rows (history, nothing is
