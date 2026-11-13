@@ -4,51 +4,23 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { SignOutButton } from "../auth/sign-out-button";
-import { teacherLinks, type NavLink } from "./nav-links";
-
-/*
- * Aulas has no screen yet, and is rendered as a plain disabled label
- * instead of being left out. The bar is the map of the teacher area: showing
- * every area says what the product is, and the one that is not ready reads
- * as not ready. Omitting them would hide the shape now and make the bar
- * grow under the teacher later, which is a worse surprise than a muted label.
- */
-const comingSoon = ["Aulas"] as const;
-
-/**
- * The section a pathname belongs to. Imagens and Perguntas live under
- * Conteúdo, so the longest matching href wins and only one item is ever
- * highlighted.
- */
-function activeHref(
-  links: readonly NavLink[],
-  pathname: string,
-): string | null {
-  let active: string | null = null;
-  for (const { href } of links) {
-    const matches = pathname === href || pathname.startsWith(`${href}/`);
-    if (matches && (active === null || href.length > active.length)) {
-      active = href;
-    }
-  }
-  return active;
-}
+import { activeHref, teacherLinks } from "./nav-links";
 
 export function TeacherNav({
   brandName,
   initial,
   alsoStudent,
-  writesContent,
+  platformAdmin,
 }: {
   /** The Host's brand (#194); null on an unknown host, which names none. */
   readonly brandName: string | null;
   readonly initial: string;
   /** Also a student: the admin who checks the student's screens. */
   readonly alsoStudent: boolean;
-  /** The platform admin: the content screens (0043, #211). */
-  readonly writesContent: boolean;
+  /** The platform admin: the content and platform screens (0043, #211). */
+  readonly platformAdmin: boolean;
 }) {
-  const links = teacherLinks(writesContent);
+  const links = teacherLinks(platformAdmin);
   const active = activeHref(links, usePathname());
 
   return (
@@ -67,30 +39,31 @@ export function TeacherNav({
             aria-label="Área do professor"
             className="-mx-1 flex items-center gap-1 overflow-x-auto px-1"
           >
-            {links.map(({ label, href }) => (
-              <Link
-                key={href}
-                href={href}
-                aria-current={active === href ? "page" : undefined}
-                className={
-                  active === href
-                    ? "bg-surface text-foreground rounded-sm px-3 py-1.5 text-sm font-semibold whitespace-nowrap"
-                    : "text-muted hover:text-foreground rounded-sm px-3 py-1.5 text-sm whitespace-nowrap transition-colors"
-                }
-              >
-                {label}
-              </Link>
-            ))}
-            {comingSoon.map((label) => (
-              <span
-                key={label}
-                aria-disabled="true"
-                title="Em breve"
-                className="text-faint cursor-default rounded-sm px-3 py-1.5 text-sm whitespace-nowrap"
-              >
-                {label}
-              </span>
-            ))}
+            {links.map(({ label, href }) =>
+              href === null ? (
+                <span
+                  key={label}
+                  aria-disabled="true"
+                  title="Em breve"
+                  className="text-faint cursor-default rounded-sm px-3 py-1.5 text-sm whitespace-nowrap"
+                >
+                  {label}
+                </span>
+              ) : (
+                <Link
+                  key={href}
+                  href={href}
+                  aria-current={active === href ? "page" : undefined}
+                  className={
+                    active === href
+                      ? "bg-surface text-foreground rounded-sm px-3 py-1.5 text-sm font-semibold whitespace-nowrap"
+                      : "text-muted hover:text-foreground rounded-sm px-3 py-1.5 text-sm whitespace-nowrap transition-colors"
+                  }
+                >
+                  {label}
+                </Link>
+              ),
+            )}
           </nav>
         </div>
 
