@@ -87,6 +87,7 @@ export default async function TeacherAgendaPage() {
               running: start <= now,
               progress: progressLine(lesson.progress),
               lastNote: lesson.lastNote,
+              inviteWarnings: lesson.inviteWarnings,
               refund:
                 lesson.creditsDebited > 0
                   ? `O aluno recebe ${creditsLabel(lesson.creditsDebited)} de volta.`

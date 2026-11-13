@@ -31,6 +31,8 @@ type LessonItem = {
   readonly running: boolean;
   readonly progress: string;
   readonly lastNote: string | null;
+  /** The calendar invites of the lesson that did not go (#294). */
+  readonly inviteWarnings: readonly string[];
   /** What the cancel gives the student back, said in the confirmation. */
   readonly refund: string;
 };
@@ -413,6 +415,11 @@ function LessonRow({ lesson }: { readonly lesson: LessonItem }) {
       {lesson.lastNote === null ? null : (
         <p className="text-muted text-sm">Última nota: {lesson.lastNote}</p>
       )}
+      {lesson.inviteWarnings.map((warning) => (
+        <p key={warning} className="text-accent text-sm">
+          {warning}
+        </p>
+      ))}
       <dialog
         ref={dialog}
         aria-labelledby={titleId}

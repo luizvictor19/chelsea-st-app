@@ -1,5 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
-
 import { billingDay } from "@/lib/billing/dates";
 import { siteOfBrand } from "@/lib/brand";
 import { siteConfig } from "@/lib/current-site";
@@ -11,6 +9,7 @@ import {
   billingStore,
   emailOf,
 } from "@/lib/billing/server";
+import { cronAuthorized } from "@/lib/cron-auth";
 import { runDaily } from "@/lib/credits/daily";
 
 /**
@@ -19,16 +18,13 @@ import { runDaily } from "@/lib/credits/daily";
  * runs. First the credits' step (#273), everywhere, also before billing is
  * open; then the overdue steps (Q5 of the #72 plan), only where it is.
  */
-function authorized(header: string | null): boolean {
-  const secret = process.env.CRON_SECRET ?? "";
-  if (secret.length < 32 || header === null) return false;
-  const a = Buffer.from(header);
-  const b = Buffer.from(`Bearer ${secret}`);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
 export async function GET(request: Request): Promise<Response> {
-  if (!authorized(request.headers.get("authorization"))) {
+  if (
+    !cronAuthorized(
+      request.headers.get("authorization"),
+      process.env.CRON_SECRET,
+    )
+  ) {
     return new Response(null, { status: 401 });
   }
   const log = (line: string) => console.error(line);
