@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { destinationFor, manages, practicesOnly, studies } from "@/lib/access";
 import { readAccess } from "@/lib/auth";
+import { billingOpen } from "@/lib/billing/server";
 import { currentSite } from "@/lib/current-site";
 import { createClient } from "@/lib/supabase/server";
 
@@ -13,7 +14,9 @@ import { BrandMark } from "../brand-mark";
 import { AccountPending } from "./account-pending";
 import { DailyChallenge } from "./daily-challenge";
 import { NextLessonCard } from "./next-lesson-card";
+import { readPlanScreen } from "./plano/queries";
 import { RobinPractice } from "./robin-practice";
+import { StartTrialCard } from "./start-trial-card";
 
 export const metadata: Metadata = {
   title: "Minha aula",
@@ -79,14 +82,17 @@ export default async function DashboardPage() {
     now.getTime() - LONGEST_PLAUSIBLE_LESSON_MINUTES * 60_000,
   );
 
-  const { data: lessons } = await supabase
-    .from("lessons")
-    .select("id, scheduled_at, duration_minutes, meet_url")
-    .eq("student_id", user.id)
-    .eq("status", "scheduled")
-    .gte("scheduled_at", earliest.toISOString())
-    .order("scheduled_at", { ascending: true })
-    .limit(10);
+  const [{ data: lessons }, startsTrial] = await Promise.all([
+    supabase
+      .from("lessons")
+      .select("id, scheduled_at, duration_minutes, meet_url")
+      .eq("student_id", user.id)
+      .eq("status", "scheduled")
+      .gte("scheduled_at", earliest.toISOString())
+      .order("scheduled_at", { ascending: true })
+      .limit(10),
+    offersTrial(supabase, user.id),
+  ]);
 
   // The next lesson is the first one that has not finished. Reaching back by the
   // duration rather than cutting at now() is what keeps a lesson that is already
@@ -103,6 +109,8 @@ export default async function DashboardPage() {
       <Greeting name={profile.full_name} team={manages(access)} />
 
       <PendingInvites />
+
+      {startsTrial && <StartTrialCard />}
 
       {nextLesson ? (
         <NextLessonCard
@@ -136,6 +144,43 @@ export default async function DashboardPage() {
       </Link>
     </main>
   );
+}
+
+/**
+ * A student of a chelsea-st organization, while the subscription is open, to
+ * whom /dashboard/plano would offer the trial now (#275): no subscription
+ * alive (an unfinished checkout does not count), the trial never used, and a
+ * plan on sale with trial days. The same conditions the plan screen reads,
+ * from the same query, so the card never promises what that screen does not
+ * offer. A read that fails shows no card: never offer a trial on a guess.
+ */
+async function offersTrial(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  personId: string,
+): Promise<boolean> {
+  if (!billingOpen()) {
+    return false;
+  }
+  const { data: chelsea } = await supabase
+    .from("organization_members")
+    .select("organizations!inner(brand)")
+    .eq("user_id", personId)
+    .eq("role", "student")
+    .eq("organizations.brand", "chelsea-st")
+    .limit(1);
+  if ((chelsea ?? []).length === 0) {
+    return false;
+  }
+  try {
+    const { plans, current, trialUsed } = await readPlanScreen(personId);
+    const alive =
+      current !== null &&
+      current.status !== "canceled" &&
+      current.status !== "pending";
+    return !alive && !trialUsed && (plans[0]?.trialDays ?? 0) > 0;
+  } catch {
+    return false;
+  }
 }
 
 /** The brand, "Sair da conta" and her name, on top of either dashboard. */

@@ -14,6 +14,7 @@ import {
   sitesFromEnv,
   type SiteConfig,
 } from "./brand.ts";
+import { signupOptions } from "./signup.ts";
 
 /** Production after #193: the GrifoAI domain set, on Vercel. */
 const PRODUCTION = sitesFromEnv({
@@ -197,8 +198,9 @@ describe("the email templates in docs/commands.md", () => {
     ) {
       starts.push(doc.slice(Math.max(0, at - START.length), at));
     }
-    // Four in the summary table and four in the bodies.
-    assert.equal(starts.length, 8);
+    // Four in the summary table and five in the bodies: the invite has the
+    // signup's link too (#275).
+    assert.equal(starts.length, 9);
     for (const start of starts) {
       assert.equal(start, START);
     }
@@ -226,6 +228,9 @@ describe("the email templates in docs/commands.md", () => {
       origins("localhost:3100", dev).magicLink,
       origins("127.0.0.1:3100", dev).magicLink,
       origins("grifoai.localhost:3100", dev).magicLink,
+      signupOptions(resolveSite("app.chelsea-st.com", PRODUCTION), "")
+        .redirectTo,
+      signupOptions(resolveSite("127.0.0.1:3100", dev), "").redirectTo,
     ];
     for (const origin of sent) {
       assert.ok(origin && listed.has(origin), `${origin} is not listed`);
@@ -236,5 +241,24 @@ describe("the email templates in docs/commands.md", () => {
       }
       assert.equal(new URL(origin).origin, origin);
     }
+  });
+
+  test("the invite has the signup's branch, on .Data.signup, to /set-password", () => {
+    // The metadata signupOptions sends (#275) is what the template reads.
+    assert.equal(signupOptions(null, "Ana").data.signup, true);
+    const invite = doc.slice(
+      doc.indexOf("{{ if .Data.signup }}\n"),
+      doc.indexOf("{{ else }}\n"),
+    );
+    assert.ok(invite.length > 0, "no signup branch in the invite body");
+    assert.match(invite, /Confirme o seu cadastro na \{\{ \$marca \}\}/);
+    assert.match(
+      invite,
+      /\{\{ \$origem \}\}\/auth\/callback\?token_hash=\{\{ \.TokenHash \}\}&type=invite&next=\/set-password/,
+    );
+    assert.match(
+      doc,
+      /\{\{ if \.Data\.signup \}\}Confirme o seu cadastro na \{\{ \$marca \}\}\{\{ else \}\}Seu convite para a \{\{ \$marca \}\}\{\{ end \}\}/,
+    );
   });
 });

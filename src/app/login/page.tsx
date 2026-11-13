@@ -5,17 +5,21 @@ import { pageMetadata } from "@/lib/brand";
 import { currentSite } from "@/lib/current-site";
 
 import { BrandMark } from "../brand-mark";
+import { signupDoorHere } from "../cadastro/door";
 import { PasswordForm } from "./password-form";
 
 export async function generateMetadata(): Promise<Metadata> {
   return pageMetadata(await currentSite(), "Entrar", "/login");
 }
 
-export default function LoginPage({
+export default async function LoginPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
+  // The way to /cadastro, only where it takes people (#275).
+  const signup = signupDoorHere(await currentSite()) === "open";
+
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 p-6">
       <div className="flex flex-col gap-3">
@@ -34,6 +38,16 @@ export default function LoginPage({
         </Link>
         .
       </p>
+
+      {signup && (
+        <p className="text-muted text-sm">
+          Ainda não tem conta?{" "}
+          <Link href="/cadastro" className="text-foreground underline">
+            Cadastre-se
+          </Link>
+          .
+        </p>
+      )}
     </main>
   );
 }

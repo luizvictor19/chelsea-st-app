@@ -357,6 +357,12 @@ language plpgsql security definer as $$ begin end; $$;
 -- block of 0049.
 \i supabase/migrations/0050_a_credit_is_an_entry_never_an_edit.sql
 
+-- 0051 gives organizations open_signup, opens it on Chelsea St, and makes the
+-- trigger of the first confirmation also call join_by_signup. No fixture below
+-- signs up, so none joins by it; its block, "A signup opens one door (0051)",
+-- runs after the fixtures.
+\i supabase/migrations/0051_a_signup_opens_one_door.sql
+
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
   ('22222222-2222-2222-2222-222222222222', 'student@example.com', null);
@@ -6144,6 +6150,257 @@ $$;
 
 drop extension dblink;
 
+
+-- A signup opens one door (0051) ------------------------------------------------------
+--
+-- An account whose metadata says signup (the invite /cadastro asks for, #275)
+-- joins, on the first confirmation of its email, the one organization with
+-- open_signup, as a student: Chelsea St since 0051. Without signup nobody
+-- joins by it, and the invite path stays as it was. An invite accepted in the
+-- same confirmation wins, in any role: a company's student stays in the
+-- company alone, a teacher or an admin gets no student role beside hers. Metadata
+-- changed after the confirmation, and a second confirmation, make nobody a
+-- member. With the door closed a signup joins nothing, and fails nothing.
+-- The door: only an organization of the brand chelsea-st with a teacher, each
+-- clause refused by organizations_open_signup_chelsea on its own; one at a
+-- time, by organizations_one_open_signup; changed by the platform admin and
+-- not by the admin of the organization. join_by_signup is executed by nobody.
+-- Nothing written here is kept, and the door ends open as 0051 leaves it.
+
+do $$
+declare
+  c_platform_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_new constant uuid := 'b0510000-0000-4000-8000-000000000001';
+  c_plain constant uuid := 'b0510000-0000-4000-8000-000000000002';
+  c_false constant uuid := 'b0510000-0000-4000-8000-000000000003';
+  c_employee constant uuid := 'b0510000-0000-4000-8000-000000000004';
+  c_later constant uuid := 'b0510000-0000-4000-8000-000000000005';
+  c_closed constant uuid := 'b0510000-0000-4000-8000-000000000006';
+  c_chelsea_admin constant uuid := 'b0510000-0000-4000-8000-000000000007';
+  c_teacher constant uuid := 'b0510000-0000-4000-8000-000000000008';
+  c_company_admin constant uuid := 'b0510000-0000-4000-8000-000000000009';
+  c_people constant uuid[] := array[c_new, c_plain, c_false, c_employee, c_later,
+                                    c_closed, c_chelsea_admin, c_teacher, c_company_admin];
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_b uuid := (select id from organizations where slug = 'escola-b');
+  v_company uuid;
+  v_without uuid;
+  v_second uuid;
+  v_uid text := current_setting('test.uid', true);
+  v_role text;
+  v_before integer;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  v_before := (select count(*) from verify.failures);
+  if not (select open_signup from organizations where id = v_chelsea) then
+    insert into verify.failures values ('Chelsea St does not have the door open after 0051');
+  end if;
+  if (select count(*) from organizations where open_signup) <> 1 then
+    insert into verify.failures values ('another organization than Chelsea St has the door open after 0051');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'after 0051 Chelsea St, and only it, has the door open';
+  end if;
+
+  -- 1. A signup, confirmed, is a student of Chelsea St.
+  v_before := (select count(*) from verify.failures);
+  insert into auth.users (id, email, raw_user_meta_data)
+    values (c_new, 'signup-0051@example.com', '{"signup": true, "full_name": "Nova Aluna"}');
+  if exists (select 1 from organization_members where user_id = c_new) then
+    insert into verify.failures values ('an unconfirmed signup joined an organization');
+  end if;
+  update auth.users set email_confirmed_at = now() where id = c_new;
+  if not exists (select 1 from organization_members
+                  where user_id = c_new and organization_id = v_chelsea and role = 'student') then
+    insert into verify.failures values ('a confirmed signup is not a student member of Chelsea St');
+  end if;
+  if not exists (select 1 from students where id = c_new and organization_id = v_chelsea) then
+    insert into verify.failures values ('a confirmed signup has no students row in Chelsea St');
+  end if;
+  if (select count(*) from organization_members where user_id = c_new) <> 1 then
+    insert into verify.failures values ('a confirmed signup holds more than the one membership');
+  end if;
+  if (select full_name from profiles where id = c_new) is distinct from 'Nova Aluna' then
+    insert into verify.failures values ('a signup''s profile does not carry the name she typed');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a signup joins Chelsea St as a student on the first confirmation, not before, with her name';
+  end if;
+
+  -- 2. Without signup, confirmed at birth or later, nobody joins by it.
+  v_before := (select count(*) from verify.failures);
+  insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at)
+    values (c_plain, 'plain-0051@example.com', '{"full_name": "Sem Cadastro"}', now());
+  insert into auth.users (id, email, raw_user_meta_data)
+    values (c_false, 'false-0051@example.com', '{"signup": false}');
+  update auth.users set email_confirmed_at = now() where id = c_false;
+  if exists (select 1 from organization_members where user_id in (c_plain, c_false)) then
+    insert into verify.failures values ('an account without signup joined an organization with no invite');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'an account without signup, or with signup false, joins nothing with no invite';
+  end if;
+
+  -- 3. A company's student invite accepted in the same confirmation wins.
+  v_before := (select count(*) from verify.failures);
+  insert into organizations (slug, name, brand, has_teacher)
+    values ('empresa-0051', 'Empresa 0051', 'grifoai', false) returning id into v_company;
+  insert into organization_invites (organization_id, email, role, invited_by)
+    values (v_company, 'employee-0051@example.com', 'student', c_platform_admin);
+  insert into auth.users (id, email, raw_user_meta_data)
+    values (c_employee, 'employee-0051@example.com', '{"signup": true}');
+  update auth.users set email_confirmed_at = now() where id = c_employee;
+  if not exists (select 1 from students where id = c_employee and organization_id = v_company) then
+    insert into verify.failures values ('the company invite was not accepted for a signup');
+  end if;
+  if exists (select 1 from organization_members where user_id = c_employee and organization_id = v_chelsea) then
+    insert into verify.failures values ('a student of a company joined Chelsea St by the signup');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a student invite of a company, accepted in the same confirmation, wins over the signup';
+  end if;
+
+  -- 3b. So does an invite in another role: a teacher of Chelsea St, the admin
+  -- of a company. The signup adds no student beside it.
+  v_before := (select count(*) from verify.failures);
+  insert into organization_invites (organization_id, email, role, invited_by) values
+    (v_chelsea, 'teacher-0051@example.com', 'teacher', c_platform_admin),
+    (v_company, 'company-admin-0051@example.com', 'admin', c_platform_admin);
+  insert into auth.users (id, email, raw_user_meta_data) values
+    (c_teacher, 'teacher-0051@example.com', '{"signup": true}'),
+    (c_company_admin, 'company-admin-0051@example.com', '{"signup": true}');
+  update auth.users set email_confirmed_at = now() where id in (c_teacher, c_company_admin);
+  if not exists (select 1 from organization_members
+                  where user_id = c_teacher and organization_id = v_chelsea and role = 'teacher')
+     or not exists (select 1 from organization_members
+                     where user_id = c_company_admin and organization_id = v_company and role = 'admin') then
+    insert into verify.failures values ('a teacher or admin invite was not accepted for a signup');
+  end if;
+  if exists (select 1 from organization_members
+              where user_id in (c_teacher, c_company_admin) and role = 'student')
+     or exists (select 1 from students where id in (c_teacher, c_company_admin)) then
+    insert into verify.failures values ('a teacher or admin invite accepted with a signup also made a student');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a teacher or admin invite, accepted in the same confirmation, wins over the signup too';
+  end if;
+
+  -- 6. Only the first confirmation counts.
+  v_before := (select count(*) from verify.failures);
+  insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at)
+    values (c_later, 'later-0051@example.com', '{"full_name": "Depois"}', now());
+  update auth.users set raw_user_meta_data = '{"signup": true}' where id = c_later;
+  update auth.users set email_confirmed_at = now() where id = c_later;
+  if exists (select 1 from organization_members where user_id = c_later) then
+    insert into verify.failures values ('signup written after the first confirmation made a member');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'signup written after the first confirmation, and a second confirmation, make nobody a member';
+  end if;
+
+  -- With the door closed a signup joins nothing, and the confirmation goes through.
+  v_before := (select count(*) from verify.failures);
+  update organizations set open_signup = false where id = v_chelsea;
+  insert into auth.users (id, email, raw_user_meta_data)
+    values (c_closed, 'closed-0051@example.com', '{"signup": true}');
+  update auth.users set email_confirmed_at = now() where id = c_closed;
+  if exists (select 1 from organization_members where user_id = c_closed) then
+    insert into verify.failures values ('a signup joined an organization with every door closed');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'with every door closed a signup is confirmed and joins nothing';
+  end if;
+
+  -- 4. Only chelsea-st with a teacher opens the door, each clause on its own.
+  -- Chelsea's door is closed here, so the unique index cannot answer first.
+  perform verify.expect_named_refusal(
+    'a company with a teacher opens the door', '23514 organizations_open_signup_chelsea',
+    format('update organizations set open_signup = true where id = %L', v_b));
+  insert into organizations (slug, name, brand, has_teacher)
+    values ('chelsea-0051-sem-professor', 'Chelsea sem professor', 'chelsea-st', false)
+    returning id into v_without;
+  perform verify.expect_named_refusal(
+    'a chelsea-st organization without a teacher opens the door', '23514 organizations_open_signup_chelsea',
+    format('update organizations set open_signup = true where id = %L', v_without));
+  perform verify.expect_named_refusal(
+    'a company without a teacher opens the door', '23514 organizations_open_signup_chelsea',
+    format('update organizations set open_signup = true where id = %L', v_company));
+
+  -- 5. One door at a time. A door the cases above opened by mistake is
+  -- closed first, so a refusal missing there does not hide this one.
+  update organizations set open_signup = false where open_signup;
+  update organizations set open_signup = true where id = v_chelsea;
+  insert into organizations (slug, name, brand, has_teacher)
+    values ('chelsea-0051-segunda', 'Chelsea segunda', 'chelsea-st', true)
+    returning id into v_second;
+  perform verify.expect_named_refusal(
+    'a second organization opens the door', '23505 organizations_one_open_signup',
+    format('update organizations set open_signup = true where id = %L', v_second));
+
+  -- 7. The admin of Chelsea St, not a platform admin, does not move the door;
+  -- the platform admin does.
+  v_before := (select count(*) from verify.failures);
+  insert into auth.users (id, email, email_confirmed_at)
+    values (c_chelsea_admin, 'chelsea-admin-0051@example.com', now());
+  insert into organization_members (organization_id, user_id, role)
+    values (v_chelsea, c_chelsea_admin, 'admin');
+  set local role authenticated;
+  perform set_config('test.uid', c_chelsea_admin::text, false);
+  update organizations set open_signup = false where id = v_chelsea;
+  reset role;
+  if not (select open_signup from organizations where id = v_chelsea) then
+    insert into verify.failures values ('the admin of Chelsea St, not a platform admin, closed its door');
+    update organizations set open_signup = true where id = v_chelsea;
+  end if;
+  set local role authenticated;
+  perform set_config('test.uid', c_platform_admin::text, false);
+  update organizations set open_signup = false where id = v_chelsea;
+  reset role;
+  if (select open_signup from organizations where id = v_chelsea) then
+    insert into verify.failures values ('the platform admin could not close the door');
+  end if;
+  set local role authenticated;
+  update organizations set open_signup = true where id = v_chelsea;
+  reset role;
+  if not (select open_signup from organizations where id = v_chelsea) then
+    insert into verify.failures values ('the platform admin could not open the door');
+    update organizations set open_signup = true where id = v_chelsea;
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'only the platform admin moves the door, not the admin of the organization';
+  end if;
+
+  -- 8. join_by_signup is executed by nobody, as the trigger functions.
+  v_before := (select count(*) from verify.failures);
+  foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+    if has_function_privilege(v_role, 'public.join_by_signup(uuid, jsonb)', 'execute') then
+      insert into verify.failures values (format('%s executes join_by_signup', v_role));
+    end if;
+  end loop;
+  if not (select prosecdef from pg_proc where oid = 'public.join_by_signup(uuid, jsonb)'::regprocedure) then
+    insert into verify.failures values ('join_by_signup is not security definer');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'join_by_signup is security definer and executed by nobody';
+  end if;
+
+  -- Nothing written here is kept.
+  delete from students where id = any (c_people);
+  delete from organization_members where user_id = any (c_people);
+  delete from organization_invites where email like '%-0051@example.com';
+  delete from profiles where id = any (c_people);
+  delete from auth.users where id = any (c_people);
+  delete from organizations where id in (v_company, v_without, v_second);
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a signup opens one door: %', v_failures;
+  end if;
+end;
+$$;
 
 -- A restored copy gets back what the dump leaves out (#101, #104) --------------------
 --

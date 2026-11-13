@@ -75,6 +75,15 @@ Settings > Environment Variables, by name only (values live in Vercel and in `.e
     Preview      NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
                  NEXT_PUBLIC_TEACHER_CONTACT_EMAIL
 
+`NEXT_PUBLIC_TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` (#275), Production only, the second
+as a Secret: the widget of `/cadastro`, created in the Cloudflare dashboard (Turnstile, Add widget,
+hostname `app.chelsea-st.com` and no other, mode Managed). The server does not compare the
+hostname siteverify returns: the widget's list is what keeps a token solved elsewhere out, so
+`localhost` or a preview never enters it. Without both the signup stays closed ("As inscrições
+abrem em breve"), as it does while there is no Asaas key; a preview never has the page. Locally,
+Cloudflare's test keys stand in: site key `1x00000000000000000000AA` and secret
+`1x0000000000000000000000000000000AA` always pass, and a real secret refuses their token.
+
 `GRIFOAI_HOST` (the GrifoAI domain, server only) enters Production only after #193, when the
 domain exists; until then it stays unset and nothing changes. A preview has no allowlisted host, so
 it always shows the neutral brand.
@@ -233,7 +242,15 @@ matches a Redirect URL; otherwise, and when nothing is sent (a host outside the 
 preview), it puts the Site URL in `{{ .RedirectTo }}`.
 
 Authentication > Sign In / Providers: "Allow new users to sign up" off (#109). Nobody gets an
-account without an invite; `inviteUserByEmail` is an admin call and still works.
+account without an invite; `inviteUserByEmail` is an admin call and still works. The signup of
+Chelsea St (#275) goes through it too, from the server, behind Turnstile: the switch stays off.
+
+Authentication > Rate Limits: the emails sent per hour are one cap for the whole project, and the
+public `/cadastro` spends from it, as the magic link and "Esqueci minha senha" do. Measured on the
+local stack on 2026-11-12, `inviteUserByEmail` has no limit per address (two invites to the same
+address, one right after the other, both went out), so Turnstile is the only thing between the form and that
+cap. Check the value there before the signup opens, and the Resend plan's quota, which the same
+SMTP spends.
 
 Authentication > Providers > Email: minimum password length 8, and Email OTP Expiration 86400
 seconds (24 hours, the most Supabase allows). The invite stays open 15 days in `organization_invites`,
@@ -270,6 +287,13 @@ sent before #196 (a rollback, another branch), gets the Site URL in the link: it
 only loses the host it was asked from. The order between a deploy and a template change does not
 break a link.
 
+The invite template has two branches since #275. The signup of Chelsea St (`/cadastro`) is an
+invite the person asks for: the server calls `inviteUserByEmail` with the metadata
+`{ signup: true, full_name }`, which the template reads as `.Data.signup` (measured on the local
+stack on 2026-11-12: the subject and the body of the branch arrived in Mailpit). A signup always
+sends a Chelsea St origin, so its email says Chelsea St. An organization's invite has no `signup`
+and keeps the text it had.
+
 Every template is in Portuguese, like every string a teacher or student reads. Subject and body
 of each (#196; the ones before named Chelsea St and used `{{ .SiteURL }}` alone):
 
@@ -281,13 +305,20 @@ of each (#196; the ones before named Chelsea St and used `{{ .SiteURL }}` alone)
     <p><a href="{{ $origem }}/auth/callback?token_hash={{ .TokenHash }}&type=email">Confirmar e-mail</a></p>
     <p>Se não foi você, ignore esta mensagem.</p>
 
-    Subject: {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}Seu convite para a {{ $marca }}
+    Subject: {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}{{ if .Data.signup }}Confirme o seu cadastro na {{ $marca }}{{ else }}Seu convite para a {{ $marca }}{{ end }}
 
     {{ $origem := .SiteURL }}{{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "https://app.chelsea-st.com" "http://localhost:3100" "http://127.0.0.1:3100" }}{{ $origem = .RedirectTo }}{{ end }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $origem = .RedirectTo }}{{ $marca = "GrifoAI" }}{{ end }}
+    {{ if .Data.signup }}
+    <h2>Confirme o seu cadastro na {{ $marca }}</h2>
+    <p>Clique no link abaixo para confirmar este e-mail e escolher a sua senha.</p>
+    <p><a href="{{ $origem }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/set-password">Confirmar e escolher a senha</a></p>
+    <p>O link vale por 24 horas. Se ele vencer, peça um novo em "Esqueci minha senha", na tela de entrar, com este e-mail. Se não foi você que se cadastrou, ignore esta mensagem.</p>
+    {{ else }}
     <h2>Você foi convidada para a {{ $marca }}</h2>
     <p>Clique no link abaixo para escolher a sua senha e entrar.</p>
     <p><a href="{{ $origem }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/set-password">Aceitar o convite</a></p>
     <p>O link vale por 24 horas. Se ele vencer, peça um novo em "Esqueci minha senha", na tela de entrar, com este e-mail.</p>
+    {{ end }}
 
     Subject: {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}Seu link para entrar na {{ $marca }}
 

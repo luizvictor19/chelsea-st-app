@@ -955,6 +955,7 @@ export type Database = {
           has_teacher: boolean;
           id: string;
           name: string;
+          open_signup: boolean;
           slug: string;
         };
         ComputedFields: never;
@@ -964,6 +965,7 @@ export type Database = {
           has_teacher: boolean;
           id?: string;
           name: string;
+          open_signup?: boolean;
           slug: string;
         };
         Update: {
@@ -972,6 +974,7 @@ export type Database = {
           has_teacher?: boolean;
           id?: string;
           name?: string;
+          open_signup?: boolean;
           slug?: string;
         };
         Relationships: [];
@@ -2002,6 +2005,10 @@ export type Database = {
       };
       is_platform_admin: { Args: Record<PropertyKey, never>; Returns: boolean };
       is_reference_list: { Args: { p_paths: string[] }; Returns: boolean };
+      join_by_signup: {
+        Args: { p_meta: Json; p_user: string };
+        Returns: undefined;
+      };
       materialize_lessons: {
         Args: { p_student_id: string; p_weeks?: number };
         Returns: number;
