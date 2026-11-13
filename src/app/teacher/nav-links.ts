@@ -11,6 +11,7 @@ const CONTENT: readonly NavLink[] = [
 /** What whoever teaches opens. */
 const TEACHING: readonly NavLink[] = [
   { label: "Aula ao vivo", href: "/teacher/lesson" },
+  { label: "Agenda", href: "/teacher/agenda" },
   { label: "Alunos", href: "/teacher/students" },
   { label: "Convites", href: "/teacher/invites" },
 ];

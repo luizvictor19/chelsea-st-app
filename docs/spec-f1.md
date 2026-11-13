@@ -155,6 +155,66 @@ Sem migration: as tabelas, as policies e `materialize_lessons` da 0003 bastam.
   cancelar: uma linha cancelada bloquearia a vaga se o horário voltasse. A aula em
   andamento, as passadas e as canceladas ficam. A confirmação diz quantas saem.
 
+## Reserva de aula (#276)
+
+Migration 0052. A agenda nova convive com a fixa (a seção acima) até a #295, que tira a fixa e
+leva as aulas de hoje para cá. O convite de agenda por e-mail (`.ics`) é a #294; o preço com o
+selo Fundador, a #292.
+
+- **O professor:** uma linha em `teachers` por pessoa e organização, presa à filiação de quem
+  ensina ali. Guarda o link do Meet (um por professor, só `https://`), o "e-mail da agenda"
+  (pode ser outro que o do login) e "aceito reservas". Só aceita reservas com o Meet e o e-mail
+  da agenda preenchidos. Um segundo professor é convite de professor mais esse cadastro.
+- **Os horários livres:** janelas semanais (dia, início e fim, no fuso do professor) e folgas (de
+  um instante a outro). Os horários reserváveis não são gravados: o banco os calcula na hora, a
+  partir das janelas, das folgas e das aulas já marcadas.
+- **As regras numéricas**, numa função só (`lesson_rules()`), mudadas por migration:
+  - aula de 50 min, um horário a cada 60 min dentro da janela;
+  - a reserva fecha 12 h antes do início e abre até 8 semanas à frente;
+  - o cancelamento do aluno devolve os créditos até 1 h antes do início.
+- **Reservar:** o aluno escolhe o professor (pulado quando há um só), vê os horários livres da
+  semana no próprio fuso e o custo, e confirma ("Reservar por N créditos"). O banco grava a aula
+  e debita o custo da aula do saldo dele, na mesma transação, com a referência
+  `lesson:<id da aula>`. Saldo que não cobre recusa tudo: nem aula, nem débito. O custo vem de
+  `credit_cost` (#273), nunca do código.
+- **Cancelar:**
+  - o aluno cancela a aula que reservou até o início (a aula da agenda fixa é do professor); até 1 h antes recebe de volta o que pagou
+    (não o preço do dia); depois, a aula é cancelada e nada volta;
+  - o professor da aula, o admin da organização ou o admin da plataforma cancelam até o fim
+    previsto, e o estorno é sempre integral;
+  - a falta não tem botão: a aula sem cancelamento já não devolve;
+  - remarcar é cancelar e reservar de novo.
+- **Duas aulas no mesmo horário:** o banco recusa duas aulas do mesmo professor, ou do mesmo
+  aluno, que se cruzem, venham de onde vierem. Uma aula da agenda fixa (sem professor) ocupa o
+  horário de todos os professores da organização dela na reserva; a agenda fixa, porém, ainda pode
+  gravar uma aula sua por cima da aula reservada de outro aluno, até a #295. Um professor em duas
+  organizações tem o horário ocupado nas duas.
+- **Escrever direto em `lessons`:** ninguém cria aula com professor nem muda status, horário,
+  aluno, professor, débito ou cancelamento de uma aula reservada pelo navegador; só as funções da
+  reserva e do cancelamento. "Parei aqui" e a nota continuam.
+- **Some nas organizações sem professor:** as funções da reserva recusam ali, e a tela não
+  mostra "Reservar aula" a quem só pratica.
+
+Rotas:
+
+| Rota                 | Quem                | O quê                                                                                    |
+| -------------------- | ------------------- | ---------------------------------------------------------------------------------------- |
+| `/teacher/agenda`    | quem ensina         | perfil (Meet, e-mail da agenda, aceito reservas), janelas, folgas e as próximas reservas |
+| `/dashboard/lessons` | aluno com professor | horários livres, custo, saldo, reservar; as próximas aulas com "Cancelar"                |
+| `/dashboard`         | aluno               | a próxima aula vem das reservas, com o Meet do professor; vazia, oferece "Reservar aula" |
+
+Estados da tela do aluno:
+
+- sem professor aceitando reservas: "Nenhum professor com horários abertos agora";
+- custo da aula não definido: "As aulas ainda não estão à venda";
+- sem horário livre na semana: "Nenhum horário livre nesta semana", com a semana seguinte;
+- saldo menor que o custo: o horário aparece, e a reserva diz que faltam créditos;
+- depois de cancelar, a mensagem diz o que de fato aconteceu: "N créditos devolvidos" ou "Aula
+  cancelada, sem devolução".
+
+Antes da aula, o professor vê em cada reserva onde o aluno parou (o último "Parei aqui") e a
+última nota. O painel do Robin entra com a #255.
+
 ## Critérios de aceite
 
 1. Pedir magic link com e-mail cadastrado leva à sessão ativa depois do clique.

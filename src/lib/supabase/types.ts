@@ -753,7 +753,11 @@ export type Database = {
       };
       lessons: {
         Row: {
+          cancelled_at: string | null;
+          cancelled_by: string | null;
           created_at: string;
+          credits_debited: number;
+          credits_refunded: boolean;
           duration_minutes: number;
           id: string;
           meet_url: string | null;
@@ -762,11 +766,16 @@ export type Database = {
           status: Database["public"]["Enums"]["lesson_status"];
           stopped_at_point_id: string | null;
           student_id: string;
+          teacher_id: string | null;
           teacher_note: string | null;
         };
         ComputedFields: never;
         Insert: {
+          cancelled_at?: string | null;
+          cancelled_by?: string | null;
           created_at?: string;
+          credits_debited?: number;
+          credits_refunded?: boolean;
           duration_minutes?: number;
           id?: string;
           meet_url?: string | null;
@@ -775,10 +784,15 @@ export type Database = {
           status?: Database["public"]["Enums"]["lesson_status"];
           stopped_at_point_id?: string | null;
           student_id: string;
+          teacher_id?: string | null;
           teacher_note?: string | null;
         };
         Update: {
+          cancelled_at?: string | null;
+          cancelled_by?: string | null;
           created_at?: string;
+          credits_debited?: number;
+          credits_refunded?: boolean;
           duration_minutes?: number;
           id?: string;
           meet_url?: string | null;
@@ -787,9 +801,17 @@ export type Database = {
           status?: Database["public"]["Enums"]["lesson_status"];
           stopped_at_point_id?: string | null;
           student_id?: string;
+          teacher_id?: string | null;
           teacher_note?: string | null;
         };
         Relationships: [
+          {
+            foreignKeyName: "lessons_cancelled_by_fkey";
+            columns: ["cancelled_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "lessons_stopped_at_point_fkey";
             columns: ["stopped_at_point_id"];
@@ -802,6 +824,13 @@ export type Database = {
             columns: ["organization_id", "student_id"];
             isOneToOne: false;
             referencedRelation: "students";
+            referencedColumns: ["organization_id", "id"];
+          },
+          {
+            foreignKeyName: "lessons_teacher_fkey";
+            columns: ["organization_id", "teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "teachers";
             referencedColumns: ["organization_id", "id"];
           },
         ];
@@ -1634,6 +1663,143 @@ export type Database = {
           },
         ];
       };
+      teacher_availability: {
+        Row: {
+          created_at: string;
+          end_time: string;
+          id: string;
+          organization_id: string;
+          start_time: string;
+          teacher_id: string;
+          timezone: string;
+          weekday: number;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          end_time: string;
+          id?: string;
+          organization_id: string;
+          start_time: string;
+          teacher_id: string;
+          timezone: string;
+          weekday: number;
+        };
+        Update: {
+          created_at?: string;
+          end_time?: string;
+          id?: string;
+          organization_id?: string;
+          start_time?: string;
+          teacher_id?: string;
+          timezone?: string;
+          weekday?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "teacher_availability_teacher_fkey";
+            columns: ["organization_id", "teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "teachers";
+            referencedColumns: ["organization_id", "id"];
+          },
+        ];
+      };
+      teacher_time_off: {
+        Row: {
+          created_at: string;
+          ends_at: string;
+          id: string;
+          organization_id: string;
+          starts_at: string;
+          teacher_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          ends_at: string;
+          id?: string;
+          organization_id: string;
+          starts_at: string;
+          teacher_id: string;
+        };
+        Update: {
+          created_at?: string;
+          ends_at?: string;
+          id?: string;
+          organization_id?: string;
+          starts_at?: string;
+          teacher_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "teacher_time_off_teacher_fkey";
+            columns: ["organization_id", "teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "teachers";
+            referencedColumns: ["organization_id", "id"];
+          },
+        ];
+      };
+      teachers: {
+        Row: {
+          calendar_email: string | null;
+          created_at: string;
+          id: string;
+          is_active: boolean;
+          meet_url: string | null;
+          member_role: Database["public"]["Enums"]["organization_role"];
+          organization_id: string;
+          updated_at: string;
+          user_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          calendar_email?: string | null;
+          created_at?: string;
+          id?: string;
+          is_active?: boolean;
+          meet_url?: string | null;
+          member_role: Database["public"]["Enums"]["organization_role"];
+          organization_id: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          calendar_email?: string | null;
+          created_at?: string;
+          id?: string;
+          is_active?: boolean;
+          meet_url?: string | null;
+          member_role?: Database["public"]["Enums"]["organization_role"];
+          organization_id?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "teachers_membership_fkey";
+            columns: ["organization_id", "user_id", "member_role"];
+            isOneToOne: false;
+            referencedRelation: "organization_members";
+            referencedColumns: ["organization_id", "user_id", "role"];
+          },
+          {
+            foreignKeyName: "teachers_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teachers_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       vocabulary_items: {
         Row: {
           approved_attempt_id: string | null;
@@ -1870,6 +2036,28 @@ export type Database = {
         Args: { p_day: number; p_payment_id: string };
         Returns: boolean;
       };
+      book_lesson: {
+        Args: { p_starts_at: string; p_teacher: string };
+        Returns: {
+          balance: number;
+          credits_debited: number;
+          lesson_id: string;
+        }[];
+      };
+      bookable_slots: {
+        Args: { p_from: string; p_teacher: string; p_to: string };
+        Returns: {
+          starts_at: string;
+        }[];
+      };
+      bookable_teachers: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          full_name: string;
+          lesson_credits: number;
+          teacher_id: string;
+        }[];
+      };
       can_invite: {
         Args: {
           p_organization: string;
@@ -1878,6 +2066,7 @@ export type Database = {
         Returns: boolean;
       };
       can_write_content: { Args: { p_organization: string }; Returns: boolean };
+      cancel_lesson: { Args: { p_lesson: string }; Returns: number };
       clear_word_representation: {
         Args: {
           p_kind: Database["public"]["Enums"]["representation_kind"];
@@ -2009,6 +2198,25 @@ export type Database = {
         Args: { p_meta: Json; p_user: string };
         Returns: undefined;
       };
+      lesson_booker_organization: {
+        Args: { p_teacher: string };
+        Returns: string;
+      };
+      lesson_open_slots: {
+        Args: {
+          p_from: string;
+          p_student: string;
+          p_teacher: string;
+          p_to: string;
+        };
+        Returns: {
+          starts_at: string;
+        }[];
+      };
+      lesson_rules: {
+        Args: Record<PropertyKey, never>;
+        Returns: Record<string, unknown>;
+      };
       materialize_lessons: {
         Args: { p_student_id: string; p_weeks?: number };
         Returns: number;
@@ -2020,6 +2228,19 @@ export type Database = {
           p_last_point: number;
         };
         Returns: number;
+      };
+      my_lessons: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          credits_debited: number;
+          credits_refunded: boolean;
+          duration_minutes: number;
+          lesson_id: string;
+          meet_url: string;
+          refund_until: string;
+          scheduled_at: string;
+          teacher_name: string;
+        }[];
       };
       my_open_organization_invites: {
         Args: Record<PropertyKey, never>;

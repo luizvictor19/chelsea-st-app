@@ -4,7 +4,6 @@ import { describe, test } from "node:test";
 import {
   instantIn,
   lessonsLeavingWith,
-  parseMeetUrl,
   parseStartTime,
   runsOutSoon,
   scheduleLabel,
@@ -121,28 +120,6 @@ describe("runsOutSoon", () => {
   test("is quiet at 14 days or more", () => {
     assert.equal(runsOutSoon(new Date("2026-11-17T12:00:00Z"), now), false);
     assert.equal(runsOutSoon(new Date("2026-12-29T22:00:00Z"), now), false);
-  });
-});
-
-describe("parseMeetUrl", () => {
-  test("keeps an https link without the spaces around it", () => {
-    assert.deepEqual(
-      parseMeetUrl("  https://meet.google.com/abc-defg-hij \n"),
-      {
-        ok: true,
-        url: "https://meet.google.com/abc-defg-hij",
-      },
-    );
-  });
-
-  test("empty clears the link", () => {
-    assert.deepEqual(parseMeetUrl("   "), { ok: true, url: null });
-  });
-
-  test("refuses http and what is not a link", () => {
-    assert.equal(parseMeetUrl("http://meet.google.com/abc").ok, false);
-    assert.equal(parseMeetUrl("meet.google.com/abc").ok, false);
-    assert.equal(parseMeetUrl("abc defg").ok, false);
   });
 });
 
