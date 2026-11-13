@@ -165,6 +165,33 @@ architecture question for Luiz.
   month's grant and every end reads the subscription's copy (the trial's credits are read from the
   plan when the trial starts): a plan changed later reaches new subscriptions only.
   No number of the offer enters the repository.
+- Booking a lesson follows 0052 (#276, `docs/spec-f1.md`, "Reserva de aula"). A teacher has one row
+  of `teachers` per organization she teaches in (her Meet, her calendar e-mail, whether she takes
+  bookings, which needs both), tied to her membership (`teachers_membership_fkey`); her weekly
+  windows (`teacher_availability`, in her zone, `teacher_availability_timezone_known`) and whole
+  periods off (`teacher_time_off`). She writes her own rows, the organization's admin reads them,
+  the platform admin reads and writes them, a student reads none: the student reads the name, the
+  cost and the Meet through `bookable_teachers` and `my_lessons`. The free slots are computed, never
+  stored. Every number of the booking is `lesson_rules()` alone: a lesson of 50 min, a slot every
+  60 min, the booking closing 12 h before and opening 8 weeks ahead, the student's refund up to 1 h
+  before. `lessons` gained `teacher_id` (null on the fixed agenda until #295; the teacher of the
+  lesson's organization by `lessons_teacher_fkey`), `credits_debited`, `credits_refunded`,
+  `cancelled_at` and `cancelled_by`. Two scheduled lessons of one teacher, or of one student, never
+  cross (`lessons_teacher_no_overlap`, `lessons_student_no_overlap`, exclusion constraints on
+  `btree_gist`, in `extensions`); a lesson without a teacher takes the slot of every teacher of its
+  organization. A booked lesson changes only through the functions (`lessons_booked_through_functions`
+  refuses to anyone but the table's owner a lesson inserted with a teacher or a debit, a change of the
+  status, time, length, student or teacher of a booked lesson, any change of the debit, the refund or
+  the cancel, and the delete of a booked lesson); "Parei aqui" and the note still pass.
+  `authenticated` executes six functions, all for `auth.uid()`: `lesson_rules`, `bookable_teachers`,
+  `bookable_slots`, `my_lessons`, `book_lesson` (writes the lesson and calls
+  `credit_debit(her, 'teacher_lesson', 1, 'lesson:<id>')` in the same transaction) and
+  `cancel_lesson` (the student until the start, with `credit_refund` up to 1 h before; the lesson's
+  teacher, the organization's admin or the platform admin until the planned end, always with
+  `credit_refund`). The cost is read through the ledger's `credit_price` alone, so #292 changes it
+  there. Nobody executes `lesson_booker_organization`, `lesson_open_slots` or the trigger function,
+  and `credit_debit` and `credit_refund` stay executable by nobody. Each refusal names its rule at
+  the start of its message, and `src/lib/lessons/refusals.ts` says it in Portuguese.
 - `leads` receives rows only through `submit_lead` (0038), executed by `anon` alone: the site's
   function calls it with the publishable key. Nobody reads `leads` through the API, and the
   service role holds nothing on it. A number sent twice is two rows (history, nothing is
