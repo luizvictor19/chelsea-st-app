@@ -27,15 +27,26 @@
 -- holds for any copy (a local stack, scripts/verify-rls.sql).
 
 
--- The guard ------------------------------------------------------------------------------
+-- The guard, and the lessons get their teacher -------------------------------------------
 --
--- First, so a refusal leaves every row as it was. Counted over the
--- organizations that hold a lesson without a teacher: a booked lesson
--- already has one.
+-- The guard comes first, so a refusal leaves every row as it was. Counted
+-- over the organizations that hold a lesson without a teacher: a booked
+-- lesson already has one. One statement with the update, under a share lock
+-- on teachers taken before the count: nobody turns a second teacher active
+-- between the count and the update, whether or not the push wraps the file
+-- in one transaction.
+--
+-- Past, cancelled and future alike: every lesson is tied to the teacher of
+-- its organization. Run as postgres, the owner of lessons, so
+-- lessons_booked_through_functions lets it through; the exclusion
+-- constraints of 0052 check every moved lesson, and no two crossed on the
+-- day measured.
 do $$
 declare
   v_counts text;
 begin
+  lock table public.teachers in share mode;
+
   select string_agg(format('%s: %s active teachers, %s lessons',
                            o.slug, coalesce(t.active, 0), l.lessons),
                     '; ' order by o.slug)
@@ -55,23 +66,15 @@ begin
     raise exception 'lessons_move_to_one_teacher: every organization with lessons of the fixed agenda needs exactly one active teacher before they move (%)', v_counts
       using errcode = 'check_violation', constraint = 'lessons_move_to_one_teacher';
   end if;
+
+  update public.lessons l
+     set teacher_id = t.id
+    from public.teachers t
+   where l.teacher_id is null
+     and t.organization_id = l.organization_id
+     and t.is_active;
 end;
 $$;
-
-
--- The lessons get their teacher ----------------------------------------------------------
---
--- Past, cancelled and future alike: every lesson is tied to the teacher of
--- its organization. Run as postgres, the owner of lessons, so
--- lessons_booked_through_functions lets it through; the exclusion
--- constraints of 0052 check every moved lesson, and no two crossed on the
--- day measured.
-update public.lessons l
-   set teacher_id = t.id
-  from public.teachers t
- where l.teacher_id is null
-   and t.organization_id = l.organization_id
-   and t.is_active;
 
 alter table public.lessons alter column teacher_id set not null;
 
