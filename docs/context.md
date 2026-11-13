@@ -341,7 +341,8 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
     the confirmation trigger after the invites and the signup; it never raises). Bound, it stays
     bound (`plans_personal_bound_for_good`). It needs no seal and takes no seat. Its e-mail goes from
     agenda@ with two links (enter, sign up); the front door (`resolveDestination`) sends her to
-    `/dashboard/plano?plano=<id>` while it waits and no subscription of hers is alive.
+    `/dashboard/plano?plano=<id>` while billing is open, no subscription of hers is alive and none
+    of that plan ever ran.
   - **The cost of a lesson by plan**: `plans.teacher_lesson_credits` (null: the brand's), copied
     onto `subscriptions.teacher_lesson_credits` when it is born. `credit_price` reads the copy of
     the subscription that counts, her latest alive one or, with none alive, her latest that ran (a

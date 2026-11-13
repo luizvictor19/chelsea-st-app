@@ -186,8 +186,9 @@ falhas seguidas, a fila para (os eventos ficam guardados por até 14 dias).
 - **O Personalizado** nasce em `/teacher/invites` (tipo "Plano personalizado"), para um e-mail. O
   app manda da agenda@ "Seu plano personalizado está pronto", com o nome do plano e dois links
   (entrar, criar conta), sem nenhum número. O plano se liga à conta confirmada com aquele e-mail, na
-  hora (se ela já existe) ou na primeira confirmação; ligado, não muda de pessoa. Enquanto ele espera
-  e ela não tem assinatura viva, a porta da frente leva a pessoa a `/dashboard/plano?plano=<id>`. Os
+  hora (se ela já existe) ou na primeira confirmação; ligado, não muda de pessoa. Enquanto a
+  assinatura está aberta, ela não tem assinatura viva e nunca assinou aquele plano, a porta da frente
+  leva a pessoa a `/dashboard/plano?plano=<id>`. Os
   números se editam em `/teacher/plans`, seção Personalizados. "Tirar de venda" encerra o convite.
 - **A trilha**: 0 minutos por dia é um plano sem trilha (o Plano Fundador, hoje).
 - **O custo da aula** de cada plano: ver `docs/spec-creditos.md`, "O custo de cada ação".
