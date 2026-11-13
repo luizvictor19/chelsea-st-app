@@ -130,26 +130,6 @@ export function runsOutSoon(lastLesson: Date | null, now: Date): boolean {
   return lastLesson.getTime() - now.getTime() < WARN_DAYS * 86_400_000;
 }
 
-export type MeetUrl =
-  | { readonly ok: true; readonly url: string | null }
-  | { readonly ok: false; readonly error: string };
-
-/** The Meet link as typed: https only, trimmed; empty clears it. */
-export function parseMeetUrl(raw: string): MeetUrl {
-  const text = raw.trim();
-  if (text === "") return { ok: true, url: null };
-  let parsed: URL;
-  try {
-    parsed = new URL(text);
-  } catch {
-    return { ok: false, error: "Cole o link inteiro, começando com https://." };
-  }
-  if (parsed.protocol !== "https:") {
-    return { ok: false, error: "O link precisa começar com https://." };
-  }
-  return { ok: true, url: text };
-}
-
 /** "HH:MM" from a time input, or null. */
 export function parseStartTime(raw: string): string | null {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(raw) ? raw : null;

@@ -3,11 +3,11 @@
 import { revalidatePath } from "next/cache";
 
 import { requireTeacher } from "@/lib/content/queries";
+import { parseMeetUrl } from "@/lib/lessons/meet-url";
 
 import {
   instantIn,
   lessonsLeavingWith,
-  parseMeetUrl,
   parseStartTime,
   scheduleWriteError,
   WEEKS_AHEAD,
