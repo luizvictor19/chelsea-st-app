@@ -1,8 +1,7 @@
 /**
- * The Meet link as a teacher types it: once per student on the fixed agenda
- * (students.meet_url, until #295), once per teacher on the booking's profile
- * (teachers.meet_url, 0052, whose check teachers_meet_url_https says the same:
- * https and no space).
+ * The Meet link as a teacher types it, once per teacher on the booking's
+ * profile (teachers.meet_url, 0052, whose check teachers_meet_url_https says
+ * the same: https and no space). Every lesson meets there since #295.
  */
 
 export type MeetUrl =

@@ -20,7 +20,11 @@ export default async function TeacherPage() {
         Olá, {profile.full_name}.
       </h1>
       <p className="text-muted max-w-prose">
-        O link do Meet, os horários e as aulas de cada aluno ficam em{" "}
+        O seu link do Meet e os horários que você abre para reserva ficam em{" "}
+        <Link href="/teacher/agenda" className="underline">
+          Agenda
+        </Link>
+        ; as aulas reservadas e o progresso de cada aluno, em{" "}
         <Link href="/teacher/students" className="underline">
           Alunos
         </Link>

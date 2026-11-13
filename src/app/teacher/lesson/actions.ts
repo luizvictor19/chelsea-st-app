@@ -6,8 +6,8 @@ import { formatLessonDate, formatLessonTime } from "@/lib/datetime";
 import {
   AHEAD_MINUTES,
   GRACE_MINUTES,
-  LESSON_MINUTES,
   lessonToMark,
+  noLessonToMark,
 } from "./stop";
 
 export type StopResult =
@@ -18,10 +18,11 @@ export type StopResult =
 const LONGEST_PLAUSIBLE_LESSON_MINUTES = 8 * 60;
 
 /**
- * "Parei aqui": writes the point to the student's lesson running now, just
- * ended or starting within the hour (lessonToMark), or creates a lesson for
- * her now when there is none (a lesson outside the agenda). Marking again overwrites. The answer
- * names the student, which is what makes a mark on the wrong one visible.
+ * "Parei aqui": writes the point to the student's booked lesson running now,
+ * just ended or starting within the hour (lessonToMark), and refuses when
+ * there is none: a lesson is born only by a booking (0054, #295). Marking
+ * again overwrites. The answer names the student, which is what makes a mark
+ * on the wrong one visible.
  *
  * The point comes by number, as the deck knows it: every point is common
  * today (measured 2026-10-30), with numbers unique across the course.
@@ -42,7 +43,7 @@ export async function markStop(
       .maybeSingle(),
     supabase
       .from("students")
-      .select("organization_id, profiles!inner(full_name)")
+      .select("profiles!inner(full_name)")
       .eq("id", studentId)
       .maybeSingle(),
     supabase.from("profiles").select("timezone").eq("id", user.id).single(),
@@ -82,20 +83,7 @@ export async function markStop(
     now,
   );
 
-  if (target === null) {
-    const { error } = await supabase.from("lessons").insert({
-      student_id: studentId,
-      organization_id: student.data.organization_id,
-      scheduled_at: now.toISOString(),
-      duration_minutes: LESSON_MINUTES,
-      stopped_at_point_id: point.data.id,
-    });
-    if (error) return { ok: false, error: error.message };
-    return {
-      ok: true,
-      message: `Marcado para ${name}: ponto ${pointNumber} · aula nova, de agora`,
-    };
-  }
+  if (target === null) return { ok: false, error: noLessonToMark(name) };
 
   const { data: updated, error } = await supabase
     .from("lessons")

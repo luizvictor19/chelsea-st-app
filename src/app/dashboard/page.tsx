@@ -69,10 +69,9 @@ export default async function DashboardPage() {
 
   const now = new Date();
   const [{ data: lessons }, startsTrial] = await Promise.all([
-    // Her lessons not finished yet, soonest first, with the room (#276): the
-    // teacher's Meet for a booked lesson, her own for one of the fixed
-    // agenda until #295. A lesson still running is in it: running late is
-    // normal.
+    // Her lessons not finished yet, soonest first, with the room: the Meet of
+    // the lesson's teacher (#276), for every lesson since #295. A lesson
+    // still running is in it: running late is normal.
     supabase.rpc("my_lessons"),
     offersTrial(supabase, user.id),
   ]);
@@ -91,8 +90,9 @@ export default async function DashboardPage() {
           scheduledAt={nextLesson.scheduled_at}
           durationMinutes={nextLesson.duration_minutes}
           timeZone={profile.timezone}
-          // Null when no room is set yet: the generated types call every
-          // column of a function's table non-null.
+          // Null when the teacher has no room set (she stopped taking
+          // bookings): the generated types call every column of a function's
+          // table non-null.
           meetUrl={nextLesson.meet_url as string | null}
           serverNow={now.toISOString()}
         />

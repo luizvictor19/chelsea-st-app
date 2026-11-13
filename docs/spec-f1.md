@@ -10,17 +10,18 @@ O professor entra pelo mesmo login e é levado para outra área.
 
 ## Decisões
 
-| Tema         | Decisão                                                                     |
-| ------------ | --------------------------------------------------------------------------- |
-| Login        | E-mail e senha; link mágico como opção (#96). Senha definida pelo link      |
-| Agenda       | Regra recorrente por aluno (ex.: seg e qui às 19h) que materializa as aulas |
-| Meet         | Sala fixa por aluno, colada uma vez pelo professor em `students.meet_url`   |
-| Fuso         | Guardar em UTC (`timestamptz`), exibir no fuso de `profiles.timezone`       |
-| Estado vazio | Sem aula agendada, a tela mostra o desafio do dia                           |
+| Tema         | Decisão                                                                                        |
+| ------------ | ---------------------------------------------------------------------------------------------- |
+| Login        | E-mail e senha; link mágico como opção (#96). Senha definida pelo link                         |
+| Agenda       | Reserva paga em créditos, nos horários que o professor abre (#276); a agenda fixa saiu na #295 |
+| Meet         | O link do professor (`teachers.meet_url`), o mesmo em todas as aulas dele                      |
+| Fuso         | Guardar em UTC (`timestamptz`), exibir no fuso de `profiles.timezone`                          |
+| Estado vazio | Sem aula agendada, a tela mostra o desafio do dia                                              |
 
 ## Schema: migration 0003
 
-Falta a tabela de recorrência.
+Histórico: a 0054 (#295) apagou a tabela e a função abaixo. Uma aula nasce só pela reserva
+(seção "Reserva de aula").
 
 ```sql
 create table lesson_schedules (
@@ -57,8 +58,8 @@ não duplica. Na v1 é chamada à mão; virar job agendado fica para depois.
 | `/dashboard`             | aluno              | Próxima aula e desafio do dia                           |
 | `/teacher`               | professor          | Placeholder nesta fase                                  |
 | `/teacher/invites`       | admin ou professor | Convida por e-mail e acompanha os convites              |
-| `/teacher/students`      | professor          | Alunos, com o que falta na agenda de cada um (#129)     |
-| `/teacher/students/[id]` | professor          | Link do Meet, horários, gerar, cancelar e remarcar      |
+| `/teacher/students`      | professor          | Alunos, com a próxima aula reservada e o progresso      |
+| `/teacher/students/[id]` | professor          | Aulas reservadas e progresso; cancelar uma aula         |
 
 Desde a #116 todos os caminhos são em inglês. Os antigos em português (`/definir-senha`,
 `/esqueci-senha`, `/teacher/convites`, `/teacher/aula`) redirecionam para os novos, para sempre:
@@ -131,35 +132,24 @@ aula aparece um dia antes".
 agora menos a duração, ordenada pela mais próxima. A subtração da duração é o
 que faz a aula em andamento continuar aparecendo.
 
-Se `students.meet_url` estiver vazio, mostra o horário sem botão e avisa que o
-link chega antes da aula. Não inventar link nem esconder a aula.
+Se o professor da aula estiver sem link do Meet (`teachers.meet_url`), mostra o horário sem
+botão e avisa que o link chega antes da aula. Não inventar link nem esconder a aula.
 
 ## Agenda do aluno (#129)
 
-Sem migration: as tabelas, as policies e `materialize_lessons` da 0003 bastam.
-
-- **Link do Meet:** um por aluno, em `students.meet_url`, colado uma vez. Só `https://`;
-  vazio apaga, e o aluno volta a ver que o link chega antes da aula.
-- **Horários:** dia da semana, hora e duração (o formulário começa em 45 min; o padrão
-  do banco, 50, não é usado pela tela). A hora é a do fuso do professor
-  (`profiles.timezone`), e o horário é gravado nesse fuso. Adicionar já gera as aulas.
-- **Gerar aulas:** `materialize_lessons(aluno, 8)`, oito semanas à frente. Nunca duplica,
-  e uma aula cancelada não volta, porque a vaga continua ocupada pela linha cancelada.
-  A lista e a agenda avisam quando faltam menos de 14 dias de aulas geradas.
-- **Cancelar:** `status = 'cancelled'`, depois de uma confirmação com a data.
-- **Remarcar:** cria a aula nova e só depois cancela a original. Se a segunda escrita
-  falhar, o aluno vê duas aulas e a tela mostra o erro; a ordem inversa poderia deixá-lo
-  sem aula em silêncio.
-- **Remover um horário:** apaga a linha do horário e **apaga** as aulas `scheduled`
-  futuras que caem exatamente naquele dia e hora, no fuso do horário. Apagar, não
-  cancelar: uma linha cancelada bloquearia a vaga se o horário voltasse. A aula em
-  andamento, as passadas e as canceladas ficam. A confirmação diz quantas saem.
+Aposentada pela #295 (migration 0054): saíram os horários da semana, "Gerar aulas", o link do
+Meet por aluno e "Remarcar". As aulas dela foram levadas para a reserva (seção abaixo).
 
 ## Reserva de aula (#276)
 
-Migration 0052. A agenda nova convive com a fixa (a seção acima) até a #295, que tira a fixa e
-leva as aulas de hoje para cá. O convite de agenda por e-mail (`.ics`) é a #294; o preço com o
-selo Fundador, a #292.
+Migration 0052. Desde a #295 (migration 0054) é o único jeito de marcar aula. O convite de
+agenda por e-mail (`.ics`) é a #294; o preço com o selo Fundador, a #292.
+
+- **As aulas da agenda fixa:** a 0054 deu a cada uma o único professor ativo da organização dela
+  (passadas, canceladas e futuras), e para inteira, sem mudar nada, se a organização tiver nenhum
+  ou mais de um. Guardam o status, o horário, a duração (45 min), o "Parei aqui" e a nota. As
+  futuras viraram reservas sem cobrança: débito zero e nenhum lançamento no razão; cancelar uma
+  delas não devolve nada, porque nada foi pago. Depois delas, o aluno reserva com créditos.
 
 - **O professor:** uma linha em `teachers` por pessoa e organização, presa à filiação de quem
   ensina ali. Guarda o link do Meet (um por professor, só `https://`), o "e-mail da agenda"
@@ -178,20 +168,20 @@ selo Fundador, a #292.
   `lesson:<id da aula>`. Saldo que não cobre recusa tudo: nem aula, nem débito. O custo vem de
   `credit_cost` (#273), nunca do código.
 - **Cancelar:**
-  - o aluno cancela a aula que reservou até o início (a aula da agenda fixa é do professor); até 1 h antes recebe de volta o que pagou
+  - o aluno cancela a aula dele até o início; até 1 h antes recebe de volta o que pagou
     (não o preço do dia); depois, a aula é cancelada e nada volta;
   - o professor da aula, o admin da organização ou o admin da plataforma cancelam até o fim
     previsto, e o estorno é sempre integral;
   - a falta não tem botão: a aula sem cancelamento já não devolve;
   - remarcar é cancelar e reservar de novo.
 - **Duas aulas no mesmo horário:** o banco recusa duas aulas do mesmo professor, ou do mesmo
-  aluno, que se cruzem, venham de onde vierem. Uma aula da agenda fixa (sem professor) ocupa o
-  horário de todos os professores da organização dela na reserva; a agenda fixa, porém, ainda pode
-  gravar uma aula sua por cima da aula reservada de outro aluno, até a #295. Um professor em duas
-  organizações tem o horário ocupado nas duas.
-- **Escrever direto em `lessons`:** ninguém cria aula com professor nem muda status, horário,
-  aluno, professor, débito ou cancelamento de uma aula reservada pelo navegador; só as funções da
-  reserva e do cancelamento. "Parei aqui" e a nota continuam.
+  aluno, que se cruzem, venham de onde vierem. Um professor em duas organizações tem o horário
+  ocupado nas duas.
+- **Escrever direto em `lessons`:** pelo navegador ninguém cria nem apaga aula, e quem ensina na
+  organização (ou o admin da plataforma) muda só o "Parei aqui" e a nota (#295). Uma aula nasce
+  só pela reserva e muda de status só pelo cancelamento.
+- **"Parei aqui" sem aula reservada:** recusa com "Nenhuma aula reservada com {nome} agora.
+  Marque numa aula da agenda." Não cria mais uma aula fora da agenda (#295).
 - **Some nas organizações sem professor:** as funções da reserva recusam ali, e a tela não
   mostra "Reservar aula" a quem só pratica.
 
@@ -228,10 +218,10 @@ Antes da aula, o professor vê em cada reserva onde o aluno parou (o último "Pa
    e 19h, não 22h.
 6. Com aula em 10 minutos, o bloco aparece em estado de destaque.
 7. Sem aula futura, a tela mostra o bloco do desafio, nunca vazia.
-8. Chamar a materialização duas vezes seguidas não cria aula duplicada.
-9. `prettier --check`, `lint`, `tsc --noEmit` e `build` passam.
+8. `prettier --check`, `lint`, `tsc --noEmit` e `build` passam.
 
 ## Fora de escopo
 
 Correção de resposta, gravação de áudio, e-mail de lembrete, tela de professor
-de verdade. Cada um tem sua fase. Cancelar e remarcar entraram com a agenda (#129).
+de verdade. Cada um tem sua fase. Cancelar entrou com a agenda (#129) e hoje é o
+`cancel_lesson` da reserva (#276); remarcar é cancelar e reservar de novo.

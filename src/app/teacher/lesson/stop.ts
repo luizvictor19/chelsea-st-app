@@ -8,12 +8,9 @@ export const AHEAD_MINUTES = 60;
 /**
  * How long after its planned end a lesson still takes the mark. "Parei aqui"
  * comes as the lesson closes, and lessons run over; without this, a mark two
- * minutes late would make a lesson of its own and leave the real one blank.
+ * minutes late would find no lesson and leave the real one blank.
  */
 export const GRACE_MINUTES = 60;
-
-/** What the live lessons last (docs/context.md): a lesson created by the mark. */
-export const LESSON_MINUTES = 45;
 
 export type MarkableLesson = {
   readonly id: string;
@@ -25,7 +22,8 @@ export type MarkableLesson = {
  * Among a student's scheduled lessons, the one nearest to now: running (0),
  * ended less than GRACE_MINUTES ago or starting within AHEAD_MINUTES, each
  * by how far its time is from now. Running always wins. Null when there is
- * none, and the mark then makes a lesson of its own.
+ * none: the mark is refused (noLessonToMark), since a lesson is born only by
+ * a booking (0054, #295).
  */
 export function lessonToMark<T extends MarkableLesson>(
   lessons: readonly T[],
@@ -50,4 +48,9 @@ export function lessonToMark<T extends MarkableLesson>(
     }
   }
   return best;
+}
+
+/** What "Parei aqui" says when the student has no booked lesson now. */
+export function noLessonToMark(name: string): string {
+  return `Nenhuma aula reservada com ${name} agora. Marque numa aula da agenda.`;
 }
