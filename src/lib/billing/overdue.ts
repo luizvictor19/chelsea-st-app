@@ -15,7 +15,7 @@
  */
 
 import { daysBetween } from "./dates.ts";
-import type { Mailer } from "./mailer.ts";
+import type { Mailer } from "../mail/mailer.ts";
 import { overdueEmail } from "./messages.ts";
 import { PAID_STATUSES, type BillingProvider } from "./provider.ts";
 import {

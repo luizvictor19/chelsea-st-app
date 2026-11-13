@@ -9,7 +9,7 @@ import { CHELSEA } from "@/lib/brand";
 
 import { createAsaasProvider } from "./asaas.ts";
 import { asaasConfig, cpfKey, webhookToken } from "./config.ts";
-import { createResendMailer, type Mailer } from "./mailer.ts";
+import { createResendMailer, type Mailer } from "../mail/mailer.ts";
 import type { BillingStore } from "./store.ts";
 import {
   createServiceClient,
