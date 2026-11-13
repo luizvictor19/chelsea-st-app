@@ -353,6 +353,64 @@ export type Database = {
           },
         ];
       };
+      calendar_invites: {
+        Row: {
+          attempts: number;
+          created_at: string;
+          id: string;
+          last_attempt_at: string | null;
+          last_error: string | null;
+          lesson_id: string;
+          method: string;
+          organization_id: string;
+          recipient: string;
+          sent_at: string | null;
+          status: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          attempts?: number;
+          created_at?: string;
+          id?: string;
+          last_attempt_at?: string | null;
+          last_error?: string | null;
+          lesson_id: string;
+          method: string;
+          organization_id: string;
+          recipient: string;
+          sent_at?: string | null;
+          status?: string;
+        };
+        Update: {
+          attempts?: number;
+          created_at?: string;
+          id?: string;
+          last_attempt_at?: string | null;
+          last_error?: string | null;
+          lesson_id?: string;
+          method?: string;
+          organization_id?: string;
+          recipient?: string;
+          sent_at?: string | null;
+          status?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "calendar_invites_lesson_id_fkey";
+            columns: ["lesson_id"];
+            isOneToOne: false;
+            referencedRelation: "lessons";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "calendar_invites_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       contrast_set_items: {
         Row: {
           organization_id: string | null;
@@ -2005,6 +2063,35 @@ export type Database = {
           full_name: string;
           lesson_credits: number;
           teacher_id: string;
+        }[];
+      };
+      calendar_invite_failed: {
+        Args: {
+          p_error: string;
+          p_give_up: boolean;
+          p_id: string;
+          p_tried: boolean;
+        };
+        Returns: undefined;
+      };
+      calendar_invite_sent: { Args: { p_id: string }; Returns: boolean };
+      calendar_invites_due: {
+        Args: { p_lesson?: string; p_limit: number };
+        Returns: {
+          attempts: number;
+          created_at: string;
+          duration_minutes: number;
+          id: string;
+          lesson_id: string;
+          meet_url: string;
+          method: string;
+          recipient: string;
+          recipient_timezone: string;
+          scheduled_at: string;
+          student_email: string;
+          student_name: string;
+          teacher_email: string;
+          teacher_name: string;
         }[];
       };
       can_invite: {

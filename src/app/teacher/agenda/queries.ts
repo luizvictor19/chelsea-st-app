@@ -1,3 +1,4 @@
+import { inviteWarnings } from "@/lib/calendar/invite-status";
 import type { requireTeacher } from "@/lib/content/queries";
 
 import { progressOf, type Progress } from "../students/progress";
@@ -48,6 +49,8 @@ export type BookedLesson = {
   readonly progress: Progress | null;
   /** The last note written on a lesson of hers. */
   readonly lastNote: string | null;
+  /** The calendar invites that did not go (#294), as the screen says it. */
+  readonly inviteWarnings: readonly string[];
 };
 
 export type TeacherAgenda = {
@@ -185,7 +188,7 @@ async function readBooked(
   const studentIds = [...new Set(ahead.map((row) => row.student_id))];
   if (studentIds.length === 0) return [];
 
-  const [students, marks, notes] = await Promise.all([
+  const [students, marks, notes, invites] = await Promise.all([
     supabase
       .from("students")
       .select("id, profiles!inner(full_name)")
@@ -199,9 +202,19 @@ async function readBooked(
       .not("teacher_note", "is", null)
       .order("scheduled_at", { ascending: false })
       .limit(NOTES_READ_PER_STUDENT * studentIds.length),
+    // Whoever teaches reads the state of the invites (0056), no address.
+    supabase
+      .from("calendar_invites")
+      .select("lesson_id, method, recipient, status, last_error")
+      .in(
+        "lesson_id",
+        ahead.map((row) => row.id),
+      ),
   ]);
   if (students.error) throw new Error(students.error.message);
   if (notes.error) throw new Error(notes.error.message);
+  // The warnings are an aside: a failed read leaves them out, not the agenda.
+  const inviteRows = invites.error ? [] : invites.data;
 
   const names = new Map(
     students.data.map((row) => [row.id, row.profiles.full_name]),
@@ -218,6 +231,9 @@ async function readBooked(
     lastNote:
       notes.data.find((note) => note.student_id === row.student_id)
         ?.teacher_note ?? null,
+    inviteWarnings: inviteWarnings(
+      inviteRows.filter((invite) => invite.lesson_id === row.id),
+    ),
   }));
 }
 

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { sendInvitesAfterResponse } from "@/lib/calendar/server";
 import { refusalSentence } from "@/lib/lessons/refusals";
 import { creditsLabel } from "@/lib/lessons/slots";
 import { createClient } from "@/lib/supabase/server";
@@ -45,6 +46,8 @@ export async function bookLesson(
   if (booked === undefined) {
     return { ok: false, error: refusalSentence(null) };
   }
+  // The invites (#294) were queued with the lesson; they go after the answer.
+  sendInvitesAfterResponse(booked.lesson_id);
   return {
     ok: true,
     message: `Aula reservada por ${creditsLabel(booked.credits_debited)}. Saldo: ${creditsLabel(booked.balance)}.`,
@@ -70,6 +73,7 @@ export async function cancelMyLesson(lessonId: string): Promise<LessonResult> {
   });
   if (error) return { ok: false, error: refusalSentence(error.message) };
   refresh();
+  sendInvitesAfterResponse(lessonId);
   if (data > 0) {
     return {
       ok: true,

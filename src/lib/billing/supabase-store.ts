@@ -5,9 +5,7 @@
  * billing_* and credit_* functions.
  */
 
-import { createClient } from "@supabase/supabase-js";
-
-import { env, serviceRoleKey } from "../env.ts";
+import { createServiceClient } from "../supabase/service.ts";
 import type { Database } from "../supabase/types.ts";
 
 import {
@@ -59,17 +57,6 @@ export function toStored(row: Row): StoredSubscription {
     paidThrough: row.paid_through,
     cancelReason: row.cancel_reason,
   };
-}
-
-/** Also used by the routine to read a person's e-mail from auth. */
-export function createServiceClient() {
-  return createClient<Database>(
-    env.NEXT_PUBLIC_SUPABASE_URL,
-    serviceRoleKey(),
-    {
-      auth: { persistSession: false, autoRefreshToken: false },
-    },
-  );
 }
 
 export function createSupabaseBillingStore(

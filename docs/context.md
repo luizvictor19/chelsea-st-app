@@ -99,7 +99,8 @@ architecture question for Luiz.
   `~/Projects/chelsea-st`), deployed by Luiz. Its form writes leads into this project's database
   (see Database rules); everything else on it is out of scope for this repository.
 - DNS on Cloudflare (grey cloud). Email: Cloudflare Email Routing, Resend, Supabase SMTP from
-  contato@chelsea-st.com.
+  contato@chelsea-st.com. The calendar invites (#294) go out through Resend from
+  agenda@chelsea-st.com, whose replies Cloudflare Email Routing forwards to Luiz.
 
 ## Database rules
 
@@ -205,6 +206,30 @@ architecture question for Luiz.
   organization, `teaches_in`, or the platform admin); `lessons_read` is unchanged. The room of every
   lesson is its teacher's Meet (`my_lessons`). "Parei aqui" marks only a booked lesson running, just
   ended or starting within the hour, and refuses otherwise.
+- A booked lesson reaches the calendar through 0056 (#294, `docs/spec-f1.md`, "Convite de
+  agenda"). The trigger `lessons_invite_calendar`, in the transaction of `book_lesson` and
+  `cancel_lesson` (or any write that turns a lesson cancelled), queues one row of
+  `calendar_invites` per lesson, kind (`request`, `cancel`) and person (`student`, `teacher`): two
+  requests for a lesson born scheduled and ahead, two cancels for one that turns cancelled,
+  `pending` where the request was sent or tried (a send that timed out may have arrived) and
+  `skipped`, with the request, where it was never tried. The app sends after the commit
+  (`after()` in the three actions that book or cancel, the teacher's one shared by
+  `/teacher/agenda` and `/teacher/students`, and the Vercel Cron `/api/calendar/daily`
+  at 13h UTC behind `CRON_SECRET`), through three `security definer` functions only
+  `service_role` executes, the same exception to "service_role gets none" as billing's:
+  `calendar_invites_due` (with the student's auth e-mail and the teacher's `calendar_email`; a row
+  tried less than 30 minutes ago waits), `calendar_invite_sent` and `calendar_invite_failed`.
+  Every attempt of a row sends the same bytes (the `.ics` is stamped with the row's birth) under
+  one Resend `Idempotency-Key` per lesson, kind and person. 5 attempts, a constant in
+  `src/lib/calendar/outbox.ts`, then `abandoned`, which the teacher sees on `/teacher/agenda`.
+  Whoever teaches in the organization reads the rows (state and code, never an address); the
+  student reads none; nobody writes them through the API. The invite is a `.ics` attached
+  (`METHOD:REQUEST`/`CANCEL`, one UID per lesson, UTC times), from `agenda@chelsea-st.com`, the
+  organizer: a "No" in a calendar is an e-mail to that address and cancels nothing. Its replies
+  reach Luiz through a Cloudflare Email Routing rule. The log of a send carries the lesson, the
+  kind, the role and Resend's status and error name, never an address or a name. 0056 queued
+  the requests of the lessons ahead and scheduled when it was applied, after 0054 gave each its
+  teacher.
 - `leads` receives rows only through `submit_lead` (0038), executed by `anon` alone: the site's
   function calls it with the publishable key. Nobody reads `leads` through the API, and the
   service role holds nothing on it. A number sent twice is two rows (history, nothing is
@@ -323,18 +348,19 @@ architecture question for Luiz.
 - `.env.local` is never read, printed or committed. Worktrees get a copy with `cp`.
 - API keys are server-only, never `NEXT_PUBLIC_`.
 - `SUPABASE_SERVICE_ROLE_KEY` is read by `src/lib/supabase/admin.ts`, to send invite emails (#96)
-  and the signup's (#275),
-  and by `src/lib/billing/supabase-store.ts` (#72, Q2), which calls only the ten `billing_*`
+  and the signup's (#275), and by `src/lib/supabase/service.ts`, the client of the two callers
+  below: `src/lib/billing/supabase-store.ts` (#72, Q2), which calls only the ten `billing_*`
   functions of 0049 and `credit_settle_payment` and `credit_daily` of 0050 (#273), and reads a
-  person's e-mail from auth for the overdue e-mails. It passes every policy: never use it to read or
+  person's e-mail from auth for the overdue e-mails, and by `src/lib/calendar/supabase-outbox.ts`
+  (#294), which calls only the three `calendar_*` functions of 0056. It passes every policy: never use it to read or
   write a table directly; it holds no privilege on the billing tables or the ledger, only `execute`
   on their functions.
 - Asaas (#72, `docs/spec-pagamento.md`): `ASAAS_API_KEY` (the address follows its prefix; written
   `\$aact_...` in `.env.local`, or Next reads it empty; the app runs the sandbox key only against a
   local Supabase, never the production one `.env.local` points at, and never in Vercel
   Production), `ASAAS_WEBHOOK_TOKEN`, `BILLING_CPF_KEY` (the HMAC of a CPF; the digits stay at
-  Asaas), `RESEND_API_KEY` (the billing e-mails, a key of its own) and `CRON_SECRET` (the daily
-  routine). Production has no Asaas key until the CNPJ's account exists.
+  Asaas), `RESEND_API_KEY` (the billing e-mails and the calendar invites of
+  #294, a key of its own) and `CRON_SECRET` (both daily routines). Production has no Asaas key until the CNPJ's account exists.
 - Cloudflare Turnstile (#275): `TURNSTILE_SECRET_KEY` (server only, Vercel Production as a Secret)
   and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (public by design). `src/lib/turnstile.ts` refuses every
   signup without the secret; locally Cloudflare's test keys stand in (`docs/commands.md`).

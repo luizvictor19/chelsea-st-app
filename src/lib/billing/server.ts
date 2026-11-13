@@ -7,14 +7,13 @@
 
 import { CHELSEA } from "@/lib/brand";
 
+import { createResendMailer, type Mailer } from "../mail/mailer.ts";
+import { createServiceClient } from "../supabase/service.ts";
+
 import { createAsaasProvider } from "./asaas.ts";
 import { asaasConfig, cpfKey, webhookToken } from "./config.ts";
-import { createResendMailer, type Mailer } from "./mailer.ts";
 import type { BillingStore } from "./store.ts";
-import {
-  createServiceClient,
-  createSupabaseBillingStore,
-} from "./supabase-store.ts";
+import { createSupabaseBillingStore } from "./supabase-store.ts";
 import type { SyncDeps } from "./sync.ts";
 
 if (typeof window !== "undefined") {

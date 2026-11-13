@@ -10,7 +10,7 @@ import {
   type FakeProvider,
   type FakeStore,
 } from "./fake.ts";
-import type { Email } from "./mailer.ts";
+import type { Email } from "../mail/mailer.ts";
 import { overdueEmail } from "./messages.ts";
 import { overdueStep, runOverdue, type OverdueDeps } from "./overdue.ts";
 

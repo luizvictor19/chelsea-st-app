@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { sendInvitesAfterResponse } from "@/lib/calendar/server";
 import { requireTeacher } from "@/lib/content/queries";
 import {
   readProfileForm,
@@ -209,6 +210,7 @@ export async function cancelBookedLesson(
   if (error) return { ok: false, error: refusalSentence(error.message) };
   refresh();
   revalidatePath("/teacher/students", "layout");
+  sendInvitesAfterResponse(lessonId);
   return {
     ok: true,
     message:
