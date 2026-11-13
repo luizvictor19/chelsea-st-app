@@ -1,8 +1,10 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState } from "react";
 
 import { INVITE_DAYS, type FounderInviteState } from "@/lib/founder-invite";
+
+import { CopyLine } from "../copy-button";
 
 import { inviteFounder } from "./founder-invite-actions";
 
@@ -86,35 +88,18 @@ function InviteResult({
 }: {
   readonly state: Extract<FounderInviteState, { status: "sent" | "unsent" }>;
 }) {
-  const [copied, setCopied] = useState(false);
   return (
     <div role="status" className="flex flex-col gap-2">
       <p className={state.status === "unsent" ? "text-accent" : "text-muted"}>
-        {state.granted
-          ? "Ela já tinha conta confirmada: o selo foi dado agora."
-          : "Convite gravado: o selo entra quando ela confirmar o e-mail."}{" "}
-        {state.status === "sent"
-          ? `E-mail enviado para ${state.email}.`
-          : "O e-mail não saiu: mande o link abaixo, ou use Reenviar."}
+        {state.status === "unsent"
+          ? (state.message ?? "O e-mail não saiu.")
+          : `${
+              state.granted
+                ? "Ela já tinha conta confirmada: o selo foi dado agora."
+                : "Convite gravado: o selo entra quando ela confirmar o e-mail."
+            } E-mail enviado para ${state.email}.`}
       </p>
-      {state.link !== null && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="bg-background min-w-0 rounded-sm px-2 py-1 font-mono break-all">
-            {state.link}
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              void navigator.clipboard
-                .writeText(state.link ?? "")
-                .then(() => setCopied(true));
-            }}
-            className="border-rule hover:border-foreground rounded-sm border px-3 py-1"
-          >
-            {copied ? "Copiado" : "Copiar link"}
-          </button>
-        </div>
-      )}
+      {state.link !== null && <CopyLine text={state.link} />}
     </div>
   );
 }

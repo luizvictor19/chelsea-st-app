@@ -2,6 +2,7 @@
 
 import { useActionState, useState, useTransition } from "react";
 
+import { CopyLine } from "../copy-button";
 import { notices } from "../notices";
 
 import { createCoupon, endCoupon, type CouponState } from "./coupon-actions";
@@ -155,29 +156,6 @@ function CreatedCoupon({
           <CopyLine text={state.link} />
         </>
       )}
-    </div>
-  );
-}
-
-function CopyLine({ text }: { readonly text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="bg-background min-w-0 rounded-sm px-2 py-1 font-mono break-all">
-        {text}
-      </span>
-      <button
-        type="button"
-        onClick={() => {
-          void navigator.clipboard.writeText(text).then(
-            () => setCopied(true),
-            () => setCopied(false),
-          );
-        }}
-        className="border-rule hover:border-foreground rounded-sm border px-3 py-1"
-      >
-        {copied ? "Copiado" : "Copiar"}
-      </button>
     </div>
   );
 }

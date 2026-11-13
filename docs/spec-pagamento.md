@@ -233,7 +233,7 @@ O selo chega por dois caminhos, os dois pelo `badge_grant` da 0058: só com vaga
   conta já está confirmada, entra na hora e o e-mail é "Você ganhou o selo de fundadora". O convite
   não guarda vaga: sem vaga na confirmação, fica aberto; sem vaga para uma conta já confirmada, a
   gravação é recusada ("Não há vagas de fundador. Aumente o total em Fundadores."). A lista de
-  convites abertos tem Reenviar (renova pelo mesmo número de dias e manda de novo), Copiar link e
+  convites abertos tem Reenviar (renova por 15 dias a partir de agora e manda de novo), Copiar link e
   Cancelar. Sem `RESEND_API_KEY`, a tela mostra o link para mandar à mão.
 - **`?origem=grifoai`** (o link da seção do Chelsea St na landing da GrifoAI): o cadastro não mostra
   o campo do cupom, nem as vagas, nem fala de fundador; um `?cupom=` na mesma URL ainda vale. A

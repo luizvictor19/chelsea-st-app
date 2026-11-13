@@ -29,8 +29,12 @@ export type FounderInviteDeps = {
     readonly email: string;
     readonly expires_at: string;
   }) => Promise<{ ok: true; id: string } | { ok: false; error: StoreError }>;
-  /** Whether the invite was accepted: the seal given when it was written. */
-  readonly accepted: (id: string) => Promise<boolean>;
+  /**
+   * Whether the invite was accepted: the seal given when it was written.
+   * Null when the read failed: then nothing is mailed, rather than the
+   * wrong e-mail.
+   */
+  readonly accepted: (id: string) => Promise<boolean | null>;
   /** Null when the app has no key to send with. */
   readonly mailer: Mailer | null;
   /** The origin of the chelsea-st site; null when there is none. */
@@ -44,6 +48,8 @@ export type FounderInviteState =
       readonly status: "sent" | "unsent";
       readonly email: string;
       readonly granted: boolean;
+      /** Why it was not mailed, when it was not. */
+      readonly message?: string;
       /** The link of the e-mail, to send by hand; null with no site. */
       readonly link: string | null;
     }
@@ -53,6 +59,9 @@ export type FounderInviteState =
 export const INVITE_DAYS = 15;
 const MOST_DAYS = 90;
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+export const UNCHECKED =
+  "O convite foi gravado, mas não deu para conferir se ela já tem conta, e o e-mail não saiu. Use Reenviar na lista.";
 
 export const NOT_MAILED =
   "O convite foi gravado, mas o e-mail não saiu. Mande o link abaixo, ou use Reenviar.";
@@ -80,14 +89,6 @@ export function readFounderInviteForm(
 /** The validity of an invite written or renewed now. */
 export function expiresAt(now: Date, days: number): string {
   return new Date(now.getTime() + days * DAY_MS).toISOString();
-}
-
-/** The days an invite was written for, to renew it by as many. */
-export function spanInDays(createdAt: string, expiresAtIso: string): number {
-  const days = Math.round(
-    (new Date(expiresAtIso).getTime() - new Date(createdAt).getTime()) / DAY_MS,
-  );
-  return Math.min(Math.max(days, 1), MOST_DAYS);
 }
 
 /** What the screen says when the write of an invite is refused. */
@@ -132,22 +133,34 @@ export async function mailFounderInvite(
   }
 }
 
-/** The answer of the screen once the invite is written, mailed or not. */
+/**
+ * The answer of the screen once the invite is written, mailed or not. With
+ * granted unknown (null), nothing is mailed: the wrong e-mail would tell a
+ * founder to create the account she has.
+ */
 export async function finishFounderInvite(
   deps: Pick<FounderInviteDeps, "mailer" | "origin">,
-  invite: { readonly email: string; readonly granted: boolean },
+  invite: { readonly email: string; readonly granted: boolean | null },
   log?: (line: string) => void,
 ): Promise<FounderInviteState> {
-  const problem = await mailFounderInvite(deps, invite, log);
-  return {
-    status: problem === null ? "sent" : "unsent",
-    email: invite.email,
-    granted: invite.granted,
-    link:
-      deps.origin === null
-        ? null
-        : founderInviteLink(deps.origin, invite.email, invite.granted),
-  };
+  const granted = invite.granted === true;
+  const problem =
+    invite.granted === null
+      ? UNCHECKED
+      : await mailFounderInvite(deps, { email: invite.email, granted }, log);
+  const link =
+    deps.origin === null
+      ? null
+      : founderInviteLink(deps.origin, invite.email, granted);
+  return problem === null
+    ? { status: "sent", email: invite.email, granted, link }
+    : {
+        status: "unsent",
+        email: invite.email,
+        granted,
+        link,
+        message: problem,
+      };
 }
 
 export async function inviteFounder(

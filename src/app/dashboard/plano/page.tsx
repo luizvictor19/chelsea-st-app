@@ -77,17 +77,31 @@ export default async function PlanPage({
     );
   }
 
-  const [{ plans, current, pastDueSince, trialUsed, seal }, credits, seats] =
-    await Promise.all([
-      readPlanScreen(user.id),
-      readCredits(user.id),
-      supabase.rpc("founder_seats_left"),
-    ]);
+  const [
+    { plans, current, pastDueSince, trialUsed, seal },
+    credits,
+    seats,
+    seals,
+  ] = await Promise.all([
+    readPlanScreen(user.id),
+    readCredits(user.id),
+    supabase.rpc("founder_seats_left"),
+    // Her Founder seals, revoked ones too (person_badges_read): a seal she
+    // ever held says her signup coupon did count.
+    supabase
+      .from("person_badges")
+      .select("id", { count: "exact", head: true })
+      .eq("person_id", user.id)
+      .eq("badge", "founder"),
+  ]);
   // A coupon typed at the signup waits in her metadata for the first
-  // confirmation (#296, 0059); with no seal now, it did not count.
+  // confirmation (#296, 0059); with no seal ever, it did not count.
   const signupCoupon = user.user_metadata?.founder_coupon;
   const signupCouponFailed =
-    typeof signupCoupon === "string" && signupCoupon.trim() !== "";
+    typeof signupCoupon === "string" &&
+    signupCoupon.trim() !== "" &&
+    seals.error === null &&
+    seals.count === 0;
   // ?plano=<id>: the checkout of that plan open (the personal plan's way in,
   // from the front door). A plan she may not read is simply not there.
   const asked = typeof params.plano === "string" ? params.plano : null;

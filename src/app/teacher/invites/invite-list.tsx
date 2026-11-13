@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import type { OrganizationRole } from "@/lib/access";
 import { roleLabel } from "@/lib/invites";
 
+import { CopyButton } from "../copy-button";
 import { notices } from "../notices";
 
 import { cancelInvite, resendInvite, type RowResult } from "./actions";
@@ -95,7 +96,6 @@ export function InviteList({
 
 function FounderInviteRow({ invite }: { readonly invite: OpenFounderInvite }) {
   const [isPending, startTransition] = useTransition();
-  const [copied, setCopied] = useState(false);
 
   function run(action: (id: string) => Promise<RowResult>) {
     startTransition(async () => {
@@ -131,17 +131,11 @@ function FounderInviteRow({ invite }: { readonly invite: OpenFounderInvite }) {
           Reenviar
         </button>
         {invite.link !== null && (
-          <button
-            type="button"
-            onClick={() => {
-              void navigator.clipboard
-                .writeText(invite.link ?? "")
-                .then(() => setCopied(true));
-            }}
+          <CopyButton
+            text={invite.link}
+            label="Copiar link"
             className="border-rule hover:border-foreground rounded-sm border px-3 py-1.5 text-sm"
-          >
-            {copied ? "Link copiado" : "Copiar link"}
-          </button>
+          />
         )}
         <button
           type="button"

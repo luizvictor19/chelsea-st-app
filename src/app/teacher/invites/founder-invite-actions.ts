@@ -9,8 +9,8 @@ import {
   expiresAt,
   finishFounderInvite,
   founderInviteRefusal,
+  INVITE_DAYS,
   inviteFounder as invite,
-  spanInDays,
   type FounderInviteState,
 } from "@/lib/founder-invite";
 import { FOUNDER_INVITE_FROM } from "@/lib/founder-invite-mail";
@@ -58,14 +58,7 @@ export async function inviteFounder(
           ? { ok: true, id: data.id }
           : { ok: false, error };
       },
-      accepted: async (id) => {
-        const { data } = await supabase
-          .from("founder_invites")
-          .select("accepted_at")
-          .eq("id", id)
-          .maybeSingle();
-        return data?.accepted_at != null;
-      },
+      accepted: (id) => readAccepted(supabase, id),
       mailer: mailer(),
       origin: origin(),
       now: () => new Date(),
@@ -76,9 +69,24 @@ export async function inviteFounder(
   return result;
 }
 
+type Client = Awaited<ReturnType<typeof requirePlatformAdmin>>["supabase"];
+
+/** Whether the invite is accepted now; null when the read failed. */
+async function readAccepted(
+  supabase: Client,
+  id: string,
+): Promise<boolean | null> {
+  const { data, error } = await supabase
+    .from("founder_invites")
+    .select("accepted_at")
+    .eq("id", id)
+    .maybeSingle();
+  return error ? null : data?.accepted_at != null;
+}
+
 /**
- * Renews an open founder invite by as many days as it was written for, and
- * mails it again. Renewing an invite for an e-mail confirmed since gives the
+ * Renews an open founder invite for INVITE_DAYS from now (each Reenviar the
+ * same span, whatever the first validity was), and mails it again. Renewing an invite for an e-mail confirmed since gives the
  * seal now (founder_invites_grant_confirmed), and the mail says so.
  */
 export async function resendFounderInvite(
@@ -87,7 +95,7 @@ export async function resendFounderInvite(
   const { supabase } = await requirePlatformAdmin();
   const { data: row } = await supabase
     .from("founder_invites")
-    .select("email, created_at, expires_at")
+    .select("email")
     .eq("id", inviteId)
     .is("accepted_at", null)
     .maybeSingle();
@@ -102,31 +110,26 @@ export async function resendFounderInvite(
   const { error } = await supabase
     .from("founder_invites")
     .update({
-      expires_at: expiresAt(
-        new Date(),
-        spanInDays(row.created_at, row.expires_at),
-      ),
+      expires_at: expiresAt(new Date(), INVITE_DAYS),
     })
     .eq("id", inviteId);
   if (error) {
     return { status: "error", message: founderInviteRefusal(error) };
   }
-  const { data: after } = await supabase
-    .from("founder_invites")
-    .select("accepted_at")
-    .eq("id", inviteId)
-    .maybeSingle();
+  const granted = await readAccepted(supabase, inviteId);
   refresh();
   const state = await finishFounderInvite(
     { mailer: mailer(), origin: origin() },
-    { email: row.email, granted: after?.accepted_at != null },
+    { email: row.email, granted },
   );
   return state.status === "sent"
     ? { status: "sent" }
     : {
         status: "error",
         message:
-          "O convite foi renovado, mas o e-mail não saiu. Mande o link do cadastro à mão.",
+          granted === null
+            ? "O convite foi renovado, mas não deu para conferir se ela já tem conta, e o e-mail não saiu. Use Reenviar de novo."
+            : "O convite foi renovado, mas o e-mail não saiu. Use Copiar link e mande à mão.",
       };
 }
 

@@ -7,7 +7,7 @@ import {
   inviteFounder,
   NOT_MAILED,
   readFounderInviteForm,
-  spanInDays,
+  UNCHECKED,
   type FounderInviteDeps,
 } from "./founder-invite.ts";
 import {
@@ -89,18 +89,6 @@ describe("the validity", () => {
   test("now plus the days", () => {
     assert.equal(expiresAt(NOW, 15), "2026-11-28T12:00:00.000Z");
   });
-
-  test("a renewal takes as many days as the invite was written for, 1 to 90", () => {
-    assert.equal(
-      spanInDays("2026-11-01T00:00:00Z", "2026-11-16T00:00:00Z"),
-      15,
-    );
-    assert.equal(spanInDays("2026-11-01T00:00:00Z", "2026-11-01T01:00:00Z"), 1);
-    assert.equal(
-      spanInDays("2026-01-01T00:00:00Z", "2026-12-01T00:00:00Z"),
-      90,
-    );
-  });
 });
 
 describe("inviteFounder", () => {
@@ -164,6 +152,16 @@ describe("inviteFounder", () => {
     assert.equal(noSite.status === "unsent" && noSite.link, null);
     assert.equal(sent.length, 0);
     assert.equal(NOT_MAILED.includes("link"), true);
+  });
+
+  test("when the acceptance cannot be read, nothing is mailed, and the screen says so", async () => {
+    const state = await inviteFounder(
+      deps({ accepted: async () => null }),
+      form({ email: "ana@example.com", days: "15" }),
+    );
+    assert.equal(sent.length, 0);
+    assert.equal(rows.length, 1);
+    assert.equal(state.status === "unsent" && state.message, UNCHECKED);
   });
 
   test("a refused write is said and nothing is mailed", async () => {

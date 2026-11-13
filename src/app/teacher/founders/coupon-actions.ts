@@ -14,6 +14,7 @@ import {
   personalCode,
   readCouponForm,
 } from "@/lib/founder-coupon";
+import { expiresAt } from "@/lib/founder-invite";
 
 export type CouponState =
   | { status: "idle" }
@@ -22,8 +23,6 @@ export type CouponState =
 
 export type EndCouponResult =
   { status: "ended" } | { status: "error"; message: string };
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * A founder coupon (#296), through create_founder_coupon with the platform
@@ -45,7 +44,7 @@ export async function createCoupon(
     p_label: values.label,
     p_brand: "chelsea-st",
     p_max_uses: values.maxUses,
-    p_expires_at: new Date(Date.now() + values.days * DAY_MS).toISOString(),
+    p_expires_at: expiresAt(new Date(), values.days),
   });
   if (error) {
     return { status: "error", message: couponCreateRefusal(error) };

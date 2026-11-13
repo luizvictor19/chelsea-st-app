@@ -1,4 +1,5 @@
 import { magicLinkOptions } from "./auth-links.ts";
+import { signupCoupon } from "./founder-coupon.ts";
 import type { Site } from "./brand.ts";
 import { looksLikeEmail } from "./credentials.ts";
 import {
@@ -150,7 +151,7 @@ export function signupFounderView(input: {
   readonly seatsEnded: boolean;
 } {
   const raw = Array.isArray(input.coupon) ? input.coupon[0] : input.coupon;
-  const coupon = typeof raw === "string" ? raw.trim().slice(0, 128) : "";
+  const coupon = signupCoupon(typeof raw === "string" ? raw : "");
   const origin = signupOrigin(input.origin);
   return {
     coupon,
