@@ -764,51 +764,6 @@ export type Database = {
         };
         Relationships: [];
       };
-      lesson_schedules: {
-        Row: {
-          created_at: string;
-          duration_minutes: number;
-          id: string;
-          is_active: boolean;
-          organization_id: string;
-          start_time: string;
-          student_id: string;
-          timezone: string;
-          weekday: number;
-        };
-        ComputedFields: never;
-        Insert: {
-          created_at?: string;
-          duration_minutes?: number;
-          id?: string;
-          is_active?: boolean;
-          organization_id: string;
-          start_time: string;
-          student_id: string;
-          timezone?: string;
-          weekday: number;
-        };
-        Update: {
-          created_at?: string;
-          duration_minutes?: number;
-          id?: string;
-          is_active?: boolean;
-          organization_id?: string;
-          start_time?: string;
-          student_id?: string;
-          timezone?: string;
-          weekday?: number;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "lesson_schedules_student_fkey";
-            columns: ["organization_id", "student_id"];
-            isOneToOne: false;
-            referencedRelation: "students";
-            referencedColumns: ["organization_id", "id"];
-          },
-        ];
-      };
       lessons: {
         Row: {
           cancelled_at: string | null;
@@ -818,13 +773,12 @@ export type Database = {
           credits_refunded: boolean;
           duration_minutes: number;
           id: string;
-          meet_url: string | null;
           organization_id: string;
           scheduled_at: string;
           status: Database["public"]["Enums"]["lesson_status"];
           stopped_at_point_id: string | null;
           student_id: string;
-          teacher_id: string | null;
+          teacher_id: string;
           teacher_note: string | null;
         };
         ComputedFields: never;
@@ -836,13 +790,12 @@ export type Database = {
           credits_refunded?: boolean;
           duration_minutes?: number;
           id?: string;
-          meet_url?: string | null;
           organization_id: string;
           scheduled_at: string;
           status?: Database["public"]["Enums"]["lesson_status"];
           stopped_at_point_id?: string | null;
           student_id: string;
-          teacher_id?: string | null;
+          teacher_id: string;
           teacher_note?: string | null;
         };
         Update: {
@@ -853,13 +806,12 @@ export type Database = {
           credits_refunded?: boolean;
           duration_minutes?: number;
           id?: string;
-          meet_url?: string | null;
           organization_id?: string;
           scheduled_at?: string;
           status?: Database["public"]["Enums"]["lesson_status"];
           stopped_at_point_id?: string | null;
           student_id?: string;
-          teacher_id?: string | null;
+          teacher_id?: string;
           teacher_note?: string | null;
         };
         Relationships: [
@@ -1577,7 +1529,6 @@ export type Database = {
         Row: {
           id: string;
           is_active: boolean;
-          meet_url: string | null;
           member_role: Database["public"]["Enums"]["organization_role"];
           organization_id: string;
           started_on: string | null;
@@ -1586,7 +1537,6 @@ export type Database = {
         Insert: {
           id: string;
           is_active?: boolean;
-          meet_url?: string | null;
           member_role?: never;
           organization_id: string;
           started_on?: string | null;
@@ -1594,7 +1544,6 @@ export type Database = {
         Update: {
           id?: string;
           is_active?: boolean;
-          meet_url?: string | null;
           member_role?: never;
           organization_id?: string;
           started_on?: string | null;
@@ -2303,10 +2252,6 @@ export type Database = {
       lesson_rules: {
         Args: Record<PropertyKey, never>;
         Returns: Record<string, unknown>;
-      };
-      materialize_lessons: {
-        Args: { p_student_id: string; p_weeks?: number };
-        Returns: number;
       };
       materialize_points: {
         Args: {

@@ -175,35 +175,46 @@ architecture question for Luiz.
   cost and the Meet through `bookable_teachers` and `my_lessons`. The free slots are computed, never
   stored. Every number of the booking is `lesson_rules()` alone: a lesson of 50 min, a slot every
   60 min, the booking closing 12 h before and opening 8 weeks ahead, the student's refund up to 1 h
-  before. `lessons` gained `teacher_id` (null on the fixed agenda until #295; the teacher of the
-  lesson's organization by `lessons_teacher_fkey`), `credits_debited`, `credits_refunded`,
+  before. `lessons` gained `teacher_id` (the teacher of the lesson's organization by
+  `lessons_teacher_fkey`, not null since 0054), `credits_debited`, `credits_refunded`,
   `cancelled_at` and `cancelled_by`. Two scheduled lessons of one row of `teachers`, or of one
   student, never cross (`lessons_teacher_no_overlap`, `lessons_student_no_overlap`, exclusion
-  constraints on `btree_gist`, in `extensions`). A lesson without a teacher takes the slot of every
-  teacher of its organization in the booking, but the fixed agenda can still write one over another
-  student's booked lesson until #295; and `materialize_lessons` fails whole when one occurrence
-  crosses a lesson the student booked. A person teaching in two organizations is held apart by the
-  lock of `book_lesson` (every row of hers) and by the slots. A booked lesson changes only through the functions (`lessons_booked_through_functions`
+  constraints on `btree_gist`, in `extensions`). A person teaching in two organizations is held
+  apart by the lock of `book_lesson` (every row of hers) and by the slots. A booked lesson changes
+  only through the functions (`lessons_booked_through_functions`
   refuses to anyone but the table's owner a lesson inserted with a teacher or a debit, a change of the
   status, time, length, student or teacher of a booked lesson, any change of the debit, the refund or
   the cancel, and the delete of a booked lesson); "Parei aqui" and the note still pass.
   `authenticated` executes six functions, all for `auth.uid()`: `lesson_rules`, `bookable_teachers`,
   `bookable_slots`, `my_lessons`, `book_lesson` (writes the lesson and calls
   `credit_debit(her, 'teacher_lesson', 1, 'lesson:<id>')` in the same transaction) and
-  `cancel_lesson` (the student of a booked lesson until the start, with `credit_refund` up to 1 h before; the lesson's
+  `cancel_lesson` (the lesson's student until the start, with `credit_refund` up to 1 h before; the lesson's
   teacher, the organization's admin or the platform admin until the planned end, always with
   `credit_refund`). The cost is read through the ledger's `credit_price` alone, so #292 changes it
   there. Nobody executes `lesson_booker_organization`, `lesson_open_slots` or the trigger function,
   and `credit_debit` and `credit_refund` stay executable by nobody. Each refusal names its rule at
   the start of its message, and `src/lib/lessons/refusals.ts` says it in Portuguese.
+- A lesson is born only through `book_lesson` (0054, #295). The fixed weekly agenda is gone:
+  `lesson_schedules`, `materialize_lessons`, `students.meet_url`, `lessons.meet_url` and
+  `lessons_student_slot_idx` no longer exist, and a test reads `src/` for their names
+  (`no-fixed-agenda.test.ts`). Every lesson has a teacher (`lessons.teacher_id` is not null): 0054
+  gave each lesson of the fixed agenda the one active teacher of its organization, and refuses
+  whole while an organization with such a lesson has none or more than one. Those lessons kept
+  their status, time, length, mark and note, debited 0 and wrote no entry, so their cancel gives
+  nothing back. `authenticated` holds no insert or delete on `lessons` and updates only
+  `stopped_at_point_id` and `teacher_note`, under `lessons_update_notes` (whoever teaches in the
+  organization, `teaches_in`, or the platform admin); `lessons_read` is unchanged. The room of every
+  lesson is its teacher's Meet (`my_lessons`). "Parei aqui" marks only a booked lesson running, just
+  ended or starting within the hour, and refuses otherwise.
 - A booked lesson reaches the calendar through 0056 (#294, `docs/spec-f1.md`, "Convite de
   agenda"). The trigger `lessons_invite_calendar`, in the transaction of `book_lesson` and
-  `cancel_lesson` (or any write that turns a lesson with a teacher cancelled), queues one row of
+  `cancel_lesson` (or any write that turns a lesson cancelled), queues one row of
   `calendar_invites` per lesson, kind (`request`, `cancel`) and person (`student`, `teacher`): two
   requests for a lesson born scheduled and ahead, two cancels for one that turns cancelled,
   `pending` where the request was sent or tried (a send that timed out may have arrived) and
   `skipped`, with the request, where it was never tried. The app sends after the commit
-  (`after()` in the three actions that book or cancel, and the Vercel Cron `/api/calendar/daily`
+  (`after()` in the three actions that book or cancel, the teacher's one shared by
+  `/teacher/agenda` and `/teacher/students`, and the Vercel Cron `/api/calendar/daily`
   at 13h UTC behind `CRON_SECRET`), through three `security definer` functions only
   `service_role` executes, the same exception to "service_role gets none" as billing's:
   `calendar_invites_due` (with the student's auth e-mail and the teacher's `calendar_email`; a row
@@ -216,16 +227,19 @@ architecture question for Luiz.
   (`METHOD:REQUEST`/`CANCEL`, one UID per lesson, UTC times), from `agenda@chelsea-st.com`, the
   organizer: a "No" in a calendar is an e-mail to that address and cancels nothing. Its replies
   reach Luiz through a Cloudflare Email Routing rule. The log of a send carries the lesson, the
-  kind, the role and Resend's status and error name, never an address or a name.
+  kind, the role and Resend's status and error name, never an address or a name. 0056 queued
+  the requests of the lessons ahead and scheduled when it was applied, after 0054 gave each its
+  teacher.
 - `leads` receives rows only through `submit_lead` (0038), executed by `anon` alone: the site's
   function calls it with the publishable key. Nobody reads `leads` through the API, and the
   service role holds nothing on it. A number sent twice is two rows (history, nothing is
   overwritten); the latest send of each number is the view `leads_latest`, with no privilege for
   any API role. The number is stored with the 55 (`leads_whatsapp_br`).
 - A time zone is one both Postgres and the screen read (0048, #219): `profiles.timezone` and
-  `lesson_schedules.timezone` take only a name in `pg_timezone_names` that is not `posix/` and not
-  `Factory`. A trigger on each, `before insert or update of timezone` (`profiles_timezone_known`,
-  `lesson_schedules_timezone_known`), calls `is_known_time_zone` (executed by `authenticated`) and
+  `teacher_availability.timezone` (0052) take only a name in `pg_timezone_names` that is not
+  `posix/` and not `Factory`. A trigger on each, `before insert or update of timezone`
+  (`profiles_timezone_known`, `teacher_availability_timezone_known`; `lesson_schedules_timezone_known`
+  left with its table in 0054), calls `is_known_time_zone` (executed by `authenticated`) and
   refuses with 23514 under its own name. A trigger and not a check: a name the server's tzdata drops
   later keeps its rows, the other columns of such a row still change, only writing the zone again
   is refused, and a restore (`session_replication_role = replica`) skips it.
@@ -255,8 +269,9 @@ architecture question for Luiz.
   no default, written by the platform admin only. Chelsea St has one; GrifoAI's organization and
   every company on GrifoAI have none. "Admin can do everything a teacher can" (ADR 0004) holds only
   where there is a teacher: `teaches_in(organization)` (a teacher, or an admin where `has_teacher`)
-  is what the 34 policies of a teacher's power, `teaches_anywhere` and `materialize_lessons`
-  ask (0043 then gave the 10 content writes among the 34 to the platform admin alone). Where there is no teacher, the admin
+  is what the policies of a teacher's power and `teaches_anywhere` ask (0042 moved 34; 0043 then
+  gave the 10 content writes among them to the platform admin alone, and 0054 dropped the two of
+  `lesson_schedules` and `lessons_write` and added `lessons_update_notes`). Where there is no teacher, the admin
   invites (employees and admins), reads the invites, the members and their names, and nothing
   else; nobody is a teacher there (triggers on members and invites), and an organization with a
   teacher member or an open teacher invite cannot turn into one without. On screen the company
@@ -280,7 +295,7 @@ architecture question for Luiz.
   approved picture, or acted out: checked on the screen and in `addQuestion`/`saveQuestion`
   (`publishRefusal`, #180), not in the database.
 - Where a student stopped follows 0035: one point per lesson, `lessons.stopped_at_point_id`,
-  written by "Parei aqui" on the live lesson screen. The points of a lesson are the ones between
+  written by "Parei aqui" on the live lesson screen, on a booked lesson only since #295. The points of a lesson are the ones between
   the previous lesson's mark and its own; they are not stored. A marked point cannot be deleted
   (`on delete restrict`), and `materialize_points` names this refusal before deleting (0039). A
   mark names a common point or one of the lesson's organization (`lessons_stop_in_organization`,
