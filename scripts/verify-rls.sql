@@ -9429,6 +9429,623 @@ $$;
 drop extension dblink;
 
 
+-- 0059 adds founder_coupons, founder_coupon_redemptions, founder_invites and
+-- signup_origins, all empty, and recreates the trigger function of the first
+-- confirmation once more, on 0058's body. No row is written by it. The
+-- blocks of 0051 and 0058 ran above against the bodies it replaces; its own
+-- block holds again what the recreated body keeps (the signup, the personal
+-- plan), besides what it adds.
+\i supabase/migrations/0059_a_founder_comes_by_coupon_or_invite.sql
+
+-- A founder comes by coupon or invite (0059) ---------------------------------------------
+--
+-- Nobody but the platform admin reads the coupons, their uses, the founder
+-- invites and the origins; only he makes a coupon (in the database, which
+-- keeps only its hash) and writes an invite. A coupon gives the seal through
+-- badge_grant, source coupon, once per person, within its validity, its uses
+-- and its brand; whoever holds the seal spends no use, and with no seat left
+-- none is spent. The signup's coupon is redeemed by the first confirmation,
+-- after the signup made her a student, and a bad coupon never fails the
+-- confirmation. A founder invite gives the seal on the first confirmation of
+-- its e-mail, or at once to an account already confirmed; with no seat it
+-- stays open, or its write is refused. The origin is recorded once, only
+-- 'grifoai'. Each numbered case is the line of the table of the plan of
+-- 13/11 on #296 that it holds. Codes and numbers are made up. Nothing
+-- written here is kept.
+
+create function verify.holds_0059(p_what text, p_ok boolean) returns void
+language plpgsql as $$
+begin
+  if p_ok is distinct from true then
+    insert into verify.failures values (p_what);
+  else
+    raise notice '%', p_what;
+  end if;
+end;
+$$;
+
+-- The count of rows of a table the current role reads, or -1 when refused.
+create function verify.rows_0059(p_table text) returns bigint
+language plpgsql as $$
+declare
+  v_n bigint;
+begin
+  execute format('select count(*) from public.%I', p_table) into v_n;
+  return v_n;
+exception when insufficient_privilege then
+  return -1;
+end;
+$$;
+
+do $$
+declare
+  c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_a constant uuid := 'b0590000-0000-4000-8000-000000000001';
+  c_b constant uuid := 'b0590000-0000-4000-8000-000000000002';
+  c_c constant uuid := 'b0590000-0000-4000-8000-000000000003';
+  c_d constant uuid := 'b0590000-0000-4000-8000-000000000004';
+  c_teacher constant uuid := 'b0590000-0000-4000-8000-000000000005';
+  c_company_admin constant uuid := 'b0590000-0000-4000-8000-000000000006';
+  c_employee constant uuid := 'b0590000-0000-4000-8000-000000000007';
+  c_sign_ok constant uuid := 'b0590000-0000-4000-8000-000000000008';
+  c_sign_expired constant uuid := 'b0590000-0000-4000-8000-000000000009';
+  c_sign_no_seat constant uuid := 'b0590000-0000-4000-8000-00000000000a';
+  c_inv constant uuid := 'b0590000-0000-4000-8000-00000000000b';
+  c_inv_expired constant uuid := 'b0590000-0000-4000-8000-00000000000c';
+  c_inv_no_seat constant uuid := 'b0590000-0000-4000-8000-00000000000d';
+  c_confirmed constant uuid := 'b0590000-0000-4000-8000-00000000000e';
+  c_confirmed_no_seat constant uuid := 'b0590000-0000-4000-8000-00000000000f';
+  c_origin constant uuid := 'b0590000-0000-4000-8000-000000000010';
+  c_origin_other constant uuid := 'b0590000-0000-4000-8000-000000000011';
+  c_people constant uuid[] := array[c_a, c_b, c_c, c_d, c_teacher, c_company_admin, c_employee,
+    c_sign_ok, c_sign_expired, c_sign_no_seat, c_inv, c_inv_expired, c_inv_no_seat,
+    c_confirmed, c_confirmed_no_seat, c_origin, c_origin_other];
+  c_tables constant text[] := array['founder_coupons', 'founder_coupon_redemptions',
+                                    'founder_invites', 'signup_origins'];
+  v_uid text := current_setting('test.uid', true);
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_grifo uuid := (select id from organizations where slug = 'grifoai');
+  v_general uuid;
+  v_single uuid;
+  v_spare uuid;
+  v_expired uuid;
+  v_grifo_coupon uuid;
+  v_signup_coupon uuid;
+  v_personal_plan uuid;
+  v_invite uuid;
+  v_text text;
+  v_n bigint;
+  v_m bigint;
+  v_counts bigint[];
+  v_bool boolean;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  -- The people. Chelsea St students, confirmed: four who redeem, a teacher;
+  -- a company's admin and employee (GrifoAI); one confirmed account the
+  -- invite reaches at once, one more for when no seat is left. Unconfirmed,
+  -- from the signup: with a coupon, an expired coupon, a coupon when no seat
+  -- is left, a founder invite, an expired one, one with no seat, and two
+  -- origins.
+  insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at) values
+    (c_a, 'a-0059@example.com', '{"full_name":"A"}', now()),
+    (c_b, 'b-0059@example.com', '{"full_name":"B"}', now()),
+    (c_c, 'c-0059@example.com', '{"full_name":"C"}', now()),
+    (c_d, 'd-0059@example.com', '{"full_name":"D"}', now()),
+    (c_teacher, 'teacher-0059@example.com', '{"full_name":"Teacher"}', now()),
+    (c_company_admin, 'company-admin-0059@example.com', '{"full_name":"Company admin"}', now()),
+    (c_employee, 'employee-0059@example.com', '{"full_name":"Employee"}', now()),
+    (c_confirmed, 'Confirmed-0059@Example.com', '{"full_name":"Confirmed"}', now()),
+    (c_confirmed_no_seat, 'confirmed-no-seat-0059@example.com', '{"full_name":"Confirmed no seat"}', now());
+  insert into auth.users (id, email, raw_user_meta_data) values
+    (c_sign_ok, 'sign-ok-0059@example.com',
+     '{"signup": true, "full_name": "Sign ok", "founder_coupon": "sign up-0059 a"}'),
+    (c_sign_expired, 'sign-expired-0059@example.com',
+     '{"signup": true, "full_name": "Sign expired", "founder_coupon": "EXPIRED0059"}'),
+    (c_sign_no_seat, 'sign-no-seat-0059@example.com',
+     '{"signup": true, "full_name": "Sign no seat", "founder_coupon": "SPARE-0059"}'),
+    (c_inv, 'Inv-0059@Example.com', '{"signup": true, "full_name": "Inv"}'),
+    (c_inv_expired, 'inv-expired-0059@example.com', '{"signup": true, "full_name": "Inv expired"}'),
+    (c_inv_no_seat, 'inv-no-seat-0059@example.com', '{"signup": true, "full_name": "Inv no seat"}'),
+    (c_origin, 'origin-0059@example.com', '{"signup": true, "full_name": "Origin", "origin": "grifoai"}'),
+    (c_origin_other, 'origin-other-0059@example.com', '{"signup": true, "full_name": "Other", "origin": "facebook"}');
+  insert into organization_members (organization_id, user_id, role)
+    select v_chelsea, p, 'student' from unnest(array[c_a, c_b, c_c, c_d, c_confirmed, c_confirmed_no_seat]) p;
+  insert into students (id, organization_id)
+    select p, v_chelsea from unnest(array[c_a, c_b, c_c, c_d, c_confirmed, c_confirmed_no_seat]) p;
+  insert into organization_members (organization_id, user_id, role) values
+    (v_chelsea, c_teacher, 'teacher'),
+    (v_grifo, c_company_admin, 'admin'),
+    (v_grifo, c_employee, 'student');
+  insert into students (id, organization_id) values (c_employee, v_grifo);
+
+  -- 17. Who executes what, and who holds what on the four tables.
+  perform verify.holds_0059('[0059 #17] create_founder_coupon and redeem_my_founder_coupon are executed by authenticated alone; the internal and trigger functions by no API role',
+        has_function_privilege('authenticated', 'public.create_founder_coupon(text, text, text, integer, timestamptz)', 'execute')
+    and has_function_privilege('authenticated', 'public.redeem_my_founder_coupon(text)', 'execute')
+    and not exists (select 1 from unnest(array[
+                  'public.create_founder_coupon(text, text, text, integer, timestamptz)',
+                  'public.redeem_my_founder_coupon(text)']::regprocedure[]) f
+                cross join unnest(array['anon', 'service_role']) r
+                where has_function_privilege(r, f, 'execute'))
+    and not exists (select 1 from unnest(array[
+                  'public.founder_coupon_hash(text)', 'public.redeem_founder_coupon(uuid, text)',
+                  'public.accept_founder_invites(uuid, text)', 'public.founder_invites_grant_confirmed()',
+                  'public.record_signup_origin(uuid, jsonb)',
+                  'public.accept_organization_invites_on_confirmation()']::regprocedure[]) f
+                cross join unnest(array['anon', 'authenticated', 'service_role']) r
+                where has_function_privilege(r, f, 'execute')));
+  perform verify.holds_0059('[0059 #17] anon and service_role hold nothing on the four tables; authenticated selects them, writes no coupon, use or origin, and writes an invite',
+        not exists (select 1 from unnest(c_tables) t
+                    cross join unnest(array['select', 'insert', 'update', 'delete']) p
+                    cross join unnest(array['anon', 'service_role']) r
+                     where has_table_privilege(r, 'public.' || t, p))
+    and not exists (select 1 from unnest(c_tables) t where not has_table_privilege('authenticated', 'public.' || t, 'select'))
+    and not exists (select 1 from unnest(array['founder_coupons', 'founder_coupon_redemptions', 'signup_origins']) t
+                    cross join unnest(array['insert', 'delete']) p
+                     where has_table_privilege('authenticated', 'public.' || t, p))
+    and not has_table_privilege('authenticated', 'public.founder_coupon_redemptions', 'update')
+    and not has_table_privilege('authenticated', 'public.signup_origins', 'update')
+    and not has_column_privilege('authenticated', 'public.founder_coupons', 'code_hash', 'update')
+    and not has_column_privilege('authenticated', 'public.founder_coupons', 'brand', 'update')
+    and has_column_privilege('authenticated', 'public.founder_coupons', 'expires_at', 'update')
+    and has_table_privilege('authenticated', 'public.founder_invites', 'insert')
+    and has_table_privilege('authenticated', 'public.founder_invites', 'delete')
+    and not has_column_privilege('authenticated', 'public.founder_invites', 'accepted_at', 'update')
+    and not has_column_privilege('authenticated', 'public.founder_invites', 'email', 'update'));
+
+  -- The seats, and the coupons, by the platform admin.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  insert into founder_program (seats_total) values (20);
+  v_general := create_founder_coupon('secreto-0059 abc', 'Post', 'chelsea-st', 5, now() + interval '30 days');
+  v_single := create_founder_coupon('SINGLE0059', 'Pessoal', 'chelsea-st', 1, now() + interval '30 days');
+  v_spare := create_founder_coupon('spare 0059', 'Reserva', 'chelsea-st', 5, now() + interval '30 days');
+  v_expired := create_founder_coupon('expired0059', 'Vencido', 'chelsea-st', 5, now() + interval '30 days');
+  v_grifo_coupon := create_founder_coupon('GRIFO-0059', 'Grifo', 'grifoai', 5, now() + interval '30 days');
+  v_signup_coupon := create_founder_coupon('SIGNUP0059A', 'Cadastro', 'chelsea-st', 5, now() + interval '30 days');
+  v_personal_plan := verify.plan_0058('personal-sign-ok', 'person', 800, 8000, 10, 1, 'sign-ok-0059@example.com');
+  reset role;
+  -- An expired coupon: its validity in the past, as the clock of another
+  -- day would leave it.
+  update founder_coupons set created_at = now() - interval '2 days', expires_at = now() - interval '1 day'
+   where id = v_expired;
+
+  -- 3. The code is stored nowhere: only its hash, of the code made normal.
+  perform verify.holds_0059('[0059 #3] a coupon keeps the sha256 of its code made normal, and no column holds the code',
+    (select code_hash from founder_coupons where id = v_general) = sha256(convert_to('SECRETO0059ABC', 'UTF8'))
+    and not exists (select 1 from founder_coupons c
+                     where upper(row_to_json(c)::text) like '%SECRETO%'
+                        or upper(row_to_json(c)::text) like '%SINGLE0059%'));
+
+  -- The rules of a coupon, refused by name.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #2] a coupon code of 5 characters once made normal',
+    '23514 founder_coupons_code_length',
+    $q$select create_founder_coupon('ab-c d e', 'Curto', 'chelsea-st', 1, now() + interval '1 day')$q$);
+  perform verify.expect_named_refusal('[0059 #2] a coupon code of 65 characters',
+    '23514 founder_coupons_code_length',
+    format($q$select create_founder_coupon(%L, 'Longo', 'chelsea-st', 1, now() + interval '1 day')$q$, repeat('A', 65)));
+  perform verify.expect_named_refusal('[0059 #2] a code already used, in another case and with hyphens',
+    '23505 founder_coupons_code_hash_key',
+    $q$select create_founder_coupon('SECRETO-0059-ABC', 'De novo', 'chelsea-st', 1, now() + interval '1 day')$q$);
+  perform verify.expect_named_refusal('[0059 #2] a coupon of an unknown brand',
+    '23514 founder_coupons_brand_known',
+    $q$select create_founder_coupon('OUTRA0059', 'Outra', 'outra', 1, now() + interval '1 day')$q$);
+  perform verify.expect_named_refusal('[0059 #2] a coupon of 0 uses',
+    '23514 founder_coupons_max_uses_positive',
+    $q$select create_founder_coupon('ZERO0059', 'Zero', 'chelsea-st', 0, now() + interval '1 day')$q$);
+  perform verify.expect_named_refusal('[0059 #2] a coupon with a blank label',
+    '23514 founder_coupons_label_length',
+    $q$select create_founder_coupon('BLANK0059', '   ', 'chelsea-st', 1, now() + interval '1 day')$q$);
+  perform verify.expect_named_refusal('[0059 #2] the platform admin inserts a coupon past the function',
+    '42501', $q$insert into founder_coupons (brand, code_hash, label, max_uses, expires_at)
+                values ('chelsea-st', '\x00', 'Direto', 1, now() + interval '1 day')$q$);
+  perform verify.expect_named_refusal('[0059 #2] the platform admin rewrites the hash of a coupon',
+    '42501', format($q$update founder_coupons set code_hash = '\x00' where id = %L$q$, v_general));
+  perform verify.expect_named_refusal('[0059 #2] the platform admin deletes a coupon',
+    '42501', format('delete from founder_coupons where id = %L', v_general));
+  perform verify.expect_named_refusal('[0059 #2] the platform admin writes a use',
+    '42501', format('insert into founder_coupon_redemptions (coupon_id, person_id) values (%L, %L)', v_general, c_a));
+  perform verify.expect_named_refusal('[0059 #15] the platform admin writes an origin',
+    '42501', format($q$insert into signup_origins (person_id, origin) values (%L, 'grifoai')$q$, c_a));
+  reset role;
+  perform verify.expect_named_refusal('[0059] a coupon of an organization', '23514 founder_coupons_is_common',
+    format('update founder_coupons set organization_id = %L where id = %L', v_chelsea, v_general));
+  perform verify.expect_named_refusal('[0059] a founder invite in capitals', '23514 founder_invites_email_check',
+    $q$insert into founder_invites (email, expires_at) values ('Caps-0059@example.com', now() + interval '1 day')$q$);
+  perform verify.expect_named_refusal('[0059] an origin outside the list', '23514 signup_origins_known',
+    format($q$insert into signup_origins (person_id, origin) values (%L, 'facebook')$q$, c_a));
+
+  -- 2. Nobody else makes a coupon or writes an invite.
+  perform set_config('test.uid', c_a::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #2] a student makes a coupon', '42501',
+    $q$select create_founder_coupon('MINE00590', 'Meu', 'chelsea-st', 9, now() + interval '1 day')$q$);
+  perform verify.expect_named_refusal('[0059 #2] a student writes a founder invite', '42501',
+    $q$insert into founder_invites (email, expires_at) values ('a-0059@example.com', now() + interval '1 day')$q$);
+  with w as (update founder_coupons set max_uses = 100 returning 1) select count(*) into v_n from w;
+  reset role;
+  perform verify.holds_0059('[0059 #2] a student changes no coupon', v_n = 0);
+  perform set_config('test.uid', c_teacher::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #2] a teacher makes a coupon', '42501',
+    $q$select create_founder_coupon('TEACH0059', 'Prof', 'chelsea-st', 9, now() + interval '1 day')$q$);
+  perform verify.expect_named_refusal('[0059 #2] a teacher writes a founder invite', '42501',
+    $q$insert into founder_invites (email, expires_at) values ('t-0059@example.com', now() + interval '1 day')$q$);
+  reset role;
+
+  -- 4. A valid coupon, typed in another case with spaces: the seal by
+  -- badge_grant, source coupon, from who made it, and its use.
+  perform set_config('test.uid', c_a::text, false);
+  set local role authenticated;
+  v_text := redeem_my_founder_coupon('  Secreto 0059-abc ');
+  reset role;
+  perform verify.holds_0059('[0059 #4] a valid coupon gives the seal (source coupon, granted_by who made it) and writes its use',
+    v_text = 'granted'
+    and exists (select 1 from person_badges where person_id = c_a and badge = 'founder' and source = 'coupon'
+                   and granted_by = c_admin and revoked_at is null)
+    and exists (select 1 from founder_coupon_redemptions where coupon_id = v_general and person_id = c_a));
+
+  -- The refusals of the screen, each by its rule.
+  perform set_config('test.uid', c_b::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #5] a code no coupon has', '23514 founder_coupon_exists',
+    $q$select redeem_my_founder_coupon('NOPE-0059')$q$);
+  perform verify.expect_named_refusal('[0059 #5] an expired coupon', '23514 founder_coupon_expired',
+    $q$select redeem_my_founder_coupon('EXPIRED0059')$q$);
+  perform verify.expect_named_refusal('[0059 #8] a GrifoAI coupon by a Chelsea St student', '23514 founder_coupon_brand',
+    $q$select redeem_my_founder_coupon('grifo0059')$q$);
+  -- 6. One use left: hers, then nobody's.
+  v_text := redeem_my_founder_coupon('single0059');
+  reset role;
+  perform verify.holds_0059('[0059 #6] the last use of a coupon gives the seal', v_text = 'granted');
+  perform set_config('test.uid', c_c::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #6] a coupon with no use left', '23514 founder_coupon_exhausted',
+    $q$select redeem_my_founder_coupon('SINGLE0059')$q$);
+  reset role;
+  perform set_config('test.uid', c_employee::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #8] a Chelsea St coupon by a company''s employee', '23514 founder_coupon_brand',
+    $q$select redeem_my_founder_coupon('spare0059')$q$);
+  reset role;
+  perform set_config('test.uid', c_company_admin::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #8] a GrifoAI coupon by a company''s admin, who studies nowhere', '23514 founder_coupon_brand',
+    $q$select redeem_my_founder_coupon('GRIFO0059')$q$);
+  reset role;
+  perform verify.holds_0059('[0059 #5] no refusal gave a seal or wrote a use',
+    not exists (select 1 from person_badges where person_id in (c_c, c_employee, c_company_admin))
+    and (select count(*) from founder_coupon_redemptions where coupon_id = v_single) = 1
+    and not exists (select 1 from founder_coupon_redemptions where coupon_id in (v_expired, v_grifo_coupon, v_spare)));
+
+  -- 7. Once per person, also after her seal is taken back.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  perform revoke_badge(c_a, 'founder');
+  reset role;
+  perform set_config('test.uid', c_a::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #7] the same coupon again by the same person, her seal taken back',
+    '23514 founder_coupon_once_per_person', $q$select redeem_my_founder_coupon('SECRETO0059ABC')$q$);
+  reset role;
+  perform verify.holds_0059('[0059 #7] the coupon used again gave no seal and no second use',
+    not exists (select 1 from person_badges where person_id = c_a and revoked_at is null)
+    and (select count(*) from founder_coupon_redemptions where coupon_id = v_general) = 1);
+
+  -- 9. Who holds the seal spends no use.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  perform grant_badge(c_d, 'founder');
+  reset role;
+  perform set_config('test.uid', c_d::text, false);
+  set local role authenticated;
+  v_text := redeem_my_founder_coupon('SPARE0059');
+  reset role;
+  perform verify.holds_0059('[0059 #9] a founder redeeming a coupon gets already_founder and spends no use',
+    v_text = 'already_founder'
+    and not exists (select 1 from founder_coupon_redemptions where coupon_id = v_spare)
+    and (select source from person_badges where person_id = c_d and revoked_at is null) = 'admin');
+
+  -- 10. No seat left: no seal and no use spent.
+  update founder_program set seats_total = (select count(*) from person_badges where revoked_at is null);
+  perform verify.holds_0059('[0059 #10] with every seat taken, founder_seats_left is 0', founder_seats_left() = 0);
+  perform set_config('test.uid', c_c::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #10] a valid coupon with no seat left', '23514 founder_coupon_seats',
+    $q$select redeem_my_founder_coupon('SPARE0059')$q$);
+  reset role;
+  perform verify.holds_0059('[0059 #10] with no seat left the coupon gave no seal and spent no use',
+    redeem_founder_coupon(c_c, 'SPARE0059') = 'no_seats'
+    and not exists (select 1 from person_badges where person_id = c_c)
+    and not exists (select 1 from founder_coupon_redemptions where coupon_id = v_spare));
+
+  -- 12, 13 and 16. The first confirmation, with no seat left: she is a
+  -- student, with no seal, and the founder invite of her e-mail stays open.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  insert into founder_invites (email, expires_at) values ('inv-no-seat-0059@example.com', now() + interval '15 days');
+  reset role;
+  update auth.users set email_confirmed_at = now() where id in (c_sign_no_seat, c_inv_no_seat);
+  perform verify.holds_0059('[0059 #12] a signup whose coupon finds no seat is confirmed a student of Chelsea St, with no seal and no use spent',
+    (select email_confirmed_at from auth.users where id = c_sign_no_seat) is not null
+    and exists (select 1 from organization_members where user_id = c_sign_no_seat and organization_id = v_chelsea and role = 'student')
+    and not exists (select 1 from person_badges where person_id = c_sign_no_seat)
+    and not exists (select 1 from founder_coupon_redemptions where coupon_id = v_spare));
+  perform verify.holds_0059('[0059 #13] a founder invite with no seat left gives no seal and stays open',
+    not exists (select 1 from person_badges where person_id = c_inv_no_seat)
+    and (select accepted_at from founder_invites where email = 'inv-no-seat-0059@example.com') is null
+    and exists (select 1 from organization_members where user_id = c_inv_no_seat and role = 'student'));
+  -- 14. With no seat left, an invite to a confirmed account is refused.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #14] a founder invite to a confirmed account with no seat left',
+    '23514 founder_seats_available',
+    $q$insert into founder_invites (email, expires_at) values ('confirmed-no-seat-0059@example.com', now() + interval '15 days')$q$);
+  reset role;
+  perform verify.holds_0059('[0059 #14] the refused invite left no row and no seal',
+    not exists (select 1 from founder_invites where email = 'confirmed-no-seat-0059@example.com')
+    and not exists (select 1 from person_badges where person_id = c_confirmed_no_seat));
+
+  -- The seats again.
+  update founder_program set seats_total = 20;
+
+  -- 14. An invite to an account already confirmed (her address in another
+  -- case): the seal when it is written.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  insert into founder_invites (email, expires_at) values ('confirmed-0059@example.com', now() + interval '15 days')
+    returning id into v_invite;
+  reset role;
+  perform verify.holds_0059('[0059 #14] a founder invite to a confirmed account gives the seal when written (source invite, granted_by who invited) and is accepted',
+    exists (select 1 from person_badges where person_id = c_confirmed and source = 'invite'
+                   and granted_by = c_admin and revoked_at is null)
+    and (select accepted_at from founder_invites where id = v_invite) is not null);
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  with w as (delete from founder_invites where id = v_invite returning 1) select count(*) into v_n from w;
+  with w as (update founder_invites set expires_at = now() + interval '1 day' where id = v_invite returning 1) select count(*) into v_m from w;
+  reset role;
+  perform verify.holds_0059('[0059 #14] an accepted founder invite is neither cancelled nor renewed', v_n = 0 and v_m = 0);
+
+  -- 13. The founder invites waiting for a confirmation: one open, one
+  -- expired; and a second open one for the same e-mail.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  insert into founder_invites (email, expires_at) values ('inv-0059@example.com', now() + interval '15 days');
+  insert into founder_invites (email, expires_at) values ('inv-expired-0059@example.com', now() + interval '15 days');
+  perform verify.expect_named_refusal('[0059 #13] a second open founder invite for the same e-mail',
+    '23505 founder_invites_one_open',
+    $q$insert into founder_invites (email, expires_at) values ('inv-0059@example.com', now() + interval '1 day')$q$);
+  reset role;
+  update founder_invites set created_at = now() - interval '20 days', expires_at = now() - interval '5 days'
+   where email = 'inv-expired-0059@example.com';
+  perform verify.holds_0059('[0059 #13] a founder invite for an unconfirmed account waits: no seal yet',
+    not exists (select 1 from person_badges where person_id = c_inv)
+    and (select accepted_at from founder_invites where email = 'inv-0059@example.com') is null);
+
+  -- 12, 13, 15 and 16. The first confirmations.
+  update auth.users set email_confirmed_at = now()
+   where id in (c_sign_ok, c_sign_expired, c_inv, c_inv_expired, c_origin, c_origin_other);
+
+  perform verify.holds_0059('[0059 #12] a signup with a valid coupon (typed in another case, with spaces) is confirmed a student of Chelsea St with the seal, source coupon, and its use',
+    exists (select 1 from organization_members where user_id = c_sign_ok and organization_id = v_chelsea and role = 'student')
+    and exists (select 1 from person_badges where person_id = c_sign_ok and source = 'coupon' and revoked_at is null)
+    and exists (select 1 from founder_coupon_redemptions where coupon_id = v_signup_coupon and person_id = c_sign_ok));
+  perform verify.holds_0059('[0059 #16] the confirmation still binds the personal plan of her e-mail (0058''s body kept)',
+    (select person_id from plans where id = v_personal_plan) = c_sign_ok);
+  perform verify.holds_0059('[0059 #12] a signup with an expired coupon is confirmed a student of Chelsea St, with no seal',
+    (select email_confirmed_at from auth.users where id = c_sign_expired) is not null
+    and exists (select 1 from organization_members where user_id = c_sign_expired and organization_id = v_chelsea and role = 'student')
+    and not exists (select 1 from person_badges where person_id = c_sign_expired)
+    and not exists (select 1 from founder_coupon_redemptions where coupon_id = v_expired));
+  perform verify.holds_0059('[0059 #13] a founder invite gives the seal on the first confirmation of its e-mail, in another case (source invite, granted_by who invited), and is accepted',
+    exists (select 1 from person_badges where person_id = c_inv and source = 'invite' and granted_by = c_admin
+                   and revoked_at is null)
+    and (select accepted_at from founder_invites where email = 'inv-0059@example.com') is not null);
+  perform verify.holds_0059('[0059 #13] an expired founder invite gives no seal and stays open',
+    not exists (select 1 from person_badges where person_id = c_inv_expired)
+    and (select accepted_at from founder_invites where email = 'inv-expired-0059@example.com') is null);
+
+  -- 13. The invite left open with no seat, renewed for the account now
+  -- confirmed: the seal when renewed.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  update founder_invites set expires_at = now() + interval '15 days' where email = 'inv-no-seat-0059@example.com';
+  reset role;
+  perform verify.holds_0059('[0059 #13] a founder invite left open with no seat gives the seal when renewed, once there is a seat',
+    exists (select 1 from person_badges where person_id = c_inv_no_seat and source = 'invite' and revoked_at is null)
+    and (select accepted_at from founder_invites where email = 'inv-no-seat-0059@example.com') is not null);
+
+  -- 15. The origin.
+  perform verify.holds_0059('[0059 #15] a signup with origin grifoai records it on the first confirmation; another value records nothing',
+    (select origin from signup_origins where person_id = c_origin) = 'grifoai'
+    and not exists (select 1 from signup_origins where person_id = c_origin_other)
+    and not exists (select 1 from signup_origins where person_id = c_sign_ok)
+    and (select email_confirmed_at from auth.users where id = c_origin_other) is not null);
+  update auth.users set raw_user_meta_data = '{"signup": true, "full_name": "Other", "origin": "grifoai"}',
+                        email_confirmed_at = now() + interval '1 minute'
+   where id = c_origin_other;
+  perform verify.holds_0059('[0059 #15] a later confirmation with the origin in the metadata records nothing',
+    not exists (select 1 from signup_origins where person_id = c_origin_other));
+  perform set_config('test.uid', c_origin::text, false);
+  set local role authenticated;
+  v_n := verify.rows_0059('signup_origins');
+  perform verify.expect_named_refusal('[0059 #15] the person writes her own origin', '42501',
+    format($q$insert into signup_origins (person_id, origin) values (%L, 'grifoai')$q$, c_origin_other));
+  perform verify.expect_named_refusal('[0059 #15] the person changes an origin', '42501',
+    $q$update signup_origins set origin = 'grifoai'$q$);
+  reset role;
+  perform verify.holds_0059('[0059 #15] the person reads no origin, her own neither', v_n = 0);
+
+  -- 1. Who reads the four tables: the platform admin all, anybody else none.
+  set local role anon;
+  v_counts := array(select verify.rows_0059(t) from unnest(c_tables) t);
+  reset role;
+  perform verify.holds_0059(format('[0059 #1] anon reads none of the four tables (%s)', v_counts),
+    v_counts = array[-1, -1, -1, -1]::bigint[]);
+  foreach v_text in array array[c_sign_ok::text, c_inv::text, c_teacher::text, c_company_admin::text, c_employee::text] loop
+    perform set_config('test.uid', v_text, false);
+    set local role authenticated;
+    v_counts := array(select verify.rows_0059(t) from unnest(c_tables) t);
+    reset role;
+    perform verify.holds_0059(format('[0059 #1] %s reads 0 rows of the four tables (%s)',
+      (select raw_user_meta_data ->> 'full_name' from auth.users where id = v_text::uuid), v_counts),
+      v_counts = array[0, 0, 0, 0]::bigint[]);
+  end loop;
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  v_counts := array(select verify.rows_0059(t) from unnest(c_tables) t);
+  reset role;
+  perform verify.holds_0059(format('[0059 #1] the platform admin reads every row of the four tables (%s)', v_counts),
+    v_counts = array[(select count(*) from founder_coupons), (select count(*) from founder_coupon_redemptions),
+                     (select count(*) from founder_invites), (select count(*) from signup_origins)]
+    and v_counts[1] > 0 and v_counts[2] > 0 and v_counts[3] > 0 and v_counts[4] > 0);
+
+  -- The platform admin ends a coupon and cancels an open invite.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  update founder_coupons set expires_at = now() where id = v_spare;
+  with w as (delete from founder_invites where email = 'inv-expired-0059@example.com' returning 1) select count(*) into v_n from w;
+  reset role;
+  perform verify.holds_0059('[0059] the platform admin ends a coupon by its validity and cancels an open invite',
+    redeem_founder_coupon(c_c, 'SPARE0059') = 'expired' and v_n = 1);
+
+  -- 17. No security definer of public is executable by anon but the two
+  -- doors of 0058.
+  insert into verify.failures
+  select format('[0059 #17] anon executes the security definer %s', p.oid::regprocedure)
+    from pg_proc p
+   where p.pronamespace = 'public'::regnamespace
+     and not exists (select 1 from pg_depend d
+                      where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
+     and p.prosecdef
+     and p.oid not in ('public.submit_lead(text, text, text, text, text, text, text, text, text, text)'::regprocedure,
+                       'public.founder_seats_left()'::regprocedure)
+     and has_function_privilege('anon', p.oid, 'execute');
+  if not exists (select 1 from verify.failures where what like '[0059 #17] anon executes%') then
+    raise notice '[0059 #17] no security definer of public is executable by anon but submit_lead and founder_seats_left';
+  end if;
+
+  -- Nothing written here is kept.
+  delete from founder_coupon_redemptions;
+  delete from founder_coupons;
+  delete from founder_invites;
+  delete from signup_origins;
+  delete from plans;
+  delete from person_badges;
+  delete from founder_program;
+  delete from students where id = any (c_people);
+  delete from organization_members where user_id = any (c_people);
+  delete from auth.users where id = any (c_people);
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a founder comes by coupon or invite: %', v_failures;
+  end if;
+  raise notice 'a founder comes by coupon or invite: only the platform admin reads coupons, uses, founder invites and origins, makes a coupon (kept as its hash) and writes an invite; a coupon gives the seal once per person within its validity, uses, brand and the seats, spending no use without a seal; the signup''s coupon, the founder invite and the origin come with the first confirmation, which never fails because of them';
+end;
+$$;
+
+-- Two coupons on the last seat at once (0059) ------------------------------------------------
+--
+-- As the two grants of 0058: a second connection redeems one coupon for the
+-- last seat and holds its transaction open; a redemption of another coupon
+-- here waits for it (lock_timeout: the redemption, which never raises,
+-- returns failed and spends nothing), and once the other commits it finds
+-- no seat. One seal, one use.
+
+create extension dblink schema verify;
+
+do $$
+declare
+  v_coupon uuid;
+begin
+  insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at) values
+    ('b0590000-0000-4000-8000-0000000000a1', 'race1-0059@example.com', '{"full_name":"Race 1"}', now()),
+    ('b0590000-0000-4000-8000-0000000000a2', 'race2-0059@example.com', '{"full_name":"Race 2"}', now());
+  insert into organization_members (organization_id, user_id, role)
+    select o.id, p, 'student' from organizations o,
+           unnest(array['b0590000-0000-4000-8000-0000000000a1', 'b0590000-0000-4000-8000-0000000000a2']::uuid[]) p
+     where o.slug = 'chelsea-st';
+  insert into founder_program (seats_total) values (1);
+  insert into founder_coupons (brand, code_hash, label, max_uses, expires_at) values
+    ('chelsea-st', founder_coupon_hash('RACEONE0059'), 'Race one', 5, now() + interval '1 day'),
+    ('chelsea-st', founder_coupon_hash('RACETWO0059'), 'Race two', 5, now() + interval '1 day');
+end;
+$$;
+
+do $$
+declare
+  c_one constant uuid := 'b0590000-0000-4000-8000-0000000000a1';
+  c_two constant uuid := 'b0590000-0000-4000-8000-0000000000a2';
+  v_text text;
+  v_failures text;
+begin
+  delete from verify.failures;
+  perform verify.dblink_connect('race0059',
+    format('dbname=%s user=%s', current_database(), current_user));
+  perform verify.dblink_exec('race0059', 'begin');
+  perform * from verify.dblink('race0059',
+    format('select public.redeem_founder_coupon(%L, ''RACEONE0059'')', c_one)) as t (result text);
+
+  perform set_config('lock_timeout', '300ms', true);
+  v_text := redeem_founder_coupon(c_two, 'RACETWO0059');
+  perform set_config('lock_timeout', '0', true);
+  if v_text is distinct from 'failed' then
+    insert into verify.failures values (format(
+      '[0059 #11] a redemption did not wait for another redemption of the last seat in flight: %s, expected failed under lock_timeout',
+      coalesce(v_text, 'null')));
+  else
+    raise notice '[0059 #11] a redemption waits for another redemption of the last seat in flight: failed under lock_timeout, nothing spent';
+  end if;
+
+  perform verify.dblink_exec('race0059', 'commit');
+  perform verify.dblink_disconnect('race0059');
+
+  v_text := redeem_founder_coupon(c_two, 'RACETWO0059');
+  if v_text is distinct from 'no_seats' then
+    insert into verify.failures values (format(
+      '[0059 #11] a redemption of the last seat after the other one committed: %s, expected no_seats', v_text));
+  else
+    raise notice '[0059 #11] a redemption of the last seat after the other one committed finds no seat';
+  end if;
+  if (select count(*) from person_badges where revoked_at is null) <> 1
+     or (select count(*) from founder_coupon_redemptions) <> 1 then
+    insert into verify.failures values (format(
+      '[0059 #11] two redemptions of the last seat left %s live seals and %s uses, expected 1 and 1',
+      (select count(*) from person_badges where revoked_at is null),
+      (select count(*) from founder_coupon_redemptions)));
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'two coupons on the last seat: %', v_failures;
+  end if;
+  raise notice 'two coupons on the last seat at once: the second waits for the first, then finds no seat; one seal, one use';
+end;
+$$;
+
+do $$
+begin
+  delete from founder_coupon_redemptions;
+  delete from founder_coupons;
+  delete from person_badges;
+  delete from founder_program;
+  delete from organization_members where user_id in ('b0590000-0000-4000-8000-0000000000a1',
+                                                     'b0590000-0000-4000-8000-0000000000a2');
+  delete from auth.users where id in ('b0590000-0000-4000-8000-0000000000a1',
+                                      'b0590000-0000-4000-8000-0000000000a2');
+end;
+$$;
+
+drop extension dblink;
+
+
 -- A restored copy gets back what the dump leaves out (#101, #104) --------------------
 --
 -- supabase db dump writes the schemas of the project, not storage or auth, so
