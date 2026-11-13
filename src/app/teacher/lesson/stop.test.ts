@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { lessonToMark, type MarkableLesson } from "./stop.ts";
+import { lessonToMark, noLessonToMark, type MarkableLesson } from "./stop.ts";
 
 /** Monday 02/11/2026, 19:20 in São Paulo. */
 const NOW = new Date("2026-11-02T22:20:00Z");
@@ -63,5 +63,14 @@ describe("lessonToMark", () => {
 
   test("none without lessons", () => {
     assert.equal(lessonToMark([], NOW), null);
+  });
+});
+
+describe("noLessonToMark", () => {
+  test("names the student and sends the mark to a booked lesson", () => {
+    assert.equal(
+      noLessonToMark("Ana"),
+      "Nenhuma aula reservada com Ana agora. Marque numa aula da agenda.",
+    );
   });
 });
