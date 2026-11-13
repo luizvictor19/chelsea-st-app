@@ -62,7 +62,14 @@ async function materialize(
     p_student_id: studentId,
     p_weeks: WEEKS_AHEAD,
   });
-  return error === null ? data : error.message;
+  if (error === null) return data;
+  // materialize_lessons writes every occurrence in one statement, and since
+  // 0052 one that crosses a lesson the student booked refuses all of them
+  // (lessons_student_no_overlap). Said, so the teacher knows which lesson
+  // to move; #295 retires the generation.
+  return error.code === EXCLUSION_VIOLATION
+    ? "uma aula do horário cruza uma aula que a aluna reservou; cancele uma das duas e gere de novo"
+    : error.message;
 }
 
 export async function saveMeetUrl(
@@ -246,7 +253,8 @@ export async function cancelLesson(lessonId: string): Promise<AgendaResult> {
  * after. Should the cancel fail, she sees two lessons and the teacher reads
  * the error; the other order could leave her with none and nobody told. The
  * original keeps its row, cancelled, so its slot never comes back from
- * materialize_lessons.
+ * materialize_lessons. A move shorter than the lesson's length cancels
+ * first (lessons_student_no_overlap, 0052), and says so if the new one fails.
  */
 export async function rescheduleLesson(
   lessonId: string,
@@ -288,6 +296,23 @@ export async function rescheduleLesson(
     return { ok: false, error: "Escolha um horário que ainda não passou." };
   }
 
+  // A move inside the lesson's own length would cross the original, which
+  // lessons_student_no_overlap (0052) refuses while both are scheduled. Then
+  // the original is cancelled first, and a failed insert says so: she is
+  // left without the lesson, and the teacher reads it.
+  const originalStart = new Date(original.scheduled_at).getTime();
+  const length = original.duration_minutes * 60_000;
+  const crosses =
+    start.getTime() < originalStart + length &&
+    start.getTime() + length > originalStart;
+  if (crosses) {
+    const { error: cancelError } = await supabase
+      .from("lessons")
+      .update({ status: "cancelled" })
+      .eq("id", lessonId);
+    if (cancelError) return { ok: false, error: cancelError.message };
+  }
+
   const { error: insertError } = await supabase.from("lessons").insert({
     student_id: original.student_id,
     organization_id: original.organization_id,
@@ -296,16 +321,21 @@ export async function rescheduleLesson(
     meet_url: original.meet_url,
   });
   if (insertError) {
+    const reason =
+      insertError.code === UNIQUE_VIOLATION ||
+      insertError.code === EXCLUSION_VIOLATION
+        ? "A aluna já tem aula nesse horário."
+        : insertError.message;
+    if (crosses) refresh();
     return {
       ok: false,
-      error:
-        insertError.code === UNIQUE_VIOLATION ||
-        insertError.code === EXCLUSION_VIOLATION
-          ? "A aluna já tem aula nesse horário."
-          : insertError.message,
+      error: crosses
+        ? `A aula original foi cancelada, mas a nova não foi criada (${reason}) Crie a aula de novo.`
+        : reason,
     };
   }
   refresh();
+  if (crosses) return { ok: true, message: "Aula remarcada." };
 
   const { error: cancelError } = await supabase
     .from("lessons")

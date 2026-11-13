@@ -15,3 +15,18 @@ export function lessonMinutesFrom(data: unknown): number | null {
     ? minutes
     : null;
 }
+
+/**
+ * How many weeks ahead the booking opens, from lesson_rules().book_opens_ahead
+ * as PostgREST sends an interval ("56 days", or "P56D" in ISO style), counted
+ * in whole weeks from now, rounded up. Null when the shape is not one of those.
+ */
+export function bookHorizonWeeksFrom(data: unknown): number | null {
+  const row = Array.isArray(data) ? data[0] : data;
+  if (typeof row !== "object" || row === null) return null;
+  const ahead = (row as { book_opens_ahead?: unknown }).book_opens_ahead;
+  if (typeof ahead !== "string") return null;
+  const days = /^(\d+) days?$/.exec(ahead) ?? /^P(\d+)D$/.exec(ahead);
+  if (days === null || Number(days[1]) === 0) return null;
+  return Math.ceil(Number(days[1]) / 7);
+}

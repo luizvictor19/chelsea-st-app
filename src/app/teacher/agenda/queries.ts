@@ -1,6 +1,10 @@
 import type { requireTeacher } from "@/lib/content/queries";
 
-import { progressOf, type Mark, type Progress } from "../students/progress";
+import { progressOf, type Progress } from "../students/progress";
+import {
+  LONGEST_PLAUSIBLE_LESSON_MINUTES,
+  readMarks,
+} from "../students/queries";
 
 type Supabase = Awaited<ReturnType<typeof requireTeacher>>["supabase"];
 
@@ -156,12 +160,6 @@ export async function readTeacherAgenda(
   };
 }
 
-/**
- * Wider than any real lesson, as on /teacher/students: only narrows the rows
- * fetched; a lesson still running is cut by its own duration below.
- */
-const LONGEST_PLAUSIBLE_LESSON_MINUTES = 8 * 60;
-
 /** Her scheduled lessons not finished, with where each student stopped. */
 async function readBooked(
   supabase: Supabase,
@@ -192,42 +190,22 @@ async function readBooked(
       .from("students")
       .select("id, profiles!inner(full_name)")
       .in("id", studentIds),
+    readMarks(supabase, studentIds),
+    // The latest notes first; a few per student is enough to find the last.
     supabase
       .from("lessons")
-      .select(
-        "student_id, scheduled_at, points!lessons_stopped_at_point_fkey(number, books!inner(position, last_point))",
-      )
-      .in("student_id", studentIds)
-      .not("stopped_at_point_id", "is", null),
-    supabase
-      .from("lessons")
-      .select("student_id, teacher_note, scheduled_at")
+      .select("student_id, teacher_note")
       .in("student_id", studentIds)
       .not("teacher_note", "is", null)
-      .order("scheduled_at", { ascending: false }),
+      .order("scheduled_at", { ascending: false })
+      .limit(NOTES_READ_PER_STUDENT * studentIds.length),
   ]);
   if (students.error) throw new Error(students.error.message);
-  if (marks.error) throw new Error(marks.error.message);
   if (notes.error) throw new Error(notes.error.message);
 
   const names = new Map(
     students.data.map((row) => [row.id, row.profiles.full_name]),
   );
-  const markRows: (Mark & { studentId: string })[] = marks.data.flatMap(
-    (row) =>
-      row.points === null
-        ? []
-        : [
-            {
-              studentId: row.student_id,
-              scheduledAt: row.scheduled_at,
-              book: row.points.books.position,
-              point: row.points.number,
-              lastPoint: row.points.books.last_point,
-            },
-          ],
-  );
-
   return ahead.map((row) => ({
     id: row.id,
     studentName: names.get(row.student_id) ?? "Aluno",
@@ -235,10 +213,17 @@ async function readBooked(
     durationMinutes: row.duration_minutes,
     creditsDebited: row.credits_debited,
     progress: progressOf(
-      markRows.filter((mark) => mark.studentId === row.student_id),
+      marks.filter((mark) => mark.studentId === row.student_id),
     ),
     lastNote:
       notes.data.find((note) => note.student_id === row.student_id)
         ?.teacher_note ?? null,
   }));
 }
+
+/**
+ * How many noted lessons per student the screen reads, newest first: a
+ * bounded read. A student's last note is missed only when the others in the
+ * list wrote more than this many notes, together, after it.
+ */
+const NOTES_READ_PER_STUDENT = 5;

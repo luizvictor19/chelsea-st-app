@@ -11,7 +11,7 @@ type Supabase = Awaited<ReturnType<typeof requireTeacher>>["supabase"];
  * Wider than any real lesson. Only narrows the rows fetched, as on
  * /dashboard: a lesson still running is cut by its own duration below.
  */
-const LONGEST_PLAUSIBLE_LESSON_MINUTES = 8 * 60;
+export const LONGEST_PLAUSIBLE_LESSON_MINUTES = 8 * 60;
 
 export type UpcomingLesson = AgendaLesson & {
   readonly durationMinutes: number;
@@ -91,16 +91,22 @@ async function readUpcoming(
     }));
 }
 
-/** Every lesson with "Parei aqui" marked, of any status, by student. */
-async function readMarks(
+/**
+ * Every lesson with "Parei aqui" marked, of any status, by student; of the
+ * students named only, when named (/teacher/agenda).
+ */
+export async function readMarks(
   supabase: Supabase,
+  studentIds?: readonly string[],
 ): Promise<(Mark & { studentId: string })[]> {
-  const { data, error } = await supabase
+  let query = supabase
     .from("lessons")
     .select(
       "student_id, scheduled_at, points!lessons_stopped_at_point_fkey(number, books!inner(position, last_point))",
     )
     .not("stopped_at_point_id", "is", null);
+  if (studentIds !== undefined) query = query.in("student_id", studentIds);
+  const { data, error } = await query;
   if (error) throw new Error(error.message);
   return data.flatMap((row) =>
     row.points === null

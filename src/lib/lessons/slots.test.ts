@@ -4,7 +4,6 @@ import { describe, test } from "node:test";
 import {
   creditsLabel,
   groupSlotsByDay,
-  MAX_WEEK,
   readWeek,
   startLabel,
   weekSpan,
@@ -76,15 +75,16 @@ describe("weekSpan", () => {
 });
 
 describe("readWeek", () => {
-  test("a whole number from the address, capped", () => {
-    assert.equal(readWeek("3"), 3);
-    assert.equal(readWeek(["2", "5"]), 2);
-    assert.equal(readWeek("99"), MAX_WEEK);
+  test("a whole number from the address, capped at the last week", () => {
+    assert.equal(readWeek("3", 7), 3);
+    assert.equal(readWeek(["2", "5"], 7), 2);
+    assert.equal(readWeek("99", 7), 7);
+    assert.equal(readWeek("3", -1), 0);
   });
 
   test("anything else is this week", () => {
-    for (const raw of [undefined, "", "-1", "1.5", "abc", "100"]) {
-      assert.equal(readWeek(raw), 0, String(raw));
+    for (const raw of [undefined, "", "-1", "1.5", "abc", "1000"]) {
+      assert.equal(readWeek(raw, 7), 0, String(raw));
     }
   });
 });

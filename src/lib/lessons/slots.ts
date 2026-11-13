@@ -21,9 +21,6 @@ export type SlotDay = {
   readonly slots: readonly Slot[];
 };
 
-/** How many weeks ahead the screen lets her page; the database stops sooner. */
-export const MAX_WEEK = 12;
-
 function dateKey(instant: Date, timeZone: string): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone,
@@ -84,11 +81,17 @@ export function weekSpan(now: Date, week: number): { from: Date; to: Date } {
   return { from, to: new Date(from.getTime() + 7 * 86_400_000) };
 }
 
-/** The week asked for in the address: a whole number from 0 to MAX_WEEK. */
-export function readWeek(raw: string | string[] | undefined): number {
+/**
+ * The week asked for in the address: a whole number from 0 to `lastWeek`,
+ * the last week the booking reaches (lesson_rules, read by the caller).
+ */
+export function readWeek(
+  raw: string | string[] | undefined,
+  lastWeek: number,
+): number {
   const text = Array.isArray(raw) ? raw[0] : raw;
-  if (text === undefined || !/^\d{1,2}$/.test(text)) return 0;
-  return Math.min(Number(text), MAX_WEEK);
+  if (text === undefined || !/^\d{1,3}$/.test(text)) return 0;
+  return Math.min(Number(text), Math.max(lastWeek, 0));
 }
 
 /** "19:00 de segunda-feira, 16 de novembro": the start, as a person says it. */
