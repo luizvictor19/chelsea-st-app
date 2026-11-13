@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { destinationFor, practicesOnly, studies } from "@/lib/access";
 import { readAccess } from "@/lib/auth";
 import { formatLessonDate, formatLessonTime } from "@/lib/datetime";
+import { proposalItem, type ProposalRow } from "@/lib/lessons/proposals/view";
 import { refusalSentence } from "@/lib/lessons/refusals";
 import { bookHorizonWeeksFrom } from "@/lib/lessons/rules";
 import {
@@ -15,7 +16,7 @@ import {
 } from "@/lib/lessons/slots";
 import { createClient } from "@/lib/supabase/server";
 
-import { LessonsView } from "./lessons-view";
+import { LessonsView, ProposalsSection } from "./lessons-view";
 
 export const metadata: Metadata = {
   title: "Aulas",
@@ -86,12 +87,14 @@ export default async function LessonsPage({
 
   const zone = profile.timezone;
   const now = new Date();
-  const [teachersRead, mineRead, balanceRead, rulesRead] = await Promise.all([
-    supabase.rpc("bookable_teachers"),
-    supabase.rpc("my_lessons"),
-    supabase.rpc("credits_balance", { p_person: user.id }),
-    supabase.rpc("lesson_rules"),
-  ]);
+  const [teachersRead, mineRead, balanceRead, rulesRead, proposalsRead] =
+    await Promise.all([
+      supabase.rpc("bookable_teachers"),
+      supabase.rpc("my_lessons"),
+      supabase.rpc("credits_balance", { p_person: user.id }),
+      supabase.rpc("lesson_rules"),
+      supabase.rpc("my_lesson_proposals"),
+    ]);
   // The last week the booking reaches, from lesson_rules; this week alone
   // when it cannot be read.
   const horizon = rulesRead.error ? null : bookHorizonWeeksFrom(rulesRead.data);
@@ -176,6 +179,28 @@ export default async function LessonsPage({
           (slotsRead?.data ?? []).map((slot) => slot.starts_at),
           zone,
         )}
+        zone={zone}
+      />
+
+      <ProposalsSection
+        items={((proposalsRead.data ?? []) as ProposalRow[])
+          .filter((row) => row.my_side === "student")
+          .map((row) =>
+            proposalItem(row, {
+              zone,
+              balance: balanceRead.error ? null : balanceRead.data,
+              timeOff: [],
+            }),
+          )}
+        teachers={
+          // Proposing needs a cost: none while lessons are not on sale.
+          teachers
+            .filter((teacher) => teacher.lesson_credits !== null)
+            .map((teacher) => ({
+              id: teacher.teacher_id,
+              name: teacher.full_name,
+            }))
+        }
         zone={zone}
       />
     </main>

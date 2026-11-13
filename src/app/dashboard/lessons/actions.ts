@@ -4,6 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { sendInvitesAfterResponse } from "@/lib/calendar/server";
+import { readProposalForm } from "@/lib/lessons/proposal-form";
+import { sendProposalMailAfterResponse } from "@/lib/lessons/proposals/server";
+import { lessonsLabel } from "@/lib/lessons/proposals/view";
 import { refusalSentence } from "@/lib/lessons/refusals";
 import { creditsLabel } from "@/lib/lessons/slots";
 import { createClient } from "@/lib/supabase/server";
@@ -87,4 +90,105 @@ export async function cancelMyLesson(lessonId: string): Promise<LessonResult> {
         ? "Aula cancelada. Nenhum crédito voltou para o seu saldo."
         : "Aula cancelada.",
   };
+}
+
+/**
+ * She proposes a lesson or a series to a teacher of hers, outside the free
+ * slots (#319, propose_lessons_to_teacher, 0057): the form read into instants
+ * in her zone; nothing is held, and the database refuses when her balance
+ * does not cover the proposal now. The teacher's e-mail goes after the answer.
+ */
+export async function proposeToTeacher(
+  formData: FormData,
+): Promise<LessonResult> {
+  const { supabase, user } = await signedIn();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("timezone")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (!profile) return { ok: false, error: refusalSentence(null) };
+  const read = readProposalForm(formData, profile.timezone);
+  if (!read.ok) return { ok: false, error: read.message };
+  const { data, error } = await supabase.rpc("propose_lessons_to_teacher", {
+    p_teacher: String(formData.get("teacher_id") ?? ""),
+    p_starts: read.values.map((start) => start.toISOString()),
+  });
+  if (error) {
+    return {
+      ok: false,
+      error: error.message.includes("credits_not_negative")
+        ? "Seu saldo não cobre as aulas desta proposta."
+        : refusalSentence(error.message),
+    };
+  }
+  refresh();
+  sendProposalMailAfterResponse(data);
+  return {
+    ok: true,
+    message: `Proposta enviada · ${lessonsLabel(read.values.length)}. Nada é debitado antes do aceite do professor.`,
+  };
+}
+
+/**
+ * Her yes or no to a teacher's proposal (accept_lesson_proposal,
+ * decline_lesson_proposal, 0057). The yes debits every lesson at what a
+ * lesson costs her now, or nothing when her balance does not cover them all;
+ * the calendar invites go after the answer.
+ */
+export async function answerMyProposal(
+  proposalId: string,
+  answer: "accept" | "decline",
+): Promise<LessonResult> {
+  const { supabase } = await signedIn();
+  if (answer === "decline") {
+    const { error } = await supabase.rpc("decline_lesson_proposal", {
+      p_proposal: proposalId,
+    });
+    if (error) return { ok: false, error: refusalSentence(error.message) };
+    refresh();
+    return { ok: true, message: "Proposta recusada. Nada foi debitado." };
+  }
+  const { data, error } = await supabase.rpc("accept_lesson_proposal", {
+    p_proposal: proposalId,
+  });
+  if (error) {
+    return {
+      ok: false,
+      error: error.message.includes("credits_not_negative")
+        ? "Seu saldo não cobre todas as aulas da proposta. Nada foi debitado."
+        : refusalSentence(error.message),
+    };
+  }
+  refresh();
+  const { data: items } = await supabase
+    .from("lesson_proposal_items")
+    .select("lesson_id")
+    .eq("proposal_id", proposalId)
+    .order("starts_at");
+  const lessons = (items ?? []).flatMap((item) =>
+    item.lesson_id === null ? [] : [item.lesson_id],
+  );
+  if (lessons.length > 0) sendInvitesAfterResponse(lessons);
+  const accepted = data.at(0);
+  return {
+    ok: true,
+    message:
+      accepted === undefined
+        ? "Proposta aceita."
+        : `Proposta aceita · ${lessonsLabel(accepted.lesson_count)} por ${creditsLabel(accepted.credits_debited)}. Saldo: ${creditsLabel(accepted.balance)}.`,
+  };
+}
+
+/** Takes back a proposal she made, while it is open (0057). */
+export async function withdrawMyProposal(
+  proposalId: string,
+): Promise<LessonResult> {
+  const { supabase } = await signedIn();
+  const { error } = await supabase.rpc("withdraw_lesson_proposal", {
+    p_proposal: proposalId,
+  });
+  if (error) return { ok: false, error: refusalSentence(error.message) };
+  refresh();
+  return { ok: true, message: "Proposta retirada." };
 }
