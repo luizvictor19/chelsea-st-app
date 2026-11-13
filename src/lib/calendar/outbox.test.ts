@@ -21,6 +21,7 @@ function invite(overrides: Partial<DueInvite> = {}): DueInvite {
     method: "request",
     recipient: "student",
     attempts: 0,
+    createdAt: "2026-11-13T11:00:00Z",
     scheduledAt: "2026-11-18T22:00:00Z",
     durationMinutes: 50,
     studentName: "Ana Aluna",
@@ -44,6 +45,8 @@ class FakeQueue implements InviteQueue {
   readonly asked: { lessonId: string | null; limit: number }[] = [];
   failDue = false;
   failWrites = false;
+  /** Rows whose "sent" reopens a cancel, with the cancel it reopens. */
+  readonly reopens = new Map<string, DueInvite>();
 
   constructor(rows: DueInvite[]) {
     this.rows = rows;
@@ -61,10 +64,14 @@ class FakeQueue implements InviteQueue {
     this.writes.push(`sent ${id}`);
     if (this.failWrites) throw new Error("calendar_invite_sent failed");
     this.rows = this.rows.filter((row) => row.id !== id);
+    const reopened = this.reopens.get(id);
+    if (reopened === undefined) return false;
+    this.rows.push(reopened);
+    return true;
   }
 
-  async failed(id: string, code: string, giveUp: boolean) {
-    this.writes.push(`failed ${id} ${code} ${giveUp}`);
+  async failed(id: string, code: string, giveUp: boolean, tried: boolean) {
+    this.writes.push(`failed ${id} ${code} ${giveUp} ${tried}`);
     if (this.failWrites) throw new Error("calendar_invite_failed failed");
     this.rows = this.rows.flatMap((row) =>
       row.id !== id
@@ -92,13 +99,21 @@ function mailer(answer: (email: Email) => Promise<void> = async () => {}): {
   };
 }
 
-function deps(queue: InviteQueue, mail: Mailer, log: string[] = []): DrainDeps {
+function deps(
+  queue: InviteQueue,
+  mail: Mailer,
+  log: string[] = [],
+  pauses: { count: number } = { count: 0 },
+): DrainDeps {
   return {
     queue,
     mailer: mail,
     appUrl: "https://app.example.com",
     now: () => NOW,
     log: (line) => void log.push(line),
+    pause: async () => {
+      pauses.count++;
+    },
   };
 }
 
@@ -126,6 +141,42 @@ describe("drainInvites", () => {
     assert.deepEqual(queue.asked, [{ lessonId: "lesson-a", limit: 10 }]);
   });
 
+  test("waits between two sends, not before the first nor for a row given up", async () => {
+    const queue = new FakeQueue([
+      invite(),
+      invite({ id: "row-2", recipient: "teacher", teacherEmail: null }),
+      invite({ id: "row-3", recipient: "teacher" }),
+      invite({ id: "row-4", lessonId: "lesson-b" }),
+    ]);
+    const pauses = { count: 0 };
+    await drainInvites(deps(queue, mailer().mailer, [], pauses), {
+      lessonId: null,
+      limit: 10,
+    });
+    assert.equal(pauses.count, 2);
+  });
+
+  test("a request that went after its cancel reopens the cancel, sent in the same call", async () => {
+    const queue = new FakeQueue([invite()]);
+    queue.reopens.set(
+      "row-1",
+      invite({
+        id: "row-9",
+        method: "cancel",
+        createdAt: "2026-11-13T11:30:00Z",
+      }),
+    );
+    const mail = mailer();
+    const report = await drainInvites(deps(queue, mail.mailer), {
+      lessonId: null,
+      limit: 10,
+    });
+    assert.deepEqual(report, { sent: 2, retry: 0, abandoned: 0 });
+    assert.deepEqual(queue.writes, ["sent row-1", "sent row-9"]);
+    assert.deepEqual(queue.asked.at(-1), { lessonId: "lesson-a", limit: 4 });
+    assert.match(mail.sent[1].subject, /^Aula cancelada/);
+  });
+
   test("rows of a lesson just tried are skipped in the same go", async () => {
     const queue = new FakeQueue([
       invite(),
@@ -149,7 +200,7 @@ describe("drainInvites", () => {
     );
     assert.deepEqual(report, { sent: 0, retry: 1, abandoned: 0 });
     assert.deepEqual(queue.writes, [
-      "failed row-1 resend_500_internal_server_error false",
+      "failed row-1 resend_500_internal_server_error false true",
     ]);
     assert.equal(queue.rows[0].attempts, 1);
     assert.deepEqual(log, [
@@ -193,7 +244,7 @@ describe("drainInvites", () => {
     assert.deepEqual(reports.at(-1), { sent: 0, retry: 0, abandoned: 1 });
     assert.equal(
       queue.writes.at(-1),
-      "failed row-1 resend_500_internal_server_error true",
+      "failed row-1 resend_500_internal_server_error true true",
     );
     assert.deepEqual(queue.rows, []);
   });
@@ -209,7 +260,7 @@ describe("drainInvites", () => {
     });
     assert.deepEqual(report, { sent: 0, retry: 0, abandoned: 1 });
     assert.deepEqual(mail.sent, []);
-    assert.deepEqual(queue.writes, ["failed row-1 lesson_started true"]);
+    assert.deepEqual(queue.writes, ["failed row-1 lesson_started true false"]);
   });
 
   test("a cancel still goes during the lesson, and is abandoned after its end", async () => {
@@ -231,7 +282,7 @@ describe("drainInvites", () => {
       lessonId: null,
       limit: 10,
     });
-    assert.deepEqual(after.writes, ["failed row-1 lesson_ended true"]);
+    assert.deepEqual(after.writes, ["failed row-1 lesson_ended true false"]);
   });
 
   test("a row without its address is abandoned without a send", async () => {
@@ -241,7 +292,7 @@ describe("drainInvites", () => {
     const mail = mailer();
     await drainInvites(deps(queue, mail.mailer), { lessonId: null, limit: 10 });
     assert.deepEqual(mail.sent, []);
-    assert.deepEqual(queue.writes, ["failed row-1 no_address true"]);
+    assert.deepEqual(queue.writes, ["failed row-1 no_address true false"]);
   });
 
   test("the queue failing is logged and never thrown", async () => {

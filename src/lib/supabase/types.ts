@@ -2117,14 +2117,20 @@ export type Database = {
         }[];
       };
       calendar_invite_failed: {
-        Args: { p_error: string; p_give_up: boolean; p_id: string };
+        Args: {
+          p_error: string;
+          p_give_up: boolean;
+          p_id: string;
+          p_tried: boolean;
+        };
         Returns: undefined;
       };
-      calendar_invite_sent: { Args: { p_id: string }; Returns: undefined };
+      calendar_invite_sent: { Args: { p_id: string }; Returns: boolean };
       calendar_invites_due: {
-        Args: { p_lesson: string; p_limit: number };
+        Args: { p_lesson?: string; p_limit: number };
         Returns: {
           attempts: number;
+          created_at: string;
           duration_minutes: number;
           id: string;
           lesson_id: string;

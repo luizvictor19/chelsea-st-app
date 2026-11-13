@@ -15,17 +15,30 @@ import { inviteEmail, recipientEmail, type DueInvite } from "./invite-mail.ts";
 
 /**
  * Attempts before a row is abandoned and the teacher sees "convite não
- * enviado" on her agenda: with the daily routine, about five days, and less
- * when bookings and cancels go on meanwhile.
+ * enviado" on her agenda. calendar_invites_due holds a row 30 minutes after
+ * each attempt, so five attempts take at least two hours, and with the daily
+ * routine alone about five days.
  */
 export const MAX_ATTEMPTS = 5;
 
 export interface InviteQueue {
-  /** Pending rows, oldest first, of one lesson or (null) of any. */
+  /** Pending rows not tried lately, oldest first, of one lesson or (null) of any. */
   due(lessonId: string | null, limit: number): Promise<readonly DueInvite[]>;
-  sent(id: string): Promise<void>;
-  /** One attempt more with its code; abandoned when giveUp. */
-  failed(id: string, code: string, giveUp: boolean): Promise<void>;
+  /**
+   * Marks the row sent; true when that reopened a cancel of its lesson (the
+   * request went after the lesson was cancelled).
+   */
+  sent(id: string): Promise<boolean>;
+  /**
+   * Its code, one attempt more when the e-mail was handed to the provider
+   * (tried), and abandoned when giveUp.
+   */
+  failed(
+    id: string,
+    code: string,
+    giveUp: boolean,
+    tried: boolean,
+  ): Promise<void>;
 }
 
 export type DrainDeps = {
@@ -35,6 +48,8 @@ export type DrainDeps = {
   readonly appUrl: string;
   readonly now: () => Date;
   readonly log: (line: string) => void;
+  /** Waits between two sends, under the provider's rate per second. */
+  readonly pause: () => Promise<void>;
 };
 
 export type DrainReport = {
@@ -79,10 +94,13 @@ function label(invite: DueInvite): string {
   return `calendar invite ${invite.lessonId} ${invite.method} ${invite.recipient}`;
 }
 
+type Tally = { sent: number; retry: number; abandoned: number; sends: number };
+
 /**
  * Sends the pending rows of one lesson (right after the action) or of any
  * (the daily routine), at most `limit`. Each row is sent, or recorded as
- * failed with its code, or abandoned when it cannot go any more.
+ * failed with its code, or abandoned when it cannot go any more. A cancel a
+ * late request reopened goes in the same call.
  */
 export async function drainInvites(
   deps: DrainDeps,
@@ -93,46 +111,62 @@ export async function drainInvites(
     readonly skipLessonId?: string;
   },
 ): Promise<DrainReport> {
-  let sent = 0;
-  let retry = 0;
-  let abandoned = 0;
+  const tally: Tally = { sent: 0, retry: 0, abandoned: 0, sends: 0 };
+  const reopened = await pass(deps, scope, tally);
+  for (const lessonId of reopened) {
+    await pass(deps, { lessonId, limit: 4 }, tally);
+  }
+  return { sent: tally.sent, retry: tally.retry, abandoned: tally.abandoned };
+}
 
+/** One read of the queue and its rows; the lessons whose cancel reopened. */
+async function pass(
+  deps: DrainDeps,
+  scope: {
+    readonly lessonId: string | null;
+    readonly limit: number;
+    readonly skipLessonId?: string;
+  },
+  tally: Tally,
+): Promise<Set<string>> {
+  const reopened = new Set<string>();
   let invites: readonly DueInvite[];
   try {
     invites = await deps.queue.due(scope.lessonId, scope.limit);
   } catch (cause) {
     deps.log(`calendar invites not read: ${storeFailure(cause)}`);
-    return { sent, retry, abandoned };
+    return reopened;
   }
 
   for (const invite of invites) {
     if (invite.lessonId === scope.skipLessonId) continue;
-    const now = deps.now();
-    const reason = notSendable(invite, now);
+    const reason = notSendable(invite, deps.now());
     if (reason !== null) {
-      await record(deps, invite, reason, true);
-      abandoned++;
+      await record(deps, invite, reason, true, false);
+      tally.abandoned++;
       continue;
     }
+    if (tally.sends > 0) await deps.pause();
+    tally.sends++;
     try {
-      await deps.mailer.send(inviteEmail(invite, { appUrl: deps.appUrl, now }));
+      await deps.mailer.send(inviteEmail(invite, { appUrl: deps.appUrl }));
     } catch (cause) {
       const giveUp = invite.attempts + 1 >= MAX_ATTEMPTS;
-      await record(deps, invite, failureCode(cause), giveUp);
-      if (giveUp) abandoned++;
-      else retry++;
+      await record(deps, invite, failureCode(cause), giveUp, true);
+      if (giveUp) tally.abandoned++;
+      else tally.retry++;
       continue;
     }
-    sent++;
+    tally.sent++;
     try {
-      await deps.queue.sent(invite.id);
+      if (await deps.queue.sent(invite.id)) reopened.add(invite.lessonId);
     } catch (cause) {
-      // The e-mail went; the next run sends it again under the same
+      // The e-mail went; the next run sends the same bytes under the same
       // idempotency key, which Resend answers without a second e-mail.
       deps.log(`${label(invite)}: sent, not marked: ${storeFailure(cause)}`);
     }
   }
-  return { sent, retry, abandoned };
+  return reopened;
 }
 
 async function record(
@@ -140,10 +174,11 @@ async function record(
   invite: DueInvite,
   code: string,
   giveUp: boolean,
+  tried: boolean,
 ): Promise<void> {
   deps.log(`${label(invite)}: ${code}${giveUp ? ", abandoned" : ""}`);
   try {
-    await deps.queue.failed(invite.id, code, giveUp);
+    await deps.queue.failed(invite.id, code, giveUp, tried);
   } catch (cause) {
     deps.log(`${label(invite)}: not recorded: ${storeFailure(cause)}`);
   }

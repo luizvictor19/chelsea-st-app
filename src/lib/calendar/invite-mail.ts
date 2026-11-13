@@ -24,6 +24,8 @@ export type DueInvite = {
   readonly method: InviteMethod;
   readonly recipient: Recipient;
   readonly attempts: number;
+  /** When the row was queued: the DTSTAMP, the same on every attempt. */
+  readonly createdAt: string;
   readonly scheduledAt: string;
   readonly durationMinutes: number;
   readonly studentName: string;
@@ -78,7 +80,7 @@ function firstName(name: string): string {
  */
 export function inviteEmail(
   invite: DueInvite,
-  options: { readonly appUrl: string; readonly now: Date },
+  options: { readonly appUrl: string },
 ): Email {
   const to = recipientEmail(invite);
   if (to === null) throw new Error("the invite has no address to go to");
@@ -109,7 +111,9 @@ export function inviteEmail(
     attendees,
     meetUrl: invite.meetUrl,
     platformUrl: options.appUrl,
-    stamp: options.now,
+    // The same bytes on every attempt: Resend refuses a key it saw with
+    // another payload (409), and answers the same one without a second send.
+    stamp: new Date(invite.createdAt),
   });
 
   const when = `${day}, às ${time} (fuso ${zone})`;

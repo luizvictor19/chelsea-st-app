@@ -10,8 +10,12 @@ import { cronAuthorized } from "../cron-auth.ts";
 
 import type { DrainReport } from "./outbox.ts";
 
-/** How many rows one run sends at most: far above a day of bookings. */
-export const DAILY_LIMIT = 200;
+/**
+ * How many rows one run sends at most: above a day of bookings, and, paced
+ * under the provider's rate, inside the route's maxDuration. What is left
+ * waits for the next action or the next day.
+ */
+export const DAILY_LIMIT = 50;
 
 export async function calendarDaily(
   request: Request,

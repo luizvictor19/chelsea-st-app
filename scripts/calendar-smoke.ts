@@ -88,6 +88,7 @@ const base: DueInvite = {
   method: "request",
   recipient: "student",
   attempts: 0,
+  createdAt: new Date().toISOString(),
   scheduledAt: startsAt.toISOString(),
   durationMinutes: 50,
   studentName: "Aluna Teste",
@@ -104,10 +105,7 @@ async function send(method: "request" | "cancel"): Promise<void> {
     const step = `${method} ${recipient}`;
     try {
       await mailer.send(
-        inviteEmail(
-          { ...base, method, recipient },
-          { appUrl, now: new Date() },
-        ),
+        inviteEmail({ ...base, method, recipient }, { appUrl }),
       );
       write(step);
     } catch (cause) {

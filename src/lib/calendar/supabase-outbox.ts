@@ -20,11 +20,13 @@ export function createSupabaseInviteQueue(
 ): InviteQueue {
   return {
     async due(lessonId, limit) {
-      // The generated Args type p_lesson as a string; the function takes
-      // null for "any lesson" (the generator cannot read that a parameter
-      // may be null), so the record goes through as it is.
-      const args = { p_lesson: lessonId, p_limit: limit } as never;
-      const { data, error } = await client.rpc("calendar_invites_due", args);
+      // p_lesson left out is null in the function: any lesson.
+      const { data, error } = await client.rpc(
+        "calendar_invites_due",
+        lessonId === null
+          ? { p_limit: limit }
+          : { p_limit: limit, p_lesson: lessonId },
+      );
       if (error) {
         throw new Error(`calendar_invites_due failed: ${error.code}`);
       }
@@ -34,6 +36,7 @@ export function createSupabaseInviteQueue(
         method: row.method === "cancel" ? "cancel" : "request",
         recipient: row.recipient === "teacher" ? "teacher" : "student",
         attempts: row.attempts,
+        createdAt: row.created_at,
         scheduledAt: row.scheduled_at,
         durationMinutes: row.duration_minutes,
         studentName: row.student_name,
@@ -48,15 +51,19 @@ export function createSupabaseInviteQueue(
     },
 
     async sent(id) {
-      const { error } = await client.rpc("calendar_invite_sent", { p_id: id });
+      const { data, error } = await client.rpc("calendar_invite_sent", {
+        p_id: id,
+      });
       if (error) throw new Error(`calendar_invite_sent failed: ${error.code}`);
+      return data === true;
     },
 
-    async failed(id, code, giveUp) {
+    async failed(id, code, giveUp, tried) {
       const { error } = await client.rpc("calendar_invite_failed", {
         p_id: id,
         p_error: code,
         p_give_up: giveUp,
+        p_tried: tried,
       });
       if (error) {
         throw new Error(`calendar_invite_failed failed: ${error.code}`);

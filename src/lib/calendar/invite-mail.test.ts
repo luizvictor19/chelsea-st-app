@@ -16,6 +16,7 @@ const INVITE: DueInvite = {
   method: "request",
   recipient: "student",
   attempts: 0,
+  createdAt: "2026-11-13T12:34:56.789Z",
   // 19:00 in São Paulo, 23:00 in London (GMT in November).
   scheduledAt: "2026-11-18T22:00:00Z",
   durationMinutes: 50,
@@ -27,10 +28,7 @@ const INVITE: DueInvite = {
   recipientTimeZone: "America/Sao_Paulo",
 };
 
-const OPTIONS = {
-  appUrl: "https://app.example.com",
-  now: new Date("2026-11-13T12:00:00Z"),
-};
+const OPTIONS = { appUrl: "https://app.example.com" };
 
 function attachedIcs(email: ReturnType<typeof inviteEmail>): string {
   const [attachment] = email.attachments ?? [];
@@ -127,6 +125,13 @@ describe("inviteEmail", () => {
     );
     assert.equal(email.text.includes("Entrar na aula"), false);
     assert.equal(attachedIcs(email).match(/ATTENDEE/g)?.length, 1);
+  });
+
+  test("every attempt of a row sends the same bytes: the stamp is the row's birth", () => {
+    const first = inviteEmail(INVITE, OPTIONS);
+    const later = inviteEmail({ ...INVITE, attempts: 3 }, OPTIONS);
+    assert.deepEqual(later, first);
+    assert.match(attachedIcs(first), /\r\nDTSTAMP:20261113T123456Z\r\n/);
   });
 
   test("a row without its address is refused, never sent somewhere else", () => {
