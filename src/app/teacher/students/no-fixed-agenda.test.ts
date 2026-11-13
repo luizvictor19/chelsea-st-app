@@ -24,9 +24,12 @@ function sources(dir: string): string[] {
   });
 }
 
-/** A name of the fixed agenda, or a Meet kept on the student or the lesson. */
+/**
+ * A name of the fixed agenda, or a Meet kept on the student or the lesson:
+ * dotted, or in a query on either table, up to the end of its statement.
+ */
 const FIXED_AGENDA =
-  /\blesson_schedules\b|\bmaterialize_lessons\b|\b(students|lessons)\.meet_url\b/u;
+  /\blesson_schedules\b|\bmaterialize_lessons\b|\b(students|lessons)\.meet_url\b|from\(\s*["'](students|lessons)["']\s*\)[^;]*\bmeet_url\b/u;
 
 test("no file of src/ names the fixed agenda", () => {
   const files = sources(SRC).filter(
@@ -45,6 +48,8 @@ test("the pattern sees each name, and not the teacher's Meet", () => {
     `supabase.rpc("materialize_lessons", { p_student_id: id })`,
     `// the student's room (students.meet_url)`,
     `coalesce(lessons.meet_url, t.meet_url)`,
+    `supabase\n  .from("students")\n  .select("id, meet_url, profiles!inner(full_name)")`,
+    `supabase.from("lessons").insert({ student_id: id, meet_url: url });`,
   ]) {
     assert.match(line, FIXED_AGENDA);
   }
@@ -52,6 +57,8 @@ test("the pattern sees each name, and not the teacher's Meet", () => {
     `.select("id, organization_id, meet_url, calendar_email, is_active")`,
     `teachers.meet_url`,
     `supabase.rpc("lesson_rules")`,
+    `supabase.from("teachers").select("id, meet_url, is_active");`,
+    `supabase.from("lessons").select("id");\nconst room = teacher.meet_url;`,
   ]) {
     assert.doesNotMatch(line, FIXED_AGENDA);
   }
