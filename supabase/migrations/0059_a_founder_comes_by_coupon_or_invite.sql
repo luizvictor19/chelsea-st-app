@@ -158,7 +158,11 @@ create policy founder_invites_cancel on public.founder_invites
   for delete to authenticated
   using (accepted_at is null and (select public.is_platform_admin()));
 
-grant select, insert, delete on public.founder_invites to authenticated;
+-- The e-mail and the validity only: accepted_at is the database's, written
+-- with the seal, and an invite written accepted would be a record of a seal
+-- never given.
+grant select, delete on public.founder_invites to authenticated;
+grant insert (email, expires_at) on public.founder_invites to authenticated;
 grant update (expires_at) on public.founder_invites to authenticated;
 
 
@@ -240,7 +244,11 @@ comment on function public.create_founder_coupon(text, text, text, integer, time
 -- used it before, even with her seal taken back), other_brand (she studies
 -- in no organization of its brand), exhausted, no_seats (badge_grant found no
 -- seat: no use spent) or failed. The coupon's row is locked first, so two
--- redemptions of its last use give one; badge_grant locks the seats.
+-- redemptions of its last use give one. Then the row of founder_program,
+-- before the seal is looked at: badge_grant locks it too, so a seal given
+-- meanwhile by another coupon of hers, or an invite, is seen here and her
+-- second coupon spends no use. No path locks founder_program before a
+-- coupon, so the order makes no deadlock.
 create function public.redeem_founder_coupon(p_person uuid, p_code text)
 returns text
 language plpgsql
@@ -258,6 +266,7 @@ begin
     return 'not_found';
   end if;
 
+  perform 1 from public.founder_program f where f.id for update;
   if exists (select 1 from public.person_badges b
               where b.person_id = p_person and b.badge = 'founder' and b.revoked_at is null) then
     return 'already_founder';

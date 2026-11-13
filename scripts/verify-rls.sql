@@ -9590,7 +9590,10 @@ begin
     and not has_column_privilege('authenticated', 'public.founder_coupons', 'code_hash', 'update')
     and not has_column_privilege('authenticated', 'public.founder_coupons', 'brand', 'update')
     and has_column_privilege('authenticated', 'public.founder_coupons', 'expires_at', 'update')
-    and has_table_privilege('authenticated', 'public.founder_invites', 'insert')
+    and has_column_privilege('authenticated', 'public.founder_invites', 'email', 'insert')
+    and has_column_privilege('authenticated', 'public.founder_invites', 'expires_at', 'insert')
+    and not exists (select 1 from unnest(array['id', 'accepted_at', 'created_at', 'invited_by', 'organization_id']) c
+                     where has_column_privilege('authenticated', 'public.founder_invites', c, 'insert'))
     and has_table_privilege('authenticated', 'public.founder_invites', 'delete')
     and not has_column_privilege('authenticated', 'public.founder_invites', 'accepted_at', 'update')
     and not has_column_privilege('authenticated', 'public.founder_invites', 'email', 'update'));
@@ -9817,6 +9820,8 @@ begin
   set local role authenticated;
   insert into founder_invites (email, expires_at) values ('inv-0059@example.com', now() + interval '15 days');
   insert into founder_invites (email, expires_at) values ('inv-expired-0059@example.com', now() + interval '15 days');
+  perform verify.expect_named_refusal('[0059 #2] the platform admin writes a founder invite already accepted', '42501',
+    $q$insert into founder_invites (email, expires_at, accepted_at) values ('accepted-0059@example.com', now() + interval '1 day', now())$q$);
   perform verify.expect_named_refusal('[0059 #13] a second open founder invite for the same e-mail',
     '23505 founder_invites_one_open',
     $q$insert into founder_invites (email, expires_at) values ('inv-0059@example.com', now() + interval '1 day')$q$);
@@ -9967,15 +9972,19 @@ declare
 begin
   insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at) values
     ('b0590000-0000-4000-8000-0000000000a1', 'race1-0059@example.com', '{"full_name":"Race 1"}', now()),
-    ('b0590000-0000-4000-8000-0000000000a2', 'race2-0059@example.com', '{"full_name":"Race 2"}', now());
+    ('b0590000-0000-4000-8000-0000000000a2', 'race2-0059@example.com', '{"full_name":"Race 2"}', now()),
+    ('b0590000-0000-4000-8000-0000000000a3', 'race3-0059@example.com', '{"full_name":"Race 3"}', now());
   insert into organization_members (organization_id, user_id, role)
     select o.id, p, 'student' from organizations o,
-           unnest(array['b0590000-0000-4000-8000-0000000000a1', 'b0590000-0000-4000-8000-0000000000a2']::uuid[]) p
+           unnest(array['b0590000-0000-4000-8000-0000000000a1', 'b0590000-0000-4000-8000-0000000000a2',
+                        'b0590000-0000-4000-8000-0000000000a3']::uuid[]) p
      where o.slug = 'chelsea-st';
   insert into founder_program (seats_total) values (1);
   insert into founder_coupons (brand, code_hash, label, max_uses, expires_at) values
     ('chelsea-st', founder_coupon_hash('RACEONE0059'), 'Race one', 5, now() + interval '1 day'),
-    ('chelsea-st', founder_coupon_hash('RACETWO0059'), 'Race two', 5, now() + interval '1 day');
+    ('chelsea-st', founder_coupon_hash('RACETWO0059'), 'Race two', 5, now() + interval '1 day'),
+    ('chelsea-st', founder_coupon_hash('RACETHREE0059'), 'Race three', 5, now() + interval '1 day'),
+    ('chelsea-st', founder_coupon_hash('RACEFOUR0059'), 'Race four', 5, now() + interval '1 day');
 end;
 $$;
 
@@ -10030,6 +10039,66 @@ begin
 end;
 $$;
 
+-- Two coupons of one person at once (0059): the second waits for the first
+-- on founder_program, then sees her seal and spends no use. It runs on a
+-- second connection, sent without waiting, and the first commits once the
+-- second is seen waiting on a lock. The seats are raised first, committed:
+-- a row of founder_program locked by this session would hold both.
+do $$
+begin
+  update founder_program set seats_total = 5;
+end;
+$$;
+
+do $$
+declare
+  c_three constant uuid := 'b0590000-0000-4000-8000-0000000000a3';
+  v_text text;
+  v_waiting boolean := false;
+  v_failures text;
+begin
+  delete from verify.failures;
+  perform verify.dblink_connect('first0059', format('dbname=%s user=%s', current_database(), current_user));
+  perform verify.dblink_connect('second0059', format('dbname=%s user=%s', current_database(), current_user));
+  perform verify.dblink_exec('first0059', 'begin');
+  perform * from verify.dblink('first0059',
+    format('select public.redeem_founder_coupon(%L, ''RACETHREE0059'')', c_three)) as t (result text);
+  perform verify.dblink_send_query('second0059',
+    format('select public.redeem_founder_coupon(%L, ''RACEFOUR0059'')', c_three));
+  for i in 1..50 loop
+    if exists (select 1 from pg_stat_activity
+                where wait_event_type = 'Lock' and query like '%RACEFOUR0059%'
+                  and pid <> pg_backend_pid()) then
+      v_waiting := true;
+      exit;
+    end if;
+    perform pg_sleep(0.1);
+  end loop;
+  perform verify.dblink_exec('first0059', 'commit');
+  select t.result into v_text from verify.dblink_get_result('second0059') as t (result text);
+  perform * from verify.dblink_get_result('second0059') as t (result text);
+  perform verify.dblink_disconnect('first0059');
+  perform verify.dblink_disconnect('second0059');
+
+  if not v_waiting then
+    insert into verify.failures values ('[0059 #9] the second coupon of the same person never waited on a lock');
+  end if;
+  if v_text is distinct from 'already_founder'
+     or (select count(*) from founder_coupon_redemptions where person_id = c_three) <> 1 then
+    insert into verify.failures values (format(
+      '[0059 #9] two coupons of one person at once: the second returned %s and she has %s uses, expected already_founder and 1',
+      coalesce(v_text, 'null'), (select count(*) from founder_coupon_redemptions where person_id = c_three)));
+  else
+    raise notice '[0059 #9] two coupons of one person at once: the second waits, sees her seal, and spends no use';
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'two coupons of one person: %', v_failures;
+  end if;
+end;
+$$;
+
 do $$
 begin
   delete from founder_coupon_redemptions;
@@ -10037,9 +10106,11 @@ begin
   delete from person_badges;
   delete from founder_program;
   delete from organization_members where user_id in ('b0590000-0000-4000-8000-0000000000a1',
-                                                     'b0590000-0000-4000-8000-0000000000a2');
+                                                     'b0590000-0000-4000-8000-0000000000a2',
+                                                     'b0590000-0000-4000-8000-0000000000a3');
   delete from auth.users where id in ('b0590000-0000-4000-8000-0000000000a1',
-                                      'b0590000-0000-4000-8000-0000000000a2');
+                                      'b0590000-0000-4000-8000-0000000000a2',
+                                      'b0590000-0000-4000-8000-0000000000a3');
 end;
 $$;
 

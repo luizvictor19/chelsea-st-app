@@ -391,13 +391,15 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
     platform admin alone reads it and updates `label`, `max_uses`, `expires_at`.
     `founder_coupon_redemptions` (primary key coupon and person: once per person, also after a
     revoke) is written only by `redeem_founder_coupon`, internal and never raising, which locks the
-    coupon row and checks: exists, already a founder (no use spent), expiry, once per person, a
+    coupon row, then the row of `founder_program` (so a seal given meanwhile by another coupon of hers
+    is seen), and checks: exists, already a founder (no use spent), expiry, once per person, a
     student of an organization of its brand, uses left, then `badge_grant`, and writes the use only
     after the seal (no seat: no use). `redeem_my_founder_coupon` (`authenticated`) turns each
     refusal into 23514 named by its rule (`founder_coupon_exists`, `_expired`, `_once_per_person`,
     `_brand`, `_exhausted`, `_seats`).
   - **Founder invites**: `founder_invites`, one open per e-mail (`founder_invites_one_open`), read,
-    written, renewed (`expires_at`) and cancelled (open only) by the platform admin through the API.
+    written (only `email` and `expires_at`: `accepted_at` is the database's), renewed (`expires_at`)
+    and cancelled (open only) by the platform admin through the API.
     `accept_founder_invites` (internal, never raises) gives the seal on the first confirmation and
     marks `accepted_at`; with no seat the invite stays open. The trigger
     `founder_invites_grant_confirmed` (after insert or update of `expires_at`) gives it at once to
