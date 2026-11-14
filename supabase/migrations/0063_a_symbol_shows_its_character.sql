@@ -27,6 +27,10 @@
 -- are exactly the 41 of the list below, so the fill is by term among the
 -- common symbols, and it stops, named, if it does not write 41 rows.
 --
+-- Numbered 0063 and not 0064 as the plan said: this goes to production
+-- before #297, and a later push of a lower number than the last applied is
+-- refused by supabase db push. #297 takes 0064.
+--
 -- No RLS statement, and not an omission: no table is created here. The
 -- column is covered by the policies of vocabulary_items, and
 -- clear_word_representation stays security invoker under them.
@@ -34,15 +38,21 @@
 alter table vocabulary_items add column symbol_text text;
 
 comment on column vocabulary_items.symbol_text is
-  'What the screen shows for a word decided symbol, in place of a picture (5, 12th, +). Null on every other kind; null on a symbol is waiting for the teacher (0064, #370).';
+  'What the screen shows for a word decided symbol, in place of a picture (5, 12th, +). Null on every other kind; null on a symbol is waiting for the teacher (0063, #370).';
 
 alter table vocabulary_items
   add constraint vocabulary_items_symbol_text_only_symbol
   check (symbol_text is null or representation = 'symbol');
 
+-- Blank is any run of white space, not only the ASCII space btrim takes:
+-- [:space:] here does not count the no-break space (U+00A0) nor the other
+-- Unicode spaces, measured in postgres:17 on 14/11, so they are listed, the
+-- same set JavaScript's trim() takes off, which is what the panel writes
+-- through.
 alter table vocabulary_items
   add constraint vocabulary_items_symbol_text_not_blank
-  check (symbol_text is null or btrim(symbol_text) <> '');
+  check (symbol_text is null
+         or symbol_text ~ '[^[:space:]\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]');
 
 -- The body of 0021, with one change: a kind other than symbol takes the
 -- character off, as a kind that draws nothing takes the picture off. The
@@ -126,7 +136,7 @@ begin
                 and organization_id is null
                 and symbol_text is null)
      or v_written not in (0, 41) then
-    raise exception '0064: % common symbols matched the 41 terms; the measurement said 41, all of them', v_written;
+    raise exception '0063: % common symbols matched the 41 terms; the measurement said 41, all of them', v_written;
   end if;
 end;
 $$;
