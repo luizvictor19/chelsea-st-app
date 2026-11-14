@@ -27,7 +27,7 @@ async function readSeal(
   const { data, error } = await supabase
     .from("person_badges")
     .select(
-      "granted_at, terms_fixed_at, terms_monthly_price_cents, terms_annual_price_cents, terms_monthly_credits, terms_teacher_lesson_credits",
+      "granted_at, terms_fixed_at, terms_monthly_price_cents, terms_monthly_credits, terms_teacher_lesson_credits",
     )
     .eq("person_id", personId)
     .eq("badge", "founder")
@@ -40,7 +40,6 @@ async function readSeal(
         grantedAt: data.granted_at,
         termsFixedAt: data.terms_fixed_at,
         monthlyPriceCents: data.terms_monthly_price_cents,
-        annualPriceCents: data.terms_annual_price_cents,
         monthlyCredits: data.terms_monthly_credits,
         teacherLessonCredits: data.terms_teacher_lesson_credits,
       };
@@ -50,7 +49,8 @@ type PlanRow = {
   id: string;
   name: string;
   monthly_price_cents: number;
-  annual_price_cents: number;
+  /** Null: no annual cycle (0062). */
+  annual_price_cents: number | null;
   trial_days: number;
   monthly_credits: number;
   audience: string;

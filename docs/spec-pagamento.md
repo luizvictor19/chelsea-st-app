@@ -171,9 +171,12 @@ falhas seguidas, a fila para (os eventos ficam guardados por até 14 dias).
   selo devolve a vaga, cancelar a assinatura não. Sem vaga, nenhum selo novo, nem pelo admin.
   `founder_seats_left()` dá o número restante, também sem login (a landing).
 - **O preço garantido**: no primeiro pagamento confirmado de um Plano Fundador (a assinatura passa a
-  `active`), o selo guarda os termos dela: o preço mensal e o anual, os créditos do mês, o teto, os
+  `active`), o selo guarda os termos dela: o preço mensal, os créditos do mês, o teto, os
   dias depois do cancelamento e o custo da aula. Quem volta ao Plano Fundador assina com esses
   termos, não com os do plano no dia. Um checkout abandonado ou um Pix nunca pago não guarda nada.
+- **Só mensal** (#331, 0062): o Plano Fundador e o Personalizado não têm preço anual
+  (`plans_monthly_only_for_founders`), e o selo não guarda preço anual. Num plano público o preço
+  anual é opcional: vazio é um plano sem cobrança anual.
 - **O Plano Fundador nunca sai de venda**: o último Plano Fundador ativo da marca não pode ser
   desmarcado nem mudar de público (`plans_founder_stays_on_sale`). Para mudar, o admin põe outro à
   venda antes.
@@ -183,6 +186,8 @@ falhas seguidas, a fila para (os eventos ficam guardados por até 14 dias).
   - `billing_value_matches`: valor diferente do que a pessoa tem direito (os termos do selo no
     Plano Fundador, o preço do plano no resto, para o ciclo); frase "O valor deste plano mudou.
     Recarregue a página e assine de novo.".
+  - `billing_cycle_offered` (0062): ciclo anual num plano sem preço anual; frase "Este plano é só
+    mensal. Escolha a cobrança mensal.".
 - **O Personalizado** nasce em `/teacher/invites` (tipo "Plano personalizado"), para um e-mail. O
   app manda da agenda@ "Seu plano personalizado está pronto", com o nome do plano e dois links
   (entrar, criar conta), sem nenhum número. O plano se liga à conta confirmada com aquele e-mail, na

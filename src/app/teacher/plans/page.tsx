@@ -46,7 +46,8 @@ type PlanRow = {
   name: string;
   position: number;
   monthly_price_cents: number;
-  annual_price_cents: number;
+  /** Null: no annual cycle (0062). */
+  annual_price_cents: number | null;
   monthly_credits: number;
   trail_minutes_per_day: number;
   opens_voice_question: boolean;
@@ -69,7 +70,8 @@ function fieldsOf(plan: PlanRow): PlanFields {
     name: plan.name,
     position: plan.position,
     monthlyPrice: reais(plan.monthly_price_cents),
-    annualPrice: reais(plan.annual_price_cents),
+    annualPrice:
+      plan.annual_price_cents === null ? "" : reais(plan.annual_price_cents),
     monthlyCredits: plan.monthly_credits,
     trailMinutesPerDay: plan.trail_minutes_per_day,
     opensVoiceQuestion: plan.opens_voice_question,

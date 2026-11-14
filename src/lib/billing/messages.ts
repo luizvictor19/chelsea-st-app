@@ -24,6 +24,7 @@ export const SUBSCRIBE_REFUSALS: Readonly<Record<string, string>> = {
     "Este plano não está disponível para você. Escolha outro.",
   billing_value_matches:
     "O valor deste plano mudou. Recarregue a página e assine de novo.",
+  billing_cycle_offered: "Este plano é só mensal. Escolha a cobrança mensal.",
   subscriptions_one_alive_per_person:
     "Você já tem uma assinatura ativa. Cancele a atual antes de assinar outra.",
 };

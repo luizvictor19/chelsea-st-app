@@ -1,8 +1,12 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 
-import { AUDIENCE_LABEL, CATALOG_AUDIENCES } from "@/lib/badges";
+import {
+  AUDIENCE_LABEL,
+  CATALOG_AUDIENCES,
+  isPlanAudience,
+} from "@/lib/badges";
 
 import { savePlan, type PlanState } from "./actions";
 
@@ -43,6 +47,10 @@ export type PlanFields = {
 export function PlanForm({ plan }: { readonly plan: PlanFields }) {
   const personal = plan.audience === "person";
   const [state, formAction, isPending] = useActionState(savePlan, INITIAL);
+  // The founder and personal plans are monthly only (0062): their form has
+  // no annual price to type, and sends none.
+  const [audience, setAudience] = useState(plan.audience);
+  const monthlyOnly = audience !== "public";
 
   return (
     <form
@@ -72,7 +80,11 @@ export function PlanForm({ plan }: { readonly plan: PlanFields }) {
             Quem vê o plano
             <select
               name="audience"
-              defaultValue={plan.audience}
+              value={audience}
+              onChange={(event) => {
+                const chosen = event.target.value;
+                if (isPlanAudience(chosen)) setAudience(chosen);
+              }}
               className={fieldClass}
             >
               {CATALOG_AUDIENCES.map((audience) => (
@@ -120,15 +132,21 @@ export function PlanForm({ plan }: { readonly plan: PlanFields }) {
           className={fieldClass}
         />
       </label>
-      <label className="flex flex-col gap-1">
-        Preço anual (R$)
-        <input
-          name="annual_price"
-          defaultValue={plan.annualPrice}
-          required
-          className={fieldClass}
-        />
-      </label>
+      {monthlyOnly ? (
+        <p className="text-muted flex flex-col justify-end gap-1">
+          Só mensal: o {personal ? "Personalizado" : "Plano Fundador"} não tem
+          cobrança anual.
+        </p>
+      ) : (
+        <label className="flex flex-col gap-1">
+          Preço anual (R$, vazio = sem cobrança anual)
+          <input
+            name="annual_price"
+            defaultValue={plan.annualPrice}
+            className={fieldClass}
+          />
+        </label>
+      )}
       <label className="flex flex-col gap-1">
         Créditos por mês
         <input

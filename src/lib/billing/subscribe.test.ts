@@ -143,6 +143,27 @@ describe("startSubscription", () => {
     await assert.rejects(start(), /x/);
   });
 
+  test("a plan without an annual price is not sold by the year, and nothing is made (0062)", async () => {
+    const monthlyOnly = { ...PLAN, annualPriceCents: null };
+    assert.equal(priceOf(monthlyOnly, "annual"), null);
+    assert.equal(priceOf(monthlyOnly, "monthly"), 1000);
+    for (const billingType of ["card", "pix"] as const) {
+      const result = await start({
+        plan: monthlyOnly,
+        cycle: "annual",
+        billingType,
+      });
+      assert.deepEqual(result, {
+        kind: "refused",
+        message: SUBSCRIBE_REFUSALS.billing_cycle_offered,
+      });
+    }
+    assert.match(SUBSCRIBE_REFUSALS.billing_cycle_offered, /só mensal/);
+    assert.equal(store.rows.size, 0);
+    assert.equal(store.customers.size, 0);
+    assert.deepEqual(provider.calls, []);
+  });
+
   test("the price follows the cycle", () => {
     assert.equal(priceOf(PLAN, "monthly"), 1000);
     assert.equal(priceOf(PLAN, "annual"), 10000);
@@ -152,6 +173,7 @@ describe("startSubscription", () => {
     const founder = withFounderTerms(
       {
         ...PLAN,
+        annualPriceCents: null,
         audience: "founder",
         monthlyCredits: 6,
         teacherLessonCredits: 3,
@@ -159,13 +181,12 @@ describe("startSubscription", () => {
       {
         termsFixedAt: "2026-11-13T12:00:00Z",
         monthlyPriceCents: 700,
-        annualPriceCents: 7000,
         monthlyCredits: 8,
         teacherLessonCredits: 2,
       },
     );
     assert.equal(priceOf(founder, "monthly"), 700);
-    assert.equal(priceOf(founder, "annual"), 7000);
+    assert.equal(priceOf(founder, "annual"), null);
     await start({ plan: founder, billingType: "card" });
     assert.equal([...store.rows.values()][0].valueCents, 700);
   });
@@ -174,6 +195,7 @@ describe("startSubscription", () => {
     for (const constraint of [
       "billing_plan_audience",
       "billing_value_matches",
+      "billing_cycle_offered",
     ]) {
       provider = createFakeProvider();
       store = createFakeStore();
