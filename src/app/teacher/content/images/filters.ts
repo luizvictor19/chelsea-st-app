@@ -2,18 +2,15 @@ import type { Representation, WordClass } from "@/lib/content/queries";
 // Relative, with the extension: these are value imports, so they survive to
 // runtime, and filters.test.ts runs under node, which resolves neither the
 // @/ alias nor a missing extension.
-import { isDrawableKind } from "../../../../lib/images/style.ts";
+import {
+  situationOf,
+  type Situation,
+} from "../../../../lib/images/situation.ts";
 
 import { REPRESENTATIONS } from "./representation.ts";
 import { WORD_CLASS_LABELS } from "./word-class.ts";
 
-/**
- * Where a word stands, as one of four states that partition the vocabulary:
- * every word is in exactly one, so the four counts always add up to the
- * whole and a word can never hide between filters.
- */
-export type Situation =
-  "com-imagem" | "sem-imagem" | "nao-leva" | "sem-decidir";
+export { situationOf, type Situation };
 
 export const SITUATIONS = [
   { value: "com-imagem", label: "Com imagem" },
@@ -21,24 +18,6 @@ export const SITUATIONS = [
   { value: "nao-leva", label: "Não leva imagem" },
   { value: "sem-decidir", label: "Sem decidir" },
 ] as const satisfies readonly { value: Situation; label: string }[];
-
-export function situationOf(
-  representation: Representation | null,
-  imageUrl: string | null,
-  symbolText: string | null,
-): Situation {
-  if (representation === null) return "sem-decidir";
-  // A symbol shows its character in place of a picture (0064, #370): with
-  // it, the word is resolved; without it, it waits as a drawn word without
-  // its picture does.
-  if (representation === "symbol") {
-    return symbolText === null ? "sem-imagem" : "com-imagem";
-  }
-  // usage, metalanguage and none are decided and will never show anything
-  // in place of a picture, which is not the same as waiting for one.
-  if (!isDrawableKind(representation)) return "nao-leva";
-  return imageUrl === null ? "sem-imagem" : "com-imagem";
-}
 
 /** The three axes, each filtering independently of the others. */
 export const FILTER_GROUPS = [
@@ -125,7 +104,7 @@ export function toggled(
 
 /**
  * How many of a lesson's words have their picture, out of the ones that take
- * a picture at all. A symbol counts, and its character is its picture (0064,
+ * a picture at all. A symbol counts, and its character is its picture (0063,
  * #370).
  *
  * The denominator is not the lesson. A word of usage, metalanguage or none

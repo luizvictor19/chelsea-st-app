@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 
 // Relative, with the extension: this is a value import and has to resolve
 // outside the bundler as well, the same reason filters.ts gives for its own.
-import { isDrawableKind } from "../images/style.ts";
+import { isWaiting, situationOf } from "../images/situation.ts";
 
 import { approvedFirst } from "./attempt-order";
 import { compareWords } from "./word-order";
@@ -316,7 +316,7 @@ export type WordImage = {
   readonly imageSubject: string | null;
   readonly imageUrl: string | null;
   /**
-   * What a word decided symbol shows in place of a picture (0064, #370).
+   * What a word decided symbol shows in place of a picture (0063, #370).
    * Null on every other kind, and on a symbol still waiting for it.
    */
   readonly symbolText: string | null;
@@ -330,7 +330,7 @@ export type WordImage = {
   readonly attempts: number;
   /**
    * The rule the vocabulary_items_pending_image_idx predicate spells out,
-   * and a symbol without its character (0064), which the index does not
+   * and a symbol without its character (0063), which the index does not
    * cover: it is about pictures.
    */
   readonly pending: boolean;
@@ -387,19 +387,18 @@ export type ImageAttempt = {
  * number moving on a screen with no work behind it, which is worth knowing
  * before it is noticed.
  *
- * Since 0064 (#370) a symbol shows its character, so a symbol without one
+ * Since 0063 (#370) a symbol shows its character, so a symbol without one
  * is waiting again, and progress.remaining grows by the symbols left
  * without it: none in book 1, whose 41 the migration filled. The index is
- * about pictures and does not count them.
+ * about pictures and does not count them. The rule is situationOf's, the
+ * one the screen's marks and filters read.
  */
 function isPending(
   representation: Representation | null,
   imagePath: string | null,
   symbolText: string | null,
 ): boolean {
-  if (representation === null) return true;
-  if (representation === "symbol") return symbolText === null;
-  return isDrawableKind(representation) && imagePath === null;
+  return isWaiting(situationOf(representation, imagePath, symbolText));
 }
 
 export function publicImageUrl(

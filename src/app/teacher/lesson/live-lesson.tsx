@@ -13,8 +13,6 @@ import {
   useTransition,
 } from "react";
 
-import { situationOf } from "../content/images/filters";
-
 import { markStop, type StopResult } from "./actions";
 import { boardKey, cardScale, shareAt, SPLIT, undo, type Mark } from "./board";
 import type { Course } from "./course";
@@ -28,6 +26,7 @@ import {
   showAt,
   slidesAt,
   waitingFor,
+  wordFace,
   type DeckWord,
   type Position,
   type Slide,
@@ -42,13 +41,10 @@ function subscribeToFullscreen(onChange: () => void): () => void {
 
 /**
  * Whether the word is shown as its approved picture, or as its character when
- * it is a symbol (0064, #370), with the term under it.
+ * it is a symbol (0063, #370), with the term under it.
  */
 function hasPicture(word: DeckWord): boolean {
-  return (
-    situationOf(word.representation, word.imageUrl, word.symbolText) ===
-    "com-imagem"
-  );
+  return wordFace(word).kind !== "term";
 }
 
 /*
@@ -514,18 +510,11 @@ export function LiveLesson({
               }}
             >
               {slide.words.map((word) => {
-                const shown = hasPicture(word);
-                const symbol =
-                  shown && word.representation === "symbol"
-                    ? word.symbolText
-                    : null;
-                const picture = shown && symbol === null ? word.imageUrl : null;
-                const waiting =
-                  situationOf(
-                    word.representation,
-                    word.imageUrl,
-                    word.symbolText,
-                  ) === "sem-imagem";
+                const face = wordFace(word);
+                const shown = face.kind !== "term";
+                const symbol = face.kind === "symbol" ? face.text : null;
+                const picture = face.kind === "picture" ? face.url : null;
+                const waiting = face.kind === "term" && face.waiting;
                 return (
                   <figure
                     key={word.id}

@@ -69,7 +69,7 @@ import {
   usdOrNull,
 } from "./suggestion-call";
 import { contrastError } from "./contrast-sets";
-import { symbolTextOf } from "./symbol-text";
+import { SYMBOL_NOT_SAVED, symbolRefusal, symbolTextOf } from "./symbol-text";
 import {
   storeSubject,
   storeSuggestion,
@@ -1022,7 +1022,7 @@ export async function setWordClass(
 }
 
 /**
- * The character a word decided symbol shows in place of a picture (0064,
+ * The character a word decided symbol shows in place of a picture (0063,
  * #370). An empty field writes null, the waiting state. The database refuses
  * a character on any other kind (vocabulary_items_symbol_text_only_symbol),
  * so a word reclassified in another tab comes back with that refusal rather
@@ -1034,11 +1034,21 @@ export async function setSymbolText(
 ): Promise<ActionResult> {
   try {
     const { supabase } = await requireContentWriter();
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("vocabulary_items")
       .update({ symbol_text: symbolTextOf(text) })
-      .eq("id", wordId);
-    if (error) return { ok: false, error: error.message };
+      .eq("id", wordId)
+      .select("id");
+    if (error) {
+      return {
+        ok: false,
+        error: symbolRefusal(error.message) ?? error.message,
+      };
+    }
+    // No error and no row is a write that did not happen: the word is gone,
+    // or the policies hide it. Saying "saved" there would drop the edit in
+    // silence.
+    if (data.length === 0) return { ok: false, error: SYMBOL_NOT_SAVED };
     revalidatePath(SCREEN);
     return { ok: true };
   } catch (cause) {

@@ -75,7 +75,7 @@ export function kindChanged(term: string, kind: Representation): NoticeText {
   );
 }
 
-/** The character of a symbol saved, or taken off (0064, #370). */
+/** The character of a symbol saved, or taken off (0063, #370). */
 export function symbolChanged(term: string, text: string | null): NoticeText {
   if (text === null) return success(about(term, "caractere removido"));
   return success(about(term, `caractere alterado para ${text}`));

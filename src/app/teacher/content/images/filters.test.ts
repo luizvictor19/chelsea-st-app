@@ -53,7 +53,7 @@ describe("situationOf", () => {
     assert.equal(situationOf("metalanguage", null, null), "nao-leva");
   });
 
-  // 0064, #370: the character is a symbol's picture.
+  // 0063, #370: the character is a symbol's picture.
   test("a symbol is waiting until its character exists, and no file counts", () => {
     assert.equal(situationOf("symbol", null, null), "sem-imagem");
     assert.equal(situationOf("symbol", "/x.png", null), "sem-imagem");

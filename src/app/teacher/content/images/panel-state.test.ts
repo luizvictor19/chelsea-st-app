@@ -6,6 +6,7 @@ import { readHeartbeat, type Heartbeat } from "../../../../lib/heartbeat.ts";
 import {
   LOST_RESPONSE,
   asksBeforeReclassifying,
+  characterWarning,
   attemptCredits,
   attemptOrigin,
   attemptsToShow,
@@ -236,11 +237,31 @@ describe("reclassifyWarning", () => {
  * of the eight one-click type buttons take an approved picture off the word,
  * and before this they did it with no dialog and no visible undo.
  */
+describe("asksBeforeReclassifying, a symbol's character (0063)", () => {
+  test("asks before any other kind takes the character off", () => {
+    for (const kind of ["photo", "usage", "none"]) {
+      assert.equal(asksBeforeReclassifying(kind, null, "12th"), true, kind);
+    }
+  });
+
+  test("staying a symbol, or a symbol with no character, asks nothing", () => {
+    assert.equal(asksBeforeReclassifying("symbol", null, "12th"), false);
+    assert.equal(asksBeforeReclassifying("photo", null, null), false);
+  });
+
+  test("the warning names the character and says it is not kept", () => {
+    const text = characterWarning("Foto", "12th");
+    assert.match(text, /O caractere 12th sai desta palavra/u);
+    assert.match(text, /não fica guardado/u);
+    assert.match(text, /e foto não/u);
+  });
+});
+
 describe("asksBeforeReclassifying", () => {
   test("asks when a kind that carries no picture would take one off", () => {
     for (const kind of ["symbol", "usage", "metalanguage", "none"]) {
       assert.equal(
-        asksBeforeReclassifying(kind, "https://x/y.jpg"),
+        asksBeforeReclassifying(kind, "https://x/y.jpg", null),
         true,
         kind,
       );
@@ -250,7 +271,7 @@ describe("asksBeforeReclassifying", () => {
   /* Nothing to warn about, so nothing is asked. */
   test("does not ask when the word has no approved picture", () => {
     for (const kind of ["symbol", "usage", "metalanguage", "none"]) {
-      assert.equal(asksBeforeReclassifying(kind, null), false, kind);
+      assert.equal(asksBeforeReclassifying(kind, null, null), false, kind);
     }
   });
 
@@ -262,7 +283,7 @@ describe("asksBeforeReclassifying", () => {
   test("does not ask between kinds that draw", () => {
     for (const kind of ["photo", "pose", "action", "figure"]) {
       assert.equal(
-        asksBeforeReclassifying(kind, "https://x/y.jpg"),
+        asksBeforeReclassifying(kind, "https://x/y.jpg", null),
         false,
         kind,
       );
@@ -276,7 +297,10 @@ describe("asksBeforeReclassifying", () => {
    * picture gone.
    */
   test("an unknown kind is treated as one that carries no picture", () => {
-    assert.equal(asksBeforeReclassifying("sketch", "https://x/y.jpg"), true);
+    assert.equal(
+      asksBeforeReclassifying("sketch", "https://x/y.jpg", null),
+      true,
+    );
   });
 });
 
