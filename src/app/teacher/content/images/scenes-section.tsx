@@ -4,6 +4,8 @@ import { ArchiveScene } from "./archive-scene";
 import { filterHref, sceneSituation, type Selection } from "./filters";
 import { NewScene } from "./new-scene";
 import { PanelLink } from "./panel-link";
+import { rowId } from "./panel-into-view";
+import { rowClass } from "./row-style";
 import { groupLabel, type SceneGroup } from "./scenes";
 import { StatusMark } from "./status-mark";
 
@@ -61,12 +63,9 @@ export function ScenesSection({
                     { kind: "scene", id: scene.id },
                     term,
                   )}
+                  id={rowId("scene", scene.id)}
                   aria-current={openId === scene.id ? "true" : undefined}
-                  className={
-                    openId === scene.id
-                      ? "bg-surface border-rule flex min-w-0 flex-1 items-center justify-between gap-3 rounded-sm border px-3 py-2"
-                      : "border-rule hover:bg-surface flex min-w-0 flex-1 items-center justify-between gap-3 rounded-sm border border-transparent px-3 py-2 transition-colors"
-                  }
+                  className={rowClass(openId === scene.id)}
                 >
                   <span className="truncate font-semibold">
                     {scene.description}
