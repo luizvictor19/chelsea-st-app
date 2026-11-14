@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 
+import { requireTeacher } from "@/lib/content/queries";
+
 import { AudioTestPanel } from "./audio-test-panel";
+import { JudgePanel } from "./judge-panel";
 import { SttCasesPanel } from "./stt-cases-panel";
 import {
   readRecordingStatus,
@@ -18,8 +21,13 @@ export const metadata: Metadata = {
  *
  * In development it also records the STT measurement cases to disk; see
  * scripts/measure-stt.ts. That part is absent from any other build.
+ *
+ * The platform admin also gets "Julgar uma resposta" (#249), the app's judge
+ * on one spoken answer. Hidden from anyone else because each hold is a paid
+ * call; its action checks the same on its own (judge-actions.ts).
  */
-export default function AudioTestPage() {
+export default async function AudioTestPage() {
+  const { access } = await requireTeacher();
   const cases = sttCasesEnabled() ? readSttCases() : null;
 
   return (
@@ -38,6 +46,19 @@ export default function AudioTestPage() {
         </p>
       </div>
       <AudioTestPanel />
+      {access.platformAdmin && (
+        <section className="flex flex-col gap-4">
+          <h2 className="text-2xl font-extrabold tracking-tight">
+            Julgar uma resposta
+          </h2>
+          <p className="text-muted max-w-prose">
+            O juiz do app numa resposta falada, gravada aqui em WAV, como o
+            tutor vai fazer. A gravação vai para o juiz e volta com o veredito;
+            nada fica salvo.
+          </p>
+          <JudgePanel />
+        </section>
+      )}
       {cases !== null && (
         <SttCasesPanel cases={cases} initial={readRecordingStatus(cases)} />
       )}

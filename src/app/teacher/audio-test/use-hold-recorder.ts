@@ -33,11 +33,17 @@ export function describeRecordingError(cause: unknown): string {
  * Press and hold to record, let go to stop, over the one Recorder in
  * lib/audio. Shared by the device test and the STT cases, so both record the
  * same way and the recordings measured are the ones the tutor would get.
+ * The judge panel passes the WAV recorder as `create`: the judge takes WAV,
+ * and the cases stay webm.
  *
  * `onTake` receives every finished recording. It is read through a ref, so a
  * caller can pass a fresh closure on each render.
  */
-export function useHoldRecorder(ready: boolean, onTake: (take: Take) => void) {
+export function useHoldRecorder(
+  ready: boolean,
+  onTake: (take: Take) => void,
+  create: () => Recorder = createRecorder,
+) {
   const [recording, setRecording] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -46,10 +52,12 @@ export function useHoldRecorder(ready: boolean, onTake: (take: Take) => void) {
   const heldRef = useRef(false);
   const startedAtRef = useRef(0);
   const onTakeRef = useRef(onTake);
+  const createRef = useRef(create);
 
   useEffect(() => {
     onTakeRef.current = onTake;
-  }, [onTake]);
+    createRef.current = create;
+  }, [onTake, create]);
 
   // A page that is left must not keep the microphone alive.
   useEffect(() => {
@@ -64,7 +72,7 @@ export function useHoldRecorder(ready: boolean, onTake: (take: Take) => void) {
     heldRef.current = true;
     setNotice(null);
 
-    const recorder = createRecorder();
+    const recorder = createRef.current();
     recorderRef.current = recorder;
 
     try {
