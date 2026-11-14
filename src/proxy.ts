@@ -17,8 +17,9 @@ export const config = {
   // mp4 is the Robin video, fetched in ranges that would each pay for getUser.
   // The billing webhook and the daily routines (billing, calendar invites)
   // carry no session and check their own secret: getUser would only spend
-  // part of Asaas's 10 s (#72).
+  // part of Asaas's 10 s (#72). The error log's door (#69) reads no session
+  // either: a beacon would only pay for getUser.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|api/asaas/|api/billing/|api/calendar/|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|woff2?|mp4)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/asaas/|api/billing/|api/calendar/|api/errors$|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|woff2?|mp4)$).*)",
   ],
 };
