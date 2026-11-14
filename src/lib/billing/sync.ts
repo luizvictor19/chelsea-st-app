@@ -5,7 +5,11 @@
  */
 
 import { cpfHmac, isValidCpf } from "./cpf.ts";
-import { PAID_STATUSES, type BillingProvider } from "./provider.ts";
+import {
+  PAID_STATUSES,
+  type BillingProvider,
+  type ProviderPayment,
+} from "./provider.ts";
 import { readSubscription } from "./state.ts";
 import {
   StoreRefusal,
@@ -72,6 +76,18 @@ export async function syncSubscription(
         }
       }
       await provider.deleteSubscription(subscription.id);
+      return;
+    }
+    // A subscription this row ran with (#302): its charges are still read
+    // and written after the cancel, so a charge refunded later (the refund of
+    // CDC art. 49 comes after the cancel) voids its credits. The row stays
+    // canceled: nothing here writes the subscription. A subscription undone
+    // above never ran with the row (a pending row knows it by its checkout
+    // only), so none of its charges is written and none grants.
+    if (row.asaasSubscriptionId === subscription.id) {
+      const payments = await provider.listSubscriptionPayments(subscription.id);
+      await writePayments(deps, row, payments);
+      await settlePayments(deps, payments);
     }
     return;
   }
@@ -94,22 +110,7 @@ export async function syncSubscription(
   }
 
   const payments = await provider.listSubscriptionPayments(subscription.id);
-  // Side by side, not one after another: the webhook has 10 s in all.
-  await Promise.all(
-    payments.map((payment) =>
-      store.savePayment({
-        paymentId: payment.id,
-        subscriptionId: row.id,
-        valueCents: payment.valueCents,
-        asaasStatus: payment.status,
-        deleted: payment.deleted,
-        dueOn: payment.dueOn,
-        paidAt: payment.paidOn,
-        refundedCents: payment.refundedCents,
-        invoiceUrl: payment.invoiceUrl,
-      }),
-    ),
-  );
+  await writePayments(deps, row, payments);
 
   const reading = readSubscription({
     withTrial: row.withTrial,
@@ -124,11 +125,46 @@ export async function syncSubscription(
     cancelReason: reading.status === "canceled" ? "provider" : null,
   });
 
-  // What each charge read means for the credits (#273), every charge, paid
-  // or not, once it is written: the database reads the charge it just kept
-  // and grants the month a paid one is in (once by charge and month), voids
-  // what a refunded or deleted one left, or does nothing. Never from the
-  // body of the event. Each call takes the person's lock in the database, so
-  // side by side is safe.
-  await Promise.all(payments.map((payment) => store.settleCredits(payment.id)));
+  await settlePayments(deps, payments);
+}
+
+/** Every charge read, written as the provider holds it now. */
+async function writePayments(
+  deps: SyncDeps,
+  row: StoredSubscription,
+  payments: readonly ProviderPayment[],
+): Promise<void> {
+  // Side by side, not one after another: the webhook has 10 s in all.
+  await Promise.all(
+    payments.map((payment) =>
+      deps.store.savePayment({
+        paymentId: payment.id,
+        subscriptionId: row.id,
+        valueCents: payment.valueCents,
+        asaasStatus: payment.status,
+        deleted: payment.deleted,
+        dueOn: payment.dueOn,
+        paidAt: payment.paidOn,
+        refundedCents: payment.refundedCents,
+        invoiceUrl: payment.invoiceUrl,
+      }),
+    ),
+  );
+}
+
+/**
+ * What each charge read means for the credits (#273), every charge, paid or
+ * not, once it is written: the database reads the charge it just kept and
+ * grants the month a paid one is in (once by charge and month), voids what a
+ * refunded or deleted one left, or does nothing. Never from the body of the
+ * event. Each call takes the person's lock in the database, so side by side
+ * is safe.
+ */
+async function settlePayments(
+  deps: SyncDeps,
+  payments: readonly ProviderPayment[],
+): Promise<void> {
+  await Promise.all(
+    payments.map((payment) => deps.store.settleCredits(payment.id)),
+  );
 }
