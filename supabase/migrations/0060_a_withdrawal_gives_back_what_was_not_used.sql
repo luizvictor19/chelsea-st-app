@@ -26,17 +26,18 @@
 -- The functions are security definer, owned by postgres, search_path empty,
 -- and executed by service_role alone, the exception of the billing functions
 -- of 0049 (docs/context.md): billing_refund_quote (what the screen shows),
--- billing_open_refund, billing_refund_sent, billing_refund_failed,
--- billing_refund_reading (what the provider says of the refund, at every
--- reading of the charge) and billing_refunds_open (the daily routine).
+-- billing_open_refund, billing_refund_failed, billing_refund_reading (what
+-- the provider says of the refund, at every reading of the charge) and
+-- billing_refunds_open (the daily routine).
 -- billing_refund_window is executed by nobody.
 --
 -- The provider's refund status is read verbatim: a request is done only when
 -- a refund of its value is DONE ("Considere o estorno concluído somente
 -- quando o campo status retornar DONE", docs.asaas.com/docs/estornos, read on
--- 14/11), failed when every refund of its value is CANCELLED. The void of the
--- lots stays 0050's: it follows payments.refunded_cents, which counts DONE
--- refunds only.
+-- 14/11) and the charge, as written, already counts it (refunded_cents): the
+-- void of the lots stays 0050's and follows refunded_cents, so the request
+-- that holds her balance ends only once the void can have run. Failed when
+-- every refund of its value is CANCELLED.
 --
 -- One function is recreated with its name and its ACL (executable by
 -- nobody): credit_debit, 0050's body, and before its first check the open
@@ -236,28 +237,6 @@ $$;
 comment on function public.billing_open_refund(uuid) is
   'Reserves the person''s withdrawal before the provider is called: the charge in her window and the value credit_refund_quote gives now, as requested. Takes her credit lock. Refuses an open request (refund_requests_one_open), no charge within the 7 days (billing_refund_window), a scheduled lesson not ended (billing_refund_lessons_ahead) and a value of 0 (billing_refund_nothing). Executed by service_role.';
 
--- The provider took the request: it waits there (PENDING, or the critical
--- event's authorization in the panel, Q3 A) until a refund of its value is
--- DONE or CANCELLED. Only a requested row moves.
-create function public.billing_refund_sent(p_id uuid, p_asaas_refund_status text)
-returns text
-language sql
-security definer
-set search_path = ''
-as $$
-  with moved as (
-    update public.refund_requests
-       set status = 'sent', sent_at = now(),
-           asaas_refund_status = coalesce(p_asaas_refund_status, asaas_refund_status)
-     where id = p_id and status = 'requested'
-    returning status)
-  select coalesce((select status from moved),
-                  (select status from public.refund_requests where id = p_id));
-$$;
-
-comment on function public.billing_refund_sent(uuid, text) is
-  'Marks a requested withdrawal as taken by the provider, with the refund status it answered. Returns the request''s status after. Executed by service_role.';
-
 -- The provider refused, or never had it: the request ends and she may spend
 -- and ask again. A done one never fails.
 create function public.billing_refund_failed(p_id uuid, p_error text)
@@ -279,9 +258,11 @@ comment on function public.billing_refund_failed(uuid, text) is
   'Ends a requested or sent withdrawal as failed, with the reason: her credits are spendable again and she may ask again. Returns the request''s status after. Executed by service_role.';
 
 -- What the provider holds of the charge's refunds now ([{status, value_cents}]),
--- at every reading of the charge: a refund of the request's value DONE makes
--- it done; one of any other status but CANCELLED makes a requested one sent;
--- refunds of its value all CANCELLED make it failed. A requested one with no
+-- at every reading of the charge: a refund of the request's value DONE, with
+-- the charge written with that money back (refunded_cents, which the void
+-- reads), makes it done; DONE before the charge is written, or any other
+-- status but CANCELLED, makes it sent; refunds of its value all CANCELLED
+-- make it failed. A requested one with no
 -- refund of its value stays as it is: its call may still be on the way, and
 -- the daily routine decides after a while. Returns the status of the
 -- charge's open request after, or null when it has none.
@@ -307,7 +288,9 @@ begin
     from jsonb_array_elements(coalesce(p_refunds, '[]'::jsonb)) e
    where (e->>'value_cents')::integer = v_row.refund_cents;
 
-  if 'DONE' = any (v_statuses) then
+  if 'DONE' = any (v_statuses)
+     and (select p.refunded_cents from public.payments p
+           where p.asaas_payment_id = p_payment_id) >= v_row.refund_cents then
     update public.refund_requests
        set status = 'done', done_at = now(), sent_at = coalesce(sent_at, now()),
            asaas_refund_status = 'DONE'
@@ -336,7 +319,7 @@ end;
 $$;
 
 comment on function public.billing_refund_reading(text, jsonb) is
-  'Writes what the provider holds of a charge''s refunds over its open withdrawal: a refund of its value DONE makes it done, one waiting makes it sent, all of its value CANCELLED make it failed; a requested one with none stays. Returns the status after, or null when the charge has no open request. Executed by service_role.';
+  'Writes what the provider holds of a charge''s refunds over its open withdrawal: a refund of its value DONE, once the charge is written with it (refunded_cents), makes it done; one waiting, or DONE before that, makes it sent; all of its value CANCELLED make it failed; a requested one with none stays. Returns the status after, or null when the charge has no open request. Executed by service_role.';
 
 -- The open requests, for the daily routine: each with the provider's ids of
 -- its charge and subscription.
@@ -436,14 +419,12 @@ comment on function public.credit_debit(uuid, text, integer, text) is
 revoke all on function public.billing_refund_window(uuid) from public, anon, authenticated, service_role;
 revoke all on function public.billing_refund_quote(uuid) from public, anon, authenticated;
 revoke all on function public.billing_open_refund(uuid) from public, anon, authenticated;
-revoke all on function public.billing_refund_sent(uuid, text) from public, anon, authenticated;
 revoke all on function public.billing_refund_failed(uuid, text) from public, anon, authenticated;
 revoke all on function public.billing_refund_reading(text, jsonb) from public, anon, authenticated;
 revoke all on function public.billing_refunds_open() from public, anon, authenticated;
 
 grant execute on function public.billing_refund_quote(uuid) to service_role;
 grant execute on function public.billing_open_refund(uuid) to service_role;
-grant execute on function public.billing_refund_sent(uuid, text) to service_role;
 grant execute on function public.billing_refund_failed(uuid, text) to service_role;
 grant execute on function public.billing_refund_reading(text, jsonb) to service_role;
 grant execute on function public.billing_refunds_open() to service_role;

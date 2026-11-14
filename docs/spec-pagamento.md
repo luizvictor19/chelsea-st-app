@@ -127,7 +127,10 @@ Luiz.
   recusou, nunca recebeu, ou todos os estornos do valor ficaram `CANCELLED`). Toda leitura da cobrança
   (o webhook, a rotina) passa os `refunds[]` lidos para `billing_refund_reading`, e o banco decide.
 - **Os créditos:** só no `DONE`. A cobrança é gravada com `refunded_cents` e `credit_settle` anula o
-  que restava nos lotes dela (0050). Com `done` ou `failed`, o saldo volta a ser gasto.
+  que restava nos lotes dela (0050); só depois disso o pedido passa a `done` (um `DONE` lido antes de
+  a cobrança ser gravada deixa o pedido `sent`). Com `done` ou `failed`, o saldo volta a ser gasto.
+- **Depois do estorno aceito, uma falha nossa** (o banco fora, o cancelamento na Asaas fora) não vira
+  "tente de novo": fica no log, e a rotina diária termina o que faltou.
 - **A autorização no painel (Q3 A):** fica ligada na conta de produção. Enquanto o estorno espera, o
   app manda um e-mail para contato@chelsea-st.com com o id da cobrança na Asaas, sem nome nem e-mail
   da pessoa; o Luiz autoriza no painel.

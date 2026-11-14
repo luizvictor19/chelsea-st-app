@@ -2671,10 +2671,6 @@ export type Database = {
         Args: { p_payment_id: string; p_refunds: Json };
         Returns: string;
       };
-      billing_refund_sent: {
-        Args: { p_asaas_refund_status: string; p_id: string };
-        Returns: string;
-      };
       billing_refund_window: {
         Args: { p_person: string };
         Returns: {

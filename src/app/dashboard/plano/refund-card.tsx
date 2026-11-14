@@ -65,8 +65,10 @@ export function RefundCard({
       )}
       {request?.status === "failed" && (
         <p role="alert" className="text-accent text-sm">
-          O último pedido de reembolso não foi feito. Tente de novo ou fale com
-          a gente.
+          O último pedido de reembolso não foi feito.{" "}
+          {offer !== null
+            ? "Tente de novo ou fale com a gente."
+            : "Fale com a gente."}
         </p>
       )}
 

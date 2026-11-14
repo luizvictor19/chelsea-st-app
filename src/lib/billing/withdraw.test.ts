@@ -137,16 +137,81 @@ describe("withdraw", () => {
     assert.deepEqual(notices, [paymentId]);
   });
 
-  test("a refund done at once needs no notice", async () => {
-    const { rowId } = await paidRow();
+  // Review of #297: a refund DONE at once must not end the request before
+  // the charge is written with the money back and its lots voided.
+  test("a refund done at once writes the charge and settles it before the request ends", async () => {
+    const { rowId, paymentId } = await paidRow();
+    store.settled.length = 0;
     const result = await withdraw(deps(), {
       personId: PERSON,
       current: current(rowId),
     });
     assert.deepEqual(result, { kind: "done" });
+    assert.equal(store.payments.get(paymentId)?.refundedCents, BACK);
+    assert.deepEqual(store.settled, [paymentId]);
     assert.equal(onlyRefund().status, "done");
     assert.equal(current(rowId).status, "canceled");
     assert.deepEqual(notices, []);
+  });
+
+  test("a DONE read before the charge is written keeps the request sent", async () => {
+    const { paymentId } = await paidRow();
+    await store.openRefund(PERSON);
+    const status = await store.refundReading(paymentId, [
+      { status: "DONE", valueCents: BACK },
+    ]);
+    assert.equal(status, "sent");
+  });
+
+  test("an answer with no refund of the value leaves the request to the routine", async () => {
+    const { rowId } = await paidRow();
+    provider.refund = async (id) => provider.getPayment(id);
+    const result = await withdraw(deps(), {
+      personId: PERSON,
+      current: current(rowId),
+    });
+    assert.deepEqual(result, { kind: "pending" });
+    assert.equal(onlyRefund().status, "requested");
+    assert.equal(current(rowId).status, "active");
+  });
+
+  test("a refund canceled at once says so and cancels nothing", async () => {
+    const { rowId } = await paidRow();
+    provider.refundAnswer = "CANCELLED";
+    const result = await withdraw(deps(), {
+      personId: PERSON,
+      current: current(rowId),
+    });
+    assert.deepEqual(result, {
+      kind: "refused",
+      message: REFUND_REFUSALS.provider_refused,
+    });
+    assert.equal(onlyRefund().status, "failed");
+    assert.equal(current(rowId).status, "active");
+  });
+
+  // Review of #297: once the provider took the refund, a failure of ours
+  // never tells her to try again.
+  test("the database down after the refund was taken still answers sent", async () => {
+    const { rowId } = await paidRow();
+    provider.refundAnswer = "PENDING";
+    const reading = store.refundReading.bind(store);
+    store.refundReading = async () => {
+      throw new Error("database down");
+    };
+    const result = await withdraw(deps(), {
+      personId: PERSON,
+      current: current(rowId),
+    });
+    assert.deepEqual(result, { kind: "sent" });
+    assert.equal(current(rowId).status, "canceled");
+    assert.ok(logged.some((line) => line.includes("left to the routine")));
+    store.refundReading = reading;
+    await reconcileRefunds({
+      ...deps(),
+      now: new Date(Date.now() + (REFUND_SETTLE_MINUTES + 1) * 60_000),
+    });
+    assert.equal(onlyRefund().status, "sent");
   });
 
   test("the reason goes with the refund", async () => {
@@ -257,7 +322,10 @@ describe("withdraw", () => {
   });
 
   test("a subscription already canceled is not canceled again", async () => {
-    const { rowId } = await paidRow();
+    const { rowId, subscriptionId } = await paidRow();
+    // She canceled first, within the 7 days, as the screen does it.
+    await provider.deleteSubscription(subscriptionId);
+    provider.calls.length = 0;
     await store.applySubscription(rowId, {
       subscriptionId: null,
       customerId: null,

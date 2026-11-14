@@ -616,17 +616,6 @@ export function createFakeStore(): FakeStore {
       };
     },
 
-    async refundSent(id, asaasStatus) {
-      check();
-      const refund = store.refunds.get(id);
-      if (refund === undefined) throw new Error(`no refund ${id}`);
-      if (refund.status === "requested") {
-        refund.status = "sent";
-        refund.asaasStatus = asaasStatus ?? refund.asaasStatus;
-      }
-      return refund.status;
-    },
-
     async refundFailed(id, error) {
       check();
       const refund = store.refunds.get(id);
@@ -648,7 +637,8 @@ export function createFakeStore(): FakeStore {
       const statuses = refunds
         .filter((each) => each.valueCents === refund.refundCents)
         .map((each) => each.status);
-      if (statuses.includes("DONE")) {
+      const written = store.payments.get(paymentId)?.refundedCents ?? 0;
+      if (statuses.includes("DONE") && written >= refund.refundCents) {
         refund.status = "done";
         refund.asaasStatus = "DONE";
       } else if (statuses.some((status) => status !== "CANCELLED")) {

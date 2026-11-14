@@ -67,12 +67,17 @@ export async function syncSubscription(
     if (running) {
       const charges = await provider.listSubscriptionPayments(subscription.id);
       for (const charge of charges) {
+        // Every refund asked and not canceled counts, done or still waiting
+        // for the panel: asking again for one on its way is refused (#297).
+        const asked = charge.refunds
+          .filter((refund) => refund.status !== "CANCELLED")
+          .reduce((sum, refund) => sum + refund.valueCents, 0);
         if (
           !charge.deleted &&
           PAID_STATUSES.has(charge.status) &&
-          charge.refundedCents < charge.valueCents
+          asked < charge.valueCents
         ) {
-          await provider.refund(charge.id);
+          await provider.refund(charge.id, charge.valueCents - asked);
         }
       }
       await provider.deleteSubscription(subscription.id);
@@ -87,8 +92,8 @@ export async function syncSubscription(
     if (row.asaasSubscriptionId === subscription.id) {
       const payments = await provider.listSubscriptionPayments(subscription.id);
       await writePayments(deps, row, payments);
-      await readRefunds(deps, payments);
       await settlePayments(deps, payments);
+      await readRefunds(deps, payments);
     }
     return;
   }
@@ -112,7 +117,6 @@ export async function syncSubscription(
 
   const payments = await provider.listSubscriptionPayments(subscription.id);
   await writePayments(deps, row, payments);
-  await readRefunds(deps, payments);
 
   const reading = readSubscription({
     withTrial: row.withTrial,
@@ -128,6 +132,7 @@ export async function syncSubscription(
   });
 
   await settlePayments(deps, payments);
+  await readRefunds(deps, payments);
 }
 
 /** Every charge read, written as the provider holds it now. */
@@ -157,7 +162,8 @@ async function writePayments(
 /**
  * What the provider holds of each charge's refunds, over its open
  * withdrawal (#297, 0060): done, waiting or canceled. The database decides;
- * a charge with no refund asked has nothing to say.
+ * a charge with no refund asked has nothing to say. After the settle, so a
+ * request ends (and her balance is free again) only once the void ran.
  */
 async function readRefunds(
   deps: SyncDeps,

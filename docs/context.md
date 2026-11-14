@@ -229,12 +229,12 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
   `refund_requests_one_open`; one not failed per charge, `refund_requests_once_per_payment`), the
   value from `credit_refund_quote`, and its state (`requested`, `sent`, `done`, `failed`) moved by
   the refunds read from Asaas (`billing_refund_reading`), `done` only on a refund of its value
-  `DONE`. The window is the first charge paid of a subscription, to the end of the 7th day in São
+  `DONE` once the charge is written with it (`refunded_cents`), after the void. The window is the first charge paid of a subscription, to the end of the 7th day in São
   Paulo after it was paid (`billing_refund_window`, executed by nobody); a scheduled lesson not
   ended refuses the request. While one is open `credit_debit` refuses every debit of hers
-  (`credit_refund_open`). She reads her own rows, the platform admin all; nobody writes them but six
+  (`credit_refund_open`). She reads her own rows, the platform admin all; nobody writes them but five
   `security definer` functions only `service_role` executes (`billing_refund_quote`,
-  `billing_open_refund`, `billing_refund_sent`, `billing_refund_failed`, `billing_refund_reading`,
+  `billing_open_refund`, `billing_refund_failed`, `billing_refund_reading`,
   `billing_refunds_open`), the same exception as billing's. The critical event's authorization stays
   on in the production Asaas account (Q3 A): each refund waits for Luiz in the panel, and the app
   mails contato@ the charge's id.
@@ -556,7 +556,7 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
 - `SUPABASE_SERVICE_ROLE_KEY` is read by `src/lib/supabase/admin.ts`, to send invite emails (#96)
   and the signup's (#275), and by `src/lib/supabase/service.ts`, the client of the two callers
   below: `src/lib/billing/supabase-store.ts` (#72, Q2), which calls only the ten `billing_*`
-  functions of 0049, `credit_settle_payment` and `credit_daily` of 0050 (#273) and the six
+  functions of 0049, `credit_settle_payment` and `credit_daily` of 0050 (#273) and the five
   refund functions of 0060 (#297), and reads a
   person's e-mail from auth for the overdue e-mails, and by `src/lib/calendar/supabase-outbox.ts`
   (#294), which calls only the three `calendar_*` functions of 0056, and by

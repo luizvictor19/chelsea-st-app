@@ -233,13 +233,6 @@ export function createSupabaseBillingStore(
       };
     },
 
-    async refundSent(id, asaasStatus) {
-      return (await call("billing_refund_sent", {
-        p_id: id,
-        p_asaas_refund_status: asaasStatus,
-      })) as RefundStatus;
-    },
-
     async refundFailed(id, error) {
       return (await call("billing_refund_failed", {
         p_id: id,

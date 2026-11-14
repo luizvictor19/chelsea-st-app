@@ -10145,16 +10145,17 @@ drop extension dblink;
 -- A withdrawal gives back what was not used (0060) ---------------------------------------
 --
 -- refund_requests is read by its person and the platform admin and written
--- by no API role; only service_role executes the six billing_refund
--- functions, nobody the window. The window is the first charge paid of a
+-- by no API role; only service_role executes the five refund functions,
+-- nobody the window. The window is the first charge paid of a
 -- subscription, to the end of the 7th day in São Paulo after its payment
 -- day; a renewal and an older charge open none. A scheduled lesson not
 -- ended refuses the request. The value is credit_refund_quote's, rounded up.
 -- One request open per person, one not failed per charge; while one is open
 -- nothing of hers is spent, a booking included, and done or failed lets her
 -- spend again. The provider's reading moves a request: a refund of its value
--- DONE makes it done, one waiting makes it sent, all CANCELLED make it
--- failed, another value moves nothing. The money back voids what was left.
+-- DONE, once the charge is written with it, makes it done; one waiting, or
+-- DONE before that, makes it sent; all CANCELLED make it failed; another
+-- value moves nothing. The money back voids what was left.
 -- The recreated debit still debits and still refuses as 0050 did. Every
 -- refusal by its own name. Numbers are made up. Nothing written here is kept.
 
@@ -10213,7 +10214,6 @@ declare
   c_service constant regprocedure[] := array[
     'public.billing_refund_quote(uuid)',
     'public.billing_open_refund(uuid)',
-    'public.billing_refund_sent(uuid, text)',
     'public.billing_refund_failed(uuid, text)',
     'public.billing_refund_reading(text, jsonb)',
     'public.billing_refunds_open()']::regprocedure[];
@@ -10395,8 +10395,9 @@ begin
     not exists (select 1 from billing_refund_quote(c_used)));
 
   -- 8. The provider's reading: another value moves nothing; a refund
-  -- waiting for the panel makes it sent; sent again changes nothing; DONE
-  -- makes it done, and the money back voids what was left.
+  -- waiting for the panel makes it sent; DONE before the charge is written
+  -- with the money back keeps it sent, so her balance stays held until the
+  -- void can run; written, DONE makes it done, and the void took the rest.
   perform verify.holds_0060('[0060 #8] a refund of another value leaves the request requested',
     billing_refund_reading(v_pay_used, '[{"status":"DONE","value_cents":428}]') = 'requested');
   -- A function's write is seen by the next statement, not by the one that
@@ -10406,23 +10407,29 @@ begin
     v_text = 'sent'
     and (select asaas_refund_status from refund_requests where id = v_req.id) = 'AWAITING_CRITICAL_ACTION_AUTHORIZATION'
     and (select sent_at from refund_requests where id = v_req.id) is not null);
-  perform verify.holds_0060('[0060 #8] sent again keeps it sent',
-    billing_refund_sent(v_req.id, 'PENDING') = 'sent');
   select o.status into v_text from billing_refunds_open() o
    where o.id = v_req.id and o.asaas_payment_id = v_pay_used
      and o.asaas_subscription_id = 'sub_used0060' and o.person_id = c_used;
   perform verify.holds_0060(format('[0060 #8] the routine lists the open request with its provider ids (%s)', v_text),
     v_text = 'sent');
-  v_text := billing_refund_reading(v_pay_used, '[{"status":"CANCELLED","value_cents":429},{"status":"DONE","value_cents":429}]');
-  perform verify.holds_0060('[0060 #8] a refund of its value DONE makes it done',
-    v_text = 'done'
-    and (select done_at from refund_requests where id = v_req.id) is not null);
-  perform verify.holds_0060('[0060 #8] a done request is no longer read',
-    billing_refund_reading(v_pay_used, '[{"status":"CANCELLED","value_cents":429}]') is null
-    and billing_refund_failed(v_req.id, 'late') = 'done');
+  v_text := billing_refund_reading(v_pay_used, '[{"status":"DONE","value_cents":429}]');
+  perform verify.holds_0060(format('[0060 #8] DONE before the charge is written with the money back keeps it sent (%s)', v_text),
+    v_text = 'sent'
+    and (select asaas_refund_status from refund_requests where id = v_req.id) = 'DONE');
+  perform verify.expect_refused_undone('[0060 #8] a debit between DONE and the charge written is refused by the request',
+    '23514 credit_refund_open',
+    format($q$select credit_debit(%L, 'voice_minute', 1, 'w0060:minute:7')$q$, c_used));
+  -- The webhook writes the charge, then settles it (the void), then reads.
   perform billing_save_payment(v_pay_used, (select subscription_id from payments where asaas_payment_id = v_pay_used),
     'cycle', 1000, 'CONFIRMED', false, v_today, (v_today::timestamp at time zone 'UTC'), 429, null);
   perform credit_settle_payment(v_pay_used);
+  v_text := billing_refund_reading(v_pay_used, '[{"status":"CANCELLED","value_cents":429},{"status":"DONE","value_cents":429}]');
+  perform verify.holds_0060('[0060 #8] a refund of its value DONE, the charge written with it, makes it done',
+    v_text = 'done'
+    and (select done_at from refund_requests where id = v_req.id) is not null);
+  perform verify.holds_0060('[0060 #8] a done request is no longer read, and never fails',
+    billing_refund_reading(v_pay_used, '[{"status":"CANCELLED","value_cents":429}]') is null
+    and billing_refund_failed(v_req.id, 'late') = 'done');
   perform verify.holds_0060(format('[0060 #8] the money back voids what was left (%s)', credit_balance_of(c_used)),
     credit_balance_of(c_used) = 0
     and (select sum(amount) from credit_entries where person_id = c_used and kind = 'void') = -3);
@@ -10437,8 +10444,8 @@ begin
   perform verify.holds_0060('[0060 #9] the provider refused: failed',
     v_text = 'failed'
     and (select error from refund_requests where id = v_req.id) = 'Asaas 400');
-  perform verify.holds_0060('[0060 #9] a failed one is not sent afterwards',
-    billing_refund_sent(v_req.id, 'PENDING') = 'failed');
+  perform verify.holds_0060('[0060 #9] a failed one is no longer read',
+    billing_refund_reading(v_pay_win, '[{"status":"PENDING","value_cents":1000}]') is null);
   begin
     v_int := credit_debit(c_win, 'voice_minute', 1, 'w0060:minute:6');
   exception when others then

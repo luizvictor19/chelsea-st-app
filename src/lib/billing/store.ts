@@ -195,13 +195,13 @@ export interface BillingStore {
    * charge within the window, a lesson ahead, nothing to give back.
    */
   openRefund(personId: string): Promise<OpenedRefund>;
-  /** The provider took it, with the refund status it answered. */
-  refundSent(id: string, asaasStatus: string | null): Promise<RefundStatus>;
   /** The provider refused it, or never had it: it ends, and she spends again. */
   refundFailed(id: string, error: string): Promise<RefundStatus>;
   /**
    * What the provider holds of a charge's refunds, over its open withdrawal:
-   * the status after, or null when the charge has none open.
+   * the status after, or null when the charge has none open. Done only once
+   * the charge is written with that money back (refunded_cents), so the
+   * void of its lots (settleCredits) can have run first.
    */
   refundReading(
     paymentId: string,
