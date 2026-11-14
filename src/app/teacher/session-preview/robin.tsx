@@ -78,16 +78,23 @@ function Loop({ mascot, pose }: ArtProps) {
 export function Robin({
   state,
   mascot,
+  small = false,
 }: {
   readonly state: RobinState;
   readonly mascot: Mascot;
+  /** Beside the talk button, while a picture takes the screen. */
+  readonly small?: boolean;
 }) {
   const art = ART[state];
   return (
     <div
       role="img"
       aria-label={`Robin, ${LABELS[state]}`}
-      className="size-32 shrink-0 bg-[#F2F2F0] sm:size-40 dark:bg-[#0F1115]"
+      className={
+        small
+          ? "size-16 shrink-0 bg-[#F2F2F0] sm:size-20 dark:bg-[#0F1115]"
+          : "size-32 shrink-0 bg-[#F2F2F0] sm:size-40 dark:bg-[#0F1115]"
+      }
     >
       {art.kind === "video" ? (
         <Loop key={`${mascot}/${art.pose}`} mascot={mascot} pose={art.pose} />

@@ -306,6 +306,11 @@ export function SessionScreen({
       ? SESSION_CAP_MS
       : Math.max(0, SESSION_CAP_MS - (now - startedAt));
   const word = turn?.word ?? null;
+  // While a picture is on screen it is the largest thing there: Robin leaves
+  // the top of the column and sits small beside the talk button, which on a
+  // 366x697 phone gives the picture the height he took (#336).
+  const robinBeside =
+    phase !== "intro" && phase !== "finished" && word !== null;
   const canTalk = phase === "waiting" || phase === "listening";
   const nudgeLeft =
     nudgeAt === null || phase !== "waiting"
@@ -345,9 +350,11 @@ export function SessionScreen({
         />
       ) : (
         <main className="mx-auto flex min-h-0 w-full max-w-xl flex-1 flex-col items-center gap-4 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:gap-6 sm:px-6">
-          <div className="pt-1">
-            <Robin state={ROBIN[phase]} mascot={mascot} />
-          </div>
+          {!robinBeside && (
+            <div className="pt-1">
+              <Robin state={ROBIN[phase]} mascot={mascot} />
+            </div>
+          )}
 
           <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-3">
             {phase === "intro" ? (
@@ -369,22 +376,31 @@ export function SessionScreen({
               </div>
             ) : word !== null ? (
               <>
-                {/* eslint-disable-next-line @next/next/no-img-element -- a public storage URL, shown as is */}
-                <img
-                  // Keyed so a new word mounts a new element: swapping src on
-                  // the old one keeps the previous picture on screen, under
-                  // the new word, until the next file has loaded.
-                  key={word.imageUrl}
-                  src={word.imageUrl}
-                  alt=""
-                  // No frame of its own: width and height stay auto, so the
-                  // browser scales the picture by its own proportion inside
-                  // both limits, and the rounded box is the picture. A wide
-                  // one takes the column's width, a tall one the free height,
-                  // a square one the 20rem it had (#332). Nothing scales a
-                  // file above its own size; every uploaded one is larger.
-                  className="bg-surface max-h-[min(100%,20rem)] min-h-0 max-w-full rounded-lg object-contain shadow-sm"
-                />
+                {/*
+                  The picture gets a grid row of its own, so the 100% of its
+                  max height is the free height above the word. Placed straight
+                  in the column, 100% was the whole column, word included, and
+                  the flex then shrank the picture to fit the word (#336). It
+                  sits at the bottom of its row, on top of its word.
+                */}
+                <div className="grid min-h-0 w-full flex-1 grid-cols-1 grid-rows-1 items-end justify-items-center">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- a public storage URL, shown as is */}
+                  <img
+                    // Keyed so a new word mounts a new element: swapping src
+                    // on the old one keeps the previous picture on screen,
+                    // under the new word, until the next file has loaded.
+                    key={word.imageUrl}
+                    src={word.imageUrl}
+                    alt=""
+                    // No frame of its own: width and height stay auto, so the
+                    // browser scales the picture by its own proportion inside
+                    // both limits, and the rounded box is the picture. A wide
+                    // one takes the column's width, a tall one the free
+                    // height (#332). Nothing scales a file above its own
+                    // size; every uploaded one is larger.
+                    className="bg-surface max-h-[min(100%,20rem)] max-w-full rounded-lg object-contain shadow-sm"
+                  />
+                </div>
                 <p
                   aria-live="polite"
                   className={
@@ -439,30 +455,38 @@ export function SessionScreen({
           )}
 
           {phase !== "intro" && phase !== "finished" && (
-            <div className="flex flex-col items-center gap-2 pt-2">
-              <button
-                type="button"
-                disabled={!canTalk}
-                aria-label="Segurar para falar"
-                onPointerDown={(event) => {
-                  if (event.button !== 0) return;
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                  void press();
-                }}
-                onPointerUp={() => void release()}
-                onPointerCancel={() => void release()}
-                onContextMenu={(event) => event.preventDefault()}
-                // touch-none keeps Android from reading the hold as a scroll
-                // and cancelling the pointer half a second in; select-none and
-                // the context menu guard stop the long-press menu.
-                className={
-                  phase === "listening"
-                    ? "bg-accent text-accent-foreground ring-accent/25 flex size-24 scale-105 touch-none items-center justify-center rounded-full shadow-lg ring-8 transition-transform select-none [-webkit-touch-callout:none]"
-                    : "bg-foreground text-background flex size-24 touch-none items-center justify-center rounded-full shadow-md transition-transform select-none [-webkit-touch-callout:none] disabled:opacity-30"
-                }
-              >
-                <MicIcon />
-              </button>
+            <div className="flex w-full flex-col items-center gap-2 pt-2">
+              {/* Robin on the left, the button in the middle of the screen. */}
+              <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-3">
+                <div className="justify-self-end">
+                  {robinBeside && (
+                    <Robin state={ROBIN[phase]} mascot={mascot} small />
+                  )}
+                </div>
+                <button
+                  type="button"
+                  disabled={!canTalk}
+                  aria-label="Segurar para falar"
+                  onPointerDown={(event) => {
+                    if (event.button !== 0) return;
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    void press();
+                  }}
+                  onPointerUp={() => void release()}
+                  onPointerCancel={() => void release()}
+                  onContextMenu={(event) => event.preventDefault()}
+                  // touch-none keeps Android from reading the hold as a scroll
+                  // and cancelling the pointer half a second in; select-none and
+                  // the context menu guard stop the long-press menu.
+                  className={
+                    phase === "listening"
+                      ? "bg-accent text-accent-foreground ring-accent/25 flex size-24 scale-105 touch-none items-center justify-center rounded-full shadow-lg ring-8 transition-transform select-none [-webkit-touch-callout:none]"
+                      : "bg-foreground text-background flex size-24 touch-none items-center justify-center rounded-full shadow-md transition-transform select-none [-webkit-touch-callout:none] disabled:opacity-30"
+                  }
+                >
+                  <MicIcon />
+                </button>
+              </div>
               <p className="text-faint min-h-5 text-center text-sm">
                 {hint ??
                   (phase === "listening"
