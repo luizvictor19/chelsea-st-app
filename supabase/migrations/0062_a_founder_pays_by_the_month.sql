@@ -29,6 +29,32 @@
 -- Each recreated body is the one of 0058 whole, with what changes said in
 -- place. create or replace keeps each function's grants and owner.
 
+-- The measurement above, checked at the moment of the push and not hoped
+-- for: the production form still asks an annual price until this deploys,
+-- and billing is open. A founder or personal plan with an annual price would
+-- make the new check fail halfway; a seal with an annual price would lose it
+-- without a word; an annual founder subscription still alive would later
+-- fix her terms from the plan's monthly price of that day
+-- (person_badges_fix_terms). Any of them stops the migration whole, named,
+-- for Luiz to decide; none is repaired here by guess.
+do $$
+begin
+  if exists (select 1 from public.plans
+              where audience <> 'public' and annual_price_cents is not null) then
+    raise exception '0062: a founder or personal plan has an annual price; decide it before this migration';
+  end if;
+  if exists (select 1 from public.person_badges
+              where terms_annual_price_cents is not null) then
+    raise exception '0062: a seal keeps an annual price; decide it before this migration';
+  end if;
+  if exists (select 1 from public.subscriptions s
+               join public.plans p on p.id = s.plan_id
+              where p.audience <> 'public' and s.cycle = 'annual' and s.status <> 'canceled') then
+    raise exception '0062: an annual founder or personal subscription is alive; decide it before this migration';
+  end if;
+end;
+$$;
+
 -- 1 and 2 · the plan ----------------------------------------------------------------------
 
 alter table public.plans alter column annual_price_cents drop not null;
