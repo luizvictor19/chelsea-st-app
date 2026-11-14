@@ -329,7 +329,7 @@ export default async function VocabularyImagesPage({
         </p>
       ) : (
         <>
-          <div className="grid gap-8 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:overflow-hidden">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:overflow-hidden">
             <div
               id={WORD_LIST_ID}
               className="flex flex-col gap-7 lg:min-h-0 lg:overflow-y-auto lg:pr-3"
