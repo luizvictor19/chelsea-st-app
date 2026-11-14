@@ -396,8 +396,9 @@ Dependabot PR needs no issue of its own: the PR is its record.
 
     gh pr list --author app/dependabot     # the queue
 
-- The gate is the same: CI green. The merge is Luiz's, with the same `gh pr merge NN --merge`,
-  and it is a production deploy like any other merge. No auto-merge.
+- The gate is the same: CI green. The merge is the Claude's (Luiz, 14/11, #325), with the same
+  `gh pr merge NN --merge`, then the release, and it is a production deploy like any other merge.
+  No auto-merge in GitHub: the Claude merges after reading the checks.
 - The grouped PR (`minor-and-patch`, and `actions`) can go straight in when CI passes.
 - A major comes alone in its own PR and is read before the merge: the package's changelog, and
   for `next` (grouped with `eslint-config-next`) the upgrade guide in `node_modules/next/dist/docs/`.
