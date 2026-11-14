@@ -32,6 +32,8 @@ import {
 import type { ActionResult } from "./attempt-store";
 import { ArchiveScene } from "./archive-scene";
 import { AttemptList } from "./attempt-list";
+import { BackToList } from "./back-to-list";
+import { rowId } from "./panel-into-view";
 import { trackGeneration, useRunningGeneration } from "./generation-tracking";
 import {
   IMAGE_STYLE_LABELS,
@@ -368,6 +370,7 @@ export function ScenePanel({
     >
       <header className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-1">
+          <BackToList rowId={rowId("scene", scene.id)} />
           {back !== null && (
             <Link
               href={questionsHref(back)}

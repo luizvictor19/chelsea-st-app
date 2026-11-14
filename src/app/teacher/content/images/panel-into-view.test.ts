@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { panelBelowList, scrollBehaviour } from "./panel-into-view.ts";
+import { panelBelowList, rowId, scrollBehaviour } from "./panel-into-view.ts";
 
 /*
  * The geometry of the screen as the stylesheet draws it, and not round
@@ -56,5 +56,15 @@ describe("scrollBehaviour", () => {
 
   test("no animation when the system asks for reduced motion", () => {
     assert.equal(scrollBehaviour(true), "auto");
+  });
+});
+
+describe("rowId", () => {
+  const id = "0b9f4a52-2c4e-4a8e-9a43-6a3f1b2c9d10";
+
+  test("names a word's row and a scene's row apart for the same uuid", () => {
+    assert.equal(rowId("word", id), `linha-palavra-${id}`);
+    assert.equal(rowId("scene", id), `linha-cena-${id}`);
+    assert.notEqual(rowId("word", id), rowId("scene", id));
   });
 });
