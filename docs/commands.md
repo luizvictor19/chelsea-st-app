@@ -10,7 +10,7 @@ Run from the main folder `~/Projects/chelsea-st-app` unless a step says otherwis
     cp .env.local ../chelsea-st-app-NN/
     cd ../chelsea-st-app-NN && npm install && claude
 
-Open Claude Code inside the worktree: the no-commit-on-main hook reads the session folder.
+Open Claude Code inside the worktree: the guard-main hook reads the session folder.
 
 ## Dev servers
 
