@@ -28,6 +28,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { JudgeError } from "../src/lib/judge/errors.ts";
 import { createOpenAiAudioJudge } from "../src/lib/judge/openai-audio.ts";
 import { promptFingerprint } from "../src/lib/judge/prompt.ts";
 import {
@@ -216,7 +217,14 @@ for (const each of cases) {
           raw: null,
           usage: null,
           ms: null,
-          error: cause instanceof Error ? cause.message : String(cause),
+          // The provider's own text too: this file stays on Luiz's machine,
+          // and it is the only way to see what went wrong in a paid call.
+          error:
+            cause instanceof JudgeError
+              ? `${cause.message}: ${cause.detail}`
+              : cause instanceof Error
+                ? cause.message
+                : String(cause),
         };
         console.log(`${each.id} ${judge.id} #${round} ERROR ${line.error}`);
       }
