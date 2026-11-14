@@ -9,6 +9,8 @@ import { WORD_LIST_ID, scrollBehaviour } from "./panel-into-view";
  * screen so the sticky nav never covers it and its neighbours show, and puts
  * the focus on it so the keyboard carries on from there.
  *
+ * It sits right of the title, where the header had room (#353).
+ *
  * lg:hidden is the same breakpoint that puts the list beside the panel, so
  * the two change together: side by side the list is already in view.
  *
@@ -32,7 +34,7 @@ export function BackToList({ rowId }: { readonly rowId: string }) {
     <button
       type="button"
       onClick={back}
-      className="text-muted hover:text-foreground self-start text-sm underline underline-offset-2 lg:hidden"
+      className="text-muted hover:text-foreground shrink-0 text-sm whitespace-nowrap underline underline-offset-2 lg:hidden"
     >
       ↑ Voltar à lista
     </button>

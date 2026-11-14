@@ -44,6 +44,7 @@ import {
   uploadFinishedImage,
   type ActionResult,
 } from "./actions";
+import { useArrivalScroll } from "./arrival-scroll";
 import { AttemptList } from "./attempt-list";
 import { BackToList } from "./back-to-list";
 import { rowId } from "./panel-into-view";
@@ -92,6 +93,7 @@ export function WordPanel({
   readonly word: WordImage;
   readonly attempts: readonly ImageAttempt[];
 }) {
+  useArrivalScroll(rowId("word", word.id));
   const [busy, setBusy] = useState<Busy>(null);
   /*
    * The list the last action answered with, shown only until the server sends
@@ -528,14 +530,18 @@ export function WordPanel({
       aria-label={`Imagem de ${word.term}`}
       className="border-rule bg-surface flex flex-col gap-6 rounded-sm border p-6"
     >
-      <header className="flex flex-col gap-1">
+      <header className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <h2 className="text-2xl font-extrabold tracking-tight">
+            {word.term}
+          </h2>
+          {word.pointNumber !== null && (
+            <span className="text-faint font-mono text-xs">
+              ponto {word.pointNumber}
+            </span>
+          )}
+        </div>
         <BackToList rowId={rowId("word", word.id)} />
-        <h2 className="text-2xl font-extrabold tracking-tight">{word.term}</h2>
-        {word.pointNumber !== null && (
-          <span className="text-faint font-mono text-xs">
-            ponto {word.pointNumber}
-          </span>
-        )}
       </header>
 
       <div className="flex flex-col gap-2">
