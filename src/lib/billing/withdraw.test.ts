@@ -14,7 +14,9 @@ import { ProviderError } from "./provider.ts";
 import { syncSubscription } from "./sync.ts";
 import {
   reconcileRefunds,
+  REFUND_LATER,
   REFUND_SETTLE_MINUTES,
+  refundLater,
   withdraw,
   type WithdrawDeps,
 } from "./withdraw.ts";
@@ -360,6 +362,108 @@ describe("withdraw", () => {
   });
 });
 
+// The two answers the sandbox gave on 14/11/2026 to a refund asked too
+// soon (fixtures/asaas/refund-2026-11-14.jsonl): a Pix right after its
+// confirmation, a card partial refund on the day of the charge.
+const TOO_SOON = new ProviderError(
+  "Asaas POST /payments/pay_1/refund failed: 400 Não é possível solicitar estorno para essa cobrança no momento. Tente novamente em alguns instantes.",
+  400,
+  [""],
+  [
+    "Não é possível solicitar estorno para essa cobrança no momento. Tente novamente em alguns instantes.",
+  ],
+);
+const NEXT_DAY = new ProviderError(
+  "Asaas POST /payments/pay_1/refund failed: 400 Esta transação só pode ser estornada parcialmente no próximo dia.",
+  400,
+  [""],
+  ["Esta transação só pode ser estornada parcialmente no próximo dia."],
+);
+
+describe("a refund the provider takes only later", () => {
+  test("refundLater knows the two answers, and nothing else", () => {
+    assert.equal(refundLater(TOO_SOON), true);
+    assert.equal(refundLater(NEXT_DAY), true);
+    // A stray space or line break at the provider still matches.
+    assert.equal(
+      refundLater(
+        new ProviderError(
+          "x",
+          400,
+          [],
+          [
+            "  Esta transação só pode ser\n estornada parcialmente no próximo dia. ",
+          ],
+        ),
+      ),
+      true,
+    );
+    for (const cause of [
+      new ProviderError("x", 400, [], ["Valor inválido."]),
+      new ProviderError("x", 500, [], [REFUND_LATER[1]]),
+      new ProviderError(REFUND_LATER[1], 400, []),
+      new Error(REFUND_LATER[0]),
+    ]) {
+      assert.equal(refundLater(cause), false);
+    }
+  });
+
+  test("each of the two answers keeps the request open, cancels nothing and says it goes later", async () => {
+    for (const cause of [TOO_SOON, NEXT_DAY]) {
+      provider = createFakeProvider();
+      store = createFakeStore();
+      const { rowId } = await paidRow();
+      provider.failOnce.set("refund", cause);
+      const result = await withdraw(deps(), {
+        personId: PERSON,
+        current: current(rowId),
+      });
+      assert.deepEqual(result, { kind: "deferred" });
+      assert.equal(onlyRefund().status, "requested");
+      assert.equal(current(rowId).status, "active");
+      assert.deepEqual(notices, []);
+    }
+  });
+
+  test("the routine sends it on a later day, and only then cancels", async () => {
+    const { rowId, paymentId } = await paidRow();
+    provider.failOnce.set("refund", NEXT_DAY);
+    await withdraw(deps(), { personId: PERSON, current: current(rowId) });
+    const later = new Date(Date.now() + (REFUND_SETTLE_MINUTES + 1) * 60_000);
+
+    // Still the same day at the provider: asked again, refused again, kept.
+    provider.failOnce.set("refund", NEXT_DAY);
+    let report = await reconcileRefunds({ ...deps(), now: later });
+    assert.equal(onlyRefund().status, "requested");
+    assert.equal(report.waiting, 1);
+    assert.equal(current(rowId).status, "active");
+
+    // The next day: taken.
+    provider.refundAnswer = "AWAITING_CRITICAL_ACTION_AUTHORIZATION";
+    report = await reconcileRefunds({ ...deps(), now: later });
+    assert.equal(onlyRefund().status, "sent");
+    assert.equal(current(rowId).status, "canceled");
+    assert.deepEqual(provider.payments.get(paymentId)!.refunds, [
+      { status: "AWAITING_CRITICAL_ACTION_AUTHORIZATION", valueCents: BACK },
+    ]);
+    assert.deepEqual(notices, [paymentId]);
+  });
+
+  test("another refusal of the provider still fails the request", async () => {
+    const { rowId } = await paidRow();
+    provider.failOnce.set(
+      "refund",
+      new ProviderError("x", 400, ["invalid_value"], ["Valor inválido."]),
+    );
+    const result = await withdraw(deps(), {
+      personId: PERSON,
+      current: current(rowId),
+    });
+    assert.equal(result.kind, "refused");
+    assert.equal(onlyRefund().status, "failed");
+  });
+});
+
 describe("reconcileRefunds", () => {
   const later = () =>
     new Date(Date.now() + (REFUND_SETTLE_MINUTES + 1) * 60_000);
@@ -388,15 +492,37 @@ describe("reconcileRefunds", () => {
     assert.equal(provider.payments.get(paymentId)!.refunds.length, 1);
   });
 
-  test("a request that never reached the provider fails, and she keeps her subscription", async () => {
+  test("a request that never reached the provider is asked for by the routine, after checking, once", async () => {
+    const { rowId, paymentId } = await paidRow();
+    provider.failOnce.set("refund", new TypeError("fetch failed"));
+    await withdraw(deps(), { personId: PERSON, current: current(rowId) });
+    assert.equal(onlyRefund().status, "requested");
+    const report = await reconcileRefunds({ ...deps(), now: later() });
+    assert.equal(report.done, 1);
+    assert.equal(onlyRefund().status, "done");
+    assert.equal(current(rowId).status, "canceled");
+    assert.deepEqual(provider.payments.get(paymentId)!.refunds, [
+      { status: "DONE", valueCents: BACK },
+    ]);
+    // Read before it was asked again: one refund at the provider.
+    const calls = provider.calls.filter(
+      (call) => call === "getPayment" || call === "refund",
+    );
+    assert.deepEqual(calls.slice(-2), ["getPayment", "refund"]);
+  });
+
+  test("the routine fails a request the provider refuses for good", async () => {
     const { rowId } = await paidRow();
     provider.failOnce.set("refund", new TypeError("fetch failed"));
     await withdraw(deps(), { personId: PERSON, current: current(rowId) });
+    provider.failOnce.set(
+      "refund",
+      new ProviderError("x", 400, ["invalid_value"], ["Valor inválido."]),
+    );
     const report = await reconcileRefunds({ ...deps(), now: later() });
     assert.equal(report.failed, 1);
     assert.equal(onlyRefund().status, "failed");
     assert.equal(current(rowId).status, "active");
-    assert.equal(provider.calls.filter((call) => call === "refund").length, 1);
   });
 
   test("a refund done later makes it done, and the charge is written refunded and settled", async () => {

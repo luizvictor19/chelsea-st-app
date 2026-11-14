@@ -8,6 +8,7 @@ import {
   billingOpen,
   billingStore,
   emailOf,
+  refundNotice,
 } from "@/lib/billing/server";
 import { reconcileRefunds, type RefundReport } from "@/lib/billing/withdraw";
 import { cronAuthorized } from "@/lib/cron-auth";
@@ -61,6 +62,7 @@ export async function GET(request: Request): Promise<Response> {
     try {
       refunds = await reconcileRefunds({
         ...billingDeps(),
+        notify: refundNotice,
         now: new Date(),
         log,
       });

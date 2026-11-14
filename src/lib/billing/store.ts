@@ -95,6 +95,7 @@ export type OpenRefund = {
   readonly personId: string;
   readonly status: "requested" | "sent";
   readonly createdAt: string;
+  readonly refundCents: number;
   readonly paymentId: string;
   readonly asaasSubscriptionId: string | null;
 };

@@ -30,6 +30,37 @@ import { syncSubscription, type SyncDeps } from "./sync.ts";
 /** How long a request may stay requested before the routine reads it. */
 export const REFUND_SETTLE_MINUTES = 30;
 
+/**
+ * The provider's answers to a refund asked too soon, verbatim: the request
+ * stays open and the daily routine asks again. Measured in the sandbox on
+ * 14/11/2026 (scripts/asaas-refund-smoke.ts,
+ * fixtures/asaas/refund-2026-11-14.jsonl): a Pix right after its
+ * confirmation was refused once with the first and taken on the next try,
+ * 20 s later; a card partial refund on the day of the charge was refused
+ * with the first once and with the second on nine tries over 3 minutes. A
+ * card partial refund goes from the next day on.
+ */
+export const REFUND_LATER = [
+  "Não é possível solicitar estorno para essa cobrança no momento. Tente novamente em alguns instantes.",
+  "Esta transação só pode ser estornada parcialmente no próximo dia.",
+] as const;
+
+/** Spaces and Unicode forms made one, so a stray space never breaks it. */
+function normal(text: string): string {
+  return text.normalize("NFC").replace(/\s+/g, " ").trim();
+}
+
+/** A refusal that only means "not yet": one of REFUND_LATER, with a 400. */
+export function refundLater(cause: unknown): boolean {
+  return (
+    cause instanceof ProviderError &&
+    cause.status === 400 &&
+    cause.descriptions.some((description) =>
+      (REFUND_LATER as readonly string[]).includes(normal(description)),
+    )
+  );
+}
+
 export type WithdrawDeps = SyncDeps & {
   /** The notice while the refund waits for the panel. */
   readonly notify: (paymentId: string) => Promise<void>;
@@ -41,7 +72,9 @@ export type WithdrawResult =
   /** Taken by the provider: done already, or waiting there. */
   | { readonly kind: "sent" | "done" }
   /** The provider's answer was lost: the routine reads it later. */
-  | { readonly kind: "pending" };
+  | { readonly kind: "pending" }
+  /** The provider takes it only later: the routine sends it then. */
+  | { readonly kind: "deferred" };
 
 /** A refusal the next try meets again: a 4xx of the provider, not a 429. */
 function refusedForGood(cause: unknown): cause is ProviderError {
@@ -92,6 +125,10 @@ export async function withdraw(
     );
   } catch (cause) {
     const reason = cause instanceof Error ? cause.message : String(cause);
+    if (refundLater(cause)) {
+      deps.log(`refund ${opened.id}: the provider takes it later: ${reason}`);
+      return { kind: "deferred" };
+    }
     if (refusedForGood(cause)) {
       await store.refundFailed(opened.id, reason);
       deps.log(`refund ${opened.id}: refused by the provider: ${reason}`);
@@ -101,6 +138,26 @@ export async function withdraw(
     return { kind: "pending" };
   }
 
+  return afterTaken(deps, opened, payment, input.current);
+}
+
+/**
+ * What follows a refund the provider took: read it, cancel the
+ * subscription, write the charge, and the notice while it waits for the
+ * panel. Shared by the button and by the routine that sends it later.
+ */
+async function afterTaken(
+  deps: WithdrawDeps,
+  opened: {
+    readonly id: string;
+    readonly paymentId: string;
+    readonly subscriptionId: string | null;
+    readonly refundCents: number;
+  },
+  payment: ProviderPayment,
+  row: StoredSubscription | null,
+): Promise<WithdrawResult> {
+  const { store } = deps;
   // From here the refund is at the provider. Each step below is best
   // effort: a failure is logged and the daily routine finishes it, because
   // a second click would be refused (one open) and "try again" would be
@@ -120,8 +177,10 @@ export async function withdraw(
     store.refundReading(payment.id, payment.refunds),
   );
 
-  const row = input.current;
-  if (row !== null && row.id === opened.subscriptionId) {
+  if (
+    row !== null &&
+    (opened.subscriptionId === null || row.id === opened.subscriptionId)
+  ) {
     if (row.status !== "canceled") {
       await bestEffort(deps, opened.id, "cancel", () =>
         cancelSubscription(deps, row),
@@ -175,17 +234,16 @@ export type RefundReport = {
 /**
  * The daily step of the withdrawals: every request still open is read back
  * from the provider. A refund of its value done or waiting moves it, and the
- * subscription is canceled if it is still alive; a request with no refund of
- * its value at the provider after REFUND_SETTLE_MINUTES never reached it, and
- * fails, so she may spend and ask again. Then the subscription is read, so
+ * subscription is canceled if it is still alive. A request with no refund of
+ * its value at the provider after REFUND_SETTLE_MINUTES is asked for now:
+ * its call never reached the provider, or the provider takes it only later
+ * (REFUND_LATER, kept open again); another refusal fails it, so she may
+ * spend and ask again. Then the subscription is read, so
  * the charge refunded is written and its credits voided, and only then does
  * a refund DONE end the request.
  */
 export async function reconcileRefunds(
-  deps: SyncDeps & {
-    readonly now: Date;
-    readonly log: (line: string) => void;
-  },
+  deps: WithdrawDeps & { readonly now: Date },
 ): Promise<RefundReport> {
   const { provider, store } = deps;
   const counts = { read: 0, done: 0, failed: 0, waiting: 0, errors: 0 };
@@ -197,28 +255,67 @@ export async function reconcileRefunds(
     try {
       counts.read += 1;
       const payment = await provider.getPayment(open.paymentId);
-      let status =
+      const status =
         (await store.refundReading(open.paymentId, payment.refunds)) ??
         open.status;
+      const find = () =>
+        open.asaasSubscriptionId === null
+          ? Promise.resolve(null)
+          : store.findSubscription({
+              subscriptionId: open.asaasSubscriptionId,
+            });
+
       if (status === "requested") {
-        status = await store.refundFailed(
-          open.id,
-          "no refund of this value at the provider",
+        // No refund of its value at the provider, checked first, as the
+        // provider asks before a refund is repeated: the call never reached
+        // it, or the provider takes it only later (REFUND_LATER). Asked now.
+        let taken: ProviderPayment;
+        try {
+          taken = await provider.refund(
+            open.paymentId,
+            open.refundCents,
+            REFUND_DESCRIPTION,
+          );
+        } catch (cause) {
+          if (refundLater(cause)) {
+            counts.waiting += 1;
+            continue;
+          }
+          if (refusedForGood(cause)) {
+            const reason =
+              cause instanceof Error ? cause.message : String(cause);
+            await store.refundFailed(open.id, reason);
+            counts.failed += 1;
+            continue;
+          }
+          throw cause;
+        }
+        const result = await afterTaken(
+          deps,
+          {
+            id: open.id,
+            paymentId: open.paymentId,
+            subscriptionId: null,
+            refundCents: open.refundCents,
+          },
+          taken,
+          await find(),
         );
+        if (result.kind === "done") counts.done += 1;
+        else if (result.kind === "refused") counts.failed += 1;
+        else counts.waiting += 1;
+        continue;
       }
-      if (open.asaasSubscriptionId !== null) {
-        const find = () =>
-          store.findSubscription({ subscriptionId: open.asaasSubscriptionId });
-        const row = await find();
-        if (row !== null && row.status !== "canceled" && status === "sent") {
-          await cancelSubscription(deps, row);
-        }
-        // Writes the charge and settles it, then reads its refunds again:
-        // a refund DONE ends the request only after the void.
-        const after = await find();
-        if (after !== null) {
-          await syncSubscription(deps, after, open.asaasSubscriptionId);
-        }
+
+      const row = await find();
+      if (row !== null && row.status !== "canceled" && status === "sent") {
+        await cancelSubscription(deps, row);
+      }
+      // Writes the charge and settles it, then reads its refunds again: a
+      // refund DONE ends the request only after the void.
+      const after = await find();
+      if (after !== null && open.asaasSubscriptionId !== null) {
+        await syncSubscription(deps, after, open.asaasSubscriptionId);
       }
       const final =
         (await store.refundReading(open.paymentId, payment.refunds)) ??

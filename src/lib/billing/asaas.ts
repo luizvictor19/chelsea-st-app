@@ -155,15 +155,17 @@ export function createAsaasProvider(
         ? (record(parsed).errors as unknown[]).map(record)
         : [];
       const codes = errors.map((error) => String(error.code ?? ""));
-      const words = errors
-        .map((error) => String(error.description ?? ""))
-        .join("; ");
+      const descriptions = errors.map((error) =>
+        String(error.description ?? ""),
+      );
+      const words = descriptions.join("; ");
       throw new ProviderError(
         `Asaas ${method} ${path.split("?")[0]} failed: ${response.status}${
           response.status === 429 ? " (rate limit)" : ""
         } ${words}`.trim(),
         response.status,
         codes,
+        descriptions,
       );
     }
     return parsed;

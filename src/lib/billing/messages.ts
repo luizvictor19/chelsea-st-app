@@ -86,6 +86,14 @@ export const REFUND_REFUSALS: Readonly<Record<string, string>> = {
     "Não conseguimos pedir o reembolso agora. Nada foi cancelado. Tente de novo em alguns instantes.",
 };
 
+/**
+ * When the provider takes the refund only later (REFUND_LATER in
+ * withdraw.ts): on a card, a partial refund goes from the day after the
+ * charge on (measured in the sandbox on 14/11/2026).
+ */
+export const REFUND_LATER_SENTENCE =
+  "Pedido guardado. No cartão, o reembolso só sai a partir do dia seguinte ao pagamento: ele vai sozinho, e a assinatura é cancelada quando ele sair.";
+
 /** The text the refund goes with at the provider. */
 export const REFUND_DESCRIPTION = `Desistência da assinatura ${BRAND} (CDC art. 49)`;
 

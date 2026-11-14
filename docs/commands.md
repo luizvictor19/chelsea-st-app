@@ -518,7 +518,8 @@ The daily overdue routine by hand (Vercel Cron calls it at 12h UTC in production
     curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3100/api/billing/daily
 
 The same routine reads every withdrawal still open (#297) back from Asaas: a request left
-`requested` for 30 minutes with no refund of its value there fails; a refund `DONE` makes it done.
+`requested` for 30 minutes with no refund of its value there is asked for again (a card partial
+refund goes only from the day after the charge on); a refund `DONE` makes it done.
 
 ## Calendar invites (#294)
 

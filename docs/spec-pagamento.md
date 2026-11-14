@@ -121,7 +121,15 @@ Luiz.
   (`POST /v3/payments/{id}/refund`, com `value` e `description`); só com o estorno aceito pela Asaas
   a assinatura é cancelada, como no "Cancelar". Um 4xx da Asaas (sem saldo na conta, estorno cedo
   demais) encerra o pedido como falho e nada é cancelado. Uma resposta perdida (tempo esgotado, 5xx)
-  deixa o pedido como pedido; a rotina diária lê a cobrança depois de 30 minutos e decide.
+  deixa o pedido como pedido; a rotina diária lê a cobrança depois de 30 minutos e, sem estorno do
+  valor lá, pede de novo.
+- **Estorno cedo demais** (medido no sandbox em 14/11, `fixtures/asaas/refund-2026-11-14.jsonl`):
+  a Asaas responde 400 com "Não é possível solicitar estorno para essa cobrança no momento. Tente
+  novamente em alguns instantes." (um Pix logo depois da confirmação; aceito 20 s depois) ou "Esta
+  transação só pode ser estornada parcialmente no próximo dia." (o estorno parcial no cartão no dia
+  da cobrança). As duas frases (`REFUND_LATER` em `src/lib/billing/withdraw.ts`) não são falha: o
+  pedido fica aberto, nada é cancelado, a tela diz que o reembolso no cartão sai a partir do dia
+  seguinte, e a rotina diária pede de novo até a Asaas aceitar.
 - **Os estados:** `requested` (reservado), `sent` (a Asaas aceitou: `PENDING` ou
   `AWAITING_CRITICAL_ACTION_AUTHORIZATION`), `done` (um estorno do valor em `DONE`), `failed` (a Asaas
   recusou, nunca recebeu, ou todos os estornos do valor ficaram `CANCELLED`). Toda leitura da cobrança

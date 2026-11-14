@@ -2687,6 +2687,7 @@ export type Database = {
           created_at: string;
           id: string;
           person_id: string;
+          refund_cents: number;
           status: string;
         }[];
       };

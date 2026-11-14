@@ -321,18 +321,20 @@ $$;
 comment on function public.billing_refund_reading(text, jsonb) is
   'Writes what the provider holds of a charge''s refunds over its open withdrawal: a refund of its value DONE, once the charge is written with it (refunded_cents), makes it done; one waiting, or DONE before that, makes it sent; all of its value CANCELLED make it failed; a requested one with none stays. Returns the status after, or null when the charge has no open request. Executed by service_role.';
 
--- The open requests, for the daily routine: each with the provider's ids of
--- its charge and subscription.
+-- The open requests, for the daily routine: each with its value, which a
+-- request the provider took only later is sent again with, and the
+-- provider's ids of its charge and subscription.
 create function public.billing_refunds_open()
 returns table (
-  id uuid, person_id uuid, status text, created_at timestamptz,
+  id uuid, person_id uuid, status text, created_at timestamptz, refund_cents integer,
   asaas_payment_id text, asaas_subscription_id text)
 language sql
 stable
 security definer
 set search_path = ''
 as $$
-  select r.id, r.person_id, r.status, r.created_at, r.asaas_payment_id, s.asaas_subscription_id
+  select r.id, r.person_id, r.status, r.created_at, r.refund_cents, r.asaas_payment_id,
+         s.asaas_subscription_id
     from public.refund_requests r
     join public.subscriptions s on s.id = r.subscription_id
    where r.status in ('requested', 'sent')
@@ -340,7 +342,7 @@ as $$
 $$;
 
 comment on function public.billing_refunds_open() is
-  'Every withdrawal requested or sent, oldest first, with the provider ids of its charge and subscription. For the daily routine. Executed by service_role.';
+  'Every withdrawal requested or sent, oldest first, with its value and the provider ids of its charge and subscription. For the daily routine. Executed by service_role.';
 
 
 -- Nothing is spent while a request is open (Q4 A) ----------------------------------------

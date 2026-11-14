@@ -75,11 +75,19 @@ export type Checkout = { readonly id: string; readonly url: string };
 export class ProviderError extends Error {
   readonly status: number;
   readonly codes: readonly string[];
-  constructor(message: string, status: number, codes: readonly string[]) {
+  /** The provider's own sentence for each error, verbatim. */
+  readonly descriptions: readonly string[];
+  constructor(
+    message: string,
+    status: number,
+    codes: readonly string[],
+    descriptions: readonly string[] = [],
+  ) {
     super(message);
     this.name = "ProviderError";
     this.status = status;
     this.codes = codes;
+    this.descriptions = descriptions;
   }
 }
 

@@ -10408,9 +10408,9 @@ begin
     and (select asaas_refund_status from refund_requests where id = v_req.id) = 'AWAITING_CRITICAL_ACTION_AUTHORIZATION'
     and (select sent_at from refund_requests where id = v_req.id) is not null);
   select o.status into v_text from billing_refunds_open() o
-   where o.id = v_req.id and o.asaas_payment_id = v_pay_used
+   where o.id = v_req.id and o.asaas_payment_id = v_pay_used and o.refund_cents = 429
      and o.asaas_subscription_id = 'sub_used0060' and o.person_id = c_used;
-  perform verify.holds_0060(format('[0060 #8] the routine lists the open request with its provider ids (%s)', v_text),
+  perform verify.holds_0060(format('[0060 #8] the routine lists the open request with its value and provider ids (%s)', v_text),
     v_text = 'sent');
   v_text := billing_refund_reading(v_pay_used, '[{"status":"DONE","value_cents":429}]');
   perform verify.holds_0060(format('[0060 #8] DONE before the charge is written with the money back keeps it sent (%s)', v_text),

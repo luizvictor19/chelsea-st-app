@@ -257,6 +257,7 @@ describe("asaas", () => {
       assert.ok(error instanceof ProviderError);
       assert.equal(error.status, 400);
       assert.deepEqual(error.codes, ["invalid_object"]);
+      assert.deepEqual(error.descriptions, ["O campo phone deve existir."]);
       assert.match(error.message, /phone/);
       return true;
     });

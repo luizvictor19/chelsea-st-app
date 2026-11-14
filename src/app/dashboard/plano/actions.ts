@@ -10,6 +10,7 @@ import {
   pixToPay,
   startSubscription,
 } from "@/lib/billing/subscribe";
+import { REFUND_LATER_SENTENCE } from "@/lib/billing/messages";
 import { withdraw } from "@/lib/billing/withdraw";
 import { siteOfBrand } from "@/lib/brand";
 import { redeemAnswer, type RedeemState } from "@/lib/founder-coupon";
@@ -170,6 +171,9 @@ export async function askRefund(
   revalidatePath("/dashboard/plano");
   if (result.kind === "refused") {
     return { status: "error", message: result.message };
+  }
+  if (result.kind === "deferred") {
+    return { status: "pending", message: REFUND_LATER_SENTENCE };
   }
   if (result.kind === "pending") {
     return {

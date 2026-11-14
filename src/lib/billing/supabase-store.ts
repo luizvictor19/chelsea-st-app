@@ -257,6 +257,7 @@ export function createSupabaseBillingStore(
         personId: row.person_id,
         status: row.status as OpenRefund["status"],
         createdAt: row.created_at,
+        refundCents: row.refund_cents,
         paymentId: row.asaas_payment_id,
         asaasSubscriptionId: row.asaas_subscription_id,
       }));

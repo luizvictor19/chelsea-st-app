@@ -52,9 +52,11 @@ export function RefundCard({
 
       {open && request !== null && (
         <p className="text-sm">
-          Reembolso pedido: {formatCents(request.refundCents)}. Ele aparece aqui
-          como feito assim que o pagamento confirmar a devolução. Até lá, os
-          seus créditos ficam parados.
+          Reembolso pedido: {formatCents(request.refundCents)}.{" "}
+          {request.status === "requested" &&
+            "No cartão, um reembolso pedido no dia do pagamento sai a partir do dia seguinte, sozinho. "}
+          Ele aparece aqui como feito assim que o pagamento confirmar a
+          devolução. Até lá, os seus créditos ficam parados.
         </p>
       )}
       {request?.status === "done" && (

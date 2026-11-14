@@ -662,6 +662,7 @@ export function createFakeStore(): FakeStore {
           personId: refund.personId,
           status: refund.status as "requested" | "sent",
           createdAt: refund.createdAt,
+          refundCents: refund.refundCents,
           paymentId: refund.paymentId,
           asaasSubscriptionId:
             store.rows.get(refund.subscriptionId)?.asaasSubscriptionId ?? null,
