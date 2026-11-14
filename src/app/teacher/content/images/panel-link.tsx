@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { ComponentProps, MouseEvent } from "react";
 
+import { markArrival } from "./arrival";
 import { SCENE_PANEL_ID } from "./filters";
 import {
   WORD_LIST_ID,
@@ -59,6 +60,8 @@ export function PanelLink({ onClick, ...props }: ComponentProps<typeof Link>) {
         window.matchMedia("(prefers-reduced-motion: reduce)").matches,
       ),
     });
+    // The panel that arrives scrolls once more to where it really is (#353).
+    if (props.id !== undefined) markArrival(props.id);
   }
 
   return <Link {...props} scroll={false} onClick={intoView} />;

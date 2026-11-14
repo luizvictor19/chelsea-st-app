@@ -31,6 +31,7 @@ import {
 
 import type { ActionResult } from "./attempt-store";
 import { ArchiveScene } from "./archive-scene";
+import { useArrivalScroll } from "./arrival-scroll";
 import { AttemptList } from "./attempt-list";
 import { BackToList } from "./back-to-list";
 import { rowId } from "./panel-into-view";
@@ -115,6 +116,7 @@ export function ScenePanel({
   /** The screen as it is, with no scene open: where Excluir leaves. */
   readonly closeHref: string;
 }) {
+  useArrivalScroll(rowId("scene", scene.id));
   const label = scene.description;
   const [busy, setBusy] = useState<Busy>(null);
   const [answered, setAnswered] = useState<LastAnswer<ImageAttempt> | null>(
@@ -370,7 +372,6 @@ export function ScenePanel({
     >
       <header className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-1">
-          <BackToList rowId={rowId("scene", scene.id)} />
           {back !== null && (
             <Link
               href={questionsHref(back)}
@@ -390,12 +391,15 @@ export function ScenePanel({
             {groupLabel(point).toLowerCase()}
           </span>
         </div>
-        <ArchiveScene
-          scene={scene}
-          closeHref={closeHref}
-          variant="button"
-          disabled={working || running !== null}
-        />
+        <div className="flex shrink-0 flex-col items-end gap-3">
+          <BackToList rowId={rowId("scene", scene.id)} />
+          <ArchiveScene
+            scene={scene}
+            closeHref={closeHref}
+            variant="button"
+            disabled={working || running !== null}
+          />
+        </div>
       </header>
 
       <div className="flex flex-col gap-2">
