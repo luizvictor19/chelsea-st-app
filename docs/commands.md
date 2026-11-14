@@ -10,7 +10,7 @@ Run from the main folder `~/Projects/chelsea-st-app` unless a step says otherwis
     cp .env.local ../chelsea-st-app-NN/
     cd ../chelsea-st-app-NN && npm install && claude
 
-Open Claude Code inside the worktree: the no-commit-on-main hook reads the session folder.
+Open Claude Code inside the worktree: the guard-main hook reads the session folder.
 
 ## Dev servers
 
@@ -34,6 +34,10 @@ The lesson server always runs in Luiz's own terminal, never in a Claude Code ses
 
 ## Merge PR NN and clean up (session in the main folder, not in the worktree)
 
+The Claude merges when every condition of Merging in `AGENTS.md` holds; if one is missing, it
+stops and says which.
+
+    gh pr checks NN --watch --fail-fast
     gh pr merge NN --merge
     git pull
     gh release create "$(date -u +%Y.%m.%d)-NN" \
@@ -53,13 +57,31 @@ step, right after each merge: `gh release create` is allowed in Luiz's own permi
 07/11/2026. The history of what reached production is `gh release list`. `package.json` stays at
 `0.1.0`: its `version` is not used.
 
-## Migrations (Luiz only)
+## Migrations
 
-    supabase db push               # from the worktree that holds the new file
+The Claude applies the migration of issue NN right before its merge, after code-review and a green
+`verify-rls.sql` in CI, and tells Luiz. It runs from the issue's worktree, which holds the new file:
+the hook denies `supabase db push` from the main folder. NNNN is the migration's number.
+
+    cd ../chelsea-st-app-NN
+    supabase link --project-ref gmgkoriwsmlrtwdqdsuo    # once per worktree
+    B=~/backups/chelsea-st/$(date +%F)-NNNN
+    mkdir -p "$B"
+    git fetch -q && git rev-parse origin/main > "$B/commit"   # what production runs before the push
+    supabase db dump --linked --role-only -f "$B/roles.sql"
+    supabase db dump --linked -f "$B/schema.sql"
+    supabase db dump --linked --data-only --use-copy -f "$B/data.sql"
+    supabase db push --dry-run     # must list this PR's migrations and nothing else
+    supabase db push
     scripts/gen-types.sh           # regenerate types from the migrations
 
-Every merge to `main` deploys to production (#68). In a PR with a migration, push first, then
-merge: the new code may read what only the migration creates.
+Then query `supabase_migrations.schema_migrations` through the MCP: the new version is there. Only
+then merge. Every merge to `main` deploys to production (#68): the new code may read what only the
+migration creates. If the dry-run lists anything else, stop and say what.
+
+The backup holds personal data (`auth.users`): never read it, never put it in an issue, a PR or a
+chat. If `db push` or a dump asks for the database password, stop and ask Luiz where it lives; it
+never goes in the repository or in a chat.
 
 ## Vercel (Luiz only, set up once in #68)
 
@@ -127,10 +149,12 @@ cloud (DNS only).
 
 Supabase, Authentication > URL Configuration: see "Auth settings and email templates" below.
 
-## Backup and local restore (Luiz only)
+## Backup and local restore
 
 The copy holds personal data (`auth.users`). It lives in `~/backups/chelsea-st/`, outside the
-repository and outside any synced folder, and never goes into an issue, a PR or a chat.
+repository and outside any synced folder, and never goes into an issue, a PR or a chat. Luiz takes
+it and restores it below. The Claude also takes it before every migration (Migrations above), in
+a folder of its own, and never opens what it holds.
 
 Take the copy, from the main folder (it reads the linked project through the CLI login; no
 database password was asked on 2026-10-24). The Supabase CLI is a global npm package, so it is
