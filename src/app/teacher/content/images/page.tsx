@@ -46,12 +46,14 @@ import {
   type Selection,
 } from "./filters";
 import { lessonLabel, suggestedCount } from "./notice-texts";
+import { WORD_LIST_ID } from "./panel-into-view";
 import { disagreement, labelFor } from "./representation";
 import { ScenePanel } from "./scene-panel";
 import { firstPoint, groupScenes } from "./scenes";
 import { ScenesSection } from "./scenes-section";
 import { StatusMark } from "./status-mark";
 import { SuggestButton } from "./suggest-button";
+import { WordLink } from "./word-link";
 import { WordPanel } from "./word-panel";
 
 export const metadata: Metadata = {
@@ -327,7 +329,10 @@ export default async function VocabularyImagesPage({
       ) : (
         <>
           <div className="grid gap-8 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:overflow-hidden">
-            <div className="flex flex-col gap-7 lg:min-h-0 lg:overflow-y-auto lg:pr-3">
+            <div
+              id={WORD_LIST_ID}
+              className="flex flex-col gap-7 lg:min-h-0 lg:overflow-y-auto lg:pr-3"
+            >
               <BulkSelection words={bulkWords} filterKey={filterKey}>
                 {visible.length === 0 ? (
                   <p className="text-muted border-rule rounded-sm border border-dashed p-6">
@@ -385,7 +390,7 @@ export default async function VocabularyImagesPage({
                             the word; the rest of the row still does.
                           */}
                             <SelectBox id={word.id} term={word.term} />
-                            <Link
+                            <WordLink
                               href={filterHref(
                                 selection,
                                 { kind: "word", id: word.id },
@@ -463,7 +468,7 @@ export default async function VocabularyImagesPage({
                                   </span>
                                 )}
                               </span>
-                            </Link>
+                            </WordLink>
                           </li>
                         ))}
                       </ul>
