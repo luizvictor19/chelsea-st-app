@@ -42,7 +42,7 @@ export function progressOf(marks: readonly Mark[]): Progress | null {
 
 /** "Livro 1 · ponto 14 de 52 · 6 aulas", said on the student's row. */
 export function progressLine(progress: Progress | null): string {
-  if (progress === null) return "nenhuma aula marcada ainda";
+  if (progress === null) return "nenhum ponto marcado ainda";
   const point =
     progress.lastPoint === null
       ? `ponto ${progress.point}`

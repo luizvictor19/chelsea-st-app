@@ -67,7 +67,7 @@ describe("progressOf", () => {
 
 describe("progressLine", () => {
   test("no progress says so", () => {
-    assert.equal(progressLine(null), "nenhuma aula marcada ainda");
+    assert.equal(progressLine(null), "nenhum ponto marcado ainda");
   });
 
   test("book, point of its last point, and lessons in the plural", () => {
