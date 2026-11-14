@@ -1,5 +1,6 @@
 /**
- * Whether choosing a word should bring the panel into view (#341).
+ * Whether choosing a word or a scene should bring the panel into view (#341,
+ * #343).
  *
  * Below lg the list and the panel are one column, the panel after the whole
  * list, and choosing a word near the top changed nothing on screen: the panel

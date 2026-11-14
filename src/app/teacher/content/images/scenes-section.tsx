@@ -1,10 +1,9 @@
-import Link from "next/link";
-
 import type { SceneImage } from "@/lib/content/queries";
 
 import { ArchiveScene } from "./archive-scene";
 import { filterHref, sceneSituation, type Selection } from "./filters";
 import { NewScene } from "./new-scene";
+import { PanelLink } from "./panel-link";
 import { groupLabel, type SceneGroup } from "./scenes";
 import { StatusMark } from "./status-mark";
 
@@ -56,7 +55,7 @@ export function ScenesSection({
           <ul className="flex flex-col">
             {group.scenes.map((scene) => (
               <li key={scene.id} className="flex min-w-0 items-center gap-1">
-                <Link
+                <PanelLink
                   href={filterHref(
                     selection,
                     { kind: "scene", id: scene.id },
@@ -73,7 +72,7 @@ export function ScenesSection({
                     {scene.description}
                   </span>
                   <StatusMark situation={sceneSituation(scene.imageUrl)} />
-                </Link>
+                </PanelLink>
                 {/* Beside the link, never in it: a click here opens nothing. */}
                 <ArchiveScene
                   scene={scene}
