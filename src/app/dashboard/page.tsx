@@ -47,8 +47,8 @@ export default async function DashboardPage() {
 
   // A teacher, or the admin of a company (0042), signs in through the same
   // door and belongs somewhere else, unless she is also a student: then this
-  // screen is hers too, which is how the admin sees what a student sees
-  // without a second account. No role at all stays, on the pending screen.
+  // screen is hers too, reached by its address (the menu has no link to it
+  // since #364). No role at all stays, on the pending screen.
   const home = destinationFor(access);
   if (!studies(access) && home !== "/dashboard") {
     redirect(home);

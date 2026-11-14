@@ -172,9 +172,10 @@ function Avatar({
 /**
  * The items and the account. The items scroll on their own only in a window
  * too short for them, so the account stays in sight and nothing is ever cut
- * off. Rows of h-8 keep the whole column of the platform admin (639 px
- * with the "Ver como aluna" row that left in #364, measured in Chromium on
- * 13/11) inside a laptop's 1366x768 window once the browser takes its bar.
+ * off. Rows of h-8 keep the whole column of the platform admin inside a
+ * laptop's 1366x768 window once the browser takes its bar: 639 px measured
+ * in Chromium on 13/11 with one row more than today ("Ver como aluna", gone
+ * in #364); measure again before adding rows.
  */
 function Menu({
   initial,
