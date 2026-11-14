@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 
 import { requirePlatformAdmin } from "@/lib/auth";
-import { readPlanForm } from "@/lib/billing/plan-form";
+import {
+  FOUNDER_MONTHLY_ONLY,
+  PERSONAL_MONTHLY_ONLY,
+  readPlanForm,
+} from "@/lib/billing/plan-form";
 import { CREDIT_ACTION_LABEL } from "@/lib/credits/actions";
 import { readCostForm } from "@/lib/credits/cost-form";
 
@@ -60,6 +64,12 @@ export async function savePlan(
       return {
         status: "error",
         message: "Já existe um plano com essa chave nessa marca.",
+      };
+    }
+    if (error.message.includes("plans_monthly_only_for_founders")) {
+      return {
+        status: "error",
+        message: personal ? PERSONAL_MONTHLY_ONLY : FOUNDER_MONTHLY_ONLY,
       };
     }
     if (error.message.includes("plans_founder_stays_on_sale")) {

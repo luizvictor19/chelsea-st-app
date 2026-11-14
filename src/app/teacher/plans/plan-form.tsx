@@ -48,13 +48,19 @@ export function PlanForm({ plan }: { readonly plan: PlanFields }) {
   const personal = plan.audience === "person";
   const [state, formAction, isPending] = useActionState(savePlan, INITIAL);
   // The founder and personal plans are monthly only (0062): their form has
-  // no annual price to type, and sends none.
+  // no annual price to type, and sends none. The select stays uncontrolled
+  // like every other field, so a reset after a save puts it back with them;
+  // this state only follows it, and the reset puts it back too.
   const [audience, setAudience] = useState(plan.audience);
   const monthlyOnly = audience !== "public";
+  // An annual price stored on a public plan that is being turned founder
+  // goes on save: said, never dropped in silence.
+  const dropsAnnual = monthlyOnly && !personal && plan.annualPrice !== "";
 
   return (
     <form
       action={formAction}
+      onReset={() => setAudience(plan.audience)}
       className="border-rule bg-surface grid grid-cols-2 gap-3 rounded-sm border p-4 text-sm"
     >
       <input type="hidden" name="id" value={plan.id} />
@@ -80,16 +86,16 @@ export function PlanForm({ plan }: { readonly plan: PlanFields }) {
             Quem vê o plano
             <select
               name="audience"
-              value={audience}
+              defaultValue={plan.audience}
               onChange={(event) => {
                 const chosen = event.target.value;
                 if (isPlanAudience(chosen)) setAudience(chosen);
               }}
               className={fieldClass}
             >
-              {CATALOG_AUDIENCES.map((audience) => (
-                <option key={audience} value={audience}>
-                  {AUDIENCE_LABEL[audience]}
+              {CATALOG_AUDIENCES.map((option) => (
+                <option key={option} value={option}>
+                  {AUDIENCE_LABEL[option]}
                 </option>
               ))}
             </select>
@@ -133,9 +139,16 @@ export function PlanForm({ plan }: { readonly plan: PlanFields }) {
         />
       </label>
       {monthlyOnly ? (
-        <p className="text-muted flex flex-col justify-end gap-1">
-          Só mensal: o {personal ? "Personalizado" : "Plano Fundador"} não tem
-          cobrança anual.
+        <p
+          className={
+            dropsAnnual
+              ? "text-warning flex flex-col justify-end gap-1"
+              : "text-muted flex flex-col justify-end gap-1"
+          }
+        >
+          {dropsAnnual
+            ? `Só mensal: ao salvar, o preço anual de R$ ${plan.annualPrice} sai deste plano.`
+            : `Só mensal: o ${personal ? "Personalizado" : "Plano Fundador"} não tem cobrança anual.`}
         </p>
       ) : (
         <label className="flex flex-col gap-1">
