@@ -49,6 +49,24 @@ describe("invites", () => {
     assert.deepEqual(invitableRoles(false, ["student"], false), []);
   });
 
+  test("where the signup is the door, nobody is invited as a student (#292)", () => {
+    assert.deepEqual(invitableRoles(true, [], true, true), [
+      "teacher",
+      "admin",
+    ]);
+    assert.deepEqual(invitableRoles(false, ["admin"], true, true), [
+      "teacher",
+      "admin",
+    ]);
+    // A teacher of that organization who is not its admin invites no one.
+    assert.deepEqual(invitableRoles(false, ["teacher"], true, true), []);
+    // A company keeps its employees and admins.
+    assert.deepEqual(invitableRoles(false, ["admin"], false, false), [
+      "student",
+      "admin",
+    ]);
+  });
+
   test("a role is named for the kind of organization", () => {
     assert.equal(roleLabel("student", true), "Aluna");
     assert.equal(roleLabel("teacher", true), "Professor");

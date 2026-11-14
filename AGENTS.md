@@ -17,9 +17,12 @@ Read this before writing code in this repository.
 
 ## Content and licensing
 
-The teaching material in this product is written by Luiz, belongs to GrifoAI
-(ADR 0006) and is common to every organization on the platform, written only by the platform admin
-(ADR 0004, ADR 0005); no organization holds content of its own. This
+The teaching material in this product is written by Luiz, belongs to Chelsea St,
+Luiz's company (ADR 0007), and is common to every organization on the platform,
+written only by the platform admin (ADR 0004, ADR 0005); no organization holds
+content of its own. The AI tutor tools (Robin and Grifo as tutors, live voice,
+video, the judge, speech recognition) belong to GrifoAI (ADR 0007). Which
+directory belongs to which company is mapped in `docs/context.md`. This
 platform does not serve published course books or their page images.
 Extraction targets and the teacher's own working notes, derived from
 books he owns and used for his own lessons, are his material and may be
@@ -27,9 +30,10 @@ stored here. Book page images are never committed to this repository.
 The wording of every generated practice sentence is original.
 
 The repository is public for reading only: `LICENSE` reserves every right to
-Luiz, for the code and the teaching material (#139), until GrifoAI's legal
-entity exists (ADR 0006), and `package.json` says
-`UNLICENSED`. Nothing here is offered under an open licence.
+Luiz, for the code and the teaching material (#139), until the partners'
+agreement assigns the code and the material to Chelsea St and to GrifoAI
+(ADR 0007), and `package.json` says `UNLICENSED`. Nothing here is offered
+under an open licence.
 
 ## Stack
 
@@ -52,11 +56,14 @@ so it describes the Next that actually runs here.
   never is.
 - No `any` without a comment explaining why.
 - A bug fix starts with a failing test.
-- Never commit, push or deploy unless asked. The approved plan of an issue
-  counts as the ask for that issue's branch, commits, push and PR, and for
-  nothing else. Deploy is never part of that exception.
-- DDL only through a migration. Write migrations, never apply them: Luiz
-  applies with `supabase db push`.
+- Never commit, push, merge or deploy unless asked. A plan that may be
+  implemented (stage 3 of the Workflow) counts as the ask for that issue's
+  branch, commits, push and PR. The Claude also merges that PR, applies its
+  migration and so deploys it through the merge, only when every condition of
+  Merging holds. Nothing else is a deploy.
+- DDL only through a migration. The Claude applies it with `supabase db push`
+  from the issue's worktree, right before the merge, after a logical backup
+  and a `--dry-run` (Migrations in `docs/commands.md`), and tells Luiz.
 - Never choose a migration number yourself. Use the number given in the
   prompt; if none was given, ask. Parallel branches share one sequence.
 - After writing a migration and before it is applied, the regenerated
@@ -86,7 +93,7 @@ so it describes the Next that actually runs here.
   `supabase/migrations` only proves the file exists. "Not applied" without a
   query is not a finding, it is a guess.
 - **Review follows the same columns.** Run code-review once per delivery, over
-  the whole diff, in exactly these cases: before Luiz applies a migration;
+  the whole diff, in exactly these cases: before a migration is applied;
   before opening a PR that touches payments, webhooks, auth or RLS; after
   fixing a bug in a high-rigor area. Never for layout, screen copy, docs or
   tests only.
@@ -112,37 +119,56 @@ so it describes the Next that actually runs here.
 2. **Plan, posted as a comment on the issue.** Files that change, steps, tests, risks, and what stays
    out. Only what changes production, the database (migration, RLS, function, stored data) or the
    architecture becomes a **question**. Everything else is a **decision**, with a one-line reason.
-   After posting the plan, stop.
-3. **Implement only after Luiz says "aprovado".** The approval covers that issue and authorizes its
-   branch, commits, push and PR. Branch from an up-to-date main, in a worktree, named
-   `type/NN-scope` (for example `feat/61-scene-table`), where NN is the issue number.
-4. **PR, then stop.** Body with `Closes #NN`, what changed, what differs from the plan, and how to
-   test in at most 3 steps. Green gate. Do not merge.
+   A plan with a question stops after it is posted.
+3. **Implement when the plan allows it.** A plan with decisions only is implemented right after it
+   is posted, without waiting. A plan with any question waits for Luiz's "aprovado". Either way the
+   plan covers that issue and authorizes its branch, commits, push and PR. Branch from an
+   up-to-date main, in a worktree, named `type/NN-scope` (for example `feat/61-scene-table`), where
+   NN is the issue number. A database change outside the plan that only protects (a check, a stamp
+   of who changed a row) goes in and is named in the PR; one that changes a business rule stops
+   and asks Luiz.
+4. **PR, then merge when Merging allows it.** Body with `Closes #NN`, what changed, what differs
+   from the plan, and how to test in at most 3 steps. Green gate. If a condition of Merging is
+   missing, stop there and say which.
 
 ### Along the way
 
 - **A problem found outside the scope becomes a new issue**, with the four parts, and is not fixed
   in the same PR. Cite the new issue number in the report.
 - **A plan that changes during implementation:** update the plan comment on the issue. If the change
-  touches production, the database or the architecture, stop and wait for a new approval.
+  touches production, the database or the architecture, stop and wait for a new approval; a
+  database change that only protects is the exception of stage 3.
 
 ### Merging
 
-- Merge only when Luiz asks, naming the PR number: `gh pr merge NN --merge`. Then, from the main
-  folder (never from inside the worktree being removed): pull, create the PR's GitHub release
-  (`docs/commands.md`), remove the worktree, delete the local and the remote branch.
+- The Claude merges (`gh pr merge NN --merge`) when all of these hold:
+  - the plan was approved by Luiz, or had decisions only;
+  - CI is green: `gh pr checks NN --watch --fail-fast`;
+  - code-review was run, when "Where rigor goes" asks for it;
+  - the PR's migration, if any, is applied and checked through the MCP.
+
+  If one is missing, stop and say which. Luiz can also ask for a merge, naming the PR number. Then,
+  from the main folder (never from inside the worktree being removed): pull, create the PR's GitHub
+  release (`docs/commands.md`), remove the worktree, delete the local and the remote branch.
+
 - The changelog is the GitHub releases, one per merge. There is no `CHANGELOG.md`, and the
   `version` in `package.json` is not used.
-- A merge is a production deploy. In a PR with a migration, Luiz runs `supabase db push` before
-  asking for the merge; do not merge such a PR before the migration is applied (query the MCP).
-- `git merge`, `git rebase` and force pushes stay blocked. Deploys are always Luiz's.
+- A merge is a production deploy. In a PR with a migration, the Claude runs `supabase db push`
+  right before the merge, after code-review and a green `verify-rls.sql` in CI, with the backup
+  and the dry-run first (Migrations in `docs/commands.md`), and tells Luiz. Never merge such a PR
+  before the MCP shows the migration applied.
+- `git rebase` and force pushes stay blocked. `git merge` runs only to bring `origin/main` into an
+  issue branch (Parallel work); the hook denies every other merge and any merge on `main`. A deploy
+  happens only through a merge: `vercel --prod` stays blocked.
 
 ### Who does what
 
-- **Luiz:** opens or approves issues, approves plans, asks for merges, applies migrations
-  (`supabase db push`) and deploys.
+- **Luiz:** opens or approves issues and answers the questions of a plan. He keeps the accounts
+  and keys (Vercel, Asaas, Supabase, Resend), the product and price decisions, and the database
+  questions that change a business rule. He can ask for any merge.
 - **Claude Code (terminal):** reads GitHub, runs commands, writes plans, implements and opens PRs.
-  Opens an issue when Luiz asks, or when it finds a problem outside the scope.
+  Brings `origin/main` into issue branches, applies migrations and merges, under the conditions of
+  Merging. Opens an issue when Luiz asks, or when it finds a problem outside the scope.
 - **Claude in Cowork (desktop):** helps understand, reviews plans, prepares prompts and keeps the
   daily guide. Its documents (`claude/*.md`) do not exist in this repository: never look for them
   here.
@@ -174,8 +200,10 @@ so it describes the Next that actually runs here.
 - Stay inside the files the prompt assigns to the stream. Touching a file
   another stream owns is a question for Luiz, not a decision.
 - The dev server of each worktree runs on the port given in the prompt.
-- Bringing `main` into a branch is Luiz's; after he does,
-  `./scripts/gen-types.sh` resolves `types.ts`.
+- Bringing `main` into a branch is the Claude's, never on `main`:
+  `git -C <worktree> fetch origin`, then `git -C <worktree> merge origin/main`.
+  Then `./scripts/gen-types.sh` (it resolves `types.ts` and runs
+  `scripts/verify-rls.sql` in a throwaway Postgres) and the gate.
 
 ## Verifying
 
@@ -189,4 +217,4 @@ which needs a real Postgres, and `npm audit --omit=dev --audit-level=high`,
 which needs the network; neither is part of `check`.
 
 Run `./scripts/gen-types.sh` before the gate whenever a migration was added or
-changed, and after Luiz brings `main` into a branch.
+changed, and after `main` is brought into a branch.

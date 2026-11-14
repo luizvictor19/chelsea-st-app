@@ -4,7 +4,6 @@ import Link from "next/link";
 import { requireTeacher } from "@/lib/content/queries";
 import { formatLessonDate, formatLessonTime } from "@/lib/datetime";
 
-import { runsOutSoon } from "./agenda";
 import { progressLine } from "./progress";
 import { listStudents, teacherZone } from "./queries";
 
@@ -12,14 +11,7 @@ export const metadata: Metadata = {
   title: "Alunos",
 };
 
-const DAY = (date: Date, timeZone: string) =>
-  new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    timeZone,
-  }).format(date);
-
-/** Every student, with what her agenda is missing said on her row. */
+/** Every student, with her next booked lesson and where she stopped. */
 export default async function StudentsPage() {
   const { supabase, user } = await requireTeacher();
   const now = new Date();
@@ -38,9 +30,12 @@ export default async function StudentsPage() {
           Agenda dos alunos
         </h1>
         <p className="text-muted max-w-prose">
-          Abra um aluno para colar o link do Meet, cadastrar os horários da
-          semana e remarcar ou cancelar uma aula. Quem ainda não aparece aqui
-          entra pela tela de{" "}
+          Abra um aluno para ver as aulas reservadas e cancelar uma delas. O
+          aluno reserva pela agenda dele, nos horários que você abre em{" "}
+          <Link href="/teacher/agenda" className="underline">
+            Agenda
+          </Link>
+          . Quem ainda não aparece aqui entra pela tela de{" "}
           <Link href="/teacher/invites" className="underline">
             Convites
           </Link>
@@ -54,16 +49,6 @@ export default async function StudentsPage() {
         <ul className="border-rule divide-rule divide-y rounded-sm border">
           {students.map((student) => {
             const next = student.next === null ? null : new Date(student.next);
-            const last = student.last === null ? null : new Date(student.last);
-            const warnings = [
-              student.meetUrl === null ? "sem link do Meet" : null,
-              student.scheduleCount === 0 ? "sem horários" : null,
-              student.scheduleCount > 0 && runsOutSoon(last, now)
-                ? last === null
-                  ? "nenhuma aula gerada"
-                  : `aulas só até ${DAY(last, zone)}`
-                : null,
-            ].filter((text) => text !== null);
             return (
               <li key={student.id}>
                 <Link
@@ -74,18 +59,13 @@ export default async function StudentsPage() {
                     <span className="font-semibold">{student.name}</span>
                     <span className="text-muted text-sm first-letter:uppercase">
                       {next === null
-                        ? "sem aula agendada"
+                        ? "nenhuma aula reservada"
                         : `${formatLessonDate(next, zone)}, ${formatLessonTime(next, zone)}`}
                     </span>
                     <span className="text-muted text-sm">
                       {progressLine(student.progress)}
                     </span>
                   </div>
-                  {warnings.length > 0 ? (
-                    <span className="text-accent text-sm">
-                      {warnings.join(" · ")}
-                    </span>
-                  ) : null}
                 </Link>
               </li>
             );

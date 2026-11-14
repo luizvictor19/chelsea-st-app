@@ -31,6 +31,11 @@ create table auth.users (
 create function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('test.uid', true), '')::uuid;
 $$;
+-- As production (measured through the MCP on 2026-11-13): the three API roles
+-- use the schema auth and execute auth.uid(), and read none of its tables.
+-- A policy reaches auth.uid() by its oid; a function body that names it
+-- (holds_badge, a trigger of 0058) needs the usage, as in production.
+grant usage on schema auth to anon, authenticated, service_role;
 
 -- The storage schema, stubbed to the two tables 0008 touches, for the same
 -- reason auth is stubbed above: this runs on a plain Postgres. The columns are
@@ -48,6 +53,10 @@ create table storage.objects (
   owner uuid
 );
 alter table storage.objects enable row level security;
+
+-- The extensions schema, which the project has and a plain Postgres does not:
+-- 0052 creates btree_gist there, as every extension of the project lives.
+create schema extensions;
 
 \i supabase/migrations/0001_init.sql
 \i supabase/migrations/0002_profile_on_signup.sql
@@ -343,6 +352,35 @@ language plpgsql security definer as $$ begin end; $$;
 -- write profiles and schedules with the default zone, so they already pass
 -- through both triggers.
 \i supabase/migrations/0048_a_time_zone_is_one_the_screen_reads.sql
+
+-- 0049 creates the billing tables and the functions only service_role
+-- executes, and touches no older row. Its block, "A plan is paid through Asaas
+-- (0049)", runs after the fixtures, which give it a Chelsea St student.
+\i supabase/migrations/0049_a_plan_is_paid_through_asaas.sql
+
+-- 0050 creates the credit ledger and the cost of each action, adds
+-- plans.credit_ceiling_months and plans.credit_days_after_cancel, copies them
+-- and monthly_credits onto each new subscription, and touches no older row. A subscription with a trial now opens a trial lot when it starts
+-- running, so the block of 0049 clears the ledger before its subscriptions.
+-- Its own block, "Credits are entries in a ledger (0050)", runs after the
+-- block of 0049.
+\i supabase/migrations/0050_a_credit_is_an_entry_never_an_edit.sql
+
+-- 0051 gives organizations open_signup, opens it on Chelsea St, and makes the
+-- trigger of the first confirmation also call join_by_signup. No fixture below
+-- signs up, so none joins by it; its block, "A signup opens one door (0051)",
+-- runs after the fixtures.
+\i supabase/migrations/0051_a_signup_opens_one_door.sql
+
+-- 0052 creates teachers, teacher_availability and teacher_time_off, gives
+-- lessons a teacher, a debit, a refund and a cancel (every one with a default
+-- or null, so no row changes), the two exclusion constraints (no fixture
+-- below writes two scheduled lessons that cross) and the trigger that keeps a
+-- booked lesson to the functions (no fixture writes a teacher or a debit).
+-- Its block, "A lesson is booked and paid (0052)", runs after the block of
+-- 0051. 0054 and 0056 are applied further down, in that order, after the
+-- blocks that need what came before them.
+\i supabase/migrations/0052_a_lesson_is_booked_and_paid.sql
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'teacher@example.com', '{"full_name":"Teacher"}'),
@@ -4901,6 +4939,5295 @@ begin
   raise notice 'a zone outside the list, posix/ or Factory is refused by profiles_timezone_known and lesson_schedules_timezone_known; Europe/London passes; a row whose zone left the list still changes its other columns; only authenticated executes is_known_time_zone, nobody the trigger function';
 end;
 $$;
+
+-- A plan is paid through Asaas (0049) -------------------------------------------------
+--
+-- The billing tables are read by their owner and the platform admin, written
+-- by nobody but the ten billing functions, and those are executed by
+-- service_role alone. Billing reaches a Chelsea St student only, never a
+-- company's. One person per CPF, one CPF per person, one trial per person,
+-- one subscription alive per person; a pending one is replaced, a canceled
+-- one stays canceled; an event and an overdue step are taken once; a charge
+-- never moves to another subscription. Every refusal is named: the SQLSTATE
+-- and the constraint, by verify.named_refusal, which unlike verify.refused_by also
+-- names a unique or privilege refusal.
+
+-- The block records its failures as anon and service_role too.
+grant insert, select on verify.failures to anon, service_role;
+
+create function verify.named_refusal(p_sql text) returns text
+language plpgsql as $$
+declare
+  v_name text;
+begin
+  execute p_sql;
+  return null;
+exception when others then
+  get stacked diagnostics v_name = constraint_name;
+  return sqlstate || coalesce(' ' || nullif(v_name, ''), '');
+end;
+$$;
+
+create function verify.expect_named_refusal(p_what text, p_expected text, p_sql text)
+returns void
+language plpgsql as $$
+declare
+  v_by text := verify.named_refusal(p_sql);
+begin
+  if v_by is null then
+    insert into verify.failures values (format('%s: accepted', p_what));
+  elsif v_by <> p_expected then
+    insert into verify.failures
+      values (format('%s: refused by %s, expected %s', p_what, v_by, p_expected));
+  else
+    raise notice '%: refused by %', p_what, v_by;
+  end if;
+end;
+$$;
+
+do $$
+declare
+  c_teacher constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  c_other constant uuid := 'b0490000-0000-4000-8000-000000000001';
+  c_employee constant uuid := 'b0490000-0000-4000-8000-000000000002';
+  c_hmac_a constant text := repeat('a', 64);
+  c_hmac_b constant text := repeat('b', 64);
+  c_hmac_c constant text := repeat('c', 64);
+  c_tables constant text[] := array['plans', 'billing_customers', 'subscriptions',
+                                    'payments', 'billing_events', 'overdue_steps'];
+  c_functions constant regprocedure[] := array[
+    'public.billing_customer(uuid, text)',
+    'public.billing_open_subscription(uuid, uuid, text, text, integer, boolean, date, text, text, text)',
+    'public.billing_apply_subscription(uuid, text, text, text, date, date, text)',
+    'public.billing_find_subscription(text, text)',
+    'public.billing_save_payment(text, uuid, text, integer, text, boolean, date, timestamptz, integer, text)',
+    'public.billing_record_event(text, text, jsonb)',
+    'public.billing_finish_event(text, text)',
+    'public.billing_overdue_payments()',
+    'public.billing_take_overdue_step(text, smallint)',
+    'public.billing_finish_overdue_step(text, smallint, text, boolean)']::regprocedure[];
+  v_uid text := current_setting('test.uid', true);
+  v_plan uuid;
+  v_inactive uuid;
+  v_grifo uuid;
+  v_sub uuid;
+  v_other_sub uuid;
+  v_awaiting uuid;
+  v_pending uuid;
+  v_fn regprocedure;
+  v_table text;
+  v_privilege text;
+  v_role text;
+  v_rows bigint;
+  v_trial timestamptz;
+  v_bool boolean;
+  v_status text;
+  v_failures text;
+  c_plan_cols constant text :=
+    'brand, key, name, monthly_price_cents, annual_price_cents, monthly_credits, '
+    'trail_minutes_per_day, opens_voice_question, opens_free_conversation, opens_video, '
+    'trial_days, trial_credits, credit_ceiling_months, credit_days_after_cancel';
+begin
+  delete from verify.failures;
+
+  -- Another Chelsea St student, and a company's employee.
+  insert into auth.users (id, email, raw_user_meta_data) values
+    (c_other, 'other-0049@example.com', '{"full_name":"Other"}'),
+    (c_employee, 'employee-0049@example.com', '{"full_name":"Employee"}');
+  insert into organization_members (organization_id, user_id, role) values
+    ((select id from organizations where slug = 'chelsea-st'), c_other, 'student'),
+    ((select id from organizations where slug = 'grifoai'), c_employee, 'student');
+
+  -- The catalog, as the platform admin writes it. Made-up numbers.
+  perform set_config('test.uid', c_teacher::text, false);
+  set local role authenticated;
+  execute format('insert into plans (%s) values (%s) returning id', c_plan_cols,
+    $v$'chelsea-st', 'one', 'One', 1000, 10000, 10, 15, true, false, false, 14, 5, 3, 30$v$)
+    into v_plan;
+  execute format('insert into plans (%s, is_active) values (%s, false) returning id', c_plan_cols,
+    $v$'chelsea-st', 'old', 'Old', 1000, 10000, 10, 15, true, false, false, 14, 5, 3, 30$v$)
+    into v_inactive;
+  execute format('insert into plans (%s) values (%s) returning id', c_plan_cols,
+    $v$'grifoai', 'seat', 'Seat', 1000, 10000, 10, 15, true, false, false, 0, 0, 3, 30$v$)
+    into v_grifo;
+  update plans set name = 'One plan' where id = v_plan;
+  get diagnostics v_rows = row_count;
+  if v_rows <> 1 then
+    insert into verify.failures values ('the platform admin could not change a plan');
+  end if;
+  perform verify.expect_named_refusal('a plan of an organization', '23514 plans_is_common',
+    format('insert into plans (%s, organization_id) values (%s, %L)', c_plan_cols,
+      $v$'chelsea-st', 'org', 'Org', 1000, 10000, 10, 15, true, false, false, 14, 5, 3, 30$v$,
+      (select id from organizations where slug = 'chelsea-st')));
+
+  -- A student reads the active plans and writes none.
+  perform set_config('test.uid', c_student::text, false);
+  if (select count(*) from plans) <> 2 then
+    insert into verify.failures values (format(
+      'a student reads %s plans, expected the 2 active', (select count(*) from plans)));
+  end if;
+  insert into verify.failures select 'a student wrote a plan'
+   where verify.named_refusal(format('insert into plans (%s) values (%s)', c_plan_cols,
+     $v$'chelsea-st', 'mine', 'Mine', 1, 1, 1, 15, true, true, true, 60, 999, 3, 30$v$)) is null;
+  update plans set monthly_price_cents = 1 where id = v_plan;
+  get diagnostics v_rows = row_count;
+  if v_rows <> 0 then
+    insert into verify.failures values ('a student changed the price of a plan');
+  end if;
+  reset role;
+
+  -- anon reads the active plans, and nothing else of billing.
+  set local role anon;
+  if (select count(*) from plans) <> 2 then
+    insert into verify.failures values ('anon does not read exactly the 2 active plans');
+  end if;
+  reset role;
+
+  -- Who holds what. service_role holds no privilege on any of the six: the
+  -- functions are its only door.
+  foreach v_table in array c_tables loop
+    foreach v_privilege in array array['select', 'insert', 'update', 'delete'] loop
+      if has_table_privilege('service_role', 'public.' || v_table, v_privilege) then
+        insert into verify.failures values (format('service_role has %s on %s', v_privilege, v_table));
+      end if;
+      if v_table <> 'plans'
+         and has_table_privilege('anon', 'public.' || v_table, v_privilege) then
+        insert into verify.failures values (format('anon has %s on %s', v_privilege, v_table));
+      end if;
+      if v_table <> 'plans' and v_privilege <> 'select'
+         and has_table_privilege('authenticated', 'public.' || v_table, v_privilege) then
+        insert into verify.failures values (format('authenticated has %s on %s', v_privilege, v_table));
+      end if;
+    end loop;
+  end loop;
+  foreach v_table in array array['billing_events', 'overdue_steps'] loop
+    if has_table_privilege('authenticated', 'public.' || v_table, 'select') then
+      insert into verify.failures values (format('authenticated reads %s', v_table));
+    end if;
+  end loop;
+  if has_table_privilege('anon', 'public.plans', 'insert')
+     or has_table_privilege('anon', 'public.plans', 'update') then
+    insert into verify.failures values ('anon writes plans');
+  end if;
+  foreach v_fn in array c_functions loop
+    if not has_function_privilege('service_role', v_fn, 'execute') then
+      insert into verify.failures values (format('service_role does not execute %s', v_fn));
+    end if;
+    foreach v_role in array array['anon', 'authenticated'] loop
+      if has_function_privilege(v_role, v_fn, 'execute') then
+        insert into verify.failures values (format('%s executes %s', v_role, v_fn));
+      end if;
+    end loop;
+  end loop;
+
+  -- The functions, as service_role calls them.
+  set local role service_role;
+  perform verify.expect_named_refusal('billing for a company''s employee', '42501',
+    format('select billing_customer(%L, %L)', c_employee, c_hmac_c));
+  v_trial := billing_customer(c_student, c_hmac_a);
+  if v_trial is not null then
+    insert into verify.failures values ('a new billing row says her trial was used');
+  end if;
+  perform billing_customer(c_student, c_hmac_a);
+  perform verify.expect_named_refusal('a second CPF for the same person',
+    '23514 billing_customers_one_cpf_per_person',
+    format('select billing_customer(%L, %L)', c_student, c_hmac_b));
+  perform verify.expect_named_refusal('the same CPF for another person',
+    '23505 billing_customers_one_person_per_cpf',
+    format('select billing_customer(%L, %L)', c_other, c_hmac_a));
+  perform verify.expect_named_refusal('a CPF HMAC that is not one',
+    '23514 billing_customers_cpf_hmac_shape',
+    format('select billing_customer(%L, %L)', c_other, 'not-a-hmac'));
+  if verify.named_refusal(format('select billing_customer(%L, %L)', c_other, c_hmac_b)) is not null then
+    insert into verify.failures values ('the other student could not start billing with her own CPF');
+  end if;
+
+  v_sub := billing_open_subscription(c_student, v_plan, 'monthly', 'pix', 1000, true,
+    current_date + 14, null, 'cus_1', 'sub_1');
+  reset role;
+  select status into v_status from subscriptions where id = v_sub;
+  if v_status is distinct from 'trialing'
+     or (select trial_used_at from billing_customers where person_id = c_student) is null then
+    insert into verify.failures values ('a Pix subscription with a trial did not start trialing and mark the trial');
+  end if;
+  set local role service_role;
+  perform verify.expect_named_refusal('a second subscription alive',
+    '23505 subscriptions_one_alive_per_person',
+    format('select billing_open_subscription(%L, %L, %L, %L, 1000, false, current_date, null, %L, %L)',
+      c_student, v_plan, 'monthly', 'pix', 'cus_1', 'sub_2'));
+  perform verify.expect_named_refusal('a second trial',
+    '23514 billing_one_trial_per_person',
+    format('select billing_open_subscription(%L, %L, %L, %L, 1000, true, current_date + 14, null, %L, %L)',
+      c_student, v_plan, 'monthly', 'pix', 'cus_1', 'sub_3'));
+  perform verify.expect_named_refusal('an inactive plan', '23514 billing_plan_active',
+    format('select billing_open_subscription(%L, %L, %L, %L, 1000, false, current_date, null, %L, %L)',
+      c_other, v_inactive, 'monthly', 'pix', 'cus_2', 'sub_4'));
+  perform verify.expect_named_refusal('a GrifoAI plan', '23514 billing_plan_active',
+    format('select billing_open_subscription(%L, %L, %L, %L, 1000, false, current_date, null, %L, %L)',
+      c_other, v_grifo, 'monthly', 'pix', 'cus_2', 'sub_5'));
+  -- A plan wrongly accepted above leaves a subscription; none is left for
+  -- the cases below either way.
+  reset role;
+  delete from subscriptions where person_id = c_other;
+  set local role service_role;
+  perform verify.expect_named_refusal('a person with no billing row', '23503',
+    format('select billing_open_subscription(%L, %L, %L, %L, 1000, false, current_date, null, %L, %L)',
+      c_teacher, v_plan, 'monthly', 'pix', 'cus_3', 'sub_6'));
+  perform verify.expect_named_refusal('a Pix subscription at a checkout',
+    '23514 subscriptions_checkout_is_card',
+    format('select billing_open_subscription(%L, %L, %L, %L, 1000, true, current_date + 14, %L, null, null)',
+      c_other, v_plan, 'monthly', 'pix', 'chk_x'));
+
+  -- A pending checkout left behind is replaced by the next one, and does not
+  -- use the trial.
+  v_pending := billing_open_subscription(c_other, v_plan, 'monthly', 'card', 1000, true,
+    current_date + 14, 'chk_1', null, null);
+  begin
+    v_other_sub := billing_open_subscription(c_other, v_plan, 'annual', 'card', 10000, true,
+      current_date + 14, 'chk_2', null, null);
+  exception when unique_violation then
+    reset role;
+    select string_agg(what, '; ') into v_failures from verify.failures;
+    raise exception 'a plan is paid through asaas: a pending checkout was not replaced by the next one (%)',
+      coalesce(v_failures, 'nothing else failed');
+  end;
+  reset role;
+  if (select status || '/' || cancel_reason from subscriptions where id = v_pending)
+     is distinct from 'canceled/replaced' then
+    insert into verify.failures values ('a pending subscription was not replaced by the next checkout');
+  end if;
+  if (select trial_used_at from billing_customers where person_id = c_other) is not null then
+    insert into verify.failures values ('a checkout that did not finish used the trial');
+  end if;
+  set local role service_role;
+  if (select count(*) from billing_find_subscription(null, 'chk_2')) <> 1
+     or (select id from billing_find_subscription('sub_1', null)) <> v_sub then
+    insert into verify.failures values ('billing_find_subscription does not find by checkout or by subscription');
+  end if;
+  -- Its first reading comes late, already paid: the trial still counts as used.
+  perform billing_apply_subscription(v_other_sub, 'sub_7', 'cus_4', 'active', current_date + 30, null, null);
+  reset role;
+  if (select trial_used_at from billing_customers where person_id = c_other) is null then
+    insert into verify.failures values ('a checkout read first as already paid did not use the trial');
+  end if;
+  -- A reading replaces paid_through: a refund takes its days back.
+  set local role service_role;
+  perform billing_apply_subscription(v_other_sub, null, null, 'active', null, null, null);
+  reset role;
+  if (select paid_through from subscriptions where id = v_other_sub) is not null then
+    insert into verify.failures values ('a reading with nothing paid left paid_through in place');
+  end if;
+  set local role service_role;
+  perform billing_apply_subscription(v_other_sub, null, null, 'active', current_date + 30, null, null);
+  reset role;
+  set local role service_role;
+  perform verify.expect_named_refusal('past due without since',
+    '23514 subscriptions_past_due_says_since',
+    format('select billing_apply_subscription(%L, null, null, %L, null, null, null)', v_other_sub, 'past_due'));
+  perform verify.expect_named_refusal('canceled without a reason',
+    '23514 subscriptions_canceled_says_when',
+    format('select billing_apply_subscription(%L, null, null, %L, null, null, null)', v_other_sub, 'canceled'));
+  perform billing_apply_subscription(v_other_sub, null, null, 'canceled', null, null, 'person');
+  perform billing_apply_subscription(v_other_sub, null, null, 'active', current_date, null, null);
+  reset role;
+  if (select status from subscriptions where id = v_other_sub) <> 'canceled' then
+    insert into verify.failures values ('a canceled subscription came back alive');
+  end if;
+  if (select paid_through from subscriptions where id = v_other_sub) is distinct from current_date + 30 then
+    insert into verify.failures values ('her cancel took away the days she had paid for');
+  end if;
+
+  -- With no trial, nothing opens before the first charge is paid.
+  set local role service_role;
+  v_awaiting := billing_open_subscription(c_other, v_plan, 'monthly', 'pix', 1000, false,
+    current_date, null, 'cus_5', 'sub_8');
+  reset role;
+  if (select status from subscriptions where id = v_awaiting) is distinct from 'awaiting' then
+    insert into verify.failures values ('a subscription with no trial and nothing paid is not awaiting');
+  end if;
+
+  -- Charges, events and overdue steps.
+  set local role service_role;
+  perform billing_save_payment('pay_1', v_sub, 'cycle', 1000, 'PENDING', false,
+    current_date + 14, null, 0, 'https://example.com/i/1');
+  perform billing_save_payment('pay_1', v_sub, 'cycle', 1000, 'OVERDUE', false,
+    current_date + 14, null, 0, 'https://example.com/i/1');
+  perform verify.expect_named_refusal('a charge moved to another subscription',
+    '23514 billing_payment_keeps_its_subscription',
+    format('select billing_save_payment(%L, %L, %L, 1000, %L, false, current_date, null, 0, null)',
+      'pay_1', v_other_sub, 'cycle', 'PENDING'));
+  perform verify.expect_named_refusal('a refund larger than the charge',
+    '23514 payments_refund_within_value',
+    format('select billing_save_payment(%L, %L, %L, 1000, %L, false, current_date, null, 1001, null)',
+      'pay_2', v_sub, 'cycle', 'REFUNDED'));
+  if (select count(*) from billing_overdue_payments()) <> 1 then
+    insert into verify.failures values ('the overdue charge of an alive subscription is not listed');
+  end if;
+  if not billing_take_overdue_step('pay_1', 1::smallint)
+     or billing_take_overdue_step('pay_1', 1::smallint) then
+    insert into verify.failures values ('an overdue step was not taken exactly once');
+  end if;
+  perform billing_finish_overdue_step('pay_1', 1::smallint, 'error', false);
+  if not billing_take_overdue_step('pay_1', 1::smallint) then
+    insert into verify.failures values ('an overdue step that ended in error is not taken again');
+  end if;
+  perform billing_finish_overdue_step('pay_1', 1::smallint, 'refused', true);
+  if billing_take_overdue_step('pay_1', 1::smallint) then
+    insert into verify.failures values ('an overdue step that ended is taken again');
+  end if;
+  perform verify.expect_named_refusal('an overdue step on day 2', '23514 overdue_steps_day_known',
+    $q$select billing_take_overdue_step('pay_1', 2::smallint)$q$);
+  if not billing_record_event('evt_1', 'PAYMENT_CREATED', '{}')
+     or not billing_record_event('evt_1', 'PAYMENT_CREATED', '{}') then
+    insert into verify.failures values ('an event not finished is not handled again');
+  end if;
+  perform billing_finish_event('evt_1', null);
+  if billing_record_event('evt_1', 'PAYMENT_CREATED', '{}') then
+    insert into verify.failures values ('a finished event is handled again');
+  end if;
+  reset role;
+  if (select count(*) from billing_events) <> 1 then
+    insert into verify.failures values ('an event redelivered was kept twice');
+  end if;
+
+  -- Each person reads her own; the platform admin reads all.
+  set local role authenticated;
+  perform set_config('test.uid', c_student::text, false);
+  if (select count(*) from subscriptions) <> 1 or (select count(*) from payments) <> 1
+     or (select count(*) from billing_customers) <> 1 then
+    insert into verify.failures values ('a student does not read exactly her own billing rows');
+  end if;
+  perform set_config('test.uid', c_other::text, false);
+  if (select count(*) from payments) <> 0
+     or exists (select 1 from subscriptions where person_id <> c_other) then
+    insert into verify.failures values ('a student reads another person''s billing rows');
+  end if;
+  perform set_config('test.uid', c_teacher::text, false);
+  if (select count(*) from subscriptions) <> 4 then
+    insert into verify.failures values (format(
+      'the platform admin reads %s subscriptions, expected 4', (select count(*) from subscriptions)));
+  end if;
+  reset role;
+
+  -- Leave nothing behind for the blocks after, nor for the types. The trial
+  -- lots its subscriptions opened (0050) go first, past the trigger that
+  -- refuses a delete, as a restore passes it.
+  perform set_config('session_replication_role', 'replica', true);
+  delete from credit_entries;
+  perform set_config('session_replication_role', 'origin', true);
+  delete from overdue_steps;
+  delete from payments;
+  delete from subscriptions;
+  delete from billing_customers;
+  delete from billing_events;
+  delete from plans;
+  delete from organization_members where user_id in (c_other, c_employee);
+  delete from auth.users where id in (c_other, c_employee);
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a plan is paid through asaas: %', v_failures;
+  end if;
+  raise notice 'billing rows are read by their person and the platform admin, written only through the ten billing functions, which service_role alone executes; billing reaches Chelsea St students only; one CPF per person and person per CPF, one trial, one subscription alive; a pending checkout is replaced, a canceled subscription stays canceled; an event and an overdue step are taken once; a charge keeps its subscription';
+end;
+$$;
+
+-- Credits are entries in a ledger (0050) -------------------------------------------------
+--
+-- The ledger is read by its person and the platform admin and written by
+-- nobody through the API: anon, authenticated and service_role hold no write
+-- on credit_entries, and no row is ever changed or removed, not even by
+-- postgres (credit_entries_append_only). The cost of each action is read by
+-- anyone and written by the platform admin. Only service_role executes the
+-- settle, the daily routine and the quote; nobody executes the debit and the
+-- refund, which another security definer function calls; a person reads her
+-- own balance, lots and costs, nobody else's. A charge grants every month it
+-- started, once, without an end, up to the plan's ceiling, only while it is
+-- paid, with the credits the subscription kept from its plan, in the
+-- subscription's organization; when its money goes back (refund or
+-- chargeback) its lots are voided and its debits stay. A debit grants her
+-- started months first, spends the lot that ends first, the lots without an
+-- end last and the oldest first, and is refused by name when the balance does
+-- not cover it, when the action has no cost in her brand and when its
+-- reference was used; a row that would take a lot below zero is refused by
+-- the lot's trigger. A refund goes back once, to its lot while it lives, to a
+-- new lot after, and never from a voided lot. After a cancel her lots end the
+-- plan's days after what she paid for; subscribing again within them brings
+-- them back without an end, and after them a closed lot stays closed. The
+-- routine closes each ended lot once; then the sum of a person's rows is her
+-- balance. A subscription with a trial gets its trial lot once. The
+-- proportional refund rounds up. Two debits of the same person at once are
+-- held apart by the person's lock: that one runs in the block after this,
+-- over two connections.
+
+do $$
+declare
+  c_teacher constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  c_monthly constant uuid := 'b0500000-0000-4000-8000-000000000001';
+  c_annual constant uuid := 'b0500000-0000-4000-8000-000000000002';
+  c_refunded constant uuid := 'b0500000-0000-4000-8000-000000000003';
+  c_gone constant uuid := 'b0500000-0000-4000-8000-000000000004';
+  c_window constant uuid := 'b0500000-0000-4000-8000-000000000005';
+  c_quote constant uuid := 'b0500000-0000-4000-8000-000000000006';
+  c_late constant uuid := 'b0500000-0000-4000-8000-000000000007';
+  c_employee constant uuid := 'b0500000-0000-4000-8000-000000000008';
+  c_ahead constant uuid := 'b0500000-0000-4000-8000-000000000009';
+  c_extend constant uuid := 'b0500000-0000-4000-8000-00000000000a';
+  c_back constant uuid := 'b0500000-0000-4000-8000-00000000000b';
+  c_back2 constant uuid := 'b0500000-0000-4000-8000-00000000000c';
+  c_people constant uuid[] := array[c_monthly, c_annual, c_refunded, c_gone,
+                                    c_window, c_quote, c_late, c_ahead,
+                                    c_extend, c_back, c_back2];
+  c_plan_cols constant text :=
+    'brand, key, name, monthly_price_cents, annual_price_cents, monthly_credits, '
+    'trail_minutes_per_day, opens_voice_question, opens_free_conversation, opens_video, '
+    'trial_days, trial_credits, credit_ceiling_months, credit_days_after_cancel';
+  c_service constant regprocedure[] := array[
+    'public.credit_settle_payment(text)',
+    'public.credit_daily()',
+    'public.credit_refund_quote(text)']::regprocedure[];
+  c_nobody constant regprocedure[] := array[
+    'public.credit_debit(uuid, text, integer, text)',
+    'public.credit_refund(uuid, text)',
+    'public.credit_price(uuid, text)',
+    'public.credit_settle(text)',
+    'public.credit_grant_started(uuid)',
+    'public.credit_close_expired(uuid)',
+    'public.credit_lock_person(uuid)',
+    'public.credit_payment_lots(text)',
+    'public.credit_payment_open_lots(text)',
+    'public.credit_payment_grants(public.payments)',
+    'public.credit_payment_taken_back(public.payments)',
+    'public.credit_alive(uuid)',
+    'public.credit_deadline(uuid)',
+    'public.credit_lots_of(uuid)',
+    'public.credit_balance_of(uuid)',
+    'public.credit_check_reader(uuid)',
+    'public.credit_month_starts(date, integer)']::regprocedure[];
+  c_reader constant regprocedure[] := array[
+    'public.credits_balance(uuid)',
+    'public.credit_live_lots(uuid)',
+    'public.credit_cost(uuid, text)']::regprocedure[];
+  v_uid text := current_setting('test.uid', true);
+  v_today date := (now() at time zone 'America/Sao_Paulo')::date;
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_plan uuid;
+  v_small uuid;
+  v_sub1 uuid;
+  v_sub2 uuid;
+  v_sub3 uuid;
+  v_sub4 uuid;
+  v_sub6 uuid;
+  v_sub7 uuid;
+  v_sub8 uuid;
+  v_sub9 uuid;
+  v_sub_a uuid;
+  v_sub_b uuid;
+  v_due3 date := (v_today - interval '2 months' - interval '5 days')::date;
+  v_trial_lot uuid;
+  v_plan_lot uuid;
+  v_lot uuid;
+  v_n bigint;
+  v_int integer;
+  v_text text;
+  v_at timestamptz;
+  v_by text;
+  v_fn regprocedure;
+  v_role text;
+  v_privilege text;
+  v_daily record;
+  v_quote record;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  -- Chelsea St students and a company's employee.
+  insert into auth.users (id, email, raw_user_meta_data)
+    select p, 'credit-' || right(p::text, 2) || '@example.com', '{"full_name":"Credit"}'
+      from unnest(c_people || c_employee) p;
+  insert into organization_members (organization_id, user_id, role)
+    select v_chelsea, p, 'student' from unnest(c_people) p;
+  insert into organization_members (organization_id, user_id, role)
+    values ((select id from organizations where slug = 'grifoai'), c_employee, 'student');
+
+  -- The catalog and the costs, as the platform admin writes them. Made-up
+  -- numbers: 10 credits a month, a ceiling of 3 months, 30 days after a
+  -- cancel; and a small plan of 3 credits, a ceiling of 1 month.
+  perform set_config('test.uid', c_teacher::text, false);
+  set local role authenticated;
+  execute format('insert into plans (%s) values (%s) returning id', c_plan_cols,
+    $v$'chelsea-st', 'month', 'Month', 1000, 10000, 10, 15, true, false, false, 14, 5, 3, 30$v$)
+    into v_plan;
+  execute format('insert into plans (%s) values (%s) returning id', c_plan_cols,
+    $v$'chelsea-st', 'small', 'Small', 1000, 10000, 3, 15, true, false, false, 0, 0, 1, 0$v$)
+    into v_small;
+  perform verify.expect_named_refusal('a ceiling of no month', '23514 plans_credit_ceiling_months_range',
+    format('update plans set credit_ceiling_months = 0 where id = %L', v_plan));
+  perform verify.expect_named_refusal('a year and a day after a cancel', '23514 plans_credit_days_after_cancel_range',
+    format('update plans set credit_days_after_cancel = 366 where id = %L', v_plan));
+  insert into credit_costs (brand, action, credits) values
+    ('chelsea-st', 'teacher_lesson', 4),
+    ('chelsea-st', 'voice_minute', 1),
+    ('grifoai', 'voice_minute', 2);
+  perform verify.expect_named_refusal('a second cost for the same brand and action',
+    '23505 credit_costs_one_per_brand_action',
+    $q$insert into credit_costs (brand, action, credits) values ('chelsea-st', 'teacher_lesson', 5)$q$);
+  perform verify.expect_named_refusal('a cost for an unknown action', '23514 credit_costs_action_known',
+    $q$insert into credit_costs (brand, action, credits) values ('chelsea-st', 'chat_question', 1)$q$);
+  perform verify.expect_named_refusal('a cost of zero', '23514 credit_costs_credits_positive',
+    $q$insert into credit_costs (brand, action, credits) values ('grifoai', 'teacher_lesson', 0)$q$);
+  perform verify.expect_named_refusal('a cost of an organization', '23514 credit_costs_is_common',
+    format($q$insert into credit_costs (organization_id, brand, action, credits) values (%L, 'grifoai', 'video_minute', 1)$q$,
+      v_chelsea));
+
+  -- A student reads the costs and writes none.
+  perform set_config('test.uid', c_student::text, false);
+  if (select count(*) from credit_costs) <> 3 then
+    insert into verify.failures values ('a student does not read the 3 costs');
+  end if;
+  perform verify.expect_named_refusal('a student writing a cost', '42501',
+    $q$insert into credit_costs (brand, action, credits) values ('grifoai', 'video_minute', 1)$q$);
+  update credit_costs set credits = 1 where action = 'teacher_lesson';
+  get diagnostics v_n = row_count;
+  if v_n <> 0 then
+    insert into verify.failures values ('a student changed a cost');
+  end if;
+  reset role;
+  set local role anon;
+  select count(*) into v_n from credit_costs;
+  v_by := verify.named_refusal('select 1 from credit_entries');
+  reset role;
+  if v_n <> 3 then
+    insert into verify.failures values ('anon does not read the 3 costs');
+  end if;
+  if v_by is distinct from '42501' then
+    insert into verify.failures values (format('anon reading the ledger: %s, expected 42501', coalesce(v_by, 'accepted')));
+  end if;
+
+  -- 1. Privileges: nobody writes the ledger through the API; authenticated
+  -- alone reads it. anon and authenticated read the costs; only
+  -- authenticated writes them, under the platform admin's policies.
+  foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+    foreach v_privilege in array array['insert', 'update', 'delete'] loop
+      if has_table_privilege(v_role, 'public.credit_entries', v_privilege) then
+        insert into verify.failures values (format('%s has %s on credit_entries', v_role, v_privilege));
+      end if;
+    end loop;
+    if has_table_privilege(v_role, 'public.credit_entries', 'select') <> (v_role = 'authenticated') then
+      insert into verify.failures values (format('%s reading credit_entries is not as it should be', v_role));
+    end if;
+    if has_table_privilege(v_role, 'public.credit_costs', 'select') <> (v_role <> 'service_role') then
+      insert into verify.failures values (format('%s reading credit_costs is not as it should be', v_role));
+    end if;
+    foreach v_privilege in array array['insert', 'update'] loop
+      if has_table_privilege(v_role, 'public.credit_costs', v_privilege) <> (v_role = 'authenticated') then
+        insert into verify.failures values (format('%s %s on credit_costs is not as it should be', v_role, v_privilege));
+      end if;
+    end loop;
+    if has_table_privilege(v_role, 'public.credit_costs', 'delete') then
+      insert into verify.failures values (format('%s deletes credit_costs', v_role));
+    end if;
+  end loop;
+
+  -- 2. Execution.
+  foreach v_fn in array c_service loop
+    if not has_function_privilege('service_role', v_fn, 'execute') then
+      insert into verify.failures values (format('service_role does not execute %s', v_fn));
+    end if;
+    foreach v_role in array array['anon', 'authenticated'] loop
+      if has_function_privilege(v_role, v_fn, 'execute') then
+        insert into verify.failures values (format('%s executes %s', v_role, v_fn));
+      end if;
+    end loop;
+  end loop;
+  foreach v_fn in array c_nobody loop
+    foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+      if has_function_privilege(v_role, v_fn, 'execute') then
+        insert into verify.failures values (format('%s executes %s', v_role, v_fn));
+      end if;
+    end loop;
+  end loop;
+  foreach v_fn in array c_reader loop
+    if not has_function_privilege('authenticated', v_fn, 'execute')
+       or not has_function_privilege('service_role', v_fn, 'execute')
+       or has_function_privilege('anon', v_fn, 'execute') then
+      insert into verify.failures values (format('%s is not executed by authenticated and service_role alone', v_fn));
+    end if;
+  end loop;
+
+  -- The subscriptions, all on the plan before its credits change (Q5).
+  perform set_config('test.uid', '', false);
+  set local role service_role;
+  perform billing_customer(c_student, repeat('1', 64));
+  perform billing_customer(c_monthly, repeat('2', 64));
+  perform billing_customer(c_annual, repeat('3', 64));
+  perform billing_customer(c_refunded, repeat('4', 64));
+  perform billing_customer(c_gone, repeat('5', 64));
+  perform billing_customer(c_window, repeat('6', 64));
+  perform billing_customer(c_quote, repeat('7', 64));
+  perform billing_customer(c_late, repeat('8', 64));
+  perform billing_customer(c_ahead, repeat('a', 64));
+  perform billing_customer(c_extend, repeat('b', 64));
+  perform billing_customer(c_back, repeat('c', 64));
+  perform billing_customer(c_back2, repeat('d', 64));
+  v_sub1 := billing_open_subscription(c_student, v_plan, 'monthly', 'pix', 1000, true,
+    v_today + 14, null, 'cus_c1', 'sub_c1');
+  -- Events that came late: her first charge is already due.
+  perform billing_open_subscription(c_late, v_plan, 'monthly', 'pix', 1000, true,
+    v_today - 1, null, 'cus_c7', 'sub_c7');
+  v_sub2 := billing_open_subscription(c_monthly, v_plan, 'monthly', 'pix', 1000, false,
+    (v_today - interval '2 months')::date, null, 'cus_c2', 'sub_c2');
+  v_sub3 := billing_open_subscription(c_annual, v_plan, 'annual', 'pix', 10000, false,
+    v_due3, null, 'cus_c3', 'sub_c3');
+  v_sub4 := billing_open_subscription(c_refunded, v_plan, 'monthly', 'pix', 1000, false,
+    v_today - 3, null, 'cus_c4', 'sub_c4');
+  v_sub6 := billing_open_subscription(c_gone, v_plan, 'monthly', 'pix', 1000, false,
+    v_today - 70, null, 'cus_c5', 'sub_c5');
+  v_sub7 := billing_open_subscription(c_window, v_plan, 'monthly', 'pix', 1000, false,
+    v_today - 40, null, 'cus_c6', 'sub_c6');
+  v_sub8 := billing_open_subscription(c_quote, v_small, 'monthly', 'pix', 1000, false,
+    v_today - 3, null, 'cus_c8', 'sub_c8');
+  v_sub9 := billing_open_subscription(c_ahead, v_plan, 'monthly', 'pix', 1000, false,
+    v_today - 1, null, 'cus_c9', 'sub_c9');
+  reset role;
+
+  -- 15. The credits of the month, the ceiling and the days after a cancel
+  -- were kept on the subscription (Q5, question 9 on PR #304): a change to
+  -- the plan afterwards does not reach them. Every grant and every end below
+  -- reads the subscription's 10 credits, 3 months and 30 days, not the
+  -- plan's 99, 1 and 0.
+  perform set_config('test.uid', c_teacher::text, false);
+  set local role authenticated;
+  update plans set monthly_credits = 99, credit_ceiling_months = 1, credit_days_after_cancel = 0
+   where id = v_plan;
+  reset role;
+  perform set_config('test.uid', '', false);
+  if (select (monthly_credits, credit_ceiling_months, credit_days_after_cancel)::text
+        from subscriptions where id = v_sub2) is distinct from '(10,3,30)' then
+    insert into verify.failures values ('a subscription did not keep its plan''s credits, ceiling and days after a cancel');
+  end if;
+
+  -- 13. The trial: a lot when a subscription with a trial starts running,
+  -- once, ending at midnight of its first charge; none once that day passed.
+  select id into v_trial_lot from credit_entries where person_id = c_student and kind = 'trial';
+  if v_trial_lot is null
+     or (select amount from credit_entries where id = v_trial_lot) <> 5
+     or (select expires_at from credit_entries where id = v_trial_lot)
+        <> (v_today + 14)::timestamp at time zone 'America/Sao_Paulo' then
+    insert into verify.failures values ('a subscription with a trial did not get its trial lot, of the plan''s trial credits, until its first charge');
+  end if;
+  set local role service_role;
+  perform billing_apply_subscription(v_sub1, null, null, 'active', v_today + 40, null, null);
+  perform billing_apply_subscription(v_sub1, null, null, 'trialing', null, null, null);
+  reset role;
+  if (select count(*) from credit_entries where person_id = c_student and kind = 'trial') <> 1 then
+    insert into verify.failures values ('a trial lot was granted more than once');
+  end if;
+  if exists (select 1 from credit_entries where person_id = c_late) then
+    insert into verify.failures values ('a trial whose first charge is already due granted credits');
+  end if;
+
+  -- The charges, as the webhook writes them.
+  set local role service_role;
+  perform billing_save_payment('pay_c1', v_sub1, 'cycle', 1000, 'CONFIRMED', false, v_today - 3, now(), 0, null);
+  perform billing_save_payment('pay_c2_m2', v_sub2, 'cycle', 1000, 'RECEIVED', false, (v_today - interval '2 months')::date, now(), 0, null);
+  perform billing_save_payment('pay_c2_m1', v_sub2, 'cycle', 1000, 'RECEIVED', false, (v_today - interval '1 month')::date, now(), 0, null);
+  perform billing_save_payment('pay_c2', v_sub2, 'cycle', 1000, 'CONFIRMED', false, v_today - 3, now(), 0, null);
+  perform billing_save_payment('pay_c2_over', v_sub2, 'cycle', 1000, 'CONFIRMED', false, v_today - 2, now(), 0, null);
+  perform billing_save_payment('pay_c2_next', v_sub2, 'cycle', 1000, 'RECEIVED', false, v_today + 10, now(), 0, null);
+  perform billing_save_payment('pay_c3', v_sub3, 'cycle', 10000, 'CONFIRMED', false, v_due3, now(), 0, null);
+  perform billing_save_payment('pay_c4_pending', v_sub4, 'cycle', 1000, 'PENDING', false, v_today - 3, null, 0, null);
+  perform billing_save_payment('pay_c4_deleted', v_sub4, 'cycle', 1000, 'CONFIRMED', true, v_today - 3, now(), 0, null);
+  perform billing_save_payment('pay_c4_refunded', v_sub4, 'cycle', 1000, 'RECEIVED', false, v_today - 3, now(), 500, null);
+  perform billing_save_payment('pay_c4', v_sub4, 'cycle', 1000, 'CONFIRMED', false, v_today - 3, now(), 0, null);
+  perform billing_save_payment('pay_c6', v_sub6, 'cycle', 1000, 'RECEIVED', false, v_today - 70, now(), 0, null);
+  perform billing_save_payment('pay_c7', v_sub7, 'cycle', 1000, 'RECEIVED', false, v_today - 40, now(), 0, null);
+  perform billing_save_payment('pay_c8', v_sub8, 'cycle', 1000, 'CONFIRMED', false, v_today - 3, now(), 0, null);
+  -- Paid ahead: its month started at midnight, and nothing settled it since.
+  perform billing_save_payment('pay_c9', v_sub9, 'cycle', 1000, 'RECEIVED', false, v_today - 1, now(), 0, null);
+
+  -- 5. A charge settled twice grants its month once, without an end; 15,
+  -- with the credits the subscription kept; 17, in the subscription's
+  -- organization. The ceiling of 3 months (30 credits): a fourth month grants
+  -- nothing, and stays decided.
+  perform credit_settle_payment('pay_c2_m2');
+  perform credit_settle_payment('pay_c2_m1');
+  v_int := credit_settle_payment('pay_c2');
+  v_n := credit_settle_payment('pay_c2');
+  if v_int <> 10 or v_n <> 0 then
+    insert into verify.failures values ('settling a charge twice did not grant 10 and then 0');
+  end if;
+  v_int := credit_settle_payment('pay_c2_over');
+  if v_int <> 0 then
+    insert into verify.failures values (format('a month past the ceiling granted %s', v_int));
+  end if;
+  perform credit_settle_payment('pay_c1');
+  -- 6. A charge due ahead grants nothing yet; an annual one due two months
+  -- ago grants the three months it started, and not the fourth.
+  if credit_settle_payment('pay_c2_next') <> 0 then
+    insert into verify.failures values ('a charge paid ahead of its due day granted its month');
+  end if;
+  if credit_settle_payment('pay_c3') <> 30 then
+    insert into verify.failures values ('an annual charge did not grant the three months it started');
+  end if;
+  -- 7. Pending, deleted or refunded: nothing.
+  v_int := credit_settle_payment('pay_c4_pending') + credit_settle_payment('pay_c4_deleted')
+           + credit_settle_payment('pay_c4_refunded');
+  if v_int <> 0 then
+    insert into verify.failures values ('a charge pending, deleted or refunded granted credits');
+  end if;
+  perform credit_settle_payment('pay_c4');
+  perform credit_settle_payment('pay_c6');
+  perform credit_settle_payment('pay_c7');
+  reset role;
+
+  if (select count(*) from credit_entries where asaas_payment_id = 'pay_c2') <> 1
+     or (select amount from credit_entries where asaas_payment_id = 'pay_c2') <> 10
+     or (select expires_at from credit_entries where asaas_payment_id = 'pay_c2') is not null then
+    insert into verify.failures values ('the month was not granted once, with the 10 credits the subscription kept, without an end');
+  end if;
+  if (select amount from credit_entries where asaas_payment_id = 'pay_c2_over') is distinct from 0
+     or credit_balance_of(c_monthly) <> 30 then
+    insert into verify.failures values ('the month past the ceiling was not decided at 0, with her balance at the ceiling of 30');
+  end if;
+  if exists (select 1 from credit_entries where asaas_payment_id = 'pay_c2_next') then
+    insert into verify.failures values ('a lot was granted for a month that has not started');
+  end if;
+  if (select string_agg(period::text, ',' order by period) from credit_entries where asaas_payment_id = 'pay_c3')
+     is distinct from '0,1,2' then
+    insert into verify.failures values ('the annual charge did not grant its months 0, 1 and 2 alone');
+  end if;
+  if (select count(*) from credit_entries where person_id = c_refunded) <> 1 then
+    insert into verify.failures values ('a charge that does not pay opened a lot');
+  end if;
+  -- 17. Every lot is in its subscription's organization.
+  if exists (select 1 from credit_entries e
+               join subscriptions s on s.id = e.subscription_id
+              where e.organization_id <> s.organization_id) then
+    insert into verify.failures values ('a lot is not in the organization of its subscription');
+  end if;
+
+  -- 8. The debit, as the function of #276 would call it. The trial, which
+  -- ends, before the month, which does not; one row per lot touched.
+  select id into v_plan_lot from credit_entries where asaas_payment_id = 'pay_c1';
+  if credit_debit(c_student, 'teacher_lesson', 1, 'lesson:1') <> 11 then
+    insert into verify.failures values ('a debit did not leave 15 - 4');
+  end if;
+  if (select lot_id from credit_entries where reference = 'lesson:1') <> v_trial_lot then
+    insert into verify.failures values ('a debit did not spend the lot that ends first');
+  end if;
+  v_int := credit_debit(c_student, 'teacher_lesson', 1, 'lesson:2');
+  if v_int <> 7
+     or (select string_agg(format('%s:%s', case lot_id when v_trial_lot then 'trial' when v_plan_lot then 'plan' end, amount), ','
+                           order by amount desc)
+           from credit_entries where reference = 'lesson:2') is distinct from 'trial:-1,plan:-3' then
+    insert into verify.failures values ('a debit across two lots is not one row per lot, the one that ends emptied first');
+  end if;
+  -- Among lots without an end, the oldest first; then the ceiling has room
+  -- for 4 of the next month.
+  perform credit_debit(c_monthly, 'teacher_lesson', 1, 'lesson:m');
+  if (select g.asaas_payment_id from credit_entries d join credit_entries g on g.id = d.lot_id
+       where d.reference = 'lesson:m') is distinct from 'pay_c2_m2' then
+    insert into verify.failures values ('a debit among lots without an end did not spend the oldest');
+  end if;
+  set local role service_role;
+  perform billing_save_payment('pay_c2_more', v_sub2, 'cycle', 1000, 'CONFIRMED', false, v_today - 1, now(), 0, null);
+  v_int := credit_settle_payment('pay_c2_more');
+  reset role;
+  if v_int <> 4 or credit_balance_of(c_monthly) <> 30 then
+    insert into verify.failures values (format('a month under the ceiling granted %s, expected the 4 of room', v_int));
+  end if;
+  perform verify.expect_named_refusal('a debit the balance does not cover', '23514 credits_not_negative',
+    format('select credit_debit(%L, %L, 2, %L)', c_student, 'teacher_lesson', 'lesson:3'));
+  if exists (select 1 from credit_entries where reference = 'lesson:3') then
+    insert into verify.failures values ('a debit refused for the balance wrote something');
+  end if;
+  perform verify.expect_named_refusal('a debit of an action without a cost in her brand', '23514 credit_cost_known',
+    format('select credit_debit(%L, %L, 1, %L)', c_student, 'video_minute', 'video:1'));
+  perform verify.expect_named_refusal('a debit with a reference already used', '23505 credit_debit_reference_used',
+    format('select credit_debit(%L, %L, 1, %L)', c_student, 'voice_minute', 'lesson:1'));
+  perform verify.expect_named_refusal('a debit of no unit', '23514 credit_debit_quantity_positive',
+    format('select credit_debit(%L, %L, 0, %L)', c_student, 'voice_minute', 'voice:0'));
+
+  -- 10. The lot's trigger, past every function, and the shapes.
+  perform verify.expect_named_refusal('a debit larger than its lot', '23514 credit_entries_lot_not_negative',
+    format($q$insert into credit_entries (organization_id, person_id, kind, amount, lot_id, action, reference)
+              values (%L, %L, 'debit', -100, %L, 'teacher_lesson', 'direct')$q$,
+      v_chelsea, c_student, v_plan_lot));
+  perform verify.expect_named_refusal('a debit in another person''s lot', '23514 credit_entries_lot_is_hers',
+    format($q$insert into credit_entries (organization_id, person_id, kind, amount, lot_id, action, reference)
+              values (%L, %L, 'debit', -1, %L, 'teacher_lesson', 'direct')$q$,
+      v_chelsea, c_monthly, v_plan_lot));
+  perform verify.expect_named_refusal('a debit that adds', '23514 credit_entries_amount_sign',
+    format($q$insert into credit_entries (organization_id, person_id, kind, amount, lot_id, action, reference)
+              values (%L, %L, 'debit', 1, %L, 'teacher_lesson', 'direct')$q$,
+      v_chelsea, c_student, v_plan_lot));
+  perform verify.expect_named_refusal('a debit with an end', '23514 credit_entries_lot_shape',
+    format($q$insert into credit_entries (organization_id, person_id, kind, amount, lot_id, expires_at, action, reference)
+              values (%L, %L, 'debit', -1, %L, now(), 'teacher_lesson', 'direct')$q$,
+      v_chelsea, c_student, v_plan_lot));
+  perform verify.expect_named_refusal('a month''s lot with an end', '23514 credit_entries_lot_shape',
+    format($q$insert into credit_entries (organization_id, person_id, kind, amount, expires_at, asaas_payment_id, period, subscription_id)
+              values (%L, %L, 'plan', 1, now() + interval '1 day', 'pay_c1', 7, %L)$q$,
+      v_chelsea, c_student, v_sub1));
+  perform verify.expect_named_refusal('a month''s lot without its charge', '23514 credit_entries_source_shape',
+    format($q$insert into credit_entries (organization_id, person_id, kind, amount, subscription_id)
+              values (%L, %L, 'plan', 1, %L)$q$,
+      v_chelsea, c_student, v_sub1));
+
+  -- 11. A lesson canceled: back to the same lots while they live, once.
+  v_int := credit_refund(c_student, 'lesson:2');
+  v_n := credit_refund(c_student, 'lesson:2') + credit_refund(c_student, 'lesson:none');
+  if v_int <> 4 or v_n <> 0 then
+    insert into verify.failures values ('a refund did not give 4 back once, and 0 after');
+  end if;
+  if exists (select 1 from credit_entries where kind = 'refund' and reference = 'lesson:2'
+                                            and (expires_at is not null or lot_id is null)) then
+    insert into verify.failures values ('a refund to a live lot opened a lot of its own');
+  end if;
+  if credit_balance_of(c_student) <> 11 then
+    insert into verify.failures values (format('her balance after the refund is %s, expected 11', credit_balance_of(c_student)));
+  end if;
+
+  -- 7. Refunded after it granted: what is left is voided, the debit stays,
+  -- settling again grants nothing, and the lesson canceled after gives
+  -- nothing back.
+  perform credit_debit(c_refunded, 'teacher_lesson', 1, 'lesson:r');
+  set local role service_role;
+  perform billing_save_payment('pay_c4', v_sub4, 'cycle', 1000, 'REFUNDED', false, v_today - 3, now(), 1000, null);
+  v_int := credit_settle_payment('pay_c4');
+  v_n := credit_settle_payment('pay_c4');
+  reset role;
+  if v_int <> -6 or v_n <> 0 then
+    insert into verify.failures values ('a charge refunded after its grant did not void the 6 left, once');
+  end if;
+  if credit_balance_of(c_refunded) <> 0
+     or not exists (select 1 from credit_entries where person_id = c_refunded and kind = 'debit')
+     or (select count(*) from credit_entries where person_id = c_refunded and kind = 'plan') <> 1 then
+    insert into verify.failures values ('a refunded charge left credits, lost its debit or granted again');
+  end if;
+  v_int := credit_refund(c_refunded, 'lesson:r');
+  if v_int <> 0 or credit_balance_of(c_refunded) <> 0 then
+    insert into verify.failures values ('a debit from a voided lot was given back');
+  end if;
+
+  -- 8. A month paid ahead started at midnight, before the routine: the debit
+  -- grants it first, and spends from it. 7. A chargeback voids what is left.
+  v_int := credit_debit(c_ahead, 'teacher_lesson', 1, 'lesson:ahead');
+  if v_int <> 6 then
+    insert into verify.failures values (format(
+      'a debit did not grant the month paid ahead that started: left %s, expected 6', v_int));
+  end if;
+  set local role service_role;
+  perform billing_save_payment('pay_c9', v_sub9, 'cycle', 1000, 'CHARGEBACK_REQUESTED', false, v_today - 1, now(), 0, null);
+  v_int := credit_settle_payment('pay_c9');
+  reset role;
+  if v_int <> -6 or credit_balance_of(c_ahead) <> 0 then
+    insert into verify.failures values ('a charge charged back did not void the 6 left');
+  end if;
+
+  -- 12. After a cancel. She paid until 40 days ago and the plan gives 30
+  -- days: her credits ended 9 days ago, at once, before any routine.
+  perform credit_debit(c_gone, 'teacher_lesson', 1, 'lesson:gone');
+  set local role service_role;
+  perform billing_apply_subscription(v_sub6, null, null, 'canceled', v_today - 40, null, 'person');
+  reset role;
+  if credit_balance_of(c_gone) <> 0 then
+    insert into verify.failures values (format(
+      'credits past the days after a cancel still count: %s', credit_balance_of(c_gone)));
+  end if;
+  -- She subscribes again after them: what ended stays ended.
+  set local role service_role;
+  perform billing_open_subscription(c_gone, v_plan, 'monthly', 'pix', 1000, false,
+    v_today + 5, null, 'cus_c5b', 'sub_c5b');
+  reset role;
+  if credit_balance_of(c_gone) <> 0
+     or (select e.amount from credit_entries e join credit_entries l on l.id = e.lot_id
+          where l.asaas_payment_id = 'pay_c6' and e.kind = 'expire') is distinct from -6 then
+    insert into verify.failures values ('credits that ended came back with a new subscription');
+  end if;
+  -- Q8: the lesson of a lot that ended comes back as a lot of its own,
+  -- without an end now that she is subscribed again.
+  v_int := credit_refund(c_gone, 'lesson:gone');
+  if v_int <> 4
+     or (select string_agg(coalesce(expires_at::text, 'none'), ',') from credit_entries
+          where kind = 'refund' and reference = 'lesson:gone' and lot_id is null) is distinct from 'none'
+     or credit_balance_of(c_gone) <> 4 then
+    insert into verify.failures values ('a refund whose lot ended is not a lot of its own without an end');
+  end if;
+  -- She paid until 10 days ago: with 30 days, her credits last 21 more.
+  set local role service_role;
+  perform billing_apply_subscription(v_sub7, null, null, 'canceled', v_today - 10, null, 'person');
+  reset role;
+  v_at := (select l.expires_at from credit_lots_of(c_window) l limit 1);
+  if credit_balance_of(c_window) <> 10
+     or v_at is distinct from (v_today + 21)::timestamp at time zone 'America/Sao_Paulo' then
+    insert into verify.failures values (format(
+      'credits within the days after a cancel: balance %s, end %s; expected 10 until midnight of %s',
+      credit_balance_of(c_window), v_at, v_today + 21));
+  end if;
+  -- She subscribes again within them: her lots have no end again.
+  set local role service_role;
+  perform billing_open_subscription(c_window, v_plan, 'monthly', 'pix', 1000, false,
+    v_today + 5, null, 'cus_c6b', 'sub_c6b');
+  reset role;
+  if (select string_agg(coalesce(l.expires_at::text, 'none'), ',') from credit_lots_of(c_window) l)
+     is distinct from 'none' then
+    insert into verify.failures values ('subscribing again within the days after a cancel did not take the end away');
+  end if;
+  -- A trial lot past its own end, while she is subscribed.
+  insert into credit_entries (organization_id, person_id, kind, amount, expires_at, subscription_id)
+    values (v_chelsea, c_window, 'trial', 5, now() - interval '1 day', v_sub7)
+    returning id into v_lot;
+  if credit_balance_of(c_window) <> 10 then
+    insert into verify.failures values ('a trial lot past its end still counts');
+  end if;
+
+  -- The plan back to the numbers the subscriptions below are born with
+  -- (the two subscriptions opened again above were born with 99, 1 and 0,
+  -- and nothing below reads their numbers).
+  update plans set monthly_credits = 10, credit_ceiling_months = 3, credit_days_after_cancel = 30
+   where id = v_plan;
+
+  -- The end after a cancel is the latest one a paid subscription bought: a
+  -- subscription opened and never paid, or one paid for less, does not move
+  -- it. She paid until 10 days ago: 21 more days.
+  set local role service_role;
+  v_sub_a := billing_open_subscription(c_extend, v_plan, 'monthly', 'pix', 1000, false,
+    v_today - 40, null, 'cus_ca', 'sub_ca');
+  perform billing_save_payment('pay_ca', v_sub_a, 'cycle', 1000, 'RECEIVED', false, v_today - 40, now(), 0, null);
+  perform credit_settle_payment('pay_ca');
+  perform billing_apply_subscription(v_sub_a, null, null, 'canceled', v_today - 10, null, 'person');
+  v_sub_b := billing_open_subscription(c_extend, v_plan, 'monthly', 'pix', 1000, false,
+    v_today, null, 'cus_cb', 'sub_cb');
+  perform billing_apply_subscription(v_sub_b, null, null, 'canceled', null, null, 'overdue');
+  v_sub_b := billing_open_subscription(c_extend, v_plan, 'monthly', 'pix', 1000, false,
+    v_today, null, 'cus_cc', 'sub_cc');
+  perform billing_apply_subscription(v_sub_b, null, null, 'canceled', v_today - 20, null, 'person');
+  reset role;
+  v_at := (select l.expires_at from credit_lots_of(c_extend) l limit 1);
+  if v_at is distinct from (v_today + 21)::timestamp at time zone 'America/Sao_Paulo' then
+    insert into verify.failures values (format(
+      'a later subscription moved the end of her credits to %s, expected midnight of %s', v_at, v_today + 21));
+  end if;
+
+  -- A charge refunded with the cancel that rolls her days back: its lot is
+  -- past her end already, and is still voided; and a lesson from a lot whose
+  -- charge was refunded after the lot ended does not come back. The small
+  -- plan gives 0 days after a cancel.
+  set local role service_role;
+  v_sub_a := billing_open_subscription(c_back, v_small, 'monthly', 'pix', 1000, false,
+    v_today - 40, null, 'cus_cd', 'sub_cd');
+  perform billing_save_payment('pay_cd', v_sub_a, 'cycle', 1000, 'RECEIVED', false, v_today - 40, now(), 0, null);
+  perform credit_settle_payment('pay_cd');
+  reset role;
+  perform credit_debit(c_back, 'voice_minute', 1, 'voice:back');
+  set local role service_role;
+  perform billing_apply_subscription(v_sub_a, null, null, 'canceled', null, null, 'provider');
+  perform billing_save_payment('pay_cd', v_sub_a, 'cycle', 1000, 'REFUNDED', false, v_today - 40, now(), 1000, null);
+  v_int := credit_settle_payment('pay_cd');
+  reset role;
+  if v_int <> -2 then
+    insert into verify.failures values (format(
+      'a refunded charge whose lot was past her end voided %s, expected 2', -v_int));
+  end if;
+  set local role service_role;
+  v_sub_b := billing_open_subscription(c_back2, v_small, 'monthly', 'pix', 1000, false,
+    v_today - 40, null, 'cus_ce', 'sub_ce');
+  perform billing_save_payment('pay_ce', v_sub_b, 'cycle', 1000, 'RECEIVED', false, v_today - 40, now(), 0, null);
+  perform credit_settle_payment('pay_ce');
+  reset role;
+  perform credit_debit(c_back2, 'voice_minute', 1, 'voice:back2');
+  set local role service_role;
+  perform billing_apply_subscription(v_sub_b, null, null, 'canceled', null, null, 'provider');
+  reset role;
+  -- Her lot ends and is closed before the refund arrives.
+  perform credit_refund(c_back2, 'nothing');
+  set local role service_role;
+  perform billing_save_payment('pay_ce', v_sub_b, 'cycle', 1000, 'REFUNDED', false, v_today - 40, now(), 1000, null);
+  perform credit_settle_payment('pay_ce');
+  reset role;
+  v_int := credit_refund(c_back2, 'voice:back2');
+  if v_int <> 0 then
+    insert into verify.failures values (format(
+      'a lesson from a lot whose charge was refunded gave back %s', v_int));
+  end if;
+
+  -- The routine: it grants the charge the webhook missed and closes the
+  -- trial lot that ended; run again, it does nothing.
+  set local role service_role;
+  select * into v_daily from credit_daily();
+  if (v_daily.granted, v_daily.closed) is distinct from (1, 2) then
+    insert into verify.failures values (format('the routine granted %s and closed %s; expected 1 (the charge of the quote) and 2 (the trial lot, the voided lot past her end)',
+      v_daily.granted, v_daily.closed));
+  end if;
+  select * into v_daily from credit_daily();
+  if (v_daily.granted, v_daily.closed) is distinct from (0, 0) then
+    insert into verify.failures values ('the routine run twice did something twice');
+  end if;
+  reset role;
+  if (select amount from credit_entries where kind = 'expire' and lot_id = v_lot) is distinct from -5 then
+    insert into verify.failures values ('the trial lot past its end was not closed with an expire of 5');
+  end if;
+  if (select sum(amount) from credit_entries where person_id = c_gone) <> credit_balance_of(c_gone) then
+    insert into verify.failures values ('once closed, the sum of her rows is not her balance');
+  end if;
+
+  -- 16. The proportional refund, rounded up: 1 credit of 3 left on 1000
+  -- cents is 334, and 116 of an annual 120 on 10000 cents is 9667.
+  perform credit_debit(c_quote, 'voice_minute', 2, 'voice:q');
+  perform credit_debit(c_annual, 'teacher_lesson', 1, 'lesson:a');
+  set local role service_role;
+  select * into v_quote from credit_refund_quote('pay_c8');
+  if (v_quote.payment_credits, v_quote.unused_credits, v_quote.refund_cents) is distinct from (3, 1, 334) then
+    insert into verify.failures values (format('the quote of a monthly charge is %s/%s/%s, expected 3/1/334',
+      v_quote.payment_credits, v_quote.unused_credits, v_quote.refund_cents));
+  end if;
+  select * into v_quote from credit_refund_quote('pay_c3');
+  if (v_quote.payment_credits, v_quote.unused_credits, v_quote.refund_cents) is distinct from (120, 116, 9667) then
+    insert into verify.failures values (format('the quote of an annual charge is %s/%s/%s, expected 120/116/9667',
+      v_quote.payment_credits, v_quote.unused_credits, v_quote.refund_cents));
+  end if;
+  -- A month the ceiling decided at 0 was paid for and never received: all of
+  -- it comes back.
+  select * into v_quote from credit_refund_quote('pay_c2_over');
+  if (v_quote.payment_credits, v_quote.unused_credits, v_quote.refund_cents) is distinct from (10, 10, 1000) then
+    insert into verify.failures values (format('the quote of a month cut by the ceiling is %s/%s/%s, expected 10/10/1000',
+      v_quote.payment_credits, v_quote.unused_credits, v_quote.refund_cents));
+  end if;
+  select * into v_quote from credit_refund_quote('pay_c4_pending');
+  if (v_quote.payment_credits, v_quote.unused_credits, v_quote.refund_cents) is distinct from (0, 0, 0) then
+    insert into verify.failures values ('a charge that does not grant has a refund quote');
+  end if;
+  reset role;
+
+  -- 3. Reading: a person her own rows, balance and lots; the platform admin
+  -- everyone's.
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  select count(*) into v_n from credit_entries;
+  if v_n = 0 or exists (select 1 from credit_entries where person_id <> c_student) then
+    insert into verify.failures values ('a student does not read exactly her own entries');
+  end if;
+  perform verify.expect_named_refusal('a student reading another person''s balance', '42501',
+    format('select credits_balance(%L)', c_monthly));
+  perform verify.expect_named_refusal('a student reading another person''s lots', '42501',
+    format('select * from credit_live_lots(%L)', c_monthly));
+  if credits_balance(c_student) <> 11 or (select count(*) from credit_live_lots(c_student)) <> 2 then
+    insert into verify.failures values ('a student does not read her own balance and lots');
+  end if;
+  -- 14. The cost: her own, and nobody else's.
+  if credit_cost(c_student, 'teacher_lesson') <> 4 then
+    insert into verify.failures values ('a student does not read the cost of her lesson');
+  end if;
+  perform verify.expect_named_refusal('a student reading another person''s cost', '42501',
+    format('select credit_cost(%L, %L)', c_monthly, 'teacher_lesson'));
+  perform verify.expect_named_refusal('a cost the brand does not sell', '23514 credit_cost_known',
+    format('select credit_cost(%L, %L)', c_student, 'video_minute'));
+  perform set_config('test.uid', c_employee::text, false);
+  if credit_cost(c_employee, 'voice_minute') <> 2 then
+    insert into verify.failures values ('a company''s employee does not read the cost of the grifoai brand');
+  end if;
+  perform set_config('test.uid', c_teacher::text, false);
+  if (select count(distinct person_id) from credit_entries) < 7
+     or credit_cost(c_monthly, 'teacher_lesson') <> 4
+     or credits_balance(c_monthly) <> 30 then
+    insert into verify.failures values ('the platform admin does not read every ledger, balance and cost');
+  end if;
+  reset role;
+  perform set_config('test.uid', '', false);
+  set local role service_role;
+  if credit_cost(c_monthly, 'teacher_lesson') <> 4 or credits_balance(c_monthly) <> 30 then
+    insert into verify.failures values ('service_role does not read a person''s cost and balance');
+  end if;
+  reset role;
+
+  -- 4. Only new rows, even for postgres. Last, so that without the trigger
+  -- the rows taken away leave nothing else to fail on.
+  perform verify.expect_named_refusal('an entry changed', '23001 credit_entries_append_only',
+    format('update credit_entries set amount = 0 where person_id = %L', c_student));
+  perform verify.expect_named_refusal('an entry removed', '23001 credit_entries_append_only',
+    format('delete from credit_entries where person_id = %L', c_student));
+  perform verify.expect_named_refusal('the ledger truncated', '23001 credit_entries_append_only',
+    'truncate credit_entries');
+
+  -- Leave nothing behind for the blocks after, nor for the types. The ledger
+  -- goes past the trigger that refuses a delete, as a restore passes it.
+  perform set_config('session_replication_role', 'replica', true);
+  delete from credit_entries;
+  perform set_config('session_replication_role', 'origin', true);
+  delete from payments;
+  delete from subscriptions;
+  delete from billing_customers;
+  delete from credit_costs;
+  delete from plans;
+  delete from organization_members where user_id = any (c_people || c_employee);
+  delete from auth.users where id = any (c_people || c_employee);
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'credits are entries in a ledger: %', v_failures;
+  end if;
+  raise notice 'the ledger is read by its person and the platform admin, written by no API role and never edited; costs are read by all and written by the platform admin; a person reads her own balance, lots and costs only; service_role alone settles, runs the routine and quotes, nobody debits or refunds but another function; a charge grants each started month once, without an end, up to the ceiling, with the subscription''s credits, in its organization, and one whose money went back is voided; the debit grants her started months, spends the lot that ends first and the oldest without an end, and refuses by name; a lot never goes below zero; a refund goes back once, never from a voided lot, to a lot of its own when its own ended; after a cancel her credits end the plan''s days after what she paid, come back without an end when she subscribes within them and stay ended after; the routine closes once; the trial is granted once; the refund quote rounds up';
+end;
+$$;
+
+-- Two debits of the same person at once (0050) ---------------------------------------------
+--
+-- A second connection (dblink, created here only, in the verify schema, and
+-- dropped after) debits and holds its transaction open. A debit of the same
+-- person in this session waits for it: with lock_timeout it is refused with
+-- 55P03. Once the other commits, the same debit sees the balance it left and
+-- is refused by credits_not_negative: the balance never goes below zero.
+-- The fixture is committed first, since the other connection only sees what
+-- is committed, and removed after.
+
+create extension dblink schema verify;
+
+do $$
+declare
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  v_plan uuid;
+begin
+  insert into plans (brand, key, name, monthly_price_cents, annual_price_cents, monthly_credits,
+                     trail_minutes_per_day, opens_voice_question, opens_free_conversation, opens_video,
+                     trial_days, trial_credits, credit_ceiling_months, credit_days_after_cancel)
+    values ('chelsea-st', 'race', 'Race', 1000, 10000, 10, 15, true, false, false, 14, 5, 3, 30)
+    returning id into v_plan;
+  insert into credit_costs (brand, action, credits) values ('chelsea-st', 'teacher_lesson', 4);
+  perform billing_customer(c_student, repeat('9', 64));
+  -- A trial of 5 credits: one lesson of 4 fits, two do not.
+  perform billing_open_subscription(c_student, v_plan, 'monthly', 'pix', 1000, true,
+    (now() at time zone 'America/Sao_Paulo')::date + 14, null, 'cus_race', 'sub_race');
+end;
+$$;
+
+do $$
+declare
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  v_by text;
+  v_failures text;
+begin
+  delete from verify.failures;
+  if credits_balance(c_student) <> 5 then
+    raise exception 'two debits at once: the fixture has % credits, expected 5', credits_balance(c_student);
+  end if;
+
+  perform verify.dblink_connect('race',
+    format('dbname=%s user=%s', current_database(), current_user));
+  perform verify.dblink_exec('race', 'begin');
+  perform * from verify.dblink('race',
+    format('select public.credit_debit(%L, %L, 1, %L)', c_student, 'teacher_lesson', 'lesson:race:other'))
+    as t (balance integer);
+
+  perform set_config('lock_timeout', '300ms', true);
+  v_by := verify.named_refusal(format('select credit_debit(%L, %L, 1, %L)',
+    c_student, 'teacher_lesson', 'lesson:race:this'));
+  perform set_config('lock_timeout', '0', true);
+  if v_by is distinct from '55P03' then
+    insert into verify.failures values (format(
+      'a debit did not wait for another debit of the same person in flight: %s, expected 55P03',
+      coalesce(v_by, 'accepted')));
+  else
+    raise notice 'a debit waits for another debit of the same person in flight: refused by 55P03 under lock_timeout';
+  end if;
+
+  perform verify.dblink_exec('race', 'commit');
+  perform verify.dblink_disconnect('race');
+
+  perform verify.expect_named_refusal('a debit after the other one committed',
+    '23514 credits_not_negative',
+    format('select credit_debit(%L, %L, 1, %L)', c_student, 'teacher_lesson', 'lesson:race:after'));
+  if credits_balance(c_student) <> 1 then
+    insert into verify.failures values (format(
+      'two debits at once left a balance of %s, expected 1', credits_balance(c_student)));
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'two debits at once: %', v_failures;
+  end if;
+  raise notice 'two debits of the same person at once: the second waits for the first, then is refused by credits_not_negative; the balance stays at 1';
+end;
+$$;
+
+do $$
+begin
+  perform set_config('session_replication_role', 'replica', true);
+  delete from credit_entries;
+  perform set_config('session_replication_role', 'origin', true);
+  delete from subscriptions;
+  delete from billing_customers;
+  delete from credit_costs;
+  delete from plans;
+end;
+$$;
+
+drop extension dblink;
+
+
+-- A signup opens one door (0051) ------------------------------------------------------
+--
+-- An account whose metadata says signup (the invite /cadastro asks for, #275)
+-- joins, on the first confirmation of its email, the one organization with
+-- open_signup, as a student: Chelsea St since 0051. Without signup nobody
+-- joins by it, and the invite path stays as it was. An invite accepted in the
+-- same confirmation wins, in any role: a company's student stays in the
+-- company alone, a teacher or an admin gets no student role beside hers. Metadata
+-- changed after the confirmation, and a second confirmation, make nobody a
+-- member. With the door closed a signup joins nothing, and fails nothing.
+-- The door: only an organization of the brand chelsea-st with a teacher, each
+-- clause refused by organizations_open_signup_chelsea on its own; one at a
+-- time, by organizations_one_open_signup; changed by the platform admin and
+-- not by the admin of the organization. join_by_signup is executed by nobody.
+-- Nothing written here is kept, and the door ends open as 0051 leaves it.
+
+do $$
+declare
+  c_platform_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_new constant uuid := 'b0510000-0000-4000-8000-000000000001';
+  c_plain constant uuid := 'b0510000-0000-4000-8000-000000000002';
+  c_false constant uuid := 'b0510000-0000-4000-8000-000000000003';
+  c_employee constant uuid := 'b0510000-0000-4000-8000-000000000004';
+  c_later constant uuid := 'b0510000-0000-4000-8000-000000000005';
+  c_closed constant uuid := 'b0510000-0000-4000-8000-000000000006';
+  c_chelsea_admin constant uuid := 'b0510000-0000-4000-8000-000000000007';
+  c_teacher constant uuid := 'b0510000-0000-4000-8000-000000000008';
+  c_company_admin constant uuid := 'b0510000-0000-4000-8000-000000000009';
+  c_people constant uuid[] := array[c_new, c_plain, c_false, c_employee, c_later,
+                                    c_closed, c_chelsea_admin, c_teacher, c_company_admin];
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_b uuid := (select id from organizations where slug = 'escola-b');
+  v_company uuid;
+  v_without uuid;
+  v_second uuid;
+  v_uid text := current_setting('test.uid', true);
+  v_role text;
+  v_before integer;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  v_before := (select count(*) from verify.failures);
+  if not (select open_signup from organizations where id = v_chelsea) then
+    insert into verify.failures values ('Chelsea St does not have the door open after 0051');
+  end if;
+  if (select count(*) from organizations where open_signup) <> 1 then
+    insert into verify.failures values ('another organization than Chelsea St has the door open after 0051');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'after 0051 Chelsea St, and only it, has the door open';
+  end if;
+
+  -- 1. A signup, confirmed, is a student of Chelsea St.
+  v_before := (select count(*) from verify.failures);
+  insert into auth.users (id, email, raw_user_meta_data)
+    values (c_new, 'signup-0051@example.com', '{"signup": true, "full_name": "Nova Aluna"}');
+  if exists (select 1 from organization_members where user_id = c_new) then
+    insert into verify.failures values ('an unconfirmed signup joined an organization');
+  end if;
+  update auth.users set email_confirmed_at = now() where id = c_new;
+  if not exists (select 1 from organization_members
+                  where user_id = c_new and organization_id = v_chelsea and role = 'student') then
+    insert into verify.failures values ('a confirmed signup is not a student member of Chelsea St');
+  end if;
+  if not exists (select 1 from students where id = c_new and organization_id = v_chelsea) then
+    insert into verify.failures values ('a confirmed signup has no students row in Chelsea St');
+  end if;
+  if (select count(*) from organization_members where user_id = c_new) <> 1 then
+    insert into verify.failures values ('a confirmed signup holds more than the one membership');
+  end if;
+  if (select full_name from profiles where id = c_new) is distinct from 'Nova Aluna' then
+    insert into verify.failures values ('a signup''s profile does not carry the name she typed');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a signup joins Chelsea St as a student on the first confirmation, not before, with her name';
+  end if;
+
+  -- 2. Without signup, confirmed at birth or later, nobody joins by it.
+  v_before := (select count(*) from verify.failures);
+  insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at)
+    values (c_plain, 'plain-0051@example.com', '{"full_name": "Sem Cadastro"}', now());
+  insert into auth.users (id, email, raw_user_meta_data)
+    values (c_false, 'false-0051@example.com', '{"signup": false}');
+  update auth.users set email_confirmed_at = now() where id = c_false;
+  if exists (select 1 from organization_members where user_id in (c_plain, c_false)) then
+    insert into verify.failures values ('an account without signup joined an organization with no invite');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'an account without signup, or with signup false, joins nothing with no invite';
+  end if;
+
+  -- 3. A company's student invite accepted in the same confirmation wins.
+  v_before := (select count(*) from verify.failures);
+  insert into organizations (slug, name, brand, has_teacher)
+    values ('empresa-0051', 'Empresa 0051', 'grifoai', false) returning id into v_company;
+  insert into organization_invites (organization_id, email, role, invited_by)
+    values (v_company, 'employee-0051@example.com', 'student', c_platform_admin);
+  insert into auth.users (id, email, raw_user_meta_data)
+    values (c_employee, 'employee-0051@example.com', '{"signup": true}');
+  update auth.users set email_confirmed_at = now() where id = c_employee;
+  if not exists (select 1 from students where id = c_employee and organization_id = v_company) then
+    insert into verify.failures values ('the company invite was not accepted for a signup');
+  end if;
+  if exists (select 1 from organization_members where user_id = c_employee and organization_id = v_chelsea) then
+    insert into verify.failures values ('a student of a company joined Chelsea St by the signup');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a student invite of a company, accepted in the same confirmation, wins over the signup';
+  end if;
+
+  -- 3b. So does an invite in another role: a teacher of Chelsea St, the admin
+  -- of a company. The signup adds no student beside it.
+  v_before := (select count(*) from verify.failures);
+  insert into organization_invites (organization_id, email, role, invited_by) values
+    (v_chelsea, 'teacher-0051@example.com', 'teacher', c_platform_admin),
+    (v_company, 'company-admin-0051@example.com', 'admin', c_platform_admin);
+  insert into auth.users (id, email, raw_user_meta_data) values
+    (c_teacher, 'teacher-0051@example.com', '{"signup": true}'),
+    (c_company_admin, 'company-admin-0051@example.com', '{"signup": true}');
+  update auth.users set email_confirmed_at = now() where id in (c_teacher, c_company_admin);
+  if not exists (select 1 from organization_members
+                  where user_id = c_teacher and organization_id = v_chelsea and role = 'teacher')
+     or not exists (select 1 from organization_members
+                     where user_id = c_company_admin and organization_id = v_company and role = 'admin') then
+    insert into verify.failures values ('a teacher or admin invite was not accepted for a signup');
+  end if;
+  if exists (select 1 from organization_members
+              where user_id in (c_teacher, c_company_admin) and role = 'student')
+     or exists (select 1 from students where id in (c_teacher, c_company_admin)) then
+    insert into verify.failures values ('a teacher or admin invite accepted with a signup also made a student');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a teacher or admin invite, accepted in the same confirmation, wins over the signup too';
+  end if;
+
+  -- 6. Only the first confirmation counts.
+  v_before := (select count(*) from verify.failures);
+  insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at)
+    values (c_later, 'later-0051@example.com', '{"full_name": "Depois"}', now());
+  update auth.users set raw_user_meta_data = '{"signup": true}' where id = c_later;
+  update auth.users set email_confirmed_at = now() where id = c_later;
+  if exists (select 1 from organization_members where user_id = c_later) then
+    insert into verify.failures values ('signup written after the first confirmation made a member');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'signup written after the first confirmation, and a second confirmation, make nobody a member';
+  end if;
+
+  -- With the door closed a signup joins nothing, and the confirmation goes through.
+  v_before := (select count(*) from verify.failures);
+  update organizations set open_signup = false where id = v_chelsea;
+  insert into auth.users (id, email, raw_user_meta_data)
+    values (c_closed, 'closed-0051@example.com', '{"signup": true}');
+  update auth.users set email_confirmed_at = now() where id = c_closed;
+  if exists (select 1 from organization_members where user_id = c_closed) then
+    insert into verify.failures values ('a signup joined an organization with every door closed');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'with every door closed a signup is confirmed and joins nothing';
+  end if;
+
+  -- 4. Only chelsea-st with a teacher opens the door, each clause on its own.
+  -- Chelsea's door is closed here, so the unique index cannot answer first.
+  perform verify.expect_named_refusal(
+    'a company with a teacher opens the door', '23514 organizations_open_signup_chelsea',
+    format('update organizations set open_signup = true where id = %L', v_b));
+  insert into organizations (slug, name, brand, has_teacher)
+    values ('chelsea-0051-sem-professor', 'Chelsea sem professor', 'chelsea-st', false)
+    returning id into v_without;
+  perform verify.expect_named_refusal(
+    'a chelsea-st organization without a teacher opens the door', '23514 organizations_open_signup_chelsea',
+    format('update organizations set open_signup = true where id = %L', v_without));
+  perform verify.expect_named_refusal(
+    'a company without a teacher opens the door', '23514 organizations_open_signup_chelsea',
+    format('update organizations set open_signup = true where id = %L', v_company));
+
+  -- 5. One door at a time. A door the cases above opened by mistake is
+  -- closed first, so a refusal missing there does not hide this one.
+  update organizations set open_signup = false where open_signup;
+  update organizations set open_signup = true where id = v_chelsea;
+  insert into organizations (slug, name, brand, has_teacher)
+    values ('chelsea-0051-segunda', 'Chelsea segunda', 'chelsea-st', true)
+    returning id into v_second;
+  perform verify.expect_named_refusal(
+    'a second organization opens the door', '23505 organizations_one_open_signup',
+    format('update organizations set open_signup = true where id = %L', v_second));
+
+  -- 7. The admin of Chelsea St, not a platform admin, does not move the door;
+  -- the platform admin does.
+  v_before := (select count(*) from verify.failures);
+  insert into auth.users (id, email, email_confirmed_at)
+    values (c_chelsea_admin, 'chelsea-admin-0051@example.com', now());
+  insert into organization_members (organization_id, user_id, role)
+    values (v_chelsea, c_chelsea_admin, 'admin');
+  set local role authenticated;
+  perform set_config('test.uid', c_chelsea_admin::text, false);
+  update organizations set open_signup = false where id = v_chelsea;
+  reset role;
+  if not (select open_signup from organizations where id = v_chelsea) then
+    insert into verify.failures values ('the admin of Chelsea St, not a platform admin, closed its door');
+    update organizations set open_signup = true where id = v_chelsea;
+  end if;
+  set local role authenticated;
+  perform set_config('test.uid', c_platform_admin::text, false);
+  update organizations set open_signup = false where id = v_chelsea;
+  reset role;
+  if (select open_signup from organizations where id = v_chelsea) then
+    insert into verify.failures values ('the platform admin could not close the door');
+  end if;
+  set local role authenticated;
+  update organizations set open_signup = true where id = v_chelsea;
+  reset role;
+  if not (select open_signup from organizations where id = v_chelsea) then
+    insert into verify.failures values ('the platform admin could not open the door');
+    update organizations set open_signup = true where id = v_chelsea;
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'only the platform admin moves the door, not the admin of the organization';
+  end if;
+
+  -- 8. join_by_signup is executed by nobody, as the trigger functions.
+  v_before := (select count(*) from verify.failures);
+  foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+    if has_function_privilege(v_role, 'public.join_by_signup(uuid, jsonb)', 'execute') then
+      insert into verify.failures values (format('%s executes join_by_signup', v_role));
+    end if;
+  end loop;
+  if not (select prosecdef from pg_proc where oid = 'public.join_by_signup(uuid, jsonb)'::regprocedure) then
+    insert into verify.failures values ('join_by_signup is not security definer');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'join_by_signup is security definer and executed by nobody';
+  end if;
+
+  -- Nothing written here is kept.
+  delete from students where id = any (c_people);
+  delete from organization_members where user_id = any (c_people);
+  delete from organization_invites where email like '%-0051@example.com';
+  delete from profiles where id = any (c_people);
+  delete from auth.users where id = any (c_people);
+  delete from organizations where id in (v_company, v_without, v_second);
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a signup opens one door: %', v_failures;
+  end if;
+end;
+$$;
+
+-- A lesson is booked and paid (0052) ------------------------------------------------------
+--
+-- A teacher writes her own row, windows and time off, and a student reads
+-- none of them; an active teacher has a Meet and a calendar e-mail. The six
+-- functions of the booking are executed by authenticated alone, the pieces
+-- they share and the trigger by nobody, and credit_debit and credit_refund
+-- still by nobody. The student reads the teachers of her organization with
+-- what a lesson costs her, and the free slots of one: on the grid of the
+-- windows, in the teacher's zone. A booking is refused by name outside a
+-- window, off the grid, in the past, under 12 h ahead, past 8 weeks, in a
+-- time off, on a slot taken, with a teacher of another organization, in an
+-- organization without a teacher, with a teacher who takes no booking, and
+-- with a balance that does not cover it, which leaves no lesson and no entry.
+-- A lesson with a teacher takes her slot in every organization she teaches
+-- in; a student does not cancel a lesson of the fixed agenda.
+-- A booking debits the caller, by credit_cost, with the lesson as the
+-- reference. Two scheduled lessons of one teacher or of one student that
+-- cross are refused by the database, also when postgres writes them; a lesson
+-- of the fixed agenda takes the slot of every teacher of its organization.
+-- Whoever teaches cannot change, insert or remove a booked lesson through the
+-- API, and still writes its note. The student's cancel gives the debit back
+-- at 61 minutes before the start and not at 59; the teacher's at 30 minutes
+-- does; the refund is what was paid, after the cost changed; nobody cancels a
+-- lesson that is not hers, twice, or too late. my_lessons gives the teacher's
+-- name, her Meet and until when the cancel gives back. Nothing written here
+-- is kept.
+
+-- A refusal expected here, and a statement accepted by mistake undone: a
+-- clause cut to watch it fail then fails alone, instead of the row it let in
+-- breaking every check after it.
+create function verify.named_refusal_undone(p_sql text) returns text
+language plpgsql as $$
+declare
+  v_name text;
+begin
+  begin
+    execute p_sql;
+    raise exception using errcode = 'P0052';
+  exception when sqlstate 'P0052' then
+    return null;
+  end;
+exception when others then
+  get stacked diagnostics v_name = constraint_name;
+  return sqlstate || coalesce(' ' || nullif(v_name, ''), '');
+end;
+$$;
+
+create function verify.expect_refused_undone(p_what text, p_expected text, p_sql text)
+returns void
+language plpgsql as $$
+declare
+  v_by text := verify.named_refusal_undone(p_sql);
+begin
+  if v_by is null then
+    insert into verify.failures values (format('%s: accepted', p_what));
+  elsif v_by <> p_expected then
+    insert into verify.failures
+      values (format('%s: refused by %s, expected %s', p_what, v_by, p_expected));
+  else
+    raise notice '%: refused by %', p_what, v_by;
+  end if;
+end;
+$$;
+
+do $$
+declare
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  c_teacher_b_school constant uuid := '33333333-3333-3333-3333-333333333333';
+  c_student_b_school constant uuid := '44444444-4444-4444-4444-444444444444';
+  c_teacher_a constant uuid := 'b0520000-0000-4000-8000-000000000001';
+  c_teacher_b constant uuid := 'b0520000-0000-4000-8000-000000000002';
+  c_other constant uuid := 'b0520000-0000-4000-8000-000000000003';
+  c_poor constant uuid := 'b0520000-0000-4000-8000-000000000004';
+  c_employee constant uuid := 'b0520000-0000-4000-8000-000000000005';
+  c_people constant uuid[] := array[c_teacher_a, c_teacher_b, c_other, c_poor, c_employee];
+  c_zone constant text := 'America/Sao_Paulo';
+  c_tables constant text[] := array['teachers', 'teacher_availability', 'teacher_time_off'];
+  c_authenticated constant regprocedure[] := array[
+    'public.lesson_rules()',
+    'public.bookable_teachers()',
+    'public.bookable_slots(uuid, timestamptz, timestamptz)',
+    'public.my_lessons()',
+    'public.book_lesson(uuid, timestamptz)',
+    'public.cancel_lesson(uuid)']::regprocedure[];
+  c_nobody constant regprocedure[] := array[
+    'public.lesson_booker_organization(uuid)',
+    'public.lesson_open_slots(uuid, uuid, timestamptz, timestamptz)',
+    'public.lessons_booked_through_functions()',
+    'public.credit_debit(uuid, text, integer, text)',
+    'public.credit_refund(uuid, text)']::regprocedure[];
+  v_uid text := current_setting('test.uid', true);
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_school_b uuid := (select id from organizations where slug = 'escola-b');
+  v_day date := (now() at time zone 'America/Sao_Paulo')::date + 2;
+  v_ten timestamptz;
+  v_plan uuid;
+  v_a uuid;
+  v_b uuid;
+  v_c uuid;
+  v_a2 uuid;
+  v_lesson uuid;
+  v_second uuid;
+  v_old uuid;
+  v_booked record;
+  v_mine record;
+  v_fn regprocedure;
+  v_role text;
+  v_privilege text;
+  v_n bigint;
+  v_int integer;
+  v_before integer;
+  v_failures text;
+begin
+  delete from verify.failures;
+  v_ten := (v_day + time '10:00') at time zone c_zone;
+
+  -- Two teachers and three students of Chelsea St, and an employee of a
+  -- company without a teacher. The student of the fixtures gets a trial of
+  -- 20 credits, and a lesson costs 4 (made-up numbers).
+  insert into auth.users (id, email, raw_user_meta_data)
+    select p, 'lesson-' || right(p::text, 2) || '@example.com',
+           jsonb_build_object('full_name', 'Lesson ' || right(p::text, 2))
+      from unnest(c_people) p;
+  insert into organization_members (organization_id, user_id, role) values
+    (v_chelsea, c_teacher_a, 'teacher'),
+    (v_chelsea, c_teacher_b, 'teacher'),
+    (v_chelsea, c_other, 'student'),
+    (v_chelsea, c_poor, 'student'),
+    ((select id from organizations where slug = 'grifoai'), c_employee, 'student');
+  insert into students (id, organization_id) values
+    (c_other, v_chelsea),
+    (c_poor, v_chelsea),
+    (c_employee, (select id from organizations where slug = 'grifoai'));
+  insert into plans (brand, key, name, monthly_price_cents, annual_price_cents, monthly_credits,
+                     trail_minutes_per_day, opens_voice_question, opens_free_conversation, opens_video,
+                     trial_days, trial_credits, credit_ceiling_months, credit_days_after_cancel)
+    values ('chelsea-st', 'lesson', 'Lesson', 1000, 10000, 10, 15, true, false, false, 14, 20, 3, 30)
+    returning id into v_plan;
+  insert into credit_costs (brand, action, credits) values ('chelsea-st', 'teacher_lesson', 4);
+  perform billing_customer(c_student, repeat('e', 64));
+  perform billing_open_subscription(c_student, v_plan, 'monthly', 'pix', 1000, true,
+    (now() at time zone c_zone)::date + 14, null, 'cus_lesson', 'sub_lesson');
+  if credit_balance_of(c_student) <> 20 then
+    raise exception 'a lesson is booked and paid: the fixture has % credits, expected 20',
+      credit_balance_of(c_student);
+  end if;
+
+  -- 1. Privileges: authenticated reads and writes the three tables under
+  -- their policies; anon and service_role hold nothing on them.
+  v_before := (select count(*) from verify.failures);
+  foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+    for v_int in 1 .. array_length(c_tables, 1) loop
+      foreach v_privilege in array array['select', 'insert', 'update', 'delete'] loop
+        if has_table_privilege(v_role, 'public.' || c_tables[v_int], v_privilege) <> (v_role = 'authenticated') then
+          insert into verify.failures
+            values (format('%s %s on %s is not as it should be', v_role, v_privilege, c_tables[v_int]));
+        end if;
+      end loop;
+    end loop;
+  end loop;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'authenticated alone reaches teachers, teacher_availability and teacher_time_off';
+  end if;
+
+  -- 2. Execution: the six for authenticated alone; nobody executes what they
+  -- share, the trigger, nor the debit and the refund; nobody writes the
+  -- ledger through the API.
+  v_before := (select count(*) from verify.failures);
+  foreach v_fn in array c_authenticated loop
+    if not has_function_privilege('authenticated', v_fn, 'execute') then
+      insert into verify.failures values (format('authenticated does not execute %s', v_fn));
+    end if;
+    foreach v_role in array array['anon', 'service_role'] loop
+      if has_function_privilege(v_role, v_fn, 'execute') then
+        insert into verify.failures values (format('%s executes %s', v_role, v_fn));
+      end if;
+    end loop;
+  end loop;
+  foreach v_fn in array c_nobody loop
+    foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+      if has_function_privilege(v_role, v_fn, 'execute') then
+        insert into verify.failures values (format('%s executes %s', v_role, v_fn));
+      end if;
+    end loop;
+  end loop;
+  foreach v_privilege in array array['insert', 'update', 'delete'] loop
+    if has_table_privilege('authenticated', 'public.credit_entries', v_privilege) then
+      insert into verify.failures values (format('authenticated has %s on credit_entries', v_privilege));
+    end if;
+  end loop;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'authenticated executes the six functions of the booking alone; nobody executes the pieces they share, the trigger, credit_debit or credit_refund; nobody writes the ledger through the API';
+  end if;
+
+  -- 3. A teacher writes her own row and her hours. A full day in São Paulo,
+  -- every day, for A; one morning, 9h to 12h on the day of the tests, for B;
+  -- the whole day after it off for A. And the teacher of Escola B.
+  perform set_config('test.uid', c_teacher_a::text, false);
+  set local role authenticated;
+  perform verify.expect_refused_undone('an active teacher without a Meet', '23514 teachers_active_needs_contact',
+    format($q$insert into teachers (organization_id, user_id, member_role, calendar_email, is_active)
+              values (%L, %L, 'teacher', 'a@example.com', true)$q$, v_chelsea, c_teacher_a));
+  perform verify.expect_refused_undone('a Meet that is not https', '23514 teachers_meet_url_https',
+    format($q$insert into teachers (organization_id, user_id, member_role, meet_url)
+              values (%L, %L, 'teacher', 'http://meet.example.com/a')$q$, v_chelsea, c_teacher_a));
+  perform verify.expect_refused_undone('a teacher writing the row of another', '42501',
+    format($q$insert into teachers (organization_id, user_id, member_role) values (%L, %L, 'teacher')$q$,
+      v_chelsea, c_teacher_b));
+  insert into teachers (organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+    values (v_chelsea, c_teacher_a, 'teacher', 'https://meet.example.com/a', 'a@example.com', true)
+    returning id into v_a;
+  insert into teacher_availability (organization_id, teacher_id, weekday, start_time, end_time, timezone)
+    select v_chelsea, v_a, d, '00:00', '24:00', c_zone from generate_series(0, 6) d;
+  perform verify.expect_refused_undone('a window in an unknown zone', '23514 teacher_availability_timezone_known',
+    format($q$insert into teacher_availability (organization_id, teacher_id, weekday, start_time, end_time, timezone)
+              values (%L, %L, 1, '09:00', '10:00', 'Mars/Olympus')$q$, v_chelsea, v_a));
+  perform verify.expect_refused_undone('a window that ends before it starts', '23514 teacher_availability_ends_after_start',
+    format($q$insert into teacher_availability (organization_id, teacher_id, weekday, start_time, end_time, timezone)
+              values (%L, %L, 1, '10:00', '09:00', %L)$q$, v_chelsea, v_a, c_zone));
+  insert into teacher_time_off (organization_id, teacher_id, starts_at, ends_at)
+    values (v_chelsea, v_a, (v_day + 1)::timestamp at time zone c_zone,
+            (v_day + 2)::timestamp at time zone c_zone);
+  perform set_config('test.uid', c_teacher_b::text, false);
+  insert into teachers (organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+    values (v_chelsea, c_teacher_b, 'teacher', 'https://meet.example.com/b', 'b@example.com', true)
+    returning id into v_b;
+  insert into teacher_availability (organization_id, teacher_id, weekday, start_time, end_time, timezone)
+    values (v_chelsea, v_b, extract(dow from v_day), '09:00', '12:00', c_zone);
+  perform set_config('test.uid', c_teacher_b_school::text, false);
+  insert into teachers (organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+    values (v_school_b, c_teacher_b_school, 'teacher', 'https://meet.example.com/c', 'c@example.com', true)
+    returning id into v_c;
+  insert into teacher_availability (organization_id, teacher_id, weekday, start_time, end_time, timezone)
+    select v_school_b, v_c, d, '00:00', '24:00', c_zone from generate_series(0, 6) d;
+  -- A teaches in Escola B too, with a row and a whole day there as well.
+  reset role;
+  insert into organization_members (organization_id, user_id, role) values (v_school_b, c_teacher_a, 'teacher');
+  insert into teachers (organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+    values (v_school_b, c_teacher_a, 'teacher', 'https://meet.example.com/a2', 'a@example.com', true)
+    returning id into v_a2;
+  insert into teacher_availability (organization_id, teacher_id, weekday, start_time, end_time, timezone)
+    select v_school_b, v_a2, d, '00:00', '24:00', c_zone from generate_series(0, 6) d;
+  set local role authenticated;
+
+  -- 4. A student makes no teacher of herself and reads none of the three.
+  perform set_config('test.uid', c_student::text, false);
+  perform verify.expect_refused_undone('a student making herself a teacher', '42501',
+    format($q$insert into teachers (organization_id, user_id, member_role) values (%L, %L, 'student')$q$,
+      v_chelsea, c_student));
+  v_before := (select count(*) from verify.failures);
+  if (select count(*) from teachers) <> 0
+     or (select count(*) from teacher_availability) <> 0
+     or (select count(*) from teacher_time_off) <> 0 then
+    insert into verify.failures values ('a student reads teachers, their windows or their time off');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a student reads no row of teachers, teacher_availability or teacher_time_off';
+  end if;
+
+  -- 5. What she reads: the two teachers of her organization, at 4 credits;
+  -- A's 24 slots of the day in her zone; B's 3 (9h, 10h, 11h: a whole
+  -- lesson inside the window). An employee is refused.
+  v_before := (select count(*) from verify.failures);
+  if (select count(*) from bookable_teachers()) <> 2
+     or exists (select 1 from bookable_teachers() where lesson_credits <> 4)
+     or not exists (select 1 from bookable_teachers() where teacher_id = v_a and full_name = 'Lesson 01') then
+    insert into verify.failures values ('bookable_teachers does not give the two teachers at 4 credits');
+  end if;
+  select count(*) into v_n from bookable_slots(v_a, v_day::timestamp at time zone c_zone,
+                                                (v_day + 1)::timestamp at time zone c_zone - interval '1 second');
+  if v_n <> 24 then
+    insert into verify.failures values (format('A has %s slots in a whole day, expected 24', v_n));
+  end if;
+  if (select array_agg(starts_at order by starts_at)
+        from bookable_slots(v_b, v_day::timestamp at time zone c_zone, (v_day + 1)::timestamp at time zone c_zone))
+     is distinct from array[v_ten - interval '1 hour', v_ten, v_ten + interval '1 hour'] then
+    insert into verify.failures values ('B''s slots are not 9h, 10h and 11h in her zone');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a student reads her organization''s teachers at what a lesson costs her, and their free slots on the grid of their windows, in their zone';
+  end if;
+  perform set_config('test.uid', c_employee::text, false);
+  perform verify.expect_refused_undone('an employee reading the teachers', '42501 lesson_booking_needs_teacher',
+    'select * from bookable_teachers()');
+  perform verify.expect_refused_undone('an employee booking', '42501 lesson_booking_needs_teacher',
+    format('select * from book_lesson(%L, %L)', v_a, v_ten));
+
+  -- 6. A booking refused by name, before any debit.
+  perform set_config('test.uid', c_student::text, false);
+  perform verify.expect_refused_undone('a slot outside the window', '23514 lesson_slot_bookable',
+    format('select * from book_lesson(%L, %L)', v_b, v_ten + interval '5 hours'));
+  perform verify.expect_refused_undone('a start off the grid', '23514 lesson_slot_bookable',
+    format('select * from book_lesson(%L, %L)', v_a, v_ten + interval '30 minutes'));
+  perform verify.expect_refused_undone('a slot in the past', '23514 lesson_slot_bookable',
+    format('select * from book_lesson(%L, %L)', v_a, date_trunc('hour', now()) - interval '1 day'));
+  perform verify.expect_refused_undone('a slot under 12 hours ahead', '23514 lesson_slot_bookable',
+    format('select * from book_lesson(%L, %L)', v_a, date_trunc('hour', now()) + interval '3 hours'));
+  perform verify.expect_refused_undone('a slot past 8 weeks', '23514 lesson_slot_bookable',
+    format('select * from book_lesson(%L, %L)', v_a, date_trunc('hour', now()) + interval '9 weeks'));
+  perform verify.expect_refused_undone('a slot in a time off', '23514 lesson_slot_bookable',
+    format('select * from book_lesson(%L, %L)', v_a, v_ten + interval '1 day'));
+  perform verify.expect_refused_undone('a teacher of another organization', '42501 lesson_booking_same_organization',
+    format('select * from book_lesson(%L, %L)', v_c, v_ten));
+  perform verify.expect_refused_undone('the slots of a teacher of another organization', '42501 lesson_booking_same_organization',
+    format('select * from bookable_slots(%L, now(), now() + interval ''1 week'')', v_c));
+  perform set_config('test.uid', c_teacher_b::text, false);
+  update teachers set is_active = false where id = v_b;
+  perform set_config('test.uid', c_student::text, false);
+  perform verify.expect_refused_undone('a teacher who takes no booking', '23514 lesson_teacher_active',
+    format('select * from book_lesson(%L, %L)', v_b, v_ten));
+  perform set_config('test.uid', c_teacher_b::text, false);
+  update teachers set is_active = true where id = v_b;
+  perform set_config('test.uid', c_student::text, false);
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if exists (select 1 from lessons where student_id = c_student and teacher_id is not null)
+     or credit_balance_of(c_student) <> 20 then
+    insert into verify.failures values ('a refused booking left a lesson or a debit');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a refused booking leaves no lesson and no debit';
+  end if;
+
+  -- 7. A booking: the lesson of A at 10h, 50 min, debited 4 from her and
+  -- from nobody else, with the lesson as the reference.
+  set local role authenticated;
+  select * into v_booked from book_lesson(v_a, v_ten);
+  v_lesson := v_booked.lesson_id;
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if v_booked.credits_debited <> 4 or v_booked.balance <> 16
+     or (select (teacher_id, student_id, duration_minutes, credits_debited, organization_id)::text
+           from lessons where id = v_lesson)
+        is distinct from (v_a, c_student, 50, 4, v_chelsea)::text then
+    insert into verify.failures values ('the booked lesson is not A''s, hers, of 50 min and 4 credits');
+  end if;
+  if (select count(*) from credit_entries where kind = 'debit' and reference = 'lesson:' || v_lesson) <> 1
+     or (select person_id from credit_entries where kind = 'debit' and reference = 'lesson:' || v_lesson) <> c_student
+     or (select amount from credit_entries where kind = 'debit' and reference = 'lesson:' || v_lesson) <> -4
+     or exists (select 1 from credit_entries where person_id in (c_teacher_a, c_teacher_b)) then
+    insert into verify.failures values ('the booking did not debit 4 from her alone, under lesson:<id>');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a booking writes the lesson and debits the caller by credit_cost, under lesson:<id>, in one call';
+  end if;
+
+  -- 8. The slot is taken: by the slots and by the booking of another; and
+  -- for her, the same hour with another teacher.
+  perform set_config('test.uid', c_other::text, false);
+  set local role authenticated;
+  if exists (select 1 from bookable_slots(v_a, v_ten, v_ten) ) then
+    insert into verify.failures values ('a booked slot is still offered');
+  end if;
+  perform verify.expect_refused_undone('a slot already booked', '23514 lesson_slot_bookable',
+    format('select * from book_lesson(%L, %L)', v_a, v_ten));
+  -- Nor is the hour she already has with A offered to her with B.
+  perform set_config('test.uid', c_student::text, false);
+  if exists (select 1 from bookable_slots(v_b, v_ten, v_ten)) then
+    insert into verify.failures values ('a slot that crosses a lesson of hers is offered to her');
+  end if;
+  perform verify.expect_refused_undone('a slot that crosses a lesson of hers', '23514 lesson_slot_bookable',
+    format('select * from book_lesson(%L, %L)', v_b, v_ten));
+  -- A is taken at 10h in Escola B too, where she has another row.
+  perform set_config('test.uid', c_student_b_school::text, false);
+  if exists (select 1 from bookable_slots(v_a2, v_ten, v_ten))
+     or not exists (select 1 from bookable_slots(v_a2, v_ten + interval '1 hour', v_ten + interval '1 hour')) then
+    insert into verify.failures values ('a lesson with A in one organization does not take her slot in the other');
+  else
+    raise notice 'a lesson with a teacher in one organization takes her slot in every organization she teaches in';
+  end if;
+  perform verify.expect_refused_undone('the same teacher at the same hour in another organization', '23514 lesson_slot_bookable',
+    format('select * from book_lesson(%L, %L)', v_a2, v_ten));
+
+  -- 9. A balance that does not cover a lesson: no lesson, no entry.
+  perform set_config('test.uid', c_poor::text, false);
+  perform verify.expect_refused_undone('a booking without the credits', '23514 credits_not_negative',
+    format('select * from book_lesson(%L, %L)', v_a, v_ten + interval '1 hour'));
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if exists (select 1 from lessons where student_id = c_poor)
+     or exists (select 1 from credit_entries where person_id = c_poor) then
+    insert into verify.failures values ('a booking without the credits left a lesson or an entry');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a booking without the credits leaves no lesson and no entry';
+  end if;
+
+  -- 10. Two lessons that cross, written by postgres past every function.
+  perform verify.expect_refused_undone('two lessons of one teacher that cross', '23P01 lessons_teacher_no_overlap',
+    format($q$insert into lessons (organization_id, student_id, teacher_id, scheduled_at, duration_minutes)
+              values (%L, %L, %L, %L, 50)$q$, v_chelsea, c_other, v_a, v_ten + interval '30 minutes'));
+  perform verify.expect_refused_undone('two lessons of one student that cross', '23P01 lessons_student_no_overlap',
+    format($q$insert into lessons (organization_id, student_id, teacher_id, scheduled_at, duration_minutes)
+              values (%L, %L, %L, %L, 50)$q$, v_chelsea, c_student, v_b, v_ten + interval '20 minutes'));
+
+  -- 11. A lesson of the fixed agenda at 11h takes 11h from every teacher of
+  -- Chelsea St.
+  insert into lessons (organization_id, student_id, scheduled_at, duration_minutes)
+    values (v_chelsea, c_poor, v_ten + interval '1 hour', 45)
+    returning id into v_old;
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  v_before := (select count(*) from verify.failures);
+  if exists (select 1 from bookable_slots(v_a, v_ten + interval '1 hour', v_ten + interval '1 hour'))
+     or exists (select 1 from bookable_slots(v_b, v_ten + interval '1 hour', v_ten + interval '1 hour'))
+     or not exists (select 1 from bookable_slots(v_a, v_ten + interval '2 hours', v_ten + interval '2 hours')) then
+    insert into verify.failures values ('a lesson without a teacher does not take the slot of every teacher of its organization');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a lesson of the fixed agenda takes its slot from every teacher of its organization';
+  end if;
+  perform verify.expect_refused_undone('a slot a lesson without a teacher holds', '23514 lesson_slot_bookable',
+    format('select * from book_lesson(%L, %L)', v_a, v_ten + interval '1 hour'));
+  -- Its student did not book it, and does not cancel it.
+  perform set_config('test.uid', c_poor::text, false);
+  perform verify.expect_refused_undone('a student cancelling a lesson of the fixed agenda', '42501 lesson_cancel_allowed',
+    format('select cancel_lesson(%L)', v_old));
+
+  -- 12. Whoever teaches writes a booked lesson's note, and nothing that
+  -- books, pays or cancels it.
+  perform set_config('test.uid', c_teacher_a::text, false);
+  perform verify.expect_refused_undone('a teacher cancelling a booked lesson by hand', '42501 lessons_booked_through_functions',
+    format($q$update lessons set status = 'cancelled' where id = %L$q$, v_lesson));
+  perform verify.expect_refused_undone('a teacher moving a booked lesson by hand', '42501 lessons_booked_through_functions',
+    format($q$update lessons set scheduled_at = scheduled_at + interval '1 day' where id = %L$q$, v_lesson));
+  perform verify.expect_refused_undone('a teacher removing a booked lesson', '42501 lessons_booked_through_functions',
+    format('delete from lessons where id = %L', v_lesson));
+  perform verify.expect_refused_undone('a teacher inserting a booked lesson', '42501 lessons_booked_through_functions',
+    format($q$insert into lessons (organization_id, student_id, teacher_id, scheduled_at)
+              values (%L, %L, %L, %L)$q$, v_chelsea, c_other, v_a, v_ten + interval '3 hours'));
+  perform verify.expect_refused_undone('a teacher writing a debit on a lesson', '42501 lessons_booked_through_functions',
+    format('update lessons set credits_debited = 9 where id = %L', v_old));
+  perform verify.expect_accepted('a teacher writing the note of a booked lesson',
+    format($q$update lessons set teacher_note = 'nota' where id = %L$q$, v_lesson));
+  perform set_config('test.uid', c_student::text, false);
+  update lessons set status = 'cancelled' where id = v_lesson;
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if (select (status, teacher_note)::text from lessons where id = v_lesson) is distinct from '(scheduled,nota)' then
+    insert into verify.failures values ('a booked lesson changed status by hand, or lost its note');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a booked lesson changes only through the functions; its note still through the API';
+  end if;
+
+  -- 13. my_lessons: the teacher's name, her Meet, until when the cancel gives
+  -- back; the lesson of the fixed agenda at 11h is another student's.
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  select * into v_mine from my_lessons() where lesson_id = v_lesson;
+  v_before := (select count(*) from verify.failures);
+  if v_mine.lesson_id is null or v_mine.teacher_name <> 'Lesson 01'
+     or v_mine.meet_url <> 'https://meet.example.com/a'
+     or v_mine.refund_until <> v_ten - interval '1 hour'
+     or v_mine.credits_debited <> 4
+     or exists (select 1 from my_lessons() where lesson_id = v_old) then
+    insert into verify.failures values ('my_lessons does not give her lesson with A''s name, Meet and the refund limit');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'my_lessons gives her lessons with the teacher''s name and Meet, and until when a cancel gives back';
+  end if;
+
+  -- 14. Her cancel: at 61 minutes before the start the debit comes back; at
+  -- 59 it does not. Each lesson is booked, then moved by postgres.
+  select lesson_id into v_second from book_lesson(v_a, v_ten + interval '6 hours');
+  reset role;
+  update lessons set scheduled_at = now() + interval '61 minutes' where id = v_second;
+  set local role authenticated;
+  v_int := (select refunded_credits from cancel_lesson(v_second));
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if v_int <> 4 or credit_balance_of(c_student) <> 16
+     or (select (status, credits_refunded, cancelled_by)::text from lessons where id = v_second)
+        is distinct from (('cancelled'::lesson_status, true, c_student))::text then
+    insert into verify.failures values (format('her cancel at 61 minutes gave back %s, expected 4', v_int));
+  end if;
+  set local role authenticated;
+  select lesson_id into v_second from book_lesson(v_a, v_ten + interval '7 hours');
+  reset role;
+  update lessons set scheduled_at = now() + interval '59 minutes' where id = v_second;
+  set local role authenticated;
+  v_int := (select refunded_credits from cancel_lesson(v_second));
+  reset role;
+  if v_int <> 0 or credit_balance_of(c_student) <> 12
+     or (select (status, credits_refunded)::text from lessons where id = v_second) <> '(cancelled,f)' then
+    insert into verify.failures values (format('her cancel at 59 minutes gave back %s, expected 0', v_int));
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'her cancel gives the debit back at 61 minutes before the start and not at 59';
+  end if;
+
+  -- 15. The teacher's cancel at 30 minutes gives it all back.
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  select lesson_id into v_second from book_lesson(v_a, v_ten + interval '8 hours');
+  reset role;
+  update lessons set scheduled_at = now() + interval '30 minutes' where id = v_second;
+  perform set_config('test.uid', c_teacher_b::text, false);
+  set local role authenticated;
+  perform verify.expect_refused_undone('another teacher cancelling A''s lesson', '42501 lesson_cancel_allowed',
+    format('select cancel_lesson(%L)', v_second));
+  perform set_config('test.uid', c_other::text, false);
+  perform verify.expect_refused_undone('another student cancelling her lesson', '42501 lesson_cancel_allowed',
+    format('select cancel_lesson(%L)', v_second));
+  perform set_config('test.uid', c_teacher_a::text, false);
+  v_int := (select refunded_credits from cancel_lesson(v_second));
+  perform verify.expect_refused_undone('a lesson cancelled twice', '23514 lesson_cancel_scheduled',
+    format('select cancel_lesson(%L)', v_second));
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if v_int <> 4 or credit_balance_of(c_student) <> 12 then
+    insert into verify.failures values (format('the teacher''s cancel at 30 minutes gave back %s, expected 4', v_int));
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'the teacher''s cancel at 30 minutes before the start gives the debit back';
+  end if;
+
+  -- 16. Too late: she after the start, the teacher after the end.
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  select lesson_id into v_second from book_lesson(v_a, v_ten + interval '9 hours');
+  reset role;
+  update lessons set scheduled_at = now() - interval '10 minutes' where id = v_second;
+  set local role authenticated;
+  perform verify.expect_refused_undone('her cancel after the start', '23514 lesson_cancel_before_start',
+    format('select cancel_lesson(%L)', v_second));
+  reset role;
+  update lessons set scheduled_at = now() - interval '2 hours' where id = v_second;
+  perform set_config('test.uid', c_teacher_a::text, false);
+  set local role authenticated;
+  perform verify.expect_refused_undone('the teacher''s cancel after the end', '23514 lesson_cancel_before_end',
+    format('select cancel_lesson(%L)', v_second));
+  reset role;
+
+  -- 17. The refund is what she paid: 4, after the cost went to 6.
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  select lesson_id into v_second from book_lesson(v_a, v_ten + interval '10 hours');
+  reset role;
+  update credit_costs set credits = 6 where brand = 'chelsea-st' and action = 'teacher_lesson';
+  set local role authenticated;
+  v_int := (select refunded_credits from cancel_lesson(v_second));
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if v_int <> 4 or (select amount from credit_entries where kind = 'refund' and reference = 'lesson:' || v_second) <> 4 then
+    insert into verify.failures values (format('the refund after the cost changed gave back %s, expected the 4 paid', v_int));
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'the refund gives back what was paid, not the cost of the day';
+  end if;
+
+  -- Nothing written here is kept. The ledger goes past the trigger that
+  -- refuses a delete, as a restore passes it.
+  perform set_config('session_replication_role', 'replica', true);
+  delete from credit_entries;
+  perform set_config('session_replication_role', 'origin', true);
+  delete from lessons where teacher_id in (v_a, v_b, v_c) or id = v_old;
+  delete from teachers where id in (v_a, v_b, v_c, v_a2);
+  delete from subscriptions;
+  delete from billing_customers;
+  delete from credit_costs;
+  delete from plans;
+  delete from students where id = any (c_people);
+  delete from organization_members where user_id = any (c_people);
+  delete from auth.users where id = any (c_people);
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a lesson is booked and paid: %', v_failures;
+  end if;
+  raise notice 'a lesson is booked and paid: the teacher writes her own hours and the student reads none; the six functions are executed by authenticated alone and the debit by nobody; a booking is refused by name off a free slot, in another organization, without a teacher or without the credits, and leaves nothing then; it debits the caller by credit_cost under lesson:<id>; two lessons that cross are refused by the database; a booked lesson changes only through the functions; her cancel gives back until 1 hour before, the teacher''s always, and what was paid';
+end;
+$$;
+
+-- One way to book a lesson (0054) ------------------------------------------------------
+--
+-- 0054 moves every lesson of the fixed agenda to the one active teacher of
+-- its organization, and refuses whole while an organization with such a
+-- lesson has none or more than one. So it is applied here, after the blocks
+-- that still call lesson_schedules and materialize_lessons (0042, 0047,
+-- 0048) and the one that holds a lesson without a teacher (0052), and only
+-- after the script has shown it refusing.
+--
+-- The lessons these fixtures leave: two scheduled in Chelsea St, one in
+-- Escola B, and one in Empresa C, written by postgres in the block of 0042
+-- for an organization without a teacher. Production has no lesson outside
+-- Chelsea St (measured 2026-11-13), and a lesson of an organization without a
+-- teacher has nobody to move to: the guard would refuse it, which is the
+-- design. That one leaves here. Chelsea St gets the history production has:
+-- a past lesson with "Parei aqui" and a note, a cancelled one ahead and one
+-- scheduled ahead.
+
+delete from lessons
+ where organization_id in (select id from organizations where not has_teacher);
+
+insert into lessons (student_id, scheduled_at, duration_minutes, status, teacher_note, stopped_at_point_id)
+values
+  ('22222222-2222-2222-2222-222222222222', now() - interval '10 days', 45, 'scheduled',
+   'a note of the fixed agenda', (select id from points where number = 53)),
+  ('22222222-2222-2222-2222-222222222222', now() + interval '20 days', 45, 'cancelled', null, null),
+  ('22222222-2222-2222-2222-222222222222', now() + interval '21 days', 45, 'scheduled', null, null);
+
+-- Someone who teaches in Escola B and nowhere else: the teacher of the
+-- fixtures there also teaches in Chelsea St.
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('b0540000-0000-4000-8000-000000000001', 'outsider-0054@example.com', '{"full_name":"Outsider"}');
+insert into organization_members (organization_id, user_id, role) values
+  ((select id from organizations where slug = 'escola-b'), 'b0540000-0000-4000-8000-000000000001', 'teacher');
+
+-- The migration as text, to run it inside a savepoint and watch it refuse;
+-- applied for good by the \i below.
+\set m0054 `cat supabase/migrations/0054_one_way_to_book_a_lesson.sql`
+select set_config('verify.m0054', :'m0054', false) is not null as m0054_loaded \gset
+
+-- What 0054 must keep, by the plan's query of #295: the count and a
+-- fingerprint of every lesson's student, time, length, status, mark and note.
+create function verify.lessons_fingerprint()
+returns table (lessons bigint, scheduled bigint, cancelled bigint, marked bigint,
+               noted bigint, fingerprint text)
+language sql stable as $$
+  select count(*),
+         count(*) filter (where status = 'scheduled'),
+         count(*) filter (where status = 'cancelled'),
+         count(*) filter (where stopped_at_point_id is not null),
+         count(*) filter (where teacher_note is not null),
+         md5(string_agg(
+               id::text || '|' || student_id::text || '|' || scheduled_at::text || '|' ||
+               duration_minutes::text || '|' || status::text || '|' ||
+               coalesce(stopped_at_point_id::text, '') || '|' || coalesce(teacher_note, ''),
+               ',' order by id))
+    from public.lessons;
+$$;
+
+-- Runs 0054 and undoes whatever it did; returns how it was refused, the
+-- message included, or null when it went in.
+create function verify.m0054_refusal() returns text
+language plpgsql as $$
+declare
+  v_name text;
+  v_message text;
+begin
+  begin
+    execute current_setting('verify.m0054');
+    raise exception using errcode = 'P0054';
+  exception when sqlstate 'P0054' then
+    return null;
+  end;
+exception when others then
+  get stacked diagnostics v_name = constraint_name, v_message = message_text;
+  return sqlstate || ' ' || coalesce(nullif(v_name, ''), '-') || ' ' || v_message;
+end;
+$$;
+
+do $$
+declare
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_first uuid;
+  v_second uuid;
+  v_by text;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  -- Escola B has its one teacher; Chelsea St has two with a profile, both
+  -- taking bookings.
+  insert into teachers (organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+    select m.organization_id, m.user_id, m.role, 'https://meet.example.com/escola-b',
+           'escola-b@example.com', true
+      from organization_members m
+      join organizations o on o.id = m.organization_id
+     where o.slug = 'escola-b' and m.role = 'teacher'
+     order by m.user_id
+     limit 1;
+  insert into teachers (organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+    select m.organization_id, m.user_id, m.role, 'https://meet.example.com/two-' || row_number() over (),
+           'two-' || row_number() over () || '@example.com', true
+      from organization_members m
+     where m.organization_id = v_chelsea and m.role in ('teacher', 'admin')
+     order by m.role desc, m.user_id
+     limit 2;
+  select min(id::text)::uuid, max(id::text)::uuid into v_first, v_second
+    from teachers where organization_id = v_chelsea;
+
+  -- 1. Two active teachers: refused, by name, with the count, and nothing moved.
+  v_by := verify.m0054_refusal();
+  if v_by is null then
+    insert into verify.failures values ('0054 moved the lessons of an organization with two active teachers');
+  elsif v_by not like '23514 lessons_move_to_one_teacher %(chelsea-st: 2 active teachers, 5 lessons)' then
+    insert into verify.failures values ('0054 with two active teachers refused with: ' || v_by);
+  else
+    raise notice 'with two active teachers in Chelsea St, 0054 refuses: %', v_by;
+  end if;
+
+  -- 2. None active: refused the same way.
+  update teachers set is_active = false where organization_id = v_chelsea;
+  v_by := verify.m0054_refusal();
+  if v_by is null then
+    insert into verify.failures values ('0054 moved the lessons of an organization with no active teacher');
+  elsif v_by not like '23514 lessons_move_to_one_teacher %(chelsea-st: 0 active teachers, 5 lessons)' then
+    insert into verify.failures values ('0054 with no active teacher refused with: ' || v_by);
+  else
+    raise notice 'with no active teacher in Chelsea St, 0054 refuses: %', v_by;
+  end if;
+
+  -- A refusal changed nothing.
+  if exists (select 1 from lessons where teacher_id is not null)
+     or to_regclass('public.lesson_schedules') is null
+     or to_regprocedure('public.materialize_lessons(uuid, integer)') is null then
+    insert into verify.failures values ('a refused 0054 left something changed');
+  end if;
+
+  -- Then one active teacher per organization with lessons, as Luiz does
+  -- before the push: the first of Chelsea St.
+  update teachers set is_active = true where id = v_first;
+  delete from teachers where id = v_second;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'one way to book a lesson, before: %', v_failures;
+  end if;
+end;
+$$;
+
+create temporary table lessons_before_0054 as select * from verify.lessons_fingerprint();
+
+\i supabase/migrations/0054_one_way_to_book_a_lesson.sql
+
+do $$
+declare
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  c_outsider constant uuid := 'b0540000-0000-4000-8000-000000000001';
+  v_uid text := current_setting('test.uid', true);
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_teacher record;
+  v_ahead uuid;
+  v_past uuid;
+  v_mine record;
+  v_int integer;
+  v_before integer;
+  v_failures text;
+begin
+  delete from verify.failures;
+  select * into v_teacher from teachers where organization_id = v_chelsea and is_active;
+  select id into v_ahead from lessons
+   where student_id = c_student and status = 'scheduled' and scheduled_at > now() + interval '20 days';
+  select id into v_past from lessons
+   where student_id = c_student and stopped_at_point_id is not null and scheduled_at < now();
+
+  -- 1. Every lesson, its status, time, length, mark and note, as before.
+  if (select row(f.*)::text from verify.lessons_fingerprint() f)
+     is distinct from (select row(b.*)::text from lessons_before_0054 b) then
+    insert into verify.failures values (format('the lessons changed under 0054: before %s, after %s',
+      (select row(b.*)::text from lessons_before_0054 b),
+      (select row(f.*)::text from verify.lessons_fingerprint() f)));
+  else
+    raise notice 'every lesson keeps its status, time, length, mark and note: %',
+      (select row(f.*)::text from verify.lessons_fingerprint() f);
+  end if;
+
+  -- 2. Every lesson has the active teacher of its organization, for good;
+  -- none was debited, and the ledger got no entry.
+  v_before := (select count(*) from verify.failures);
+  if exists (select 1 from lessons l
+              where not exists (select 1 from teachers t
+                                 where t.id = l.teacher_id
+                                   and t.organization_id = l.organization_id
+                                   and t.is_active)) then
+    insert into verify.failures values ('a lesson is without the active teacher of its organization');
+  end if;
+  if not (select attnotnull from pg_attribute
+           where attrelid = 'public.lessons'::regclass and attname = 'teacher_id') then
+    insert into verify.failures values ('lessons.teacher_id still takes null');
+  end if;
+  if exists (select 1 from lessons where credits_debited <> 0 or credits_refunded)
+     or exists (select 1 from credit_entries) then
+    insert into verify.failures values ('a moved lesson was debited, or the ledger got an entry');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'every lesson has the one active teacher of its organization, teacher_id is not null, and nothing was debited';
+  end if;
+
+  -- 3. The fixed agenda is gone.
+  v_before := (select count(*) from verify.failures);
+  if to_regclass('public.lesson_schedules') is not null then
+    insert into verify.failures values ('lesson_schedules still exists');
+  end if;
+  if to_regprocedure('public.materialize_lessons(uuid, integer)') is not null then
+    insert into verify.failures values ('materialize_lessons still exists');
+  end if;
+  if exists (select 1 from information_schema.columns
+              where table_schema = 'public' and column_name = 'meet_url'
+                and table_name in ('students', 'lessons')) then
+    insert into verify.failures values ('students.meet_url or lessons.meet_url still exists');
+  end if;
+  if to_regclass('public.lessons_student_slot_idx') is not null then
+    insert into verify.failures values ('lessons_student_slot_idx still exists');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'lesson_schedules, materialize_lessons, students.meet_url, lessons.meet_url and lessons_student_slot_idx are gone';
+  end if;
+
+  -- 4. Through the API a lesson is born and changes status only through the
+  -- functions: authenticated inserts, deletes and updates nothing but the
+  -- mark and the note.
+  v_before := (select count(*) from verify.failures);
+  if has_table_privilege('authenticated', 'public.lessons', 'insert')
+     or has_table_privilege('authenticated', 'public.lessons', 'delete')
+     or has_table_privilege('authenticated', 'public.lessons', 'update')
+     or not has_table_privilege('authenticated', 'public.lessons', 'select')
+     or not has_column_privilege('authenticated', 'public.lessons', 'stopped_at_point_id', 'update')
+     or not has_column_privilege('authenticated', 'public.lessons', 'teacher_note', 'update')
+     or (select count(*) from information_schema.column_privileges
+          where table_schema = 'public' and table_name = 'lessons'
+            and grantee = 'authenticated' and privilege_type = 'UPDATE') <> 2 then
+    insert into verify.failures values ('authenticated holds more on lessons than select and the update of the mark and the note');
+  end if;
+  if exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'lessons'
+                                         and policyname = 'lessons_write') then
+    insert into verify.failures values ('lessons_write still exists');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'authenticated selects lessons and updates only stopped_at_point_id and teacher_note';
+  end if;
+
+  perform set_config('test.uid', v_teacher.user_id::text, false);
+  set local role authenticated;
+  perform verify.expect_refused_undone('a teacher inserting a lesson', '42501',
+    format($q$insert into lessons (organization_id, student_id, teacher_id, scheduled_at)
+              values (%L, %L, %L, now() + interval '30 days')$q$, v_chelsea, c_student, v_teacher.id));
+  perform verify.expect_refused_undone('a teacher removing a lesson', '42501',
+    format('delete from lessons where id = %L', v_ahead));
+  perform verify.expect_refused_undone('a teacher cancelling a lesson by hand', '42501',
+    format($q$update lessons set status = 'cancelled' where id = %L$q$, v_ahead));
+  perform verify.expect_refused_undone('a teacher moving a lesson by hand', '42501',
+    format($q$update lessons set scheduled_at = scheduled_at + interval '1 day' where id = %L$q$, v_ahead));
+  perform verify.expect_accepted('a teacher writing the note of a moved lesson',
+    format($q$update lessons set teacher_note = 'nota 0054' where id = %L$q$, v_ahead));
+  perform verify.expect_accepted('a teacher marking where she stopped on a moved lesson',
+    format($q$update lessons set stopped_at_point_id = (select id from points where number = 54) where id = %L$q$, v_ahead));
+
+  -- 5. The note is written by whoever teaches in the lesson's organization:
+  -- not by its student, who reads it, nor by a teacher of another one.
+  perform set_config('test.uid', c_student::text, false);
+  update lessons set teacher_note = 'by the student' where id = v_ahead;
+  perform set_config('test.uid', c_outsider::text, false);
+  update lessons set teacher_note = 'by another organization' where id = v_ahead;
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if (select (teacher_note, (select number from points where id = stopped_at_point_id))::text
+        from lessons where id = v_ahead) is distinct from '("nota 0054",54)' then
+    insert into verify.failures values (format('the note of a lesson was written by its student or another organization: %s',
+      (select teacher_note from lessons where id = v_ahead)));
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'the note is written by whoever teaches in the organization, not by the student nor another organization';
+  end if;
+
+  -- 6. my_lessons gives a moved lesson with the teacher's name and Meet,
+  -- and nothing to give back.
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  select * into v_mine from my_lessons() where lesson_id = v_ahead;
+  reset role;
+  if v_mine.lesson_id is null
+     or v_mine.meet_url is distinct from v_teacher.meet_url
+     or v_mine.teacher_name is distinct from (select full_name from profiles where id = v_teacher.user_id)
+     or v_mine.credits_debited <> 0
+     or v_mine.refund_until is not null then
+    insert into verify.failures values ('my_lessons does not give the moved lesson with the teacher''s name and Meet');
+  else
+    raise notice 'my_lessons gives a moved lesson with the teacher''s name and Meet, and nothing to give back';
+  end if;
+
+  -- 7. Cancelled through cancel_lesson, by its teacher: nothing comes back,
+  -- and the ledger gets no entry. Its student may cancel it too.
+  perform set_config('test.uid', v_teacher.user_id::text, false);
+  set local role authenticated;
+  v_int := (select refunded_credits from cancel_lesson(v_ahead));
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if v_int <> 0
+     or (select (status, credits_refunded, cancelled_by)::text from lessons where id = v_ahead)
+        is distinct from (('cancelled'::lesson_status, false, v_teacher.user_id))::text
+     or exists (select 1 from credit_entries) then
+    insert into verify.failures values (format('cancelling a moved lesson gave back %s or wrote the ledger', v_int));
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a moved lesson is cancelled through cancel_lesson, with nothing given back and no entry';
+  end if;
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  perform verify.expect_refused_undone('a past lesson cancelled by its student', '23514 lesson_cancel_before_start',
+    format('select cancel_lesson(%L)', v_past));
+  reset role;
+
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'one way to book a lesson: %', v_failures;
+  end if;
+  raise notice 'one way to book a lesson: 0054 refuses with none or two active teachers and changes nothing; with one, every lesson gets her and keeps the rest; the fixed agenda and the Meet per student are gone; authenticated writes only the mark and the note, as whoever teaches there; a moved lesson is cancelled through cancel_lesson with nothing given back';
+end;
+$$;
+
+-- A booked lesson reaches the calendar: applying 0056 ------------------------------------
+--
+-- 0056 creates calendar_invites, the trigger lessons_invite_calendar on
+-- lessons, the three functions service_role executes, and queues the
+-- requests of the lessons ahead and scheduled that exist when it is applied.
+-- It goes after 0054, as in production: by then every lesson has a teacher,
+-- and the blocks above ran without the trigger, as they did before 0056.
+--
+-- Three lessons written just before it, by postgres past every function,
+-- hold the backfill: one ahead and scheduled (two requests), one past and
+-- one cancelled ahead (none). The lessons the blocks above leave are held to
+-- the same rule: every lesson ahead and scheduled gets its two requests, no
+-- other. The fixtures and every row the backfill wrote go right after the
+-- check, so the block below starts from an empty queue.
+insert into auth.users (id, email) values
+  ('b0560000-0000-4000-8000-0000000000a1', 'backfill-teacher@example.com'),
+  ('b0560000-0000-4000-8000-0000000000a2', 'backfill-student@example.com');
+insert into organization_members (organization_id, user_id, role) values
+  ((select id from organizations where slug = 'chelsea-st'), 'b0560000-0000-4000-8000-0000000000a1', 'teacher'),
+  ((select id from organizations where slug = 'chelsea-st'), 'b0560000-0000-4000-8000-0000000000a2', 'student');
+insert into students (id, organization_id)
+  values ('b0560000-0000-4000-8000-0000000000a2', (select id from organizations where slug = 'chelsea-st'));
+insert into teachers (id, organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+  values ('b0560000-0000-4000-8000-0000000000b1', (select id from organizations where slug = 'chelsea-st'),
+          'b0560000-0000-4000-8000-0000000000a1', 'teacher', 'https://meet.example.com/backfill',
+          'backfill-calendar@example.com', true);
+insert into lessons (id, organization_id, student_id, teacher_id, scheduled_at, duration_minutes, status) values
+  ('b0560000-0000-4000-8000-0000000000c1', (select id from organizations where slug = 'chelsea-st'),
+   'b0560000-0000-4000-8000-0000000000a2', 'b0560000-0000-4000-8000-0000000000b1', now() + interval '3 days', 50, 'scheduled'),
+  ('b0560000-0000-4000-8000-0000000000c2', (select id from organizations where slug = 'chelsea-st'),
+   'b0560000-0000-4000-8000-0000000000a2', 'b0560000-0000-4000-8000-0000000000b1', now() - interval '3 days', 50, 'scheduled'),
+  ('b0560000-0000-4000-8000-0000000000c3', (select id from organizations where slug = 'chelsea-st'),
+   'b0560000-0000-4000-8000-0000000000a2', 'b0560000-0000-4000-8000-0000000000b1', now() + interval '4 days', 50, 'cancelled');
+
+create temporary table lessons_due_0056 as
+  select id from lessons where status = 'scheduled' and scheduled_at > now();
+
+\i supabase/migrations/0056_a_booked_lesson_reaches_the_calendar.sql
+
+do $$
+declare
+  v_queued text;
+  v_expected text;
+begin
+  select string_agg(format('%s/%s/%s', right(lesson_id::text, 2), recipient, status),
+                    ', ' order by lesson_id, recipient)
+    into v_queued
+    from calendar_invites
+   where lesson_id::text like 'b0560000-%';
+  if v_queued is distinct from 'c1/student/pending, c1/teacher/pending' then
+    raise exception 'the backfill of 0056 queued % for its fixtures, expected the two requests of the lesson ahead and scheduled',
+      coalesce(v_queued, 'nothing');
+  end if;
+  select string_agg(format('%s/request/%s/pending', d.id, r.recipient), ', ' order by d.id, r.recipient)
+    into v_expected
+    from lessons_due_0056 d cross join (values ('student'), ('teacher')) r (recipient);
+  select string_agg(format('%s/%s/%s/%s', lesson_id, method, recipient, status), ', ' order by lesson_id, recipient)
+    into v_queued
+    from calendar_invites;
+  if v_queued is distinct from v_expected then
+    raise exception 'the backfill of 0056 queued %, expected %', coalesce(v_queued, 'nothing'), coalesce(v_expected, 'nothing');
+  end if;
+  raise notice 'the backfill of 0056 queues two requests for every lesson ahead and scheduled, and none for one past or cancelled';
+
+  delete from lessons where student_id = 'b0560000-0000-4000-8000-0000000000a2';
+  if exists (select 1 from calendar_invites where lesson_id::text like 'b0560000-%') then
+    raise exception 'a lesson removed left its calendar_invites';
+  end if;
+  delete from calendar_invites;
+  delete from teachers where id = 'b0560000-0000-4000-8000-0000000000b1';
+  delete from students where id = 'b0560000-0000-4000-8000-0000000000a2';
+  delete from organization_members
+   where user_id in ('b0560000-0000-4000-8000-0000000000a1', 'b0560000-0000-4000-8000-0000000000a2');
+  delete from auth.users
+   where id in ('b0560000-0000-4000-8000-0000000000a1', 'b0560000-0000-4000-8000-0000000000a2');
+end;
+$$;
+
+drop table lessons_due_0056;
+
+-- A booked lesson reaches the calendar (0056) -------------------------------------------
+--
+-- Nobody writes calendar_invites through the API; whoever teaches in the
+-- organization reads its rows, the student and a teacher of another
+-- organization none. calendar_invites_due, calendar_invite_sent and
+-- calendar_invite_failed are executed by service_role alone, the trigger
+-- function by nobody. book_lesson queues two pending requests, one per
+-- person; a booking refused after its lesson was written (no credits) queues
+-- nothing. The due rows carry the student's account e-mail, the teacher's
+-- calendar e-mail, both names, the recipient's zone, the Meet, the time and
+-- the row's birth. A failure handed to the provider counts an attempt and
+-- keeps its code, and the row waits 30 minutes before it is due again; giving
+-- up abandons the row; neither touches a row already sent, nor does a second
+-- "sent". cancel_lesson queues the cancel where the request went or was
+-- tried and skips it, with the request, where it was never tried; a request
+-- that goes after its lesson was cancelled makes its skipped cancel pending,
+-- and says so; a request given up before any send skips its cancel. A lesson
+-- written already cancelled, or already past, queues nothing (since 0054
+-- every lesson has a teacher). Nothing written here is kept.
+do $$
+declare
+  c_student constant uuid := '22222222-2222-2222-2222-222222222222';
+  c_teacher constant uuid := 'b0560000-0000-4000-8000-000000000001';
+  c_poor constant uuid := 'b0560000-0000-4000-8000-000000000002';
+  c_outsider constant uuid := 'b0560000-0000-4000-8000-000000000003';
+  c_people constant uuid[] := array[c_teacher, c_poor, c_outsider];
+  c_zone constant text := 'America/Sao_Paulo';
+  c_service_role constant regprocedure[] := array[
+    'public.calendar_invites_due(integer, uuid)',
+    'public.calendar_invite_sent(uuid)',
+    'public.calendar_invite_failed(uuid, text, boolean, boolean)']::regprocedure[];
+  v_uid text := current_setting('test.uid', true);
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_day date := (now() at time zone c_zone)::date + 2;
+  v_ten timestamptz;
+  v_plan uuid;
+  v_teacher uuid;
+  v_lesson uuid;
+  v_second uuid;
+  v_old uuid;
+  v_student_request uuid;
+  v_teacher_request uuid;
+  v_due record;
+  v_flipped boolean;
+  v_fn regprocedure;
+  v_role text;
+  v_privilege text;
+  v_n bigint;
+  v_before integer;
+  v_failures text;
+begin
+  delete from verify.failures;
+  v_ten := (v_day + time '10:00') at time zone c_zone;
+
+  -- A teacher of Chelsea St who takes bookings all day, with a calendar
+  -- e-mail of her own; the student of the fixtures with a trial of 20
+  -- credits and a lesson at 4 (made-up numbers); a student with none; and a
+  -- teacher of Escola B alone.
+  insert into auth.users (id, email, raw_user_meta_data) values
+    (c_teacher, 'calendar-teacher@example.com', '{"full_name":"Calendar Teacher"}'),
+    (c_poor, 'calendar-poor@example.com', '{"full_name":"Calendar Poor"}'),
+    (c_outsider, 'calendar-outsider@example.com', '{"full_name":"Calendar Outsider"}');
+  update profiles set timezone = 'Europe/London' where id = c_teacher;
+  insert into organization_members (organization_id, user_id, role) values
+    (v_chelsea, c_teacher, 'teacher'),
+    (v_chelsea, c_poor, 'student'),
+    ((select id from organizations where slug = 'escola-b'), c_outsider, 'teacher');
+  insert into students (id, organization_id) values (c_poor, v_chelsea);
+  insert into teachers (organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+    values (v_chelsea, c_teacher, 'teacher', 'https://meet.example.com/calendar',
+            'calendar-agenda@example.com', true)
+    returning id into v_teacher;
+  insert into teacher_availability (organization_id, teacher_id, weekday, start_time, end_time, timezone)
+    select v_chelsea, v_teacher, d, '00:00', '24:00', c_zone from generate_series(0, 6) d;
+  insert into plans (brand, key, name, monthly_price_cents, annual_price_cents, monthly_credits,
+                     trail_minutes_per_day, opens_voice_question, opens_free_conversation, opens_video,
+                     trial_days, trial_credits, credit_ceiling_months, credit_days_after_cancel)
+    values ('chelsea-st', 'calendar', 'Calendar', 1000, 10000, 10, 15, true, false, false, 14, 20, 3, 30)
+    returning id into v_plan;
+  insert into credit_costs (brand, action, credits) values ('chelsea-st', 'teacher_lesson', 4);
+  perform billing_customer(c_student, repeat('f', 64));
+  perform billing_open_subscription(c_student, v_plan, 'monthly', 'pix', 1000, true,
+    (now() at time zone c_zone)::date + 14, null, 'cus_calendar', 'sub_calendar');
+
+  -- 1. Privileges: authenticated selects alone, under the policy; nobody
+  -- writes; the three functions for service_role alone, the trigger's for
+  -- nobody.
+  v_before := (select count(*) from verify.failures);
+  foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+    foreach v_privilege in array array['select', 'insert', 'update', 'delete'] loop
+      if has_table_privilege(v_role, 'public.calendar_invites', v_privilege)
+         <> (v_role = 'authenticated' and v_privilege = 'select') then
+        insert into verify.failures
+          values (format('%s %s on calendar_invites is not as it should be', v_role, v_privilege));
+      end if;
+    end loop;
+  end loop;
+  foreach v_fn in array c_service_role loop
+    if not has_function_privilege('service_role', v_fn, 'execute') then
+      insert into verify.failures values (format('service_role does not execute %s', v_fn));
+    end if;
+    foreach v_role in array array['anon', 'authenticated'] loop
+      if has_function_privilege(v_role, v_fn, 'execute') then
+        insert into verify.failures values (format('%s executes %s', v_role, v_fn));
+      end if;
+    end loop;
+  end loop;
+  foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+    if has_function_privilege(v_role, 'public.lessons_invite_calendar()', 'execute') then
+      insert into verify.failures values (format('%s executes lessons_invite_calendar', v_role));
+    end if;
+  end loop;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'authenticated only reads calendar_invites and nobody writes it through the API; service_role alone executes the three calendar functions, nobody the trigger''s';
+  end if;
+
+  -- 2. A booking queues two pending requests, one per person, of its
+  -- organization.
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  select lesson_id into v_lesson from book_lesson(v_teacher, v_ten);
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if (select string_agg(format('%s/%s/%s/%s', method, recipient, status, attempts), ', ' order by recipient)
+        from calendar_invites where lesson_id = v_lesson)
+     is distinct from 'request/student/pending/0, request/teacher/pending/0'
+     or exists (select 1 from calendar_invites where lesson_id = v_lesson and organization_id <> v_chelsea) then
+    insert into verify.failures values ('book_lesson did not queue a pending request for the student and one for the teacher');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'book_lesson queues a pending calendar request for the student and one for the teacher';
+  end if;
+  select id into v_student_request from calendar_invites
+   where lesson_id = v_lesson and method = 'request' and recipient = 'student';
+  select id into v_teacher_request from calendar_invites
+   where lesson_id = v_lesson and method = 'request' and recipient = 'teacher';
+
+  -- 3. A booking refused after its lesson was written queues nothing.
+  perform set_config('test.uid', c_poor::text, false);
+  set local role authenticated;
+  perform verify.expect_refused_undone('a booking without the credits', '23514 credits_not_negative',
+    format('select * from book_lesson(%L, %L)', v_teacher, v_ten + interval '2 hours'));
+  reset role;
+  if (select count(*) from calendar_invites) <> 2 then
+    insert into verify.failures values ('a refused booking left a row in calendar_invites');
+  else
+    raise notice 'a booking refused after its lesson was written queues nothing';
+  end if;
+
+  -- 4. Who reads: the teacher of the lesson's organization; not the student,
+  -- not a teacher of another organization. Nobody writes through the API.
+  set local role authenticated;
+  perform set_config('test.uid', c_student::text, false);
+  v_n := (select count(*) from calendar_invites);
+  perform set_config('test.uid', c_outsider::text, false);
+  v_n := v_n * 10 + (select count(*) from calendar_invites);
+  perform set_config('test.uid', c_teacher::text, false);
+  v_n := v_n * 10 + (select count(*) from calendar_invites);
+  if v_n <> 2 then
+    insert into verify.failures
+      values (format('the student, a teacher of another organization and the teacher read %s rows, expected 0, 0, 2', lpad(v_n::text, 3, '0')));
+  else
+    raise notice 'whoever teaches in the organization reads its calendar_invites; the student and a teacher of another organization read none';
+  end if;
+  perform verify.expect_refused_undone('a teacher writing a calendar invite', '42501',
+    format($q$insert into calendar_invites (lesson_id, method, recipient) values (%L, 'cancel', 'student')$q$, v_lesson));
+  perform verify.expect_refused_undone('a teacher marking an invite sent', '42501',
+    format($q$update calendar_invites set status = 'sent', sent_at = now() where id = %L$q$, v_student_request));
+  perform verify.expect_refused_undone('a teacher removing an invite', '42501',
+    format('delete from calendar_invites where id = %L', v_student_request));
+  perform verify.expect_refused_undone('a teacher reading the due invites', '42501',
+    format('select * from calendar_invites_due(10, %L)', v_lesson));
+  perform verify.expect_refused_undone('a teacher marking an invite sent through the function', '42501',
+    format('select calendar_invite_sent(%L)', v_student_request));
+  reset role;
+
+  -- 5. The due rows, as service_role: both, with what the e-mail needs.
+  set local role service_role;
+  select * into v_due from calendar_invites_due(10, v_lesson) where recipient = 'student';
+  v_before := (select count(*) from verify.failures);
+  if (select count(*) from calendar_invites_due(10, v_lesson)) <> 2
+     or (select count(*) from calendar_invites_due(1)) <> 1
+     or (select count(*) from calendar_invites_due(10, gen_random_uuid())) <> 0
+     or (v_due.id, v_due.method, v_due.student_email, v_due.teacher_email, v_due.student_name,
+         v_due.teacher_name, v_due.meet_url, v_due.scheduled_at, v_due.duration_minutes,
+         v_due.recipient_timezone, v_due.created_at is not null)::text
+        is distinct from (v_student_request, 'request', 'student@example.com', 'calendar-agenda@example.com',
+                          'student', 'Calendar Teacher', 'https://meet.example.com/calendar', v_ten, 50,
+                          c_zone, true)::text
+     or (select recipient_timezone from calendar_invites_due(10, v_lesson) where recipient = 'teacher')
+        <> 'Europe/London' then
+    insert into verify.failures values ('calendar_invites_due does not give the two rows with the addresses, names, zone, Meet and time');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'calendar_invites_due gives the pending rows of a lesson or of any, with the account e-mail, the calendar e-mail, the names, the recipient''s zone, the Meet and the time';
+  end if;
+
+  -- 6. A failure counts an attempt and keeps its code, and the row waits 30
+  -- minutes; then it goes; a late failure and a second "sent" change nothing.
+  perform calendar_invite_failed(v_student_request, 'resend_500_internal_server_error', false, true);
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if (select (status, attempts, last_error, last_attempt_at is not null, sent_at)::text
+        from calendar_invites where id = v_student_request)
+     is distinct from ('pending', 1, 'resend_500_internal_server_error', true, null::timestamptz)::text then
+    insert into verify.failures values ('a failed send did not leave the row pending with one attempt and its code');
+  end if;
+  set local role service_role;
+  if exists (select 1 from calendar_invites_due(10, v_lesson) where id = v_student_request) then
+    insert into verify.failures values ('a row tried a moment ago is due again at once');
+  end if;
+  reset role;
+  update calendar_invites set last_attempt_at = now() - interval '31 minutes' where id = v_student_request;
+  set local role service_role;
+  if not exists (select 1 from calendar_invites_due(10, v_lesson) where id = v_student_request) then
+    insert into verify.failures values ('a row tried 31 minutes ago is not due again');
+  end if;
+  perform calendar_invite_sent(v_student_request);
+  perform calendar_invite_failed(v_student_request, 'late', false, true);
+  perform calendar_invite_sent(v_student_request);
+  reset role;
+  if (select (status, attempts, last_error, sent_at is not null)::text
+        from calendar_invites where id = v_student_request)
+     is distinct from ('sent', 2, null::text, true)::text then
+    insert into verify.failures values ('a sent row was changed by a later failure or a second sent');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a failure counts an attempt, keeps its code and waits 30 minutes; a sent row stays sent, once';
+  end if;
+
+  -- 7. Her cancel: the cancel goes to her, whose request went; the teacher's
+  -- request had not gone, so it and its cancel are skipped.
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  perform cancel_lesson(v_lesson);
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if (select string_agg(format('%s/%s/%s', method, recipient, status), ', ' order by method, recipient)
+        from calendar_invites where lesson_id = v_lesson)
+     is distinct from 'cancel/student/pending, cancel/teacher/skipped, request/student/sent, request/teacher/skipped' then
+    insert into verify.failures values ('cancel_lesson did not queue the cancel where the request went and skip it where it did not');
+  end if;
+  set local role service_role;
+  if (select string_agg(format('%s/%s', method, recipient), ', ') from calendar_invites_due(10, v_lesson))
+     is distinct from 'cancel/student' then
+    insert into verify.failures values ('after the cancel, the due rows are not the student''s cancel alone');
+  end if;
+  -- The teacher's request had in fact gone (a sender finishing late): its
+  -- cancel waits to go too.
+  v_flipped := calendar_invite_sent(v_teacher_request);
+  reset role;
+  if (select status from calendar_invites where lesson_id = v_lesson and method = 'cancel' and recipient = 'teacher')
+     <> 'pending' or v_flipped is distinct from true then
+    insert into verify.failures values ('a request sent after its cancel left the cancel skipped');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'cancel_lesson queues the cancel where the request went and skips both where it was never tried; a request that goes late makes its cancel pending and says so';
+  end if;
+
+  -- 8. A request tried once (a timeout: it may have arrived) gets its
+  -- cancel; one given up before any send (no address) does not.
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  select lesson_id into v_second from book_lesson(v_teacher, v_ten + interval '3 hours');
+  reset role;
+  select id into v_teacher_request from calendar_invites
+   where lesson_id = v_second and method = 'request' and recipient = 'teacher';
+  select id into v_student_request from calendar_invites
+   where lesson_id = v_second and method = 'request' and recipient = 'student';
+  set local role service_role;
+  perform calendar_invite_failed(v_teacher_request, 'no_address', true, false);
+  perform calendar_invite_failed(v_student_request, 'timeout', false, true);
+  reset role;
+  set local role authenticated;
+  perform cancel_lesson(v_second);
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if (select string_agg(format('%s/%s/%s/%s', method, recipient, status, attempts), ', ' order by method, recipient)
+        from calendar_invites where lesson_id = v_second)
+     is distinct from 'cancel/student/pending/0, cancel/teacher/skipped/0, request/student/skipped/1, request/teacher/abandoned/0' then
+    insert into verify.failures values ('a tried request did not get its cancel, or one given up before any send did');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a request tried once gets its cancel; one given up before any send is abandoned without an attempt and skips its cancel';
+  end if;
+
+  -- 9. A lesson written already cancelled queues nothing; nor does one
+  -- written already past (both by postgres).
+  insert into lessons (organization_id, student_id, teacher_id, scheduled_at, duration_minutes, status)
+    values (v_chelsea, c_poor, v_teacher, v_ten + interval '1 day', 50, 'cancelled')
+    returning id into v_old;
+  if exists (select 1 from calendar_invites where lesson_id = v_old) then
+    insert into verify.failures values ('a lesson written cancelled queued a calendar invite');
+  else
+    raise notice 'a lesson written cancelled queues no calendar invite';
+  end if;
+  insert into lessons (organization_id, student_id, teacher_id, scheduled_at, duration_minutes)
+    values (v_chelsea, c_poor, v_teacher, now() - interval '2 days', 50)
+    returning id into v_second;
+  if exists (select 1 from calendar_invites where lesson_id = v_second) then
+    insert into verify.failures values ('a lesson written already past queued a calendar request');
+  else
+    raise notice 'a lesson written already past queues no calendar request';
+  end if;
+
+  -- Nothing written here is kept: the lessons take their rows.
+  perform set_config('session_replication_role', 'replica', true);
+  delete from credit_entries;
+  perform set_config('session_replication_role', 'origin', true);
+  delete from lessons where teacher_id = v_teacher or id = v_old;
+  delete from teachers where id = v_teacher;
+  delete from subscriptions;
+  delete from billing_customers;
+  delete from credit_costs;
+  delete from plans;
+  delete from students where id = any (c_people);
+  delete from organization_members where user_id = any (c_people);
+  delete from auth.users where id = any (c_people);
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+  if exists (select 1 from calendar_invites) then
+    insert into verify.failures values ('calendar_invites kept rows of lessons removed');
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a booked lesson reaches the calendar: %', v_failures;
+  end if;
+  raise notice 'a booked lesson reaches the calendar: book_lesson queues a request per person and cancel_lesson the cancel where the request went; only service_role sends, through three functions; whoever teaches reads the state, the student nothing';
+end;
+$$;
+
+-- A proposed lesson waits for a yes: applying 0057 -------------------------------------
+--
+-- 0057 creates lesson_proposals, lesson_proposal_items and
+-- lesson_proposal_mails, the functions that propose, answer, withdraw and
+-- read, the three the e-mail of a proposal is sent through, and the piece
+-- lesson_write_paid, and recreates book_lesson on that piece. It goes after
+-- 0056, as in production, so the blocks of 0052 and 0056 above held
+-- book_lesson as 0052 wrote it; the block below holds the recreated one to
+-- the same cases (section 16).
+\i supabase/migrations/0057_a_proposed_lesson_waits_for_a_yes.sql
+
+-- A proposed lesson waits for a yes (0057) -----------------------------------------------
+--
+-- A teacher proposes a series to her student, and a student a time outside
+-- her teacher's windows: nothing is debited, no lesson is written and the
+-- other side gets an e-mail in the queue. A proposal to a student of another
+-- organization is refused by the function and, written past it, by the
+-- composite key; one too close, too far, crossing a lesson or crossing
+-- itself is refused by name; an inactive student or teacher neither
+-- proposes nor accepts. Only the other side answers, only the proposer
+-- withdraws, nobody writes the three tables through the API, and each side
+-- reads its own (the organization's admin and the platform admin all of
+-- theirs). The yes writes and pays each lesson as book_lesson does, with
+-- its calendar invites; a balance short of the whole series, a slot taken
+-- meanwhile and a proposal past its time are refused and leave nothing. The
+-- student's proposal is refused without the credits now and when one to the
+-- same teacher is open. A lesson born from a proposal is cancelled as any
+-- other. The recreated book_lesson books and debits as before. The e-mail
+-- goes to the right address, waits 30 minutes after a failure, and is
+-- skipped once the proposal is closed. Every named check refuses on its
+-- own. Nothing written here is kept.
+do $$
+declare
+  c_student constant uuid := 'b0570000-0000-4000-8000-000000000008';
+  c_student_b_school constant uuid := '44444444-4444-4444-4444-444444444444';
+  c_teacher constant uuid := 'b0570000-0000-4000-8000-000000000001';
+  c_teacher2 constant uuid := 'b0570000-0000-4000-8000-000000000002';
+  c_other constant uuid := 'b0570000-0000-4000-8000-000000000003';
+  c_poor constant uuid := 'b0570000-0000-4000-8000-000000000004';
+  c_org_admin constant uuid := 'b0570000-0000-4000-8000-000000000005';
+  c_admin_b constant uuid := 'b0570000-0000-4000-8000-000000000006';
+  c_platform constant uuid := 'b0570000-0000-4000-8000-000000000007';
+  c_people constant uuid[] := array[c_teacher, c_teacher2, c_other, c_poor, c_org_admin, c_admin_b, c_platform, c_student];
+  c_zone constant text := 'America/Sao_Paulo';
+  c_tables constant text[] := array['lesson_proposals', 'lesson_proposal_items', 'lesson_proposal_mails'];
+  c_authenticated constant regprocedure[] := array[
+    'public.propose_lessons_to_student(uuid, timestamptz[])',
+    'public.propose_lessons_to_teacher(uuid, timestamptz[])',
+    'public.accept_lesson_proposal(uuid)',
+    'public.decline_lesson_proposal(uuid)',
+    'public.withdraw_lesson_proposal(uuid)',
+    'public.my_lesson_proposals()',
+    'public.book_lesson(uuid, timestamptz)']::regprocedure[];
+  c_service_role constant regprocedure[] := array[
+    'public.lesson_proposal_mails_due(integer, uuid)',
+    'public.lesson_proposal_mail_sent(uuid)',
+    'public.lesson_proposal_mail_failed(uuid, text, boolean, boolean)']::regprocedure[];
+  c_nobody constant regprocedure[] := array[
+    'public.lesson_proposal_rules()',
+    'public.lesson_proposals_queue_mail()',
+    'public.lesson_write_paid(uuid, uuid, uuid, timestamptz, integer)',
+    'public.lesson_proposal_check_free(uuid, uuid, timestamptz[], integer)',
+    'public.lesson_proposal_write(uuid, uuid, uuid, text, timestamptz[])',
+    'public.lesson_proposal_cost(uuid)',
+    'public.lesson_proposal_for_answer(uuid)',
+    'public.credit_debit(uuid, text, integer, text)']::regprocedure[];
+  v_uid text := current_setting('test.uid', true);
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_school_b uuid := (select id from organizations where slug = 'escola-b');
+  v_day date := (now() at time zone c_zone)::date + 2;
+  v_ten timestamptz;
+  v_series timestamptz[];
+  v_plan uuid;
+  v_t1 uuid;
+  v_t2 uuid;
+  v_t_b uuid;
+  v_busy_teacher uuid;
+  v_busy_student uuid;
+  v_p1 uuid;
+  v_ps uuid;
+  v_ps2 uuid;
+  v_p uuid;
+  v_slot uuid;
+  v_exp uuid;
+  v_near uuid;
+  v_lesson uuid;
+  v_mail uuid;
+  v_accepted record;
+  v_booked record;
+  v_due record;
+  v_fn regprocedure;
+  v_role text;
+  v_privilege text;
+  v_n bigint;
+  v_int integer;
+  v_text text;
+  v_before integer;
+  v_failures text;
+begin
+  delete from verify.failures;
+  v_ten := (v_day + time '10:00') at time zone c_zone;
+  -- Three lessons, 15h on the three days after v_day: outside every window.
+  v_series := array[v_ten + interval '1 day 5 hours', v_ten + interval '2 days 5 hours',
+                    v_ten + interval '3 days 5 hours'];
+
+  -- Two teachers of Chelsea St: T1 takes bookings 9h to 12h on v_day alone,
+  -- with her calendar e-mail and her zone in London; T2 with no window. Three
+  -- students of Chelsea St, new ones, so no lesson of the blocks above (the
+  -- fixture's student keeps two, at times that follow the clock) crosses a
+  -- start below: two with a trial of 20 credits, one with none; an admin of Chelsea St, an admin of Escola
+  -- B and a platform admin of no organization. A lesson costs 4 (made-up
+  -- numbers).
+  insert into auth.users (id, email, raw_user_meta_data)
+    select p, 'proposal-' || right(p::text, 2) || '@example.com',
+           jsonb_build_object('full_name', 'Proposal ' || right(p::text, 2))
+      from unnest(c_people) p;
+  update profiles set timezone = 'Europe/London' where id = c_teacher;
+  insert into organization_members (organization_id, user_id, role) values
+    (v_chelsea, c_teacher, 'teacher'),
+    (v_chelsea, c_teacher2, 'teacher'),
+    (v_chelsea, c_other, 'student'),
+    (v_chelsea, c_poor, 'student'),
+    (v_chelsea, c_student, 'student'),
+    (v_chelsea, c_org_admin, 'admin'),
+    (v_school_b, c_admin_b, 'admin');
+  insert into platform_admins (user_id) values (c_platform);
+  insert into students (id, organization_id) values (c_other, v_chelsea), (c_poor, v_chelsea), (c_student, v_chelsea);
+  insert into teachers (organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+    values (v_chelsea, c_teacher, 'teacher', 'https://meet.example.com/t1', 'proposal-agenda@example.com', true)
+    returning id into v_t1;
+  insert into teachers (organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+    values (v_chelsea, c_teacher2, 'teacher', 'https://meet.example.com/t2', 'proposal-t2@example.com', true)
+    returning id into v_t2;
+  insert into teacher_availability (organization_id, teacher_id, weekday, start_time, end_time, timezone)
+    values (v_chelsea, v_t1, extract(dow from v_day), '09:00', '12:00', c_zone);
+  -- The row of the teacher of Escola B, which the blocks above leave.
+  select id into v_t_b from teachers where organization_id = v_school_b order by id limit 1;
+  if v_t_b is null then
+    raise exception 'a proposed lesson waits for a yes: Escola B has no row of teachers to propose to';
+  end if;
+  insert into plans (brand, key, name, monthly_price_cents, annual_price_cents, monthly_credits,
+                     trail_minutes_per_day, opens_voice_question, opens_free_conversation, opens_video,
+                     trial_days, trial_credits, credit_ceiling_months, credit_days_after_cancel)
+    values ('chelsea-st', 'proposal', 'Proposal', 1000, 10000, 10, 15, true, false, false, 14, 20, 3, 30)
+    returning id into v_plan;
+  insert into credit_costs (brand, action, credits) values ('chelsea-st', 'teacher_lesson', 4);
+  perform billing_customer(c_student, repeat('a', 64));
+  perform billing_open_subscription(c_student, v_plan, 'monthly', 'pix', 1000, true,
+    (now() at time zone c_zone)::date + 14, null, 'cus_proposal', 'sub_proposal');
+  perform billing_customer(c_other, repeat('b', 64));
+  perform billing_open_subscription(c_other, v_plan, 'monthly', 'pix', 1000, true,
+    (now() at time zone c_zone)::date + 14, null, 'cus_proposal_other', 'sub_proposal_other');
+  if credit_balance_of(c_student) <> 20 or credit_balance_of(c_other) <> 20 then
+    raise exception 'a proposed lesson waits for a yes: the fixtures have % and % credits, expected 20',
+      credit_balance_of(c_student), credit_balance_of(c_other);
+  end if;
+  -- Two lessons booked before any proposal, by postgres past the functions:
+  -- T1 with the other student at 18h the day after v_day, the fixture's
+  -- student with T2 at 20h that day.
+  insert into lessons (organization_id, student_id, teacher_id, scheduled_at, duration_minutes)
+    values (v_chelsea, c_other, v_t1, v_ten + interval '1 day 8 hours', 50)
+    returning id into v_busy_teacher;
+  insert into lessons (organization_id, student_id, teacher_id, scheduled_at, duration_minutes)
+    values (v_chelsea, c_student, v_t2, v_ten + interval '1 day 10 hours', 50)
+    returning id into v_busy_student;
+
+  -- 1. Privileges: authenticated selects the three tables under their
+  -- policies and writes none; anon and service_role hold nothing. The six
+  -- for authenticated (and book_lesson still), the e-mail's three for
+  -- service_role, the pieces, the trigger function and the debit for nobody.
+  -- No function of public, outside an extension, is executable by PUBLIC.
+  v_before := (select count(*) from verify.failures);
+  foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+    for v_int in 1 .. array_length(c_tables, 1) loop
+      foreach v_privilege in array array['select', 'insert', 'update', 'delete'] loop
+        if has_table_privilege(v_role, 'public.' || c_tables[v_int], v_privilege)
+           <> (v_role = 'authenticated' and v_privilege = 'select') then
+          insert into verify.failures
+            values (format('%s %s on %s is not as it should be', v_role, v_privilege, c_tables[v_int]));
+        end if;
+      end loop;
+    end loop;
+  end loop;
+  foreach v_fn in array c_authenticated loop
+    if not has_function_privilege('authenticated', v_fn, 'execute') then
+      insert into verify.failures values (format('authenticated does not execute %s', v_fn));
+    end if;
+    foreach v_role in array array['anon', 'service_role'] loop
+      if has_function_privilege(v_role, v_fn, 'execute') then
+        insert into verify.failures values (format('%s executes %s', v_role, v_fn));
+      end if;
+    end loop;
+  end loop;
+  foreach v_fn in array c_service_role loop
+    if not has_function_privilege('service_role', v_fn, 'execute') then
+      insert into verify.failures values (format('service_role does not execute %s', v_fn));
+    end if;
+    foreach v_role in array array['anon', 'authenticated'] loop
+      if has_function_privilege(v_role, v_fn, 'execute') then
+        insert into verify.failures values (format('%s executes %s', v_role, v_fn));
+      end if;
+    end loop;
+  end loop;
+  foreach v_fn in array c_nobody loop
+    foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+      if has_function_privilege(v_role, v_fn, 'execute') then
+        insert into verify.failures values (format('%s executes %s', v_role, v_fn));
+      end if;
+    end loop;
+  end loop;
+  insert into verify.failures
+  select format('PUBLIC executes %s', p.oid::regprocedure)
+    from pg_proc p
+   where p.pronamespace = 'public'::regnamespace
+     and not exists (select 1 from pg_depend d
+                      where d.classid = 'pg_proc'::regclass and d.objid = p.oid
+                        and d.deptype = 'e')
+     and (p.proacl is null
+          or exists (select 1 from aclexplode(p.proacl) a
+                      where a.grantee = 0 and a.privilege_type = 'EXECUTE'))
+   order by 1;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'authenticated only reads the three proposal tables; it executes the six proposal functions and book_lesson, service_role the e-mail''s three, nobody the pieces, the trigger or the debit; no function of public is executable by PUBLIC';
+  end if;
+
+  -- 2. The teacher proposes a series outside her windows: the proposal and
+  -- its three lessons are written, open until 3 days from now or 1 hour
+  -- before the first lesson, the sooner; no lesson, no
+  -- entry in the ledger, one e-mail queued for the student.
+  v_int := (select count(*) from credit_entries);
+  v_n := (select count(*) from lessons);
+  perform set_config('test.uid', c_teacher::text, false);
+  set local role authenticated;
+  v_p1 := propose_lessons_to_student(c_student, v_series);
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if (select (organization_id, teacher_id, student_id, proposed_by, status, expires_at, answered_at)::text
+        from lesson_proposals where id = v_p1)
+     is distinct from (v_chelsea, v_t1, c_student, 'teacher', 'open',
+                       least(now() + interval '3 days', v_series[1] - interval '1 hour'), null::timestamptz)::text
+     or (select array_agg(starts_at order by starts_at) from lesson_proposal_items
+          where proposal_id = v_p1 and duration_minutes = 50 and lesson_id is null
+            and organization_id = v_chelsea) is distinct from v_series then
+    insert into verify.failures values ('the teacher''s proposal is not open for 3 days with its three lessons');
+  end if;
+  if (select count(*) from lessons) <> v_n or (select count(*) from credit_entries) <> v_int then
+    insert into verify.failures values ('a proposal wrote a lesson or an entry in the ledger');
+  end if;
+  if (select string_agg(format('%s/%s/%s', recipient, status, organization_id = v_chelsea), ', ')
+        from lesson_proposal_mails where proposal_id = v_p1) is distinct from 'student/pending/t' then
+    insert into verify.failures values ('the teacher''s proposal did not queue one e-mail to the student');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'the teacher proposes a series outside her windows: open for 3 days at most, no lesson, no debit, one e-mail queued for the student';
+  end if;
+
+  -- 3. A student of another organization: refused by the function, and,
+  -- written past it, by the composite key.
+  set local role authenticated;
+  perform verify.expect_refused_undone('a proposal to a student of another organization',
+    '42501 lesson_proposal_same_organization',
+    format('select propose_lessons_to_student(%L, %L::timestamptz[])', c_student_b_school, v_series));
+  reset role;
+  perform verify.expect_refused_undone('a proposal written for a student of another organization',
+    '23503 lesson_proposals_student_fkey',
+    format($q$insert into lesson_proposals (organization_id, teacher_id, student_id, proposed_by, expires_at)
+              values (%L, %L, %L, 'teacher', now() + interval '1 day')$q$, v_chelsea, v_t1, c_student_b_school));
+  perform verify.expect_refused_undone('a proposal written for a teacher of another organization',
+    '23503 lesson_proposals_teacher_fkey',
+    format($q$insert into lesson_proposals (organization_id, teacher_id, student_id, proposed_by, expires_at)
+              values (%L, %L, %L, 'teacher', now() + interval '1 day')$q$, v_school_b, v_t1, c_student_b_school));
+
+  -- 4. Each start is checked when proposed.
+  set local role authenticated;
+  perform verify.expect_refused_undone('a proposal with no lesson', '23514 lesson_proposal_has_lessons',
+    format('select propose_lessons_to_student(%L, %L::timestamptz[])', c_student, '{}'::timestamptz[]));
+  perform verify.expect_refused_undone('a lesson under 1 hour ahead', '23514 lesson_proposal_window',
+    format('select propose_lessons_to_student(%L, %L::timestamptz[])', c_student,
+           array[date_trunc('minute', now()) + interval '50 minutes']));
+  perform verify.expect_refused_undone('a lesson past 8 weeks', '23514 lesson_proposal_window',
+    format('select propose_lessons_to_student(%L, %L::timestamptz[])', c_student,
+           array[v_ten + interval '9 weeks']));
+  perform verify.expect_refused_undone('a lesson crossing one of the teacher', '23514 lesson_proposal_slot_taken',
+    format('select propose_lessons_to_student(%L, %L::timestamptz[])', c_student,
+           array[v_ten + interval '1 day 8 hours 30 minutes']));
+  perform verify.expect_refused_undone('a lesson crossing one of the student', '23514 lesson_proposal_slot_taken',
+    format('select propose_lessons_to_student(%L, %L::timestamptz[])', c_student,
+           array[v_ten + interval '1 day 9 hours 30 minutes']));
+  perform verify.expect_refused_undone('two lessons of the proposal crossing', '23P01 lesson_proposal_items_no_overlap',
+    format('select propose_lessons_to_student(%L, %L::timestamptz[])', c_student,
+           array[v_ten + interval '4 days', v_ten + interval '4 days 30 minutes']));
+  perform verify.expect_refused_undone('a start with seconds', '23514 lesson_proposal_items_whole_minute',
+    format('select propose_lessons_to_student(%L, %L::timestamptz[])', c_student,
+           array[v_ten + interval '4 days 10 seconds']));
+  reset role;
+
+  -- 5. Neither an inactive student nor an inactive teacher proposes or
+  -- accepts. A proposal to the other student and one of T2 to the student are written while both are active; then the student and T2
+  -- turn inactive.
+  perform set_config('test.uid', c_teacher::text, false);
+  set local role authenticated;
+  v_p := propose_lessons_to_student(c_other, array[v_ten + interval '5 days 2 hours']);
+  perform set_config('test.uid', c_teacher2::text, false);
+  v_ps2 := propose_lessons_to_student(c_student, array[v_ten + interval '5 days 3 hours']);
+  reset role;
+  update students set is_active = false where id = c_other;
+  update teachers set is_active = false where id = v_t2;
+  set local role authenticated;
+  perform set_config('test.uid', c_teacher::text, false);
+  perform verify.expect_refused_undone('a proposal to an inactive student', '23514 lesson_proposal_student_active',
+    format('select propose_lessons_to_student(%L, %L::timestamptz[])', c_other, array[v_ten + interval '5 days 4 hours']));
+  perform set_config('test.uid', c_teacher2::text, false);
+  perform verify.expect_refused_undone('a proposal by an inactive teacher', '23514 lesson_proposal_teacher_active',
+    format('select propose_lessons_to_student(%L, %L::timestamptz[])', c_student, array[v_ten + interval '5 days 4 hours']));
+  perform set_config('test.uid', c_other::text, false);
+  perform verify.expect_refused_undone('an inactive student accepting', '23514 lesson_proposal_student_active',
+    format('select * from accept_lesson_proposal(%L)', v_p));
+  perform set_config('test.uid', c_student::text, false);
+  perform verify.expect_refused_undone('accepting a proposal of an inactive teacher', '23514 lesson_proposal_teacher_active',
+    format('select * from accept_lesson_proposal(%L)', v_ps2));
+  reset role;
+  update students set is_active = true where id = c_other;
+  update teachers set is_active = true where id = v_t2;
+
+  -- 6. The student proposes outside the windows (two lessons, 15h and 17h
+  -- six days after v_day); one to the same teacher while it is open is
+  -- refused, one to another teacher is not; without the credits now, or to
+  -- a teacher of another organization, refused.
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  v_ps := propose_lessons_to_teacher(v_t1, array[v_ten + interval '6 days 5 hours', v_ten + interval '6 days 7 hours']);
+  perform verify.expect_refused_undone('a second open proposal to the same teacher', '23505 lesson_proposal_one_open',
+    format('select propose_lessons_to_teacher(%L, %L::timestamptz[])', v_t1, array[v_ten + interval '6 days 9 hours']));
+  perform verify.expect_refused_undone('a student''s proposal to a teacher of another organization',
+    '42501 lesson_booking_same_organization',
+    format('select propose_lessons_to_teacher(%L, %L::timestamptz[])',
+           v_t_b, array[v_ten + interval '6 days 9 hours']));
+  perform verify.expect_refused_undone('a student''s proposal to no teacher', '42501 lesson_booking_same_organization',
+    format('select propose_lessons_to_teacher(null, %L::timestamptz[])', array[v_ten + interval '6 days 9 hours']));
+  perform set_config('test.uid', c_poor::text, false);
+  perform verify.expect_refused_undone('a student''s proposal without the credits', '23514 credits_not_negative',
+    format('select propose_lessons_to_teacher(%L, %L::timestamptz[])', v_t1, array[v_ten + interval '6 days 9 hours']));
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if (select (proposed_by, status, teacher_id, student_id)::text from lesson_proposals where id = v_ps)
+       is distinct from ('student', 'open', v_t1, c_student)::text
+     or (select string_agg(format('%s/%s', recipient, status), ', ') from lesson_proposal_mails where proposal_id = v_ps)
+       is distinct from 'teacher/pending' then
+    insert into verify.failures values ('the student''s proposal is not open with an e-mail queued for the teacher');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'the student proposes outside the windows, once per teacher while open, with the credits of now, and the teacher gets an e-mail';
+  end if;
+
+  -- 7. Only the other side answers.
+  set local role authenticated;
+  perform set_config('test.uid', c_other::text, false);
+  perform verify.expect_refused_undone('a student accepting the proposal of another student', '42501 lesson_proposal_answer_allowed',
+    format('select * from accept_lesson_proposal(%L)', v_p1));
+  perform verify.expect_refused_undone('a student declining the proposal of another student', '42501 lesson_proposal_answer_allowed',
+    format('select decline_lesson_proposal(%L)', v_p1));
+  perform set_config('test.uid', c_teacher::text, false);
+  perform verify.expect_refused_undone('the teacher accepting her own proposal', '42501 lesson_proposal_answer_allowed',
+    format('select * from accept_lesson_proposal(%L)', v_p1));
+  perform set_config('test.uid', c_student::text, false);
+  perform verify.expect_refused_undone('the student accepting her own proposal', '42501 lesson_proposal_answer_allowed',
+    format('select * from accept_lesson_proposal(%L)', v_ps));
+  perform set_config('test.uid', c_teacher2::text, false);
+  perform verify.expect_refused_undone('another teacher accepting a proposal made to the first', '42501 lesson_proposal_answer_allowed',
+    format('select * from accept_lesson_proposal(%L)', v_ps));
+  perform set_config('test.uid', c_org_admin::text, false);
+  perform verify.expect_refused_undone('the organization''s admin accepting', '42501 lesson_proposal_answer_allowed',
+    format('select * from accept_lesson_proposal(%L)', v_p1));
+
+  -- 8. Only whoever proposed withdraws.
+  perform verify.expect_refused_undone('the organization''s admin withdrawing', '42501 lesson_proposal_withdraw_allowed',
+    format('select withdraw_lesson_proposal(%L)', v_p1));
+  perform set_config('test.uid', c_student::text, false);
+  perform verify.expect_refused_undone('the student withdrawing the teacher''s proposal', '42501 lesson_proposal_withdraw_allowed',
+    format('select withdraw_lesson_proposal(%L)', v_p1));
+  perform set_config('test.uid', c_teacher::text, false);
+  perform verify.expect_refused_undone('the teacher withdrawing the student''s proposal', '42501 lesson_proposal_withdraw_allowed',
+    format('select withdraw_lesson_proposal(%L)', v_ps));
+  perform set_config('test.uid', c_teacher2::text, false);
+  perform verify.expect_refused_undone('another teacher withdrawing a teacher''s proposal', '42501 lesson_proposal_withdraw_allowed',
+    format('select withdraw_lesson_proposal(%L)', v_p1));
+  perform set_config('test.uid', c_teacher::text, false);
+  perform withdraw_lesson_proposal(v_p);
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if (select (status, answered_by, answered_at is not null)::text from lesson_proposals where id = v_p)
+       is distinct from ('withdrawn', c_teacher, true)::text
+     or (select status from lesson_proposal_mails where proposal_id = v_p) <> 'skipped' then
+    insert into verify.failures values ('a withdrawn proposal is not withdrawn by its teacher with its e-mail skipped');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'only the other side answers a proposal and only the proposer withdraws it; a withdrawal skips its e-mail';
+  end if;
+
+  -- 9. Nobody writes the three tables through the API.
+  perform set_config('test.uid', c_teacher::text, false);
+  set local role authenticated;
+  perform verify.expect_refused_undone('a teacher writing a proposal', '42501',
+    format($q$insert into lesson_proposals (organization_id, teacher_id, student_id, proposed_by, expires_at)
+              values (%L, %L, %L, 'teacher', now() + interval '1 day')$q$, v_chelsea, v_t1, c_student));
+  perform verify.expect_refused_undone('a teacher changing a proposal', '42501',
+    format($q$update lesson_proposals set status = 'accepted', answered_at = now() where id = %L$q$, v_p1));
+  perform verify.expect_refused_undone('a teacher removing a proposal', '42501',
+    format('delete from lesson_proposals where id = %L', v_p1));
+  perform verify.expect_refused_undone('a teacher writing a lesson of a proposal', '42501',
+    format('insert into lesson_proposal_items (proposal_id, starts_at, duration_minutes) values (%L, %L, 50)',
+           v_p1, v_ten + interval '7 days'));
+  perform verify.expect_refused_undone('a teacher moving a lesson of a proposal', '42501',
+    format($q$update lesson_proposal_items set starts_at = starts_at + interval '1 hour' where proposal_id = %L$q$, v_p1));
+  perform verify.expect_refused_undone('a teacher removing a lesson of a proposal', '42501',
+    format('delete from lesson_proposal_items where proposal_id = %L', v_p1));
+  perform verify.expect_refused_undone('a teacher writing a proposal e-mail', '42501',
+    format($q$insert into lesson_proposal_mails (organization_id, proposal_id, recipient) values (%L, %L, 'student')$q$,
+           v_chelsea, v_p1));
+  perform verify.expect_refused_undone('a teacher marking a proposal e-mail sent', '42501',
+    format($q$update lesson_proposal_mails set status = 'sent', sent_at = now() where proposal_id = %L$q$, v_p1));
+  perform verify.expect_refused_undone('a teacher removing a proposal e-mail', '42501',
+    format('delete from lesson_proposal_mails where proposal_id = %L', v_p1));
+  perform verify.expect_refused_undone('a teacher reading the due proposal e-mails', '42501',
+    format('select * from lesson_proposal_mails_due(10, %L)', v_p1));
+  perform verify.expect_refused_undone('a teacher marking a proposal e-mail sent through the function', '42501',
+    format('select lesson_proposal_mail_sent(%L)', (select id from lesson_proposal_mails where proposal_id = v_p1)));
+  reset role;
+
+  -- 10. Who reads: the student her three (P1, T2's, hers to T1), the other
+  -- student hers alone (the withdrawn one), T1 the three of her row, T2 one,
+  -- the admin of Chelsea St all four, the platform admin all four, the admin
+  -- of Escola B none. The lessons of a proposal follow it; the e-mails reach
+  -- whoever teaches in the organization and not the student.
+  v_before := (select count(*) from verify.failures);
+  set local role authenticated;
+  v_text := '';
+  foreach v_role in array array[c_student, c_other, c_teacher, c_teacher2, c_org_admin, c_platform, c_admin_b]::text[] loop
+    perform set_config('test.uid', v_role, false);
+    v_text := v_text || (select count(*) from lesson_proposals)::text || '/'
+                     || (select count(*) from lesson_proposal_items)::text || '/'
+                     || (select count(*) from lesson_proposal_mails)::text || ' ';
+  end loop;
+  reset role;
+  if v_text <> '3/6/0 1/1/0 3/6/4 1/1/4 4/7/4 4/7/4 0/0/0 ' then
+    insert into verify.failures
+      values (format('proposals/items/e-mails read by the student, the other student, T1, T2, the admin, the platform admin and the admin of Escola B: %s, expected 3/6/0 1/1/0 3/6/4 1/1/4 4/7/4 4/7/4 0/0/0', v_text));
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'each side reads its own proposals and their lessons, the admin of the organization and the platform admin all of theirs, the admin of another organization none; the e-mails reach whoever teaches there';
+  end if;
+
+  -- 11. What each side reads through my_lesson_proposals: the names, the
+  -- starts, the cost of now, her side.
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  v_before := (select count(*) from verify.failures);
+  if (select (my_side, proposed_by, status, teacher_name, student_name, starts_at, duration_minutes, lesson_credits)::text
+        from my_lesson_proposals() where proposal_id = v_p1)
+     is distinct from ('student', 'teacher', 'open', 'Proposal 01', 'Proposal 08', v_series, 50, 4)::text
+     or (select count(*) from my_lesson_proposals()) <> 3 then
+    insert into verify.failures values ('my_lesson_proposals does not give the student her three proposals with the names, starts and cost');
+  end if;
+  perform set_config('test.uid', c_teacher::text, false);
+  if (select string_agg(format('%s/%s/%s', my_side, proposed_by, status), ', '
+                        order by format('%s/%s/%s', my_side, proposed_by, status))
+        from my_lesson_proposals())
+     is distinct from 'teacher/student/open, teacher/teacher/open, teacher/teacher/withdrawn' then
+    insert into verify.failures values ('my_lesson_proposals does not give the teacher hers, the withdrawn one included');
+  end if;
+  reset role;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'my_lesson_proposals gives each side its proposals with both names, the starts and what a lesson costs the student';
+  end if;
+
+  -- 11b. An organization without a teacher books no lesson, by proposal
+  -- either: Chelsea St turned so for a moment, past its triggers as a restore
+  -- passes them, the teacher's proposal and the student's yes are refused.
+  -- Its open signup goes with it (organizations_open_signup_chelsea).
+  v_text := (select open_signup::text from organizations where id = v_chelsea);
+  perform set_config('session_replication_role', 'replica', true);
+  update organizations set has_teacher = false, open_signup = false where id = v_chelsea;
+  perform set_config('session_replication_role', 'origin', true);
+  set local role authenticated;
+  perform set_config('test.uid', c_teacher::text, false);
+  perform verify.expect_refused_undone('a proposal in an organization without a teacher', '42501 lesson_booking_needs_teacher',
+    format('select propose_lessons_to_student(%L, %L::timestamptz[])', c_student, array[v_ten + interval '9 days']));
+  perform set_config('test.uid', c_student::text, false);
+  perform verify.expect_refused_undone('a yes in an organization without a teacher', '42501 lesson_booking_needs_teacher',
+    format('select * from accept_lesson_proposal(%L)', v_p1));
+  reset role;
+  perform set_config('session_replication_role', 'replica', true);
+  update organizations set has_teacher = true, open_signup = v_text::boolean where id = v_chelsea;
+  perform set_config('session_replication_role', 'origin', true);
+
+  -- 12. The yes to the series: three lessons scheduled, each debited 4 under
+  -- lesson:<id>, six calendar requests, the balance down by 12, each lesson
+  -- of the proposal tied to its lesson, the proposal accepted by her and its
+  -- e-mail skipped.
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  select * into v_accepted from accept_lesson_proposal(v_p1);
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if (v_accepted.lesson_count, v_accepted.credits_debited, v_accepted.balance) is distinct from (3, 12, 8)
+     or credit_balance_of(c_student) <> 8
+     or v_accepted.lesson_ids is distinct from
+        (select array_agg(lesson_id order by starts_at) from lesson_proposal_items where proposal_id = v_p1) then
+    insert into verify.failures values (format('the yes returned %s, and the balance is %s; expected (3,12,8) and 8',
+      v_accepted, credit_balance_of(c_student)));
+  end if;
+  if (select count(*) from lesson_proposal_items i
+        join lessons l on l.id = i.lesson_id
+       where i.proposal_id = v_p1 and l.scheduled_at = i.starts_at and l.status = 'scheduled'
+         and l.student_id = c_student and l.teacher_id = v_t1 and l.organization_id = v_chelsea
+         and l.credits_debited = 4 and l.duration_minutes = 50
+         and (select -sum(e.amount) from credit_entries e
+               where e.person_id = c_student and e.kind = 'debit' and e.reference = 'lesson:' || l.id) = 4
+         and (select count(*) from calendar_invites c
+               where c.lesson_id = l.id and c.method = 'request' and c.status = 'pending') = 2) <> 3 then
+    insert into verify.failures values ('the yes did not write three lessons, each paid 4 under lesson:<id> with two calendar requests and tied to its item');
+  end if;
+  if (select (status, answered_by, answered_at is not null)::text from lesson_proposals where id = v_p1)
+       is distinct from ('accepted', c_student, true)::text
+     or (select status from lesson_proposal_mails where proposal_id = v_p1) <> 'skipped' then
+    insert into verify.failures values ('the accepted proposal is not accepted by the student with its e-mail skipped');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'the yes to a series writes each lesson and debits it under lesson:<id>, queues its calendar requests and ties it to its item, in one transaction';
+  end if;
+  set local role authenticated;
+  perform verify.expect_refused_undone('accepting a proposal twice', '23514 lesson_proposal_open',
+    format('select * from accept_lesson_proposal(%L)', v_p1));
+  reset role;
+
+  -- 13. A balance short of the whole series refuses all of it: 8 credits for
+  -- three lessons of 4. No lesson, no entry, still open.
+  perform set_config('test.uid', c_teacher::text, false);
+  set local role authenticated;
+  v_p := propose_lessons_to_student(c_student, array[v_ten + interval '4 days 5 hours',
+                                                     v_ten + interval '4 days 6 hours',
+                                                     v_ten + interval '4 days 7 hours']);
+  perform set_config('test.uid', c_student::text, false);
+  reset role;
+  v_n := (select count(*) from lessons);
+  v_int := (select count(*) from credit_entries);
+  set local role authenticated;
+  perform verify.expect_refused_undone('a yes the balance does not cover whole', '23514 credits_not_negative',
+    format('select * from accept_lesson_proposal(%L)', v_p));
+  reset role;
+  if (select count(*) from lessons) <> v_n or (select count(*) from credit_entries) <> v_int
+     or (select status from lesson_proposals where id = v_p) <> 'open'
+     or exists (select 1 from lesson_proposal_items where proposal_id = v_p and lesson_id is not null) then
+    insert into verify.failures values ('a refused yes left a lesson, an entry or a closed proposal');
+  else
+    raise notice 'a balance short of the whole series refuses all of it and leaves the proposal open';
+  end if;
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  perform decline_lesson_proposal(v_p);
+  reset role;
+  if (select (status, answered_by)::text from lesson_proposals where id = v_p) is distinct from ('declined', c_student)::text
+     or (select count(*) from lessons) <> v_n or (select count(*) from credit_entries) <> v_int then
+    insert into verify.failures values ('the no did not close the proposal as declined, or wrote something');
+  else
+    raise notice 'the no closes the proposal and writes nothing';
+  end if;
+
+  -- 14. A slot taken meanwhile: T1 proposes 10h on v_day, inside her window;
+  -- the other student books it through book_lesson (the recreated one); the
+  -- yes is refused by name and debits nothing.
+  perform set_config('test.uid', c_teacher::text, false);
+  set local role authenticated;
+  v_slot := propose_lessons_to_student(c_student, array[v_ten]);
+  perform set_config('test.uid', c_other::text, false);
+  select * into v_booked from book_lesson(v_t1, v_ten);
+  perform set_config('test.uid', c_student::text, false);
+  reset role;
+  v_int := (select count(*) from credit_entries);
+  set local role authenticated;
+  perform verify.expect_refused_undone('a yes on a slot booked meanwhile', '23514 lesson_proposal_slot_taken',
+    format('select * from accept_lesson_proposal(%L)', v_slot));
+  reset role;
+  if (select count(*) from credit_entries) <> v_int or (select status from lesson_proposals where id = v_slot) <> 'open' then
+    insert into verify.failures values ('a yes on a slot taken debited or closed the proposal');
+  end if;
+
+  -- 15. The other student's booking, through the recreated book_lesson:
+  -- one lesson debited 4 under lesson:<id>, her balance 16, two calendar
+  -- requests; the refusals of 0052 by name, leaving nothing.
+  v_before := (select count(*) from verify.failures);
+  if (v_booked.credits_debited, v_booked.balance) is distinct from (4, 16)
+     or (select (credits_debited, teacher_id, student_id, scheduled_at, duration_minutes, status)::text
+           from lessons where id = v_booked.lesson_id)
+        is distinct from (4, v_t1, c_other, v_ten, 50, 'scheduled')::text
+     or (select -sum(amount) from credit_entries where person_id = c_other and kind = 'debit'
+            and reference = 'lesson:' || v_booked.lesson_id) <> 4
+     or (select count(*) from calendar_invites where lesson_id = v_booked.lesson_id and method = 'request') <> 2 then
+    insert into verify.failures values ('the recreated book_lesson did not book and debit as 0052 did');
+  end if;
+  v_n := (select count(*) from lessons);
+  set local role authenticated;
+  perform set_config('test.uid', c_other::text, false);
+  perform verify.expect_refused_undone('book_lesson off a free slot', '23514 lesson_slot_bookable',
+    format('select * from book_lesson(%L, %L)', v_t1, v_ten + interval '30 minutes'));
+  perform verify.expect_refused_undone('book_lesson outside the window', '23514 lesson_slot_bookable',
+    format('select * from book_lesson(%L, %L)', v_t1, v_series[1]));
+  perform set_config('test.uid', c_poor::text, false);
+  perform verify.expect_refused_undone('book_lesson without the credits', '23514 credits_not_negative',
+    format('select * from book_lesson(%L, %L)', v_t1, v_ten + interval '1 hour'));
+  perform set_config('test.uid', c_teacher2::text, false);
+  perform verify.expect_refused_undone('book_lesson by a teacher', '42501 lesson_booking_student',
+    format('select * from book_lesson(%L, %L)', v_t1, v_ten + interval '1 hour'));
+  perform set_config('test.uid', c_student::text, false);
+  perform verify.expect_refused_undone('book_lesson over a booked lesson', '23514 lesson_slot_bookable',
+    format('select * from book_lesson(%L, %L)', v_t1, v_ten));
+  reset role;
+  if (select count(*) from lessons) <> v_n then
+    insert into verify.failures values ('a refused book_lesson left a lesson');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'the recreated book_lesson books and debits as 0052 did, and refuses by the same names, leaving nothing; a yes on a slot booked meanwhile is refused by name and debits nothing';
+  end if;
+
+  -- 16. The teacher's yes to the student's proposal: two lessons, 8 debited
+  -- from the student, who has 0 left, each of the length the proposal was
+  -- made with (45 minutes here, written by postgres), not today's rule.
+  update lesson_proposal_items set duration_minutes = 45 where proposal_id = v_ps;
+  perform set_config('test.uid', c_teacher::text, false);
+  set local role authenticated;
+  select * into v_accepted from accept_lesson_proposal(v_ps);
+  reset role;
+  if (v_accepted.lesson_count, v_accepted.credits_debited, v_accepted.balance) is distinct from (2, 8, 0)
+     or (select count(*) from lesson_proposal_items i join lessons l on l.id = i.lesson_id
+          where i.proposal_id = v_ps and l.student_id = c_student and l.credits_debited = 4
+            and l.duration_minutes = 45) <> 2
+     or (select (status, answered_by)::text from lesson_proposals where id = v_ps)
+        is distinct from ('accepted', c_teacher)::text then
+    insert into verify.failures values (format('the teacher''s yes returned %s, expected (2,8,0) with two lessons of the student', v_accepted));
+  else
+    raise notice 'the teacher''s yes to the student''s proposal writes and debits the student''s lessons';
+  end if;
+
+  -- 17. Past its time a proposal is no longer answered: 3 days after it was
+  -- made (simulated by postgres), and 1 hour before its first lesson
+  -- (expires_at written so when proposed). It reads as expired, its e-mail
+  -- is skipped when due, and the student's next proposal closes her own
+  -- expired one first.
+  perform set_config('test.uid', c_teacher::text, false);
+  set local role authenticated;
+  v_exp := propose_lessons_to_student(c_student, array[v_ten + interval '5 days 5 hours']);
+  v_near := propose_lessons_to_student(c_student, array[date_trunc('minute', now()) + interval '2 hours']);
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if (select expires_at from lesson_proposals where id = v_near)
+     <> date_trunc('minute', now()) + interval '1 hour' then
+    insert into verify.failures values ('a proposal whose lesson is in 2 hours does not close 1 hour before it');
+  end if;
+  update lesson_proposals set created_at = now() - interval '4 days', expires_at = now() - interval '1 day'
+   where id = v_exp;
+  update lesson_proposals set created_at = now() - interval '2 hours', expires_at = now() - interval '1 minute'
+   where id = v_near;
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  perform verify.expect_refused_undone('accepting a proposal past its 3 days', '23514 lesson_proposal_open',
+    format('select * from accept_lesson_proposal(%L)', v_exp));
+  perform verify.expect_refused_undone('declining a proposal past its 3 days', '23514 lesson_proposal_open',
+    format('select decline_lesson_proposal(%L)', v_exp));
+  perform verify.expect_refused_undone('accepting a proposal 1 hour before its lesson', '23514 lesson_proposal_open',
+    format('select * from accept_lesson_proposal(%L)', v_near));
+  if (select status from my_lesson_proposals() where proposal_id = v_exp) is distinct from 'expired' then
+    insert into verify.failures values ('my_lesson_proposals does not read a proposal past its time as expired');
+  end if;
+  perform set_config('test.uid', c_teacher::text, false);
+  perform verify.expect_refused_undone('withdrawing a proposal past its time', '23514 lesson_proposal_open',
+    format('select withdraw_lesson_proposal(%L)', v_exp));
+  reset role;
+  set local role service_role;
+  perform count(*) from lesson_proposal_mails_due(10);
+  reset role;
+  if (select status from lesson_proposal_mails where proposal_id = v_exp) <> 'skipped' then
+    insert into verify.failures values ('the e-mail of a proposal past its time is not skipped when due');
+  end if;
+  if (select string_agg(format('%s/%s/%s', status, answered_at = expires_at, answered_by is null), ', ' order by id)
+        from lesson_proposals where id in (v_exp, v_near))
+     is distinct from 'expired/t/t, expired/t/t' then
+    insert into verify.failures values (format('lesson_proposal_mails_due did not write expired on the teacher''s proposals past their time: %s',
+      (select string_agg(format('%s/%s/%s', status, answered_at = expires_at, answered_by is null), ', ' order by id)
+         from lesson_proposals where id in (v_exp, v_near))));
+  end if;
+  -- The other student's proposal to T2, past its time: a new one to T2
+  -- closes it as expired at its expires_at, and is written.
+  perform set_config('test.uid', c_other::text, false);
+  set local role authenticated;
+  v_ps2 := propose_lessons_to_teacher(v_t2, array[v_ten + interval '6 days 9 hours']);
+  reset role;
+  update lesson_proposals set created_at = now() - interval '4 days', expires_at = now() - interval '1 day'
+   where id = v_ps2;
+  set local role authenticated;
+  v_p := propose_lessons_to_teacher(v_t2, array[v_ten + interval '6 days 11 hours']);
+  reset role;
+  if (select (status, answered_at = expires_at, answered_by)::text from lesson_proposals where id = v_ps2)
+       is distinct from ('expired', true, null::uuid)::text
+     or (select status from lesson_proposals where id = v_p) <> 'open' then
+    insert into verify.failures values ('a new proposal of the student did not close her expired one first');
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a proposal closes 3 days after it was made, or 1 hour before its first lesson; then nobody answers or withdraws it, it reads as expired and its e-mail is skipped; the student''s next proposal closes her expired one';
+  end if;
+
+  -- 18. A lesson born from a proposal is cancelled as any other: more than 1
+  -- hour ahead, the 4 back; under 1 hour, nothing.
+  select i.lesson_id into v_lesson from lesson_proposal_items i
+   where i.proposal_id = v_p1 order by i.starts_at limit 1;
+  perform set_config('test.uid', c_student::text, false);
+  set local role authenticated;
+  v_int := (select refunded_credits from cancel_lesson(v_lesson));
+  reset role;
+  v_before := (select count(*) from verify.failures);
+  if v_int <> 4 or credit_balance_of(c_student) <> 4 then
+    insert into verify.failures values (format('the cancel of a lesson born from a proposal gave back %s, expected 4', v_int));
+  end if;
+  select i.lesson_id into v_lesson from lesson_proposal_items i
+   where i.proposal_id = v_p1 order by i.starts_at offset 1 limit 1;
+  update lessons set scheduled_at = now() + interval '30 minutes' where id = v_lesson;
+  set local role authenticated;
+  v_int := (select refunded_credits from cancel_lesson(v_lesson));
+  reset role;
+  if v_int <> 0 or credit_balance_of(c_student) <> 4 then
+    insert into verify.failures values (format('the cancel under 1 hour of a lesson born from a proposal gave back %s, expected 0', v_int));
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'a lesson born from a proposal is cancelled as any other: the credits back up to 1 hour before, nothing after';
+  end if;
+
+  -- 19. The e-mail: the due row of a teacher's proposal goes to the
+  -- student's account e-mail, in her zone, from T1's name; a student's to
+  -- T1's calendar e-mail, in London. A failure handed to the provider counts
+  -- an attempt, keeps its code and waits 30 minutes; sent is once.
+  perform set_config('test.uid', c_teacher::text, false);
+  set local role authenticated;
+  v_p := propose_lessons_to_student(c_student, array[v_ten + interval '7 days 5 hours', v_ten + interval '7 days 6 hours']);
+  reset role;
+  set local role service_role;
+  v_before := (select count(*) from verify.failures);
+  select * into v_due from lesson_proposal_mails_due(10, v_p);
+  if (v_due.recipient, v_due.proposed_by, v_due.recipient_email, v_due.recipient_name, v_due.recipient_timezone,
+      v_due.proposer_name, v_due.starts_at, v_due.duration_minutes, v_due.attempts)::text
+     is distinct from ('student', 'teacher', 'proposal-08@example.com', 'Proposal 08', c_zone, 'Proposal 01',
+                       array[v_ten + interval '7 days 5 hours', v_ten + interval '7 days 6 hours'], 50, 0)::text then
+    insert into verify.failures values (format('the due e-mail of a teacher''s proposal is %s', v_due));
+  end if;
+  v_mail := v_due.id;
+  perform lesson_proposal_mail_failed(v_mail, 'resend_500_internal_server_error', false, true);
+  if exists (select 1 from lesson_proposal_mails_due(10, v_p)) then
+    insert into verify.failures values ('a proposal e-mail tried a moment ago is due again at once');
+  end if;
+  reset role;
+  if (select (status, attempts, last_error)::text from lesson_proposal_mails where id = v_mail)
+     is distinct from ('pending', 1, 'resend_500_internal_server_error')::text then
+    insert into verify.failures values ('a failed proposal e-mail is not pending with one attempt and its code');
+  end if;
+  update lesson_proposal_mails set last_attempt_at = now() - interval '31 minutes' where id = v_mail;
+  set local role service_role;
+  if not exists (select 1 from lesson_proposal_mails_due(10, v_p)) then
+    insert into verify.failures values ('a proposal e-mail tried 31 minutes ago is not due again');
+  end if;
+  perform lesson_proposal_mail_sent(v_mail);
+  perform lesson_proposal_mail_failed(v_mail, 'late', true, true);
+  perform lesson_proposal_mail_sent(v_mail);
+  reset role;
+  if (select (status, attempts, last_error, sent_at is not null)::text from lesson_proposal_mails where id = v_mail)
+     is distinct from ('sent', 2, null::text, true)::text then
+    insert into verify.failures values ('a sent proposal e-mail was changed by a later failure or a second sent');
+  end if;
+  perform set_config('test.uid', c_other::text, false);
+  set local role authenticated;
+  v_ps := propose_lessons_to_teacher(v_t1, array[v_ten + interval '7 days 9 hours']);
+  reset role;
+  set local role service_role;
+  select * into v_due from lesson_proposal_mails_due(10, v_ps);
+  reset role;
+  if (v_due.recipient, v_due.recipient_email, v_due.recipient_name, v_due.recipient_timezone, v_due.proposer_name)::text
+     is distinct from ('teacher', 'proposal-agenda@example.com', 'Proposal 01', 'Europe/London', 'Proposal 03')::text then
+    insert into verify.failures values (format('the due e-mail of a student''s proposal is %s', v_due));
+  end if;
+  if (select count(*) from verify.failures) = v_before then
+    raise notice 'the e-mail of a proposal goes to the student''s account e-mail or the teacher''s calendar e-mail, in the recipient''s zone, with the proposer''s name and the starts; a failure waits 30 minutes; sent is once';
+  end if;
+
+  -- 20. Every named check refuses on its own, written by postgres.
+  perform verify.expect_refused_undone('a proposal in an unknown state', '23514 lesson_proposals_status_known',
+    format($q$insert into lesson_proposals (organization_id, teacher_id, student_id, proposed_by, status, expires_at, answered_at)
+              values (%L, %L, %L, 'teacher', 'maybe', now() + interval '1 day', now())$q$, v_chelsea, v_t1, c_student));
+  perform verify.expect_refused_undone('a proposal by an unknown side', '23514 lesson_proposals_proposed_by_known',
+    format($q$insert into lesson_proposals (organization_id, teacher_id, student_id, proposed_by, expires_at)
+              values (%L, %L, %L, 'admin', now() + interval '1 day')$q$, v_chelsea, v_t1, c_student));
+  perform verify.expect_refused_undone('a proposal that expires before it is made', '23514 lesson_proposals_expires_after_creation',
+    format($q$insert into lesson_proposals (organization_id, teacher_id, student_id, proposed_by, expires_at)
+              values (%L, %L, %L, 'teacher', now())$q$, v_chelsea, v_t1, c_student));
+  perform verify.expect_refused_undone('an accepted proposal with no time of answer', '23514 lesson_proposals_answered_when_closed',
+    format($q$insert into lesson_proposals (organization_id, teacher_id, student_id, proposed_by, status, expires_at, answered_by)
+              values (%L, %L, %L, 'teacher', 'accepted', now() + interval '1 day', %L)$q$, v_chelsea, v_t1, c_student, c_student));
+  perform verify.expect_refused_undone('an open proposal with a time of answer', '23514 lesson_proposals_answered_when_closed',
+    format($q$insert into lesson_proposals (organization_id, teacher_id, student_id, proposed_by, expires_at, answered_at)
+              values (%L, %L, %L, 'teacher', now() + interval '1 day', now())$q$, v_chelsea, v_t1, c_student));
+  perform verify.expect_refused_undone('an expired proposal answered by someone', '23514 lesson_proposals_answered_by_a_side',
+    format($q$insert into lesson_proposals (organization_id, teacher_id, student_id, proposed_by, status, expires_at, answered_at, answered_by)
+              values (%L, %L, %L, 'teacher', 'expired', now() + interval '1 day', now(), %L)$q$, v_chelsea, v_t1, c_student, c_student));
+  perform verify.expect_refused_undone('a lesson of a proposal of no length', '23514 lesson_proposal_items_duration_positive',
+    format('insert into lesson_proposal_items (proposal_id, starts_at, duration_minutes) values (%L, %L, 0)',
+           v_p, v_ten + interval '8 days'));
+  perform verify.expect_refused_undone('a proposal e-mail to an unknown side', '23514 lesson_proposal_mails_recipient_known',
+    format($q$insert into lesson_proposal_mails (organization_id, proposal_id, recipient) values (%L, %L, 'admin')$q$,
+           v_chelsea, v_exp));
+  perform verify.expect_refused_undone('a second e-mail of one proposal', '23505 lesson_proposal_mails_one_per_proposal',
+    format($q$insert into lesson_proposal_mails (organization_id, proposal_id, recipient) values (%L, %L, 'student')$q$,
+           v_chelsea, v_exp));
+  perform verify.expect_refused_undone('a proposal e-mail sent with no time', '23514 lesson_proposal_mails_sent_has_time',
+    format($q$update lesson_proposal_mails set status = 'sent' where proposal_id = %L$q$, v_exp));
+  perform verify.expect_refused_undone('one lesson tied to two lessons of proposals', '23505 lesson_proposal_items_lesson_once',
+    format('update lesson_proposal_items set lesson_id = %L where proposal_id = %L', v_booked.lesson_id, v_p));
+
+  -- Nothing written here is kept: the proposals take their lessons and
+  -- e-mails, the lessons their invites. The ledger goes past the trigger that
+  -- refuses a delete, as a restore passes it.
+  perform set_config('session_replication_role', 'replica', true);
+  delete from credit_entries;
+  perform set_config('session_replication_role', 'origin', true);
+  delete from lesson_proposals where teacher_id in (v_t1, v_t2);
+  delete from lessons where teacher_id in (v_t1, v_t2);
+  delete from teachers where id in (v_t1, v_t2);
+  delete from subscriptions;
+  delete from billing_customers;
+  delete from credit_costs;
+  delete from plans;
+  delete from platform_admins where user_id = c_platform;
+  delete from students where id = any (c_people);
+  delete from organization_members where user_id = any (c_people);
+  delete from auth.users where id = any (c_people);
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+  if exists (select 1 from lesson_proposal_items) or exists (select 1 from lesson_proposal_mails)
+     or exists (select 1 from calendar_invites) then
+    insert into verify.failures values ('the proposals left lessons, e-mails or calendar invites behind');
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a proposed lesson waits for a yes: %', v_failures;
+  end if;
+  raise notice 'a proposed lesson waits for a yes: a proposal debits nothing and writes no lesson; only the other side answers and only the proposer withdraws; the yes writes and pays every lesson as book_lesson does, or none; a slot taken, a short balance and a proposal past its time are refused by name; nobody writes the tables through the API; the e-mail goes to the other side once';
+end;
+$$;
+
+-- 0058 creates person_badges and founder_program, empty; gives plans an
+-- audience ('public' by default, so every plan written above stays public),
+-- a person and a cost of the lesson, all null; gives subscriptions a cost of
+-- the lesson, null; and recreates billing_open_subscription,
+-- credit_subscription_copies_plan, credit_price and the trigger function of
+-- the first confirmation. No row is written by it. The blocks of 0049, 0050
+-- and 0051 run before it, against the bodies it replaces, so its own block,
+-- "A founder keeps a door (0058)", holds again what each recreated body kept
+-- from the one before, besides what it adds.
+\i supabase/migrations/0058_a_founder_keeps_a_door.sql
+
+-- A founder keeps a door (0058) ---------------------------------------------------------
+--
+-- The Founder seal: read by its holder and the platform admin, written by no
+-- API role, given only through badge_grant (executed by its owner alone,
+-- behind grant_badge for the platform admin), one live per person, within
+-- the seats of founder_program, inherited terms when given again; nobody
+-- gives herself one. The plans: anon and every person read the public ones,
+-- the founder plan only a live seal holder, a personal plan only the person
+-- it is bound to, bound when written for a confirmed account or on the first
+-- confirmation (whatever the case of the address), bound for good, and a
+-- failing bind never fails a confirmation. billing_open_subscription refuses
+-- a plan outside her audience and a value other than hers; the founder's
+-- terms are fixed by the first paid founder subscription and a founder who
+-- comes back subscribes with them; the seal outlives a cancel and an overdue.
+-- credit_price reads the cost of a lesson from the subscription that counts.
+-- Every check is refused by its own name. Numbers are made up. Nothing
+-- written here is kept. Each numbered case is the line of the table of the
+-- plan of 13/11 on #292 that it holds.
+
+create function verify.holds_0058(p_what text, p_ok boolean) returns void
+language plpgsql as $$
+begin
+  if p_ok is distinct from true then
+    insert into verify.failures values (p_what);
+  else
+    raise notice '%', p_what;
+  end if;
+end;
+$$;
+
+-- A plan as the platform admin writes it, with the columns of 0058.
+create function verify.plan_0058(
+  p_key text, p_audience text, p_monthly integer, p_annual integer, p_credits integer,
+  p_lesson integer, p_email text, p_trial_days integer default 14, p_brand text default 'chelsea-st')
+returns uuid
+language plpgsql as $$
+declare
+  v_id uuid;
+begin
+  insert into plans (brand, key, name, monthly_price_cents, annual_price_cents, monthly_credits,
+                     trail_minutes_per_day, opens_voice_question, opens_free_conversation, opens_video,
+                     trial_days, trial_credits, credit_ceiling_months, credit_days_after_cancel,
+                     audience, teacher_lesson_credits, person_email)
+    values (p_brand, p_key, initcap(p_key), p_monthly, p_annual, p_credits, 0, false, false, false,
+            p_trial_days, 20, case p_audience when 'founder' then 2 else 3 end,
+            case p_audience when 'founder' then 20 else 30 end,
+            p_audience, p_lesson, p_email)
+    returning id into v_id;
+  return v_id;
+end;
+$$;
+
+create function verify.open_0058(
+  p_person uuid, p_plan uuid, p_cycle text, p_value integer, p_trial boolean,
+  p_checkout text, p_subscription text)
+returns uuid
+language sql as $$
+  select public.billing_open_subscription(p_person, p_plan, p_cycle,
+    case when p_checkout is null then 'pix' else 'card' end, p_value, p_trial,
+    (now() at time zone 'America/Sao_Paulo')::date + 14, p_checkout,
+    case when p_subscription is null then null else 'cus_' || p_subscription end, p_subscription);
+$$;
+
+create function verify.apply_0058(
+  p_id uuid, p_subscription_id text, p_customer_id text, p_status text,
+  p_paid_through date, p_past_due_since date, p_cancel_reason text)
+returns void
+language plpgsql as $$
+begin
+  perform public.billing_apply_subscription(p_id, p_subscription_id, p_customer_id, p_status,
+    p_paid_through, p_past_due_since, p_cancel_reason);
+exception when others then
+  insert into verify.failures values (format(
+    '[0058] a subscription the case needed did not turn %s: %s %s', p_status, sqlstate, sqlerrm));
+end;
+$$;
+
+-- The same, for a subscription the case needs: a refusal is recorded as a
+-- failure of the block, which goes on, instead of ending it unnamed.
+create function verify.must_open_0058(
+  p_what text, p_person uuid, p_plan uuid, p_cycle text, p_value integer, p_trial boolean,
+  p_checkout text, p_subscription text)
+returns uuid
+language plpgsql as $$
+begin
+  return verify.open_0058(p_person, p_plan, p_cycle, p_value, p_trial, p_checkout, p_subscription);
+exception when others then
+  insert into verify.failures values (format('%s: refused with %s %s', p_what, sqlstate, sqlerrm));
+  return null;
+end;
+$$;
+
+do $$
+declare
+  c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_teacher constant uuid := '55555555-5555-5555-5555-555555555555';
+  c_f1 constant uuid := 'b0580000-0000-4000-8000-000000000001';
+  c_p2 constant uuid := 'b0580000-0000-4000-8000-000000000002';
+  c_f3 constant uuid := 'b0580000-0000-4000-8000-000000000003';
+  c_plain constant uuid := 'b0580000-0000-4000-8000-000000000004';
+  c_new constant uuid := 'b0580000-0000-4000-8000-000000000005';
+  c_other constant uuid := 'b0580000-0000-4000-8000-000000000006';
+  c_boom constant uuid := 'b0580000-0000-4000-8000-000000000007';
+  c_book constant uuid := 'b0580000-0000-4000-8000-000000000008';
+  c_tutor constant uuid := 'b0580000-0000-4000-8000-000000000009';
+  c_people constant uuid[] := array[c_f1, c_p2, c_f3, c_plain, c_new, c_other, c_boom, c_book, c_tutor];
+  c_zone constant text := 'America/Sao_Paulo';
+  v_uid text := current_setting('test.uid', true);
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_today date := (now() at time zone 'America/Sao_Paulo')::date;
+  v_ten timestamptz := ((now() at time zone 'America/Sao_Paulo')::date + 2 + time '10:00') at time zone 'America/Sao_Paulo';
+  v_public uuid;
+  v_founder uuid;
+  v_founder2 uuid;
+  v_personal uuid;
+  v_waiting uuid;
+  v_nobody uuid;
+  v_boom_plan uuid;
+  v_grifo uuid;
+  v_inactive uuid;
+  v_tutor uuid;
+  v_sub uuid;
+  v_sub2 uuid;
+  v_seal uuid;
+  v_seal2 uuid;
+  v_n bigint;
+  v_int integer;
+  v_text text;
+  v_bool boolean;
+  v_terms record;
+  v_terms2 record;
+  v_row record;
+  v_left integer;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  -- The people. Chelsea St students, confirmed: two founders, a holder of a
+  -- personal plan, one with nothing, one more, a founder who books, and a
+  -- teacher who takes bookings. Unconfirmed: one a personal plan waits for
+  -- (her address in another case, and a signup), and one whose bind fails.
+  insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at) values
+    (c_f1, 'f1-0058@example.com', '{"full_name":"F1"}', now()),
+    (c_p2, 'p2-0058@example.com', '{"full_name":"P2"}', now()),
+    (c_f3, 'f3-0058@example.com', '{"full_name":"F3"}', now()),
+    (c_plain, 'plain-0058@example.com', '{"full_name":"Plain"}', now()),
+    (c_other, 'other-0058@example.com', '{"full_name":"Other"}', now()),
+    (c_book, 'book-0058@example.com', '{"full_name":"Book"}', now()),
+    (c_tutor, 'tutor-0058@example.com', '{"full_name":"Tutor"}', now());
+  insert into auth.users (id, email, raw_user_meta_data) values
+    (c_new, 'New-0058@Example.COM', '{"signup": true, "full_name":"New"}'),
+    (c_boom, 'boom-0058@example.com', '{"full_name":"Boom"}');
+  insert into organization_members (organization_id, user_id, role)
+    select v_chelsea, p, 'student' from unnest(array[c_f1, c_p2, c_f3, c_plain, c_other, c_book]) p;
+  insert into organization_members (organization_id, user_id, role) values (v_chelsea, c_tutor, 'teacher');
+  insert into students (id, organization_id)
+    select p, v_chelsea from unnest(array[c_f1, c_p2, c_f3, c_plain, c_other, c_book]) p;
+  insert into teachers (organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+    values (v_chelsea, c_tutor, 'teacher', 'https://meet.example.com/0058', 'tutor-agenda@example.com', true)
+    returning id into v_tutor;
+  insert into teacher_availability (organization_id, teacher_id, weekday, start_time, end_time, timezone)
+    select v_chelsea, v_tutor, d, '00:00', '24:00', c_zone from generate_series(0, 6) d;
+  -- The brand's cost of a lesson.
+  insert into credit_costs (brand, action, credits) values ('chelsea-st', 'teacher_lesson', 4);
+
+  -- Who executes what.
+  perform verify.holds_0058('[0058 #19] badge_grant is executed by no API role; grant_badge and revoke_badge by authenticated alone; holds_badge by authenticated alone; founder_seats_left by anon and authenticated',
+        not has_function_privilege('anon', 'public.badge_grant(uuid, text, text, uuid)', 'execute')
+    and not has_function_privilege('authenticated', 'public.badge_grant(uuid, text, text, uuid)', 'execute')
+    and not has_function_privilege('service_role', 'public.badge_grant(uuid, text, text, uuid)', 'execute')
+    and not has_function_privilege('anon', 'public.grant_badge(uuid, text)', 'execute')
+    and not has_function_privilege('anon', 'public.revoke_badge(uuid, text)', 'execute')
+    and not has_function_privilege('service_role', 'public.grant_badge(uuid, text)', 'execute')
+    and has_function_privilege('authenticated', 'public.grant_badge(uuid, text)', 'execute')
+    and has_function_privilege('authenticated', 'public.revoke_badge(uuid, text)', 'execute')
+    and has_function_privilege('authenticated', 'public.holds_badge(text)', 'execute')
+    and not has_function_privilege('anon', 'public.holds_badge(text)', 'execute')
+    and has_function_privilege('anon', 'public.founder_seats_left()', 'execute')
+    and has_function_privilege('authenticated', 'public.founder_seats_left()', 'execute')
+    and not has_function_privilege('service_role', 'public.founder_seats_left()', 'execute'));
+  perform verify.holds_0058('[0058] the internal and trigger functions of 0058 are executed by no API role',
+    not exists (select 1 from unnest(array[
+                  'public.bind_personal_plans(uuid, text)', 'public.founder_program_stamp()',
+                  'public.plans_founder_stays_on_sale()', 'public.plans_bind_personal()',
+                  'public.plans_personal_bound_for_good()', 'public.person_badges_fix_terms()',
+                  'public.accept_organization_invites_on_confirmation()',
+                  'public.credit_subscription_copies_plan()', 'public.credit_price(uuid, text)']::regprocedure[]) f
+                cross join unnest(array['anon', 'authenticated', 'service_role']) r
+                where has_function_privilege(r, f, 'execute'))
+    and has_function_privilege('service_role',
+          'public.billing_open_subscription(uuid, uuid, text, text, integer, boolean, date, text, text, text)', 'execute')
+    and not has_function_privilege('authenticated',
+          'public.billing_open_subscription(uuid, uuid, text, text, integer, boolean, date, text, text, text)', 'execute'));
+  perform verify.holds_0058('[0058 #18] authenticated only selects person_badges, anon and service_role hold nothing on it or on founder_program',
+        has_table_privilege('authenticated', 'public.person_badges', 'select')
+    and not exists (select 1 from unnest(array['insert', 'update', 'delete']) p
+                     where has_table_privilege('authenticated', 'public.person_badges', p))
+    and not exists (select 1 from unnest(array['select', 'insert', 'update', 'delete']) p
+                    cross join unnest(array['anon', 'service_role']) r
+                    cross join unnest(array['public.person_badges', 'public.founder_program']) t
+                     where has_table_privilege(r, t, p))
+    and not has_table_privilege('authenticated', 'public.founder_program', 'delete'));
+
+  -- No total yet: no seat, and badge_grant refuses.
+  perform verify.holds_0058('[0058 #21] with no row in founder_program, founder_seats_left is null',
+    founder_seats_left() is null);
+  perform verify.expect_named_refusal('[0058 #21] a seal with no row in founder_program',
+    '23514 founder_seats_available', format('select badge_grant(%L, ''founder'', ''admin'', null)', c_f1));
+
+  -- The platform admin writes the total and the catalog.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  insert into founder_program (seats_total) values (3);
+  v_public := verify.plan_0058('public', 'public', 1000, 10000, 10, null, null);
+  v_founder := verify.plan_0058('founder', 'founder', 500, 5000, 8, 2, null);
+  v_founder2 := verify.plan_0058('founder-two', 'founder', 600, 6000, 8, 2, null);
+  update plans set is_active = false where id = v_founder2;
+  v_personal := verify.plan_0058('personal-p2', 'person', 800, 8000, 10, 1, 'p2-0058@example.com');
+  v_waiting := verify.plan_0058('personal-new', 'person', 800, 8000, 10, 1, 'new-0058@example.com');
+  v_nobody := verify.plan_0058('personal-nobody', 'person', 800, 8000, 10, 1, 'nobody-0058@example.com');
+  v_boom_plan := verify.plan_0058('personal-boom', 'person', 800, 8000, 10, 1, 'boom-0058@example.com');
+  v_grifo := verify.plan_0058('seat', 'public', 1000, 10000, 10, null, null, 0, 'grifoai');
+  v_inactive := verify.plan_0058('old', 'public', 1000, 10000, 10, null, null);
+  update plans set is_active = false where id = v_inactive;
+  reset role;
+
+  perform verify.holds_0058('[0058] founder_program says who wrote the total and when',
+    (select updated_by from founder_program) = c_admin
+    and (select updated_at from founder_program) is not null);
+
+  -- 7. Bound when written, for a confirmed account only.
+  perform verify.holds_0058('[0058 #7] a personal plan for the e-mail of a confirmed account is born bound to it',
+    (select person_id from plans where id = v_personal) = c_p2);
+  perform verify.holds_0058('[0058 #7] a personal plan for the e-mail of an unconfirmed account is born unbound',
+    (select person_id from plans where id = v_waiting) is null
+    and (select person_id from plans where id = v_boom_plan) is null);
+
+  -- The seals, by the platform admin.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  v_seal := grant_badge(c_f1, 'founder');
+  perform grant_badge(c_f3, 'founder');
+  perform grant_badge(c_book, 'founder');
+  reset role;
+  perform verify.holds_0058('[0058] grant_badge gives the seal with source admin and the admin as granted_by',
+    (select count(*) from person_badges
+      where person_id in (c_f1, c_f3, c_book) and badge = 'founder' and source = 'admin'
+        and granted_by = c_admin and revoked_at is null) = 3);
+
+  -- 1 to 5. Who reads which plan.
+  set local role anon;
+  v_n := (select count(*) from plans where audience <> 'public');
+  v_bool := exists (select 1 from plans where id = v_public);
+  reset role;
+  perform verify.holds_0058('[0058 #1] anon reads the public active plans and no founder or personal plan',
+    v_n = 0 and v_bool);
+
+  perform set_config('test.uid', c_plain::text, false);
+  set local role authenticated;
+  v_n := (select count(*) from plans where audience = 'founder');
+  v_int := (select count(*) from plans where audience = 'person');
+  v_bool := exists (select 1 from plans where id = v_public);
+  reset role;
+  perform verify.holds_0058('[0058 #2] a student without the seal reads no founder plan and no personal plan, and the public one',
+    v_n = 0 and v_int = 0 and v_bool);
+
+  perform set_config('test.uid', c_f1::text, false);
+  set local role authenticated;
+  v_n := (select count(*) from plans where id = v_founder);
+  v_int := (select count(*) from plans where id in (v_founder2, v_personal, v_nobody, v_waiting));
+  v_bool := holds_badge('founder');
+  reset role;
+  perform verify.holds_0058('[0058 #3] a founder with a live seal reads the founder plan on sale, not the one off sale, and no personal plan',
+    v_n = 1 and v_int = 0 and v_bool);
+
+  perform set_config('test.uid', c_p2::text, false);
+  set local role authenticated;
+  v_n := (select count(*) from plans where id = v_personal);
+  v_int := (select count(*) from plans where id in (v_waiting, v_nobody, v_founder));
+  reset role;
+  perform verify.holds_0058('[0058 #4] a personal plan is read by its person, and she reads no other personal plan',
+    v_n = 1 and v_int = 0);
+
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  v_n := (select count(*) from plans where id in (v_nobody, v_waiting, v_personal, v_founder, v_founder2));
+  reset role;
+  perform verify.holds_0058('[0058 #5] the platform admin reads every plan, the personal ones waiting too',
+    v_n = 5);
+
+  -- 8. Bound for good.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0058 #8] another e-mail on a bound personal plan',
+    '23514 plans_personal_bound_for_good',
+    format('update plans set person_email = ''other-0058@example.com'' where id = %L', v_personal));
+  perform verify.expect_named_refusal('[0058 #8] another person on a bound personal plan',
+    '23514 plans_personal_bound_for_good',
+    format('update plans set person_id = %L where id = %L', c_plain, v_personal));
+  perform verify.expect_named_refusal('[0058 #8] no person on a bound personal plan',
+    '23514 plans_personal_bound_for_good',
+    format('update plans set person_id = null where id = %L', v_personal));
+  reset role;
+
+  -- 6. Bound on the first confirmation, whatever the case of the address,
+  -- with the invite and the signup still done (0051's body).
+  update auth.users set email_confirmed_at = now() where id = c_new;
+  perform verify.holds_0058('[0058 #6] a confirmation binds the personal plan waiting for her e-mail, in another case',
+    (select person_id from plans where id = v_waiting) = c_new);
+  perform verify.holds_0058('[0058 #6] a confirmation binds no plan of another e-mail',
+    (select person_id from plans where id = v_nobody) is null);
+  perform verify.holds_0058('[0058] the confirmation still makes a signup a student of Chelsea St (0051''s body kept)',
+    exists (select 1 from organization_members
+             where user_id = c_new and organization_id = v_chelsea and role = 'student'));
+  perform set_config('test.uid', c_new::text, false);
+  set local role authenticated;
+  v_n := (select count(*) from plans where id = v_waiting);
+  reset role;
+  perform verify.holds_0058('[0058 #6] once bound, she reads her personal plan', v_n = 1);
+
+  -- 9. A bind that fails never fails a confirmation.
+  alter table plans add constraint verify_0058_refuse_bind check (person_id is null) not valid;
+  v_text := verify.named_refusal(format('update auth.users set email_confirmed_at = now() where id = %L', c_boom));
+  alter table plans drop constraint verify_0058_refuse_bind;
+  perform verify.holds_0058(format('[0058 #9] a confirmation whose bind fails still confirms (%s)', coalesce(v_text, 'accepted')),
+    v_text is null
+    and (select email_confirmed_at from auth.users where id = c_boom) is not null
+    and (select person_id from plans where id = v_boom_plan) is null);
+
+  -- 10. Who subscribes to which plan.
+  perform billing_customer(c_f1, repeat('1', 64));
+  perform billing_customer(c_p2, repeat('2', 64));
+  perform billing_customer(c_f3, repeat('3', 64));
+  perform billing_customer(c_plain, repeat('4', 64));
+  perform billing_customer(c_other, repeat('6', 64));
+  perform billing_customer(c_book, repeat('8', 64));
+  perform verify.expect_named_refusal('[0058 #10] a founder plan without the seal',
+    '23514 billing_plan_audience',
+    format('select verify.open_0058(%L, %L, ''monthly'', 500, false, null, ''sub_plain_f'')', c_plain, v_founder));
+  perform verify.expect_named_refusal('[0058 #10] a personal plan bound to another person, by a founder',
+    '23514 billing_plan_audience',
+    format('select verify.open_0058(%L, %L, ''monthly'', 800, false, null, ''sub_f1_x'')', c_f1, v_personal));
+  perform verify.expect_named_refusal('[0058 #10] a personal plan bound to nobody',
+    '23514 billing_plan_audience',
+    format('select verify.open_0058(%L, %L, ''monthly'', 800, false, null, ''sub_f1_n'')', c_f1, v_nobody));
+
+  -- Regression of 0049's body: a GrifoAI plan and a plan off sale.
+  perform verify.expect_named_refusal('[0058] a GrifoAI plan is still refused (0049''s body kept)',
+    '23514 billing_plan_active',
+    format('select verify.open_0058(%L, %L, ''monthly'', 1000, false, null, ''sub_g'')', c_plain, v_grifo));
+  perform verify.expect_named_refusal('[0058] a plan off sale is still refused (0049''s body kept)',
+    '23514 billing_plan_active',
+    format('select verify.open_0058(%L, %L, ''monthly'', 1000, false, null, ''sub_i'')', c_plain, v_inactive));
+
+  -- 12. The value: the plan's price for the cycle.
+  perform verify.expect_named_refusal('[0058 #12] a public plan at another value',
+    '23514 billing_value_matches',
+    format('select verify.open_0058(%L, %L, ''monthly'', 999, true, null, ''sub_plain_bad'')', c_plain, v_public));
+  perform verify.expect_named_refusal('[0058 #12] the annual cycle at the monthly price',
+    '23514 billing_value_matches',
+    format('select verify.open_0058(%L, %L, ''annual'', 1000, true, null, ''sub_plain_bad2'')', c_plain, v_public));
+  perform verify.expect_named_refusal('[0058 #12] a personal plan at another value',
+    '23514 billing_value_matches',
+    format('select verify.open_0058(%L, %L, ''monthly'', 500, false, null, ''sub_p2_bad'')', c_p2, v_personal));
+
+  -- c_plain on the public plan with its trial; c_p2 on her personal plan.
+  v_sub := verify.must_open_0058('[0058 #12] the public plan at its price', c_plain, v_public, 'monthly', 1000, true, null, 'sub_plain');
+  perform verify.holds_0058('[0058] a subscription still copies the credits, the ceiling and the days of its plan (0050''s body kept)',
+    (select (monthly_credits, credit_ceiling_months, credit_days_after_cancel, teacher_lesson_credits, status)
+       from subscriptions where id = v_sub) = row(10, 3::smallint, 30::smallint, null::integer, 'trialing'::text));
+  perform verify.expect_named_refusal('[0058] a second trial is still refused (0049''s body kept)',
+    '23514 billing_one_trial_per_person',
+    format('select verify.open_0058(%L, %L, ''monthly'', 1000, true, null, ''sub_plain2'')', c_plain, v_public));
+  perform verify.must_open_0058('[0058 #10] her personal plan, by its person', c_p2, v_personal, 'monthly', 800, false, null, 'sub_p2');
+
+  -- 15 and 24. The founder's first subscription, paid: her terms are fixed.
+  -- With public plans active, the founder plan is still hers to subscribe.
+  v_sub := verify.must_open_0058('[0058 #15] the founder plan with a live seal, public plans on sale', c_f1, v_founder, 'monthly', 500, false, null, 'sub_f1');
+  perform verify.holds_0058('[0058 #13] a founder subscription not paid yet fixes no terms',
+    (select terms_fixed_at from person_badges where id = v_seal) is null);
+  perform verify.apply_0058(v_sub, 'sub_f1', 'cus_sub_f1', 'active', v_today + 30, null, null);
+  select terms_monthly_price_cents, terms_annual_price_cents, terms_monthly_credits,
+         terms_teacher_lesson_credits, terms_credit_ceiling_months, terms_credit_days_after_cancel,
+         terms_fixed_at
+    into v_terms from person_badges where id = v_seal;
+  perform verify.holds_0058('[0058 #13] the first active founder subscription fixes her terms: her value, the plan''s other cycle, the credits, the cost of a lesson',
+    (v_terms.terms_monthly_price_cents, v_terms.terms_annual_price_cents, v_terms.terms_monthly_credits,
+     v_terms.terms_teacher_lesson_credits, v_terms.terms_credit_ceiling_months,
+     v_terms.terms_credit_days_after_cancel)
+      = (500, 5000, 8, 2, 2::smallint, 20::smallint)
+    and v_terms.terms_fixed_at is not null);
+
+  -- 24. The cost of a lesson by the plan.
+  perform verify.holds_0058('[0058 #24] a lesson costs a founder what her founder subscription says',
+    credit_price(c_f1, 'teacher_lesson') = 2);
+  perform verify.holds_0058('[0058 #24] a lesson costs a subscriber of a plan without its own cost the brand''s',
+    credit_price(c_plain, 'teacher_lesson') = 4);
+  perform verify.holds_0058('[0058 #24] a lesson costs the holder of a personal plan what it says',
+    credit_price(c_p2, 'teacher_lesson') = 1);
+  perform verify.expect_named_refusal('[0058] an action without a cost in the brand is still refused (0050''s body kept)',
+    '23514 credit_cost_known', format('select credit_price(%L, ''voice_minute'')', c_f1));
+
+  -- The admin changes the founder plan: price, credits and the lesson.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  update plans set monthly_price_cents = 700, annual_price_cents = 7000, monthly_credits = 6,
+                   teacher_lesson_credits = 3
+   where id = v_founder;
+  reset role;
+  perform verify.holds_0058('[0058 #25] a change of the plan does not change the cost under a subscription already born',
+    credit_price(c_f1, 'teacher_lesson') = 2);
+
+  -- 15. She falls behind and is cancelled: the seal stays.
+  perform verify.apply_0058(v_sub, 'sub_f1', null, 'past_due', v_today + 30, v_today, null);
+  perform verify.apply_0058(v_sub, 'sub_f1', null, 'canceled', null, null, 'overdue');
+  perform set_config('test.uid', c_f1::text, false);
+  set local role authenticated;
+  v_bool := holds_badge('founder');
+  v_n := (select count(*) from plans where id = v_founder);
+  reset role;
+  perform verify.holds_0058('[0058 #15] past due and cancelled for it, the founder keeps a live seal and still reads the founder plan',
+    v_bool and v_n = 1
+    and exists (select 1 from person_badges where id = v_seal and revoked_at is null));
+
+  -- 27. With none alive, the last one that ran counts; a checkout given up
+  -- after it does not.
+  perform verify.must_open_0058('[0058 #27] a checkout of a public plan', c_f1, v_public, 'monthly', 1000, false, 'chk_f1', null);
+  perform verify.apply_0058((select id from subscriptions where asaas_checkout_id = 'chk_f1'),
+    null, null, 'canceled', null, null, 'checkout_expired');
+  -- Later than the founder subscription's cancel: in one transaction now()
+  -- does not move, and the two would tie.
+  update subscriptions set canceled_at = canceled_at + interval '1 minute'
+   where asaas_checkout_id = 'chk_f1';
+  perform verify.holds_0058('[0058 #27] with no subscription alive, the cost is the last one''s that ran, not a checkout''s that expired after it',
+    credit_price(c_f1, 'teacher_lesson') = 2);
+
+  -- 11 and 12. She comes back: her terms, not the plan's of the day.
+  perform verify.expect_named_refusal('[0058 #12] a founder coming back at the founder plan''s price of the day',
+    '23514 billing_value_matches',
+    format('select verify.open_0058(%L, %L, ''monthly'', 700, false, null, ''sub_f1_day'')', c_f1, v_founder));
+  v_sub2 := verify.must_open_0058('[0058 #15] the founder plan again after a cancel, at her terms', c_f1, v_founder, 'monthly', 500, false, null, 'sub_f1_back');
+  perform verify.holds_0058('[0058 #11] a founder who comes back after the plan changed subscribes with her terms: value, credits, ceiling, days and cost of a lesson',
+    (select (value_cents, monthly_credits, credit_ceiling_months, credit_days_after_cancel, teacher_lesson_credits)
+       from subscriptions where id = v_sub2) = row(500, 8, 2::smallint, 20::smallint, 2));
+  perform verify.holds_0058('[0058 #15] a founder who cancelled subscribes to the founder plan again',
+    (select status from subscriptions where id = v_sub2) = 'awaiting');
+
+  -- 13. The terms are fixed on the first active only, not on awaiting, and
+  -- never moved again.
+  v_sub := verify.must_open_0058('[0058 #13] the founder plan at its price, no terms yet', c_f3, v_founder, 'monthly', 700, false, 'chk_f3', null);
+  perform verify.apply_0058(v_sub, 'sub_f3', 'cus_f3', 'awaiting', null, null, null);
+  perform verify.holds_0058('[0058 #13] a founder subscription pending and then awaiting fixes no terms',
+    (select terms_fixed_at from person_badges where person_id = c_f3 and revoked_at is null) is null);
+  perform verify.apply_0058(v_sub, 'sub_f3', 'cus_f3', 'active', v_today + 30, null, null);
+  select terms_monthly_price_cents, terms_annual_price_cents, terms_monthly_credits,
+         terms_teacher_lesson_credits, terms_fixed_at
+    into v_terms from person_badges where person_id = c_f3 and revoked_at is null;
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  update plans set annual_price_cents = 9000 where id = v_founder;
+  reset role;
+  perform verify.apply_0058(v_sub, 'sub_f3', null, 'past_due', v_today + 30, v_today, null);
+  perform verify.apply_0058(v_sub, 'sub_f3', null, 'active', v_today + 60, null, null);
+  select terms_monthly_price_cents, terms_annual_price_cents, terms_monthly_credits,
+         terms_teacher_lesson_credits, terms_fixed_at
+    into v_terms2 from person_badges where person_id = c_f3 and revoked_at is null;
+  perform verify.holds_0058('[0058 #13] the first active fixes the terms of that day, and a second active moves none of them',
+    (v_terms.terms_monthly_price_cents, v_terms.terms_annual_price_cents, v_terms.terms_monthly_credits,
+     v_terms.terms_teacher_lesson_credits) = (700, 7000, 6, 3)
+    and (v_terms2.terms_monthly_price_cents, v_terms2.terms_annual_price_cents,
+         v_terms2.terms_monthly_credits, v_terms2.terms_teacher_lesson_credits, v_terms2.terms_fixed_at)
+        = (v_terms.terms_monthly_price_cents, v_terms.terms_annual_price_cents,
+           v_terms.terms_monthly_credits, v_terms.terms_teacher_lesson_credits, v_terms.terms_fixed_at));
+
+  -- 28. The seal does not change the cost: a founder on a public plan pays
+  -- the public plan's.
+  perform verify.apply_0058(v_sub, 'sub_f3', null, 'canceled', null, null, 'person');
+  perform verify.must_open_0058('[0058 #28] a public plan by a founder', c_f3, v_public, 'monthly', 1000, false, null, 'sub_f3_public');
+  perform verify.holds_0058('[0058 #28] a founder on a public plan pays the lesson at the public plan''s cost, not her terms''',
+    credit_price(c_f3, 'teacher_lesson') = 4);
+
+  -- 25. A plan changed later reaches new subscriptions only.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  update plans set teacher_lesson_credits = 5 where id = v_public;
+  reset role;
+  -- A pending checkout of hers is replaced by the next one (0049's body).
+  perform verify.must_open_0058('[0058] a checkout', c_other, v_public, 'monthly', 1000, false, 'chk_other', null);
+  perform verify.must_open_0058('[0058] a subscription after a checkout left behind', c_other, v_public, 'monthly', 1000, false, null, 'sub_other');
+  perform verify.holds_0058('[0058] a pending checkout is still cancelled as replaced by the next subscription (0049''s body kept)',
+    (select cancel_reason from subscriptions where asaas_checkout_id = 'chk_other') = 'replaced');
+  perform verify.holds_0058('[0058 #25] the cost of a plan changed later reaches a new subscription and not one already born',
+    credit_price(c_other, 'teacher_lesson') = 5 and credit_price(c_plain, 'teacher_lesson') = 4);
+
+  -- 26. A booking debits the cost of her plan: a founder on her trial, and
+  -- a student of a public plan born before its cost changed.
+  v_sub := verify.must_open_0058('[0058 #26] the founder plan with its trial', c_book, v_founder, 'monthly', 700, true, null, 'sub_book');
+  perform set_config('test.uid', c_book::text, false);
+  begin
+    set local role authenticated;
+    select credits_debited into v_int from book_lesson(v_tutor, v_ten);
+  exception when others then
+    insert into verify.failures values (format('[0058 #26] a founder could not book: %s %s', sqlstate, sqlerrm));
+  end;
+  reset role;
+  perform set_config('test.uid', c_plain::text, false);
+  begin
+    set local role authenticated;
+    select credits_debited into v_n from book_lesson(v_tutor, v_ten + interval '2 hours');
+  exception when others then
+    insert into verify.failures values (format('[0058 #26] a student of a public plan could not book: %s %s', sqlstate, sqlerrm));
+  end;
+  reset role;
+  perform verify.holds_0058(format('[0058 #26] book_lesson debits the founder plan''s cost to a founder (%s) and the brand''s to a public plan born before (%s)', v_int, v_n),
+    v_int = 3 and v_n = 4
+    and (select sum(amount) from credit_entries where person_id = c_book and kind = 'debit') = -3
+    and (select sum(amount) from credit_entries where person_id = c_plain and kind = 'debit') = -4);
+
+  -- 29. Another person's cost is not hers to read (0050).
+  perform set_config('test.uid', c_plain::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0058 #29] the cost of a lesson of another person', '42501',
+    format('select credit_cost(%L, ''teacher_lesson'')', c_f1));
+  v_int := credit_cost(c_plain, 'teacher_lesson');
+  reset role;
+  perform verify.holds_0058('[0058 #29] she reads her own cost', v_int = 4);
+
+  -- 17. Nobody gives herself a seal, nor takes one away.
+  perform set_config('test.uid', c_plain::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0058 #17] a student gives herself the seal', '42501',
+    format('select grant_badge(%L, ''founder'')', c_plain));
+  perform verify.expect_named_refusal('[0058 #17] a student takes a seal away', '42501',
+    format('select revoke_badge(%L, ''founder'')', c_f1));
+  perform set_config('test.uid', c_teacher::text, false);
+  perform verify.expect_named_refusal('[0058 #17] a teacher who is not the platform admin gives herself the seal', '42501',
+    format('select grant_badge(%L, ''founder'')', c_teacher));
+  reset role;
+
+  -- 18. Nobody writes the seals or the seats through the API.
+  perform set_config('test.uid', c_plain::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0058 #18] a student inserts her own seal', '42501',
+    format('insert into person_badges (person_id, badge, source) values (%L, ''founder'', ''admin'')', c_plain));
+  perform verify.expect_named_refusal('[0058 #18] a founder moves her own seal', '42501',
+    format('update person_badges set revoked_at = null where person_id = %L', c_plain));
+  perform verify.expect_named_refusal('[0058 #18] a student deletes a seal', '42501',
+    'delete from person_badges');
+  perform verify.expect_named_refusal('[0058 #18] a student writes the total of seats', '42501',
+    'insert into founder_program (id, seats_total) values (true, 99) on conflict (id) do update set seats_total = 99');
+  update founder_program set seats_total = 99;
+  get diagnostics v_n = row_count;
+  v_int := (select count(*) from founder_program);
+  reset role;
+  perform verify.holds_0058('[0058 #18] a student changes no total of seats and reads none',
+    v_n = 0 and v_int = 0 and (select seats_total from founder_program) = 3);
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0058 #18] the platform admin inserts a seal past badge_grant', '42501',
+    format('insert into person_badges (person_id, badge, source) values (%L, ''founder'', ''admin'')', c_plain));
+  reset role;
+
+  -- 11 (of 12/11). A student reads her own seals; the admin all.
+  perform set_config('test.uid', c_f1::text, false);
+  set local role authenticated;
+  v_n := (select count(*) from person_badges);
+  v_bool := exists (select 1 from person_badges where person_id = c_f1);
+  reset role;
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  v_int := (select count(*) from person_badges where person_id in (c_f1, c_f3, c_book));
+  reset role;
+  perform verify.holds_0058('[0058 #18] a founder reads her own seal and no other; the platform admin reads them all',
+    v_n = 1 and v_bool and v_int = 3);
+
+  -- 20. One live seal per person, and grant_badge again spends no seat.
+  v_left := founder_seats_left();
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  v_seal2 := grant_badge(c_f1, 'founder');
+  reset role;
+  perform verify.holds_0058('[0058 #20] giving a live seal again returns the same seal and spends no seat',
+    v_seal2 = v_seal and founder_seats_left() = v_left
+    and (select count(*) from person_badges where person_id = c_f1) = 1);
+  perform verify.expect_named_refusal('[0058 #20] a second live seal of the same person',
+    '23505 person_badges_one_live',
+    format('insert into person_badges (person_id, badge, source) values (%L, ''founder'', ''admin'')', c_f1));
+
+  -- 21. The seats: full, a seal is refused; a seal revoked gives it back.
+  perform verify.holds_0058('[0058 #21] founder_seats_left is the total less the live seals', v_left = 0);
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0058 #21] a seal with every seat taken, by the platform admin',
+    '23514 founder_seats_available', format('select grant_badge(%L, ''founder'')', c_other));
+  v_bool := revoke_badge(c_book, 'founder');
+  perform grant_badge(c_other, 'founder');
+  v_text := revoke_badge(c_plain, 'founder')::text;
+  reset role;
+  perform verify.holds_0058('[0058 #21] a seal revoked gives its seat back to the next; revoking where there is none says false',
+    v_bool and v_text = 'false'
+    and exists (select 1 from person_badges where person_id = c_other and revoked_at is null)
+    and (select revoked_by from person_badges where person_id = c_book) = c_admin
+    and founder_seats_left() = 0);
+  set local role anon;
+  v_left := founder_seats_left();
+  reset role;
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  update founder_program set seats_total = 1;
+  reset role;
+  perform verify.holds_0058('[0058 #23] anon reads the seats left, a number; a total below the live seals leaves 0 and takes no seal',
+    v_left = 0 and founder_seats_left() = 0
+    and (select count(*) from person_badges where revoked_at is null) = 3);
+  set local role anon;
+  perform verify.expect_named_refusal('[0058 #23] anon reads founder_program', '42501', 'select * from founder_program');
+  perform verify.expect_named_refusal('[0058 #23] anon reads person_badges', '42501', 'select * from person_badges');
+  reset role;
+
+  -- 14. Revoked and given again: the same terms.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  update founder_program set seats_total = 3;
+  perform revoke_badge(c_f1, 'founder');
+  reset role;
+  perform set_config('test.uid', c_f1::text, false);
+  set local role authenticated;
+  v_n := (select count(*) from plans where id = v_founder);
+  v_bool := holds_badge('founder');
+  reset role;
+  perform verify.holds_0058('[0058 #3] with her seal revoked she reads the founder plan no more', v_n = 0 and not v_bool);
+  perform verify.expect_named_refusal('[0058 #10] a founder plan with the seal revoked',
+    '23514 billing_plan_audience',
+    format('select verify.open_0058(%L, %L, ''monthly'', 500, false, null, ''sub_f1_revoked'')', c_f1, v_founder));
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  v_seal2 := grant_badge(c_f1, 'founder');
+  reset role;
+  perform verify.holds_0058('[0058 #14] a seal given again after a revoke is a new row with the same terms',
+    v_seal2 <> v_seal
+    and (select (terms_monthly_price_cents, terms_annual_price_cents, terms_monthly_credits,
+                 terms_teacher_lesson_credits, terms_credit_ceiling_months, terms_credit_days_after_cancel)
+           from person_badges where id = v_seal2)
+        = (select (terms_monthly_price_cents, terms_annual_price_cents, terms_monthly_credits,
+                   terms_teacher_lesson_credits, terms_credit_ceiling_months, terms_credit_days_after_cancel)
+             from person_badges where id = v_seal)
+    and (select terms_fixed_at from person_badges where id = v_seal2) is not null);
+
+  -- 16. The last founder plan on sale stays on sale.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0058 #16] the last founder plan taken off sale',
+    '23514 plans_founder_stays_on_sale', format('update plans set is_active = false where id = %L', v_founder));
+  perform verify.expect_named_refusal('[0058 #16] the last founder plan made public',
+    '23514 plans_founder_stays_on_sale', format('update plans set audience = ''public'' where id = %L', v_founder));
+  update plans set is_active = true where id = v_founder2;
+  perform verify.expect_accepted('[0058 #16] a founder plan taken off sale with another on sale',
+    format('update plans set is_active = false where id = %L', v_founder));
+  reset role;
+
+  -- 30. Every check by its name.
+  perform verify.expect_named_refusal('[0058 #30] a plan for an unknown audience', '23514 plans_audience_known',
+    format('update plans set audience = ''everyone'' where id = %L', v_inactive));
+  perform verify.expect_named_refusal('[0058 #30] a public plan with a person', '23514 plans_person_only_personal',
+    format('update plans set person_id = %L where id = %L', c_plain, v_inactive));
+  perform verify.expect_named_refusal('[0058 #30] a personal plan with no e-mail', '23514 plans_personal_has_email',
+    format('update plans set person_email = null where id = %L', v_nobody));
+  perform verify.expect_named_refusal('[0058 #30] a public plan with an e-mail', '23514 plans_personal_has_email',
+    format('update plans set person_email = ''a-0058@example.com'' where id = %L', v_inactive));
+  perform verify.expect_named_refusal('[0058 #30] a founder plan of GrifoAI', '23514 plans_founder_is_chelsea_st',
+    format('update plans set audience = ''founder'' where id = %L', v_grifo));
+  perform verify.expect_named_refusal('[0058 #30] a personal plan of GrifoAI', '23514 plans_founder_is_chelsea_st',
+    format('update plans set brand = ''grifoai'' where id = %L', v_nobody));
+  perform verify.expect_named_refusal('[0058 #30] a lesson that costs 0 on a plan', '23514 plans_teacher_lesson_credits_positive',
+    format('update plans set teacher_lesson_credits = 0 where id = %L', v_inactive));
+  perform verify.expect_named_refusal('[0058 #30] an e-mail in capitals on a personal plan', '23514 plans_person_email_shape',
+    format('update plans set person_email = ''Nobody-0058@example.com'' where id = %L', v_nobody));
+  perform verify.expect_named_refusal('[0058 #30] an e-mail with spaces around on a personal plan', '23514 plans_person_email_shape',
+    format('update plans set person_email = '' nobody-0058@example.com'' where id = %L', v_nobody));
+  perform verify.expect_named_refusal('[0058 #30] a personal plan for something that is not an e-mail', '23514 plans_person_email_shape',
+    format('update plans set person_email = ''nobody'' where id = %L', v_nobody));
+  perform verify.expect_named_refusal('[0058 #30] a seal of an unknown kind', '23514 person_badges_badge_known',
+    format('insert into person_badges (person_id, badge, source) values (%L, ''gold'', ''admin'')', c_plain));
+  perform verify.expect_named_refusal('[0058 #30] a seal from an unknown source', '23514 person_badges_source_known',
+    format('insert into person_badges (person_id, badge, source) values (%L, ''founder'', ''gift'')', c_plain));
+  perform verify.expect_named_refusal('[0058 #30] a seal of an organization', '23514 person_badges_is_common',
+    format('insert into person_badges (person_id, badge, source, organization_id) values (%L, ''founder'', ''admin'', %L)', c_plain, v_chelsea));
+  perform verify.expect_named_refusal('[0058 #30] terms fixed with no numbers', '23514 person_badges_terms_whole',
+    format('insert into person_badges (person_id, badge, source, terms_fixed_at) values (%L, ''founder'', ''admin'', now())', c_plain));
+  perform verify.expect_named_refusal('[0058 #30] a number of the terms with the terms not fixed', '23514 person_badges_terms_whole',
+    format('insert into person_badges (person_id, badge, source, terms_monthly_price_cents) values (%L, ''founder'', ''admin'', 100)', c_plain));
+  perform verify.expect_accepted('[0058 #30] whole terms with no cost of a lesson (the brand''s)',
+    format('insert into person_badges (person_id, badge, source, revoked_at, terms_monthly_price_cents, terms_annual_price_cents, terms_monthly_credits, terms_credit_ceiling_months, terms_credit_days_after_cancel, terms_fixed_at) values (%L, ''founder'', ''admin'', now(), 100, 1000, 1, 1, 0, now())', c_plain));
+  perform verify.expect_named_refusal('[0058 #30] terms at a price of 0', '23514 person_badges_terms_ranges',
+    format('insert into person_badges (person_id, badge, source, revoked_at, terms_monthly_price_cents, terms_annual_price_cents, terms_monthly_credits, terms_credit_ceiling_months, terms_credit_days_after_cancel, terms_fixed_at) values (%L, ''founder'', ''admin'', now(), 0, 1000, 1, 1, 0, now())', c_plain));
+  perform verify.expect_named_refusal('[0058 #30] a subscription whose lesson costs 0', '23514 subscriptions_teacher_lesson_credits_positive',
+    format('update subscriptions set teacher_lesson_credits = 0 where id = %L', v_sub2));
+  perform verify.expect_named_refusal('[0058 #30] a second row of founder_program', '23514 founder_program_one_row',
+    'insert into founder_program (id, seats_total) values (false, 1)');
+  perform verify.expect_named_refusal('[0058 #30] a negative total of seats', '23514 founder_program_seats_not_negative',
+    'update founder_program set seats_total = -1');
+
+  -- 31. The trail: 0 is a plan without it.
+  perform verify.expect_accepted('[0058 #31] a plan with 0 minutes of trail',
+    format('update plans set trail_minutes_per_day = 0 where id = %L', v_inactive));
+  perform verify.expect_named_refusal('[0058 #31] 241 minutes of trail', '23514 plans_trail_minutes_range',
+    format('update plans set trail_minutes_per_day = 241 where id = %L', v_inactive));
+  perform verify.expect_named_refusal('[0058 #31] -1 minutes of trail', '23514 plans_trail_minutes_range',
+    format('update plans set trail_minutes_per_day = -1 where id = %L', v_inactive));
+
+  -- 23. No security definer of public is executable by anon but the two
+  -- doors: the site's form and the seats left.
+  insert into verify.failures
+  select format('[0058 #23] anon executes the security definer %s', p.oid::regprocedure)
+    from pg_proc p
+   where p.pronamespace = 'public'::regnamespace
+     and not exists (select 1 from pg_depend d
+                      where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
+     and p.prosecdef
+     and p.oid not in ('public.submit_lead(text, text, text, text, text, text, text, text, text, text)'::regprocedure,
+                       'public.founder_seats_left()'::regprocedure)
+     and has_function_privilege('anon', p.oid, 'execute');
+  if not exists (select 1 from verify.failures where what like '[0058 #23] anon executes%') then
+    raise notice '[0058 #23] no security definer of public is executable by anon but submit_lead and founder_seats_left';
+  end if;
+
+  -- Nothing written here is kept.
+  perform set_config('session_replication_role', 'replica', true);
+  delete from credit_entries;
+  perform set_config('session_replication_role', 'origin', true);
+  delete from lessons where teacher_id = v_tutor;
+  delete from teacher_availability where teacher_id = v_tutor;
+  delete from teachers where id = v_tutor;
+  delete from subscriptions;
+  delete from billing_customers;
+  delete from credit_costs;
+  delete from plans;
+  delete from person_badges;
+  delete from founder_program;
+  delete from students where id = any (c_people);
+  delete from organization_members where user_id = any (c_people);
+  delete from auth.users where id = any (c_people);
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a founder keeps a door: %', v_failures;
+  end if;
+  raise notice 'a founder keeps a door: the seal is read by its holder and the admin and given only by badge_grant within the seats; the founder plan is read and subscribed with a live seal, the personal plan by its bound person; the founder''s terms are fixed by her first paid subscription and come back with her; the lesson costs what the subscription that counts says';
+end;
+$$;
+
+-- Two grants of the last seat at once (0058) ------------------------------------------
+--
+-- As the two debits of 0050: a second connection gives the last seat and
+-- holds its transaction open; a grant in this session waits for it (refused
+-- with 55P03 under lock_timeout), and once the other commits it is refused
+-- by founder_seats_available. The fixture is committed first, and removed.
+
+create extension dblink schema verify;
+
+do $$
+begin
+  insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at) values
+    ('b0580000-0000-4000-8000-0000000000a1', 'race1-0058@example.com', '{"full_name":"Race 1"}', now()),
+    ('b0580000-0000-4000-8000-0000000000a2', 'race2-0058@example.com', '{"full_name":"Race 2"}', now());
+  insert into founder_program (seats_total) values (1);
+end;
+$$;
+
+do $$
+declare
+  c_one constant uuid := 'b0580000-0000-4000-8000-0000000000a1';
+  c_two constant uuid := 'b0580000-0000-4000-8000-0000000000a2';
+  v_by text;
+  v_failures text;
+begin
+  delete from verify.failures;
+  perform verify.dblink_connect('race0058',
+    format('dbname=%s user=%s', current_database(), current_user));
+  perform verify.dblink_exec('race0058', 'begin');
+  perform * from verify.dblink('race0058',
+    format('select public.badge_grant(%L, ''founder'', ''coupon'', null)', c_one)) as t (id uuid);
+
+  perform set_config('lock_timeout', '300ms', true);
+  v_by := verify.named_refusal(format('select badge_grant(%L, ''founder'', ''coupon'', null)', c_two));
+  perform set_config('lock_timeout', '0', true);
+  if v_by is distinct from '55P03' then
+    insert into verify.failures values (format(
+      '[0058 #22] a grant did not wait for another grant of the last seat in flight: %s, expected 55P03',
+      coalesce(v_by, 'accepted')));
+  else
+    raise notice '[0058 #22] a grant waits for another grant of the last seat in flight: refused by 55P03 under lock_timeout';
+  end if;
+
+  perform verify.dblink_exec('race0058', 'commit');
+  perform verify.dblink_disconnect('race0058');
+
+  perform verify.expect_named_refusal('[0058 #22] a grant of the last seat after the other one committed',
+    '23514 founder_seats_available',
+    format('select badge_grant(%L, ''founder'', ''coupon'', null)', c_two));
+  if (select count(*) from person_badges where revoked_at is null) <> 1 then
+    insert into verify.failures values (format(
+      '[0058 #22] two grants of the last seat left %s live seals, expected 1',
+      (select count(*) from person_badges where revoked_at is null)));
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'two grants of the last seat: %', v_failures;
+  end if;
+  raise notice 'two grants of the last seat at once: the second waits for the first, then is refused by founder_seats_available; one seal';
+end;
+$$;
+
+do $$
+begin
+  delete from person_badges;
+  delete from founder_program;
+  delete from auth.users where id in ('b0580000-0000-4000-8000-0000000000a1',
+                                      'b0580000-0000-4000-8000-0000000000a2');
+end;
+$$;
+
+drop extension dblink;
+
+
+-- 0059 adds founder_coupons, founder_coupon_redemptions, founder_invites and
+-- signup_origins, all empty, and recreates the trigger function of the first
+-- confirmation once more, on 0058's body. No row is written by it. The
+-- blocks of 0051 and 0058 ran above against the bodies it replaces; its own
+-- block holds again what the recreated body keeps (the signup, the personal
+-- plan), besides what it adds.
+\i supabase/migrations/0059_a_founder_comes_by_coupon_or_invite.sql
+
+-- A founder comes by coupon or invite (0059) ---------------------------------------------
+--
+-- Nobody but the platform admin reads the coupons, their uses, the founder
+-- invites and the origins; only he makes a coupon (in the database, which
+-- keeps only its hash) and writes an invite. A coupon gives the seal through
+-- badge_grant, source coupon, once per person, within its validity, its uses
+-- and its brand; whoever holds the seal spends no use, and with no seat left
+-- none is spent. The signup's coupon is redeemed by the first confirmation,
+-- after the signup made her a student, and a bad coupon never fails the
+-- confirmation. A founder invite gives the seal on the first confirmation of
+-- its e-mail, or at once to an account already confirmed; with no seat it
+-- stays open, or its write is refused. The origin is recorded once, only
+-- 'grifoai'. Each numbered case is the line of the table of the plan of
+-- 13/11 on #296 that it holds. Codes and numbers are made up. Nothing
+-- written here is kept.
+
+create function verify.holds_0059(p_what text, p_ok boolean) returns void
+language plpgsql as $$
+begin
+  if p_ok is distinct from true then
+    insert into verify.failures values (p_what);
+  else
+    raise notice '%', p_what;
+  end if;
+end;
+$$;
+
+-- The count of rows of a table the current role reads, or -1 when refused.
+create function verify.rows_0059(p_table text) returns bigint
+language plpgsql as $$
+declare
+  v_n bigint;
+begin
+  execute format('select count(*) from public.%I', p_table) into v_n;
+  return v_n;
+exception when insufficient_privilege then
+  return -1;
+end;
+$$;
+
+do $$
+declare
+  c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_a constant uuid := 'b0590000-0000-4000-8000-000000000001';
+  c_b constant uuid := 'b0590000-0000-4000-8000-000000000002';
+  c_c constant uuid := 'b0590000-0000-4000-8000-000000000003';
+  c_d constant uuid := 'b0590000-0000-4000-8000-000000000004';
+  c_teacher constant uuid := 'b0590000-0000-4000-8000-000000000005';
+  c_company_admin constant uuid := 'b0590000-0000-4000-8000-000000000006';
+  c_employee constant uuid := 'b0590000-0000-4000-8000-000000000007';
+  c_sign_ok constant uuid := 'b0590000-0000-4000-8000-000000000008';
+  c_sign_expired constant uuid := 'b0590000-0000-4000-8000-000000000009';
+  c_sign_no_seat constant uuid := 'b0590000-0000-4000-8000-00000000000a';
+  c_inv constant uuid := 'b0590000-0000-4000-8000-00000000000b';
+  c_inv_expired constant uuid := 'b0590000-0000-4000-8000-00000000000c';
+  c_inv_no_seat constant uuid := 'b0590000-0000-4000-8000-00000000000d';
+  c_confirmed constant uuid := 'b0590000-0000-4000-8000-00000000000e';
+  c_confirmed_no_seat constant uuid := 'b0590000-0000-4000-8000-00000000000f';
+  c_origin constant uuid := 'b0590000-0000-4000-8000-000000000010';
+  c_origin_other constant uuid := 'b0590000-0000-4000-8000-000000000011';
+  c_people constant uuid[] := array[c_a, c_b, c_c, c_d, c_teacher, c_company_admin, c_employee,
+    c_sign_ok, c_sign_expired, c_sign_no_seat, c_inv, c_inv_expired, c_inv_no_seat,
+    c_confirmed, c_confirmed_no_seat, c_origin, c_origin_other];
+  c_tables constant text[] := array['founder_coupons', 'founder_coupon_redemptions',
+                                    'founder_invites', 'signup_origins'];
+  v_uid text := current_setting('test.uid', true);
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_grifo uuid := (select id from organizations where slug = 'grifoai');
+  v_general uuid;
+  v_single uuid;
+  v_spare uuid;
+  v_expired uuid;
+  v_grifo_coupon uuid;
+  v_signup_coupon uuid;
+  v_personal_plan uuid;
+  v_invite uuid;
+  v_text text;
+  v_n bigint;
+  v_m bigint;
+  v_counts bigint[];
+  v_bool boolean;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  -- The people. Chelsea St students, confirmed: four who redeem, a teacher;
+  -- a company's admin and employee (GrifoAI); one confirmed account the
+  -- invite reaches at once, one more for when no seat is left. Unconfirmed,
+  -- from the signup: with a coupon, an expired coupon, a coupon when no seat
+  -- is left, a founder invite, an expired one, one with no seat, and two
+  -- origins.
+  insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at) values
+    (c_a, 'a-0059@example.com', '{"full_name":"A"}', now()),
+    (c_b, 'b-0059@example.com', '{"full_name":"B"}', now()),
+    (c_c, 'c-0059@example.com', '{"full_name":"C"}', now()),
+    (c_d, 'd-0059@example.com', '{"full_name":"D"}', now()),
+    (c_teacher, 'teacher-0059@example.com', '{"full_name":"Teacher"}', now()),
+    (c_company_admin, 'company-admin-0059@example.com', '{"full_name":"Company admin"}', now()),
+    (c_employee, 'employee-0059@example.com', '{"full_name":"Employee"}', now()),
+    (c_confirmed, 'Confirmed-0059@Example.com', '{"full_name":"Confirmed"}', now()),
+    (c_confirmed_no_seat, 'confirmed-no-seat-0059@example.com', '{"full_name":"Confirmed no seat"}', now());
+  insert into auth.users (id, email, raw_user_meta_data) values
+    (c_sign_ok, 'sign-ok-0059@example.com',
+     '{"signup": true, "full_name": "Sign ok", "founder_coupon": "sign up-0059 a"}'),
+    (c_sign_expired, 'sign-expired-0059@example.com',
+     '{"signup": true, "full_name": "Sign expired", "founder_coupon": "EXPIRED0059"}'),
+    (c_sign_no_seat, 'sign-no-seat-0059@example.com',
+     '{"signup": true, "full_name": "Sign no seat", "founder_coupon": "SPARE-0059"}'),
+    (c_inv, 'Inv-0059@Example.com', '{"signup": true, "full_name": "Inv"}'),
+    (c_inv_expired, 'inv-expired-0059@example.com', '{"signup": true, "full_name": "Inv expired"}'),
+    (c_inv_no_seat, 'inv-no-seat-0059@example.com', '{"signup": true, "full_name": "Inv no seat"}'),
+    (c_origin, 'origin-0059@example.com', '{"signup": true, "full_name": "Origin", "origin": "grifoai"}'),
+    (c_origin_other, 'origin-other-0059@example.com', '{"signup": true, "full_name": "Other", "origin": "facebook"}');
+  insert into organization_members (organization_id, user_id, role)
+    select v_chelsea, p, 'student' from unnest(array[c_a, c_b, c_c, c_d, c_confirmed, c_confirmed_no_seat]) p;
+  insert into students (id, organization_id)
+    select p, v_chelsea from unnest(array[c_a, c_b, c_c, c_d, c_confirmed, c_confirmed_no_seat]) p;
+  insert into organization_members (organization_id, user_id, role) values
+    (v_chelsea, c_teacher, 'teacher'),
+    (v_grifo, c_company_admin, 'admin'),
+    (v_grifo, c_employee, 'student');
+  insert into students (id, organization_id) values (c_employee, v_grifo);
+
+  -- 17. Who executes what, and who holds what on the four tables.
+  perform verify.holds_0059('[0059 #17] create_founder_coupon and redeem_my_founder_coupon are executed by authenticated alone; the internal and trigger functions by no API role',
+        has_function_privilege('authenticated', 'public.create_founder_coupon(text, text, text, integer, timestamptz)', 'execute')
+    and has_function_privilege('authenticated', 'public.redeem_my_founder_coupon(text)', 'execute')
+    and not exists (select 1 from unnest(array[
+                  'public.create_founder_coupon(text, text, text, integer, timestamptz)',
+                  'public.redeem_my_founder_coupon(text)']::regprocedure[]) f
+                cross join unnest(array['anon', 'service_role']) r
+                where has_function_privilege(r, f, 'execute'))
+    and not exists (select 1 from unnest(array[
+                  'public.founder_coupon_hash(text)', 'public.redeem_founder_coupon(uuid, text)',
+                  'public.accept_founder_invites(uuid, text)', 'public.founder_invites_grant_confirmed()',
+                  'public.record_signup_origin(uuid, jsonb)',
+                  'public.accept_organization_invites_on_confirmation()']::regprocedure[]) f
+                cross join unnest(array['anon', 'authenticated', 'service_role']) r
+                where has_function_privilege(r, f, 'execute')));
+  perform verify.holds_0059('[0059 #17] anon and service_role hold nothing on the four tables; authenticated selects them, writes no coupon, use or origin, and writes an invite',
+        not exists (select 1 from unnest(c_tables) t
+                    cross join unnest(array['select', 'insert', 'update', 'delete']) p
+                    cross join unnest(array['anon', 'service_role']) r
+                     where has_table_privilege(r, 'public.' || t, p))
+    and not exists (select 1 from unnest(c_tables) t where not has_table_privilege('authenticated', 'public.' || t, 'select'))
+    and not exists (select 1 from unnest(array['founder_coupons', 'founder_coupon_redemptions', 'signup_origins']) t
+                    cross join unnest(array['insert', 'delete']) p
+                     where has_table_privilege('authenticated', 'public.' || t, p))
+    and not has_table_privilege('authenticated', 'public.founder_coupon_redemptions', 'update')
+    and not has_table_privilege('authenticated', 'public.signup_origins', 'update')
+    and not has_column_privilege('authenticated', 'public.founder_coupons', 'code_hash', 'update')
+    and not has_column_privilege('authenticated', 'public.founder_coupons', 'brand', 'update')
+    and has_column_privilege('authenticated', 'public.founder_coupons', 'expires_at', 'update')
+    and has_column_privilege('authenticated', 'public.founder_invites', 'email', 'insert')
+    and has_column_privilege('authenticated', 'public.founder_invites', 'expires_at', 'insert')
+    and not exists (select 1 from unnest(array['id', 'accepted_at', 'created_at', 'invited_by', 'organization_id']) c
+                     where has_column_privilege('authenticated', 'public.founder_invites', c, 'insert'))
+    and has_table_privilege('authenticated', 'public.founder_invites', 'delete')
+    and not has_column_privilege('authenticated', 'public.founder_invites', 'accepted_at', 'update')
+    and not has_column_privilege('authenticated', 'public.founder_invites', 'email', 'update'));
+
+  -- The seats, and the coupons, by the platform admin.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  insert into founder_program (seats_total) values (20);
+  v_general := create_founder_coupon('secreto-0059 abc', 'Post', 'chelsea-st', 5, now() + interval '30 days');
+  v_single := create_founder_coupon('SINGLE0059', 'Pessoal', 'chelsea-st', 1, now() + interval '30 days');
+  v_spare := create_founder_coupon('spare 0059', 'Reserva', 'chelsea-st', 5, now() + interval '30 days');
+  v_expired := create_founder_coupon('expired0059', 'Vencido', 'chelsea-st', 5, now() + interval '30 days');
+  v_grifo_coupon := create_founder_coupon('GRIFO-0059', 'Grifo', 'grifoai', 5, now() + interval '30 days');
+  v_signup_coupon := create_founder_coupon('SIGNUP0059A', 'Cadastro', 'chelsea-st', 5, now() + interval '30 days');
+  v_personal_plan := verify.plan_0058('personal-sign-ok', 'person', 800, 8000, 10, 1, 'sign-ok-0059@example.com');
+  reset role;
+  -- An expired coupon: its validity in the past, as the clock of another
+  -- day would leave it.
+  update founder_coupons set created_at = now() - interval '2 days', expires_at = now() - interval '1 day'
+   where id = v_expired;
+
+  -- 3. The code is stored nowhere: only its hash, of the code made normal.
+  perform verify.holds_0059('[0059 #3] a coupon keeps the sha256 of its code made normal, and no column holds the code',
+    (select code_hash from founder_coupons where id = v_general) = sha256(convert_to('SECRETO0059ABC', 'UTF8'))
+    and not exists (select 1 from founder_coupons c
+                     where upper(row_to_json(c)::text) like '%SECRETO%'
+                        or upper(row_to_json(c)::text) like '%SINGLE0059%'));
+
+  -- The rules of a coupon, refused by name.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #2] a coupon code of 5 characters once made normal',
+    '23514 founder_coupons_code_length',
+    $q$select create_founder_coupon('ab-c d e', 'Curto', 'chelsea-st', 1, now() + interval '1 day')$q$);
+  perform verify.expect_named_refusal('[0059 #2] a coupon code of 65 characters',
+    '23514 founder_coupons_code_length',
+    format($q$select create_founder_coupon(%L, 'Longo', 'chelsea-st', 1, now() + interval '1 day')$q$, repeat('A', 65)));
+  perform verify.expect_named_refusal('[0059 #2] a code already used, in another case and with hyphens',
+    '23505 founder_coupons_code_hash_key',
+    $q$select create_founder_coupon('SECRETO-0059-ABC', 'De novo', 'chelsea-st', 1, now() + interval '1 day')$q$);
+  perform verify.expect_named_refusal('[0059 #2] a coupon of an unknown brand',
+    '23514 founder_coupons_brand_known',
+    $q$select create_founder_coupon('OUTRA0059', 'Outra', 'outra', 1, now() + interval '1 day')$q$);
+  perform verify.expect_named_refusal('[0059 #2] a coupon of 0 uses',
+    '23514 founder_coupons_max_uses_positive',
+    $q$select create_founder_coupon('ZERO0059', 'Zero', 'chelsea-st', 0, now() + interval '1 day')$q$);
+  perform verify.expect_named_refusal('[0059 #2] a coupon with a blank label',
+    '23514 founder_coupons_label_length',
+    $q$select create_founder_coupon('BLANK0059', '   ', 'chelsea-st', 1, now() + interval '1 day')$q$);
+  perform verify.expect_named_refusal('[0059 #2] the platform admin inserts a coupon past the function',
+    '42501', $q$insert into founder_coupons (brand, code_hash, label, max_uses, expires_at)
+                values ('chelsea-st', '\x00', 'Direto', 1, now() + interval '1 day')$q$);
+  perform verify.expect_named_refusal('[0059 #2] the platform admin rewrites the hash of a coupon',
+    '42501', format($q$update founder_coupons set code_hash = '\x00' where id = %L$q$, v_general));
+  perform verify.expect_named_refusal('[0059 #2] the platform admin deletes a coupon',
+    '42501', format('delete from founder_coupons where id = %L', v_general));
+  perform verify.expect_named_refusal('[0059 #2] the platform admin writes a use',
+    '42501', format('insert into founder_coupon_redemptions (coupon_id, person_id) values (%L, %L)', v_general, c_a));
+  perform verify.expect_named_refusal('[0059 #15] the platform admin writes an origin',
+    '42501', format($q$insert into signup_origins (person_id, origin) values (%L, 'grifoai')$q$, c_a));
+  reset role;
+  perform verify.expect_named_refusal('[0059] a coupon of an organization', '23514 founder_coupons_is_common',
+    format('update founder_coupons set organization_id = %L where id = %L', v_chelsea, v_general));
+  perform verify.expect_named_refusal('[0059] a founder invite in capitals', '23514 founder_invites_email_check',
+    $q$insert into founder_invites (email, expires_at) values ('Caps-0059@example.com', now() + interval '1 day')$q$);
+  perform verify.expect_named_refusal('[0059] an origin outside the list', '23514 signup_origins_known',
+    format($q$insert into signup_origins (person_id, origin) values (%L, 'facebook')$q$, c_a));
+
+  -- 2. Nobody else makes a coupon or writes an invite.
+  perform set_config('test.uid', c_a::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #2] a student makes a coupon', '42501',
+    $q$select create_founder_coupon('MINE00590', 'Meu', 'chelsea-st', 9, now() + interval '1 day')$q$);
+  perform verify.expect_named_refusal('[0059 #2] a student writes a founder invite', '42501',
+    $q$insert into founder_invites (email, expires_at) values ('a-0059@example.com', now() + interval '1 day')$q$);
+  with w as (update founder_coupons set max_uses = 100 returning 1) select count(*) into v_n from w;
+  reset role;
+  perform verify.holds_0059('[0059 #2] a student changes no coupon', v_n = 0);
+  perform set_config('test.uid', c_teacher::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #2] a teacher makes a coupon', '42501',
+    $q$select create_founder_coupon('TEACH0059', 'Prof', 'chelsea-st', 9, now() + interval '1 day')$q$);
+  perform verify.expect_named_refusal('[0059 #2] a teacher writes a founder invite', '42501',
+    $q$insert into founder_invites (email, expires_at) values ('t-0059@example.com', now() + interval '1 day')$q$);
+  reset role;
+
+  -- 4. A valid coupon, typed in another case with spaces: the seal by
+  -- badge_grant, source coupon, from who made it, and its use.
+  perform set_config('test.uid', c_a::text, false);
+  set local role authenticated;
+  v_text := redeem_my_founder_coupon('  Secreto 0059-abc ');
+  reset role;
+  perform verify.holds_0059('[0059 #4] a valid coupon gives the seal (source coupon, granted_by who made it) and writes its use',
+    v_text = 'granted'
+    and exists (select 1 from person_badges where person_id = c_a and badge = 'founder' and source = 'coupon'
+                   and granted_by = c_admin and revoked_at is null)
+    and exists (select 1 from founder_coupon_redemptions where coupon_id = v_general and person_id = c_a));
+
+  -- The refusals of the screen, each by its rule.
+  perform set_config('test.uid', c_b::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #5] a code no coupon has', '23514 founder_coupon_exists',
+    $q$select redeem_my_founder_coupon('NOPE-0059')$q$);
+  perform verify.expect_named_refusal('[0059 #5] an expired coupon', '23514 founder_coupon_expired',
+    $q$select redeem_my_founder_coupon('EXPIRED0059')$q$);
+  perform verify.expect_named_refusal('[0059 #8] a GrifoAI coupon by a Chelsea St student', '23514 founder_coupon_brand',
+    $q$select redeem_my_founder_coupon('grifo0059')$q$);
+  -- 6. One use left: hers, then nobody's.
+  v_text := redeem_my_founder_coupon('single0059');
+  reset role;
+  perform verify.holds_0059('[0059 #6] the last use of a coupon gives the seal', v_text = 'granted');
+  perform set_config('test.uid', c_c::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #6] a coupon with no use left', '23514 founder_coupon_exhausted',
+    $q$select redeem_my_founder_coupon('SINGLE0059')$q$);
+  reset role;
+  perform set_config('test.uid', c_employee::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #8] a Chelsea St coupon by a company''s employee', '23514 founder_coupon_brand',
+    $q$select redeem_my_founder_coupon('spare0059')$q$);
+  reset role;
+  perform set_config('test.uid', c_company_admin::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #8] a GrifoAI coupon by a company''s admin, who studies nowhere', '23514 founder_coupon_brand',
+    $q$select redeem_my_founder_coupon('GRIFO0059')$q$);
+  reset role;
+  perform verify.holds_0059('[0059 #5] no refusal gave a seal or wrote a use',
+    not exists (select 1 from person_badges where person_id in (c_c, c_employee, c_company_admin))
+    and (select count(*) from founder_coupon_redemptions where coupon_id = v_single) = 1
+    and not exists (select 1 from founder_coupon_redemptions where coupon_id in (v_expired, v_grifo_coupon, v_spare)));
+
+  -- 7. Once per person, also after her seal is taken back.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  perform revoke_badge(c_a, 'founder');
+  reset role;
+  perform set_config('test.uid', c_a::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #7] the same coupon again by the same person, her seal taken back',
+    '23514 founder_coupon_once_per_person', $q$select redeem_my_founder_coupon('SECRETO0059ABC')$q$);
+  reset role;
+  perform verify.holds_0059('[0059 #7] the coupon used again gave no seal and no second use',
+    not exists (select 1 from person_badges where person_id = c_a and revoked_at is null)
+    and (select count(*) from founder_coupon_redemptions where coupon_id = v_general) = 1);
+
+  -- 9. Who holds the seal spends no use.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  perform grant_badge(c_d, 'founder');
+  reset role;
+  perform set_config('test.uid', c_d::text, false);
+  set local role authenticated;
+  v_text := redeem_my_founder_coupon('SPARE0059');
+  reset role;
+  perform verify.holds_0059('[0059 #9] a founder redeeming a coupon gets already_founder and spends no use',
+    v_text = 'already_founder'
+    and not exists (select 1 from founder_coupon_redemptions where coupon_id = v_spare)
+    and (select source from person_badges where person_id = c_d and revoked_at is null) = 'admin');
+
+  -- 10. No seat left: no seal and no use spent.
+  update founder_program set seats_total = (select count(*) from person_badges where revoked_at is null);
+  perform verify.holds_0059('[0059 #10] with every seat taken, founder_seats_left is 0', founder_seats_left() = 0);
+  perform set_config('test.uid', c_c::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #10] a valid coupon with no seat left', '23514 founder_coupon_seats',
+    $q$select redeem_my_founder_coupon('SPARE0059')$q$);
+  reset role;
+  perform verify.holds_0059('[0059 #10] with no seat left the coupon gave no seal and spent no use',
+    redeem_founder_coupon(c_c, 'SPARE0059') = 'no_seats'
+    and not exists (select 1 from person_badges where person_id = c_c)
+    and not exists (select 1 from founder_coupon_redemptions where coupon_id = v_spare));
+
+  -- 12, 13 and 16. The first confirmation, with no seat left: she is a
+  -- student, with no seal, and the founder invite of her e-mail stays open.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  insert into founder_invites (email, expires_at) values ('inv-no-seat-0059@example.com', now() + interval '15 days');
+  reset role;
+  update auth.users set email_confirmed_at = now() where id in (c_sign_no_seat, c_inv_no_seat);
+  perform verify.holds_0059('[0059 #12] a signup whose coupon finds no seat is confirmed a student of Chelsea St, with no seal and no use spent',
+    (select email_confirmed_at from auth.users where id = c_sign_no_seat) is not null
+    and exists (select 1 from organization_members where user_id = c_sign_no_seat and organization_id = v_chelsea and role = 'student')
+    and not exists (select 1 from person_badges where person_id = c_sign_no_seat)
+    and not exists (select 1 from founder_coupon_redemptions where coupon_id = v_spare));
+  perform verify.holds_0059('[0059 #13] a founder invite with no seat left gives no seal and stays open',
+    not exists (select 1 from person_badges where person_id = c_inv_no_seat)
+    and (select accepted_at from founder_invites where email = 'inv-no-seat-0059@example.com') is null
+    and exists (select 1 from organization_members where user_id = c_inv_no_seat and role = 'student'));
+  -- 14. With no seat left, an invite to a confirmed account is refused.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #14] a founder invite to a confirmed account with no seat left',
+    '23514 founder_seats_available',
+    $q$insert into founder_invites (email, expires_at) values ('confirmed-no-seat-0059@example.com', now() + interval '15 days')$q$);
+  reset role;
+  perform verify.holds_0059('[0059 #14] the refused invite left no row and no seal',
+    not exists (select 1 from founder_invites where email = 'confirmed-no-seat-0059@example.com')
+    and not exists (select 1 from person_badges where person_id = c_confirmed_no_seat));
+
+  -- The seats again.
+  update founder_program set seats_total = 20;
+
+  -- 14. An invite to an account already confirmed (her address in another
+  -- case): the seal when it is written.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  insert into founder_invites (email, expires_at) values ('confirmed-0059@example.com', now() + interval '15 days')
+    returning id into v_invite;
+  reset role;
+  perform verify.holds_0059('[0059 #14] a founder invite to a confirmed account gives the seal when written (source invite, granted_by who invited) and is accepted',
+    exists (select 1 from person_badges where person_id = c_confirmed and source = 'invite'
+                   and granted_by = c_admin and revoked_at is null)
+    and (select accepted_at from founder_invites where id = v_invite) is not null);
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  with w as (delete from founder_invites where id = v_invite returning 1) select count(*) into v_n from w;
+  with w as (update founder_invites set expires_at = now() + interval '1 day' where id = v_invite returning 1) select count(*) into v_m from w;
+  reset role;
+  perform verify.holds_0059('[0059 #14] an accepted founder invite is neither cancelled nor renewed', v_n = 0 and v_m = 0);
+
+  -- 13. The founder invites waiting for a confirmation: one open, one
+  -- expired; and a second open one for the same e-mail.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  insert into founder_invites (email, expires_at) values ('inv-0059@example.com', now() + interval '15 days');
+  insert into founder_invites (email, expires_at) values ('inv-expired-0059@example.com', now() + interval '15 days');
+  perform verify.expect_named_refusal('[0059 #2] the platform admin writes a founder invite already accepted', '42501',
+    $q$insert into founder_invites (email, expires_at, accepted_at) values ('accepted-0059@example.com', now() + interval '1 day', now())$q$);
+  perform verify.expect_named_refusal('[0059 #13] a second open founder invite for the same e-mail',
+    '23505 founder_invites_one_open',
+    $q$insert into founder_invites (email, expires_at) values ('inv-0059@example.com', now() + interval '1 day')$q$);
+  reset role;
+  update founder_invites set created_at = now() - interval '20 days', expires_at = now() - interval '5 days'
+   where email = 'inv-expired-0059@example.com';
+  perform verify.holds_0059('[0059 #13] a founder invite for an unconfirmed account waits: no seal yet',
+    not exists (select 1 from person_badges where person_id = c_inv)
+    and (select accepted_at from founder_invites where email = 'inv-0059@example.com') is null);
+
+  -- 12, 13, 15 and 16. The first confirmations.
+  update auth.users set email_confirmed_at = now()
+   where id in (c_sign_ok, c_sign_expired, c_inv, c_inv_expired, c_origin, c_origin_other);
+
+  perform verify.holds_0059('[0059 #12] a signup with a valid coupon (typed in another case, with spaces) is confirmed a student of Chelsea St with the seal, source coupon, and its use',
+    exists (select 1 from organization_members where user_id = c_sign_ok and organization_id = v_chelsea and role = 'student')
+    and exists (select 1 from person_badges where person_id = c_sign_ok and source = 'coupon' and revoked_at is null)
+    and exists (select 1 from founder_coupon_redemptions where coupon_id = v_signup_coupon and person_id = c_sign_ok));
+  perform verify.holds_0059('[0059 #16] the confirmation still binds the personal plan of her e-mail (0058''s body kept)',
+    (select person_id from plans where id = v_personal_plan) = c_sign_ok);
+  perform verify.holds_0059('[0059 #12] a signup with an expired coupon is confirmed a student of Chelsea St, with no seal',
+    (select email_confirmed_at from auth.users where id = c_sign_expired) is not null
+    and exists (select 1 from organization_members where user_id = c_sign_expired and organization_id = v_chelsea and role = 'student')
+    and not exists (select 1 from person_badges where person_id = c_sign_expired)
+    and not exists (select 1 from founder_coupon_redemptions where coupon_id = v_expired));
+  perform verify.holds_0059('[0059 #13] a founder invite gives the seal on the first confirmation of its e-mail, in another case (source invite, granted_by who invited), and is accepted',
+    exists (select 1 from person_badges where person_id = c_inv and source = 'invite' and granted_by = c_admin
+                   and revoked_at is null)
+    and (select accepted_at from founder_invites where email = 'inv-0059@example.com') is not null);
+  perform verify.holds_0059('[0059 #13] an expired founder invite gives no seal and stays open',
+    not exists (select 1 from person_badges where person_id = c_inv_expired)
+    and (select accepted_at from founder_invites where email = 'inv-expired-0059@example.com') is null);
+
+  -- 13. The invite left open with no seat, renewed for the account now
+  -- confirmed: the seal when renewed.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  update founder_invites set expires_at = now() + interval '15 days' where email = 'inv-no-seat-0059@example.com';
+  reset role;
+  perform verify.holds_0059('[0059 #13] a founder invite left open with no seat gives the seal when renewed, once there is a seat',
+    exists (select 1 from person_badges where person_id = c_inv_no_seat and source = 'invite' and revoked_at is null)
+    and (select accepted_at from founder_invites where email = 'inv-no-seat-0059@example.com') is not null);
+
+  -- 15. The origin.
+  perform verify.holds_0059('[0059 #15] a signup with origin grifoai records it on the first confirmation; another value records nothing',
+    (select origin from signup_origins where person_id = c_origin) = 'grifoai'
+    and not exists (select 1 from signup_origins where person_id = c_origin_other)
+    and not exists (select 1 from signup_origins where person_id = c_sign_ok)
+    and (select email_confirmed_at from auth.users where id = c_origin_other) is not null);
+  update auth.users set raw_user_meta_data = '{"signup": true, "full_name": "Other", "origin": "grifoai"}',
+                        email_confirmed_at = now() + interval '1 minute'
+   where id = c_origin_other;
+  perform verify.holds_0059('[0059 #15] a later confirmation with the origin in the metadata records nothing',
+    not exists (select 1 from signup_origins where person_id = c_origin_other));
+  perform set_config('test.uid', c_origin::text, false);
+  set local role authenticated;
+  v_n := verify.rows_0059('signup_origins');
+  perform verify.expect_named_refusal('[0059 #15] the person writes her own origin', '42501',
+    format($q$insert into signup_origins (person_id, origin) values (%L, 'grifoai')$q$, c_origin_other));
+  perform verify.expect_named_refusal('[0059 #15] the person changes an origin', '42501',
+    $q$update signup_origins set origin = 'grifoai'$q$);
+  reset role;
+  perform verify.holds_0059('[0059 #15] the person reads no origin, her own neither', v_n = 0);
+
+  -- 1. Who reads the four tables: the platform admin all, anybody else none.
+  set local role anon;
+  v_counts := array(select verify.rows_0059(t) from unnest(c_tables) t);
+  reset role;
+  perform verify.holds_0059(format('[0059 #1] anon reads none of the four tables (%s)', v_counts),
+    v_counts = array[-1, -1, -1, -1]::bigint[]);
+  foreach v_text in array array[c_sign_ok::text, c_inv::text, c_teacher::text, c_company_admin::text, c_employee::text] loop
+    perform set_config('test.uid', v_text, false);
+    set local role authenticated;
+    v_counts := array(select verify.rows_0059(t) from unnest(c_tables) t);
+    reset role;
+    perform verify.holds_0059(format('[0059 #1] %s reads 0 rows of the four tables (%s)',
+      (select raw_user_meta_data ->> 'full_name' from auth.users where id = v_text::uuid), v_counts),
+      v_counts = array[0, 0, 0, 0]::bigint[]);
+  end loop;
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  v_counts := array(select verify.rows_0059(t) from unnest(c_tables) t);
+  reset role;
+  perform verify.holds_0059(format('[0059 #1] the platform admin reads every row of the four tables (%s)', v_counts),
+    v_counts = array[(select count(*) from founder_coupons), (select count(*) from founder_coupon_redemptions),
+                     (select count(*) from founder_invites), (select count(*) from signup_origins)]
+    and v_counts[1] > 0 and v_counts[2] > 0 and v_counts[3] > 0 and v_counts[4] > 0);
+
+  -- The platform admin ends a coupon and cancels an open invite.
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  update founder_coupons set expires_at = now() where id = v_spare;
+  with w as (delete from founder_invites where email = 'inv-expired-0059@example.com' returning 1) select count(*) into v_n from w;
+  reset role;
+  perform verify.holds_0059('[0059] the platform admin ends a coupon by its validity and cancels an open invite',
+    redeem_founder_coupon(c_c, 'SPARE0059') = 'expired' and v_n = 1);
+
+  -- 18. A deleted account keeps its use (Luiz, 13/11, option A): the
+  -- account goes, its row stays with no person, the personal coupon stays
+  -- used, and nobody else redeems it.
+  delete from students where id = c_b;
+  delete from organization_members where user_id = c_b;
+  v_text := verify.named_refusal(format('delete from auth.users where id = %L', c_b));
+  perform verify.holds_0059(format('[0059 #18] an account that redeemed a personal coupon is deleted (%s); its use stays, with no person',
+                                   coalesce(v_text, 'deleted')),
+    v_text is null
+    and not exists (select 1 from profiles where id = c_b)
+    and (select count(*) from founder_coupon_redemptions where coupon_id = v_single) = 1
+    and (select count(*) from founder_coupon_redemptions where coupon_id = v_single and person_id is null) = 1);
+  perform set_config('test.uid', c_c::text, false);
+  set local role authenticated;
+  perform verify.expect_named_refusal('[0059 #18] the personal coupon of a deleted account, by another person',
+    '23514 founder_coupon_exhausted', $q$select redeem_my_founder_coupon('SINGLE0059')$q$);
+  reset role;
+
+  -- 17. No security definer of public is executable by anon but the two
+  -- doors of 0058.
+  insert into verify.failures
+  select format('[0059 #17] anon executes the security definer %s', p.oid::regprocedure)
+    from pg_proc p
+   where p.pronamespace = 'public'::regnamespace
+     and not exists (select 1 from pg_depend d
+                      where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
+     and p.prosecdef
+     and p.oid not in ('public.submit_lead(text, text, text, text, text, text, text, text, text, text)'::regprocedure,
+                       'public.founder_seats_left()'::regprocedure)
+     and has_function_privilege('anon', p.oid, 'execute');
+  if not exists (select 1 from verify.failures where what like '[0059 #17] anon executes%') then
+    raise notice '[0059 #17] no security definer of public is executable by anon but submit_lead and founder_seats_left';
+  end if;
+
+  -- Nothing written here is kept.
+  delete from founder_coupon_redemptions;
+  delete from founder_coupons;
+  delete from founder_invites;
+  delete from signup_origins;
+  delete from plans;
+  delete from person_badges;
+  delete from founder_program;
+  delete from students where id = any (c_people);
+  delete from organization_members where user_id = any (c_people);
+  delete from auth.users where id = any (c_people);
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a founder comes by coupon or invite: %', v_failures;
+  end if;
+  raise notice 'a founder comes by coupon or invite: only the platform admin reads coupons, uses, founder invites and origins, makes a coupon (kept as its hash) and writes an invite; a coupon gives the seal once per person within its validity, uses, brand and the seats, spending no use without a seal; the signup''s coupon, the founder invite and the origin come with the first confirmation, which never fails because of them';
+end;
+$$;
+
+-- Two coupons on the last seat at once (0059) ------------------------------------------------
+--
+-- As the two grants of 0058: a second connection redeems one coupon for the
+-- last seat and holds its transaction open; a redemption of another coupon
+-- here waits for it (lock_timeout: the redemption, which never raises,
+-- returns failed and spends nothing), and once the other commits it finds
+-- no seat. One seal, one use.
+
+create extension dblink schema verify;
+
+do $$
+declare
+  v_coupon uuid;
+begin
+  insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at) values
+    ('b0590000-0000-4000-8000-0000000000a1', 'race1-0059@example.com', '{"full_name":"Race 1"}', now()),
+    ('b0590000-0000-4000-8000-0000000000a2', 'race2-0059@example.com', '{"full_name":"Race 2"}', now()),
+    ('b0590000-0000-4000-8000-0000000000a3', 'race3-0059@example.com', '{"full_name":"Race 3"}', now());
+  insert into organization_members (organization_id, user_id, role)
+    select o.id, p, 'student' from organizations o,
+           unnest(array['b0590000-0000-4000-8000-0000000000a1', 'b0590000-0000-4000-8000-0000000000a2',
+                        'b0590000-0000-4000-8000-0000000000a3']::uuid[]) p
+     where o.slug = 'chelsea-st';
+  insert into founder_program (seats_total) values (1);
+  insert into founder_coupons (brand, code_hash, label, max_uses, expires_at) values
+    ('chelsea-st', founder_coupon_hash('RACEONE0059'), 'Race one', 5, now() + interval '1 day'),
+    ('chelsea-st', founder_coupon_hash('RACETWO0059'), 'Race two', 5, now() + interval '1 day'),
+    ('chelsea-st', founder_coupon_hash('RACETHREE0059'), 'Race three', 5, now() + interval '1 day'),
+    ('chelsea-st', founder_coupon_hash('RACEFOUR0059'), 'Race four', 5, now() + interval '1 day');
+end;
+$$;
+
+do $$
+declare
+  c_one constant uuid := 'b0590000-0000-4000-8000-0000000000a1';
+  c_two constant uuid := 'b0590000-0000-4000-8000-0000000000a2';
+  v_text text;
+  v_failures text;
+begin
+  delete from verify.failures;
+  perform verify.dblink_connect('race0059',
+    format('dbname=%s user=%s', current_database(), current_user));
+  perform verify.dblink_exec('race0059', 'begin');
+  perform * from verify.dblink('race0059',
+    format('select public.redeem_founder_coupon(%L, ''RACEONE0059'')', c_one)) as t (result text);
+
+  perform set_config('lock_timeout', '300ms', true);
+  v_text := redeem_founder_coupon(c_two, 'RACETWO0059');
+  perform set_config('lock_timeout', '0', true);
+  if v_text is distinct from 'failed' then
+    insert into verify.failures values (format(
+      '[0059 #11] a redemption did not wait for another redemption of the last seat in flight: %s, expected failed under lock_timeout',
+      coalesce(v_text, 'null')));
+  else
+    raise notice '[0059 #11] a redemption waits for another redemption of the last seat in flight: failed under lock_timeout, nothing spent';
+  end if;
+
+  perform verify.dblink_exec('race0059', 'commit');
+  perform verify.dblink_disconnect('race0059');
+
+  v_text := redeem_founder_coupon(c_two, 'RACETWO0059');
+  if v_text is distinct from 'no_seats' then
+    insert into verify.failures values (format(
+      '[0059 #11] a redemption of the last seat after the other one committed: %s, expected no_seats', v_text));
+  else
+    raise notice '[0059 #11] a redemption of the last seat after the other one committed finds no seat';
+  end if;
+  if (select count(*) from person_badges where revoked_at is null) <> 1
+     or (select count(*) from founder_coupon_redemptions) <> 1 then
+    insert into verify.failures values (format(
+      '[0059 #11] two redemptions of the last seat left %s live seals and %s uses, expected 1 and 1',
+      (select count(*) from person_badges where revoked_at is null),
+      (select count(*) from founder_coupon_redemptions)));
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'two coupons on the last seat: %', v_failures;
+  end if;
+  raise notice 'two coupons on the last seat at once: the second waits for the first, then finds no seat; one seal, one use';
+end;
+$$;
+
+-- Two coupons of one person at once (0059): the second waits for the first
+-- on founder_program, then sees her seal and spends no use. It runs on a
+-- second connection, sent without waiting, and the first commits once the
+-- second is seen waiting on a lock. The seats are raised first, committed:
+-- a row of founder_program locked by this session would hold both.
+do $$
+begin
+  update founder_program set seats_total = 5;
+end;
+$$;
+
+do $$
+declare
+  c_three constant uuid := 'b0590000-0000-4000-8000-0000000000a3';
+  v_text text;
+  v_waiting boolean := false;
+  v_failures text;
+begin
+  delete from verify.failures;
+  perform verify.dblink_connect('first0059', format('dbname=%s user=%s', current_database(), current_user));
+  perform verify.dblink_connect('second0059', format('dbname=%s user=%s', current_database(), current_user));
+  perform verify.dblink_exec('first0059', 'begin');
+  perform * from verify.dblink('first0059',
+    format('select public.redeem_founder_coupon(%L, ''RACETHREE0059'')', c_three)) as t (result text);
+  perform verify.dblink_send_query('second0059',
+    format('select public.redeem_founder_coupon(%L, ''RACEFOUR0059'')', c_three));
+  for i in 1..50 loop
+    if exists (select 1 from pg_stat_activity
+                where wait_event_type = 'Lock' and query like '%RACEFOUR0059%'
+                  and pid <> pg_backend_pid()) then
+      v_waiting := true;
+      exit;
+    end if;
+    perform pg_sleep(0.1);
+  end loop;
+  perform verify.dblink_exec('first0059', 'commit');
+  select t.result into v_text from verify.dblink_get_result('second0059') as t (result text);
+  perform * from verify.dblink_get_result('second0059') as t (result text);
+  perform verify.dblink_disconnect('first0059');
+  perform verify.dblink_disconnect('second0059');
+
+  if not v_waiting then
+    insert into verify.failures values ('[0059 #9] the second coupon of the same person never waited on a lock');
+  end if;
+  if v_text is distinct from 'already_founder'
+     or (select count(*) from founder_coupon_redemptions where person_id = c_three) <> 1 then
+    insert into verify.failures values (format(
+      '[0059 #9] two coupons of one person at once: the second returned %s and she has %s uses, expected already_founder and 1',
+      coalesce(v_text, 'null'), (select count(*) from founder_coupon_redemptions where person_id = c_three)));
+  else
+    raise notice '[0059 #9] two coupons of one person at once: the second waits, sees her seal, and spends no use';
+  end if;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'two coupons of one person: %', v_failures;
+  end if;
+end;
+$$;
+
+do $$
+begin
+  delete from founder_coupon_redemptions;
+  delete from founder_coupons;
+  delete from person_badges;
+  delete from founder_program;
+  delete from organization_members where user_id in ('b0590000-0000-4000-8000-0000000000a1',
+                                                     'b0590000-0000-4000-8000-0000000000a2',
+                                                     'b0590000-0000-4000-8000-0000000000a3');
+  delete from auth.users where id in ('b0590000-0000-4000-8000-0000000000a1',
+                                      'b0590000-0000-4000-8000-0000000000a2',
+                                      'b0590000-0000-4000-8000-0000000000a3');
+end;
+$$;
+
+drop extension dblink;
+
+
+-- A restored copy gets back what the dump leaves out (#101, #104) --------------------
+--
+-- supabase db dump writes the schemas of the project, not storage or auth, so
+-- a copy restored by docs/commands.md comes back without what the migrations
+-- create there: the policies of storage and auth (#101), and the triggers of
+-- auth and storage that call a function of public (#104), on which a new
+-- account gets its profile and an invite its yes. The functions themselves are
+-- in public and come with the dump. scripts/restore-outside-public.sql
+-- recreates the rest, and this block holds that file to what the migrations
+-- above leave: it records every such policy and trigger, by the same catalog
+-- fields scripts/catalog-fingerprint.sql reads (a trigger by pg_get_triggerdef,
+-- which names its table, and tgenabled), drops them all, runs the file, and
+-- compares both ways, by name. A migration that changes one of them and
+-- forgets the file fails here. The order the two triggers of auth.users fire
+-- in (by name: the profile before the invite) is held by the blocks above,
+-- which sign people up through them; renaming one in the file alone fails
+-- the comparison here.
+
+create temporary view restore_objects as
+  select 'policy'::text as kind,
+         pol.polname::text as name,
+         format('%s.%s|cmd=%s|roles=%s|permissive=%s|using=%s|check=%s',
+                n.nspname, c.relname, pol.polcmd,
+                (select string_agg(g.name, ',' order by g.name)
+                   from unnest(pol.polroles) r
+                   cross join lateral (select case when r = 0 then 'PUBLIC'
+                                                   else pg_get_userbyid(r)::text end as name) g),
+                pol.polpermissive,
+                coalesce(pg_get_expr(pol.polqual, pol.polrelid), '-'),
+                coalesce(pg_get_expr(pol.polwithcheck, pol.polrelid), '-')) as shape,
+         n.nspname::text as schema_name,
+         c.relname::text as table_name
+    from pg_policy pol
+    join pg_class c on c.oid = pol.polrelid
+    join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname in ('storage', 'auth')
+  union all
+  select 'trigger',
+         t.tgname::text,
+         format('%s|enabled=%s', pg_get_triggerdef(t.oid), t.tgenabled),
+         n.nspname::text,
+         c.relname::text
+    from pg_trigger t
+    join pg_class c on c.oid = t.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    join pg_proc p on p.oid = t.tgfoid
+   where n.nspname in ('storage', 'auth')
+     and p.pronamespace = 'public'::regnamespace
+     and not t.tgisinternal;
+
+create temporary table restore_expected as select kind, name, shape from restore_objects;
+
+do $$
+declare
+  v_object record;
+begin
+  if (select count(*) from restore_expected where kind = 'policy') = 0
+     or (select count(*) from restore_expected where kind = 'trigger') = 0 then
+    raise exception 'restore: the migrations left no policy or no trigger outside public to compare with';
+  end if;
+  for v_object in select kind, name, schema_name, table_name from restore_objects loop
+    execute format('drop %s %I on %I.%I',
+                   v_object.kind, v_object.name, v_object.schema_name, v_object.table_name);
+  end loop;
+end;
+$$;
+
+\i scripts/restore-outside-public.sql
+
+do $$
+declare
+  v_failures text;
+begin
+  with
+  missing as (select kind, name, shape from restore_expected
+              except select kind, name, shape from restore_objects),
+  extra as (select kind, name, shape from restore_objects
+            except select kind, name, shape from restore_expected)
+  select string_agg(what, '; ' order by what) into v_failures
+    from (select format('the file does not restore %s %s as the migrations leave it (%s)',
+                        kind, name, shape) as what from missing
+          union all
+          select format('the file restores %s %s, which the migrations do not leave (%s)',
+                        kind, name, shape) from extra) f;
+  if v_failures is not null then
+    raise exception 'restore: %', v_failures;
+  end if;
+  raise notice 'scripts/restore-outside-public.sql gives back every policy of storage and auth, and every trigger there on a function of public, that the migrations leave, and no other';
+end;
+$$;
+
+drop table restore_expected;
+drop view restore_objects;
 
 -- Nobody truncates what RLS guards (0037) ----------------------------------------------
 --

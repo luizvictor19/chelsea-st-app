@@ -14,10 +14,14 @@ because skipping it once cost something. Follow them in order.
    the database through the Supabase MCP server, which is read-only, before
    writing a line of SQL. Report the number measured, never the number
    expected.
-2. **Write it, never apply it.** Use the migration number given in the prompt;
-   if none was given, ask. Name the file for what the change means, not for
+2. **Write it; apply it only right before the merge.** Use the migration
+   number given in the prompt; if none was given, pick the next free one after
+   checking every open branch. Name the file for what the change means, not for
    the mechanics (`0021_reclassifying_is_not_rejecting.sql`, not
-   `0021_update_function.sql`). Luiz applies with `supabase db push`.
+   `0021_update_function.sql`). The Claude applies it with `supabase db push`
+   from the issue worktree, after code-review and a green `verify-rls.sql` in
+   CI, with the backup and the dry-run first (Migrations in
+   `docs/commands.md`), and checks it through the MCP before the merge.
 3. **RLS in the same migration.** Every new table is created with row level
    security enabled and its policies, in the migration that creates it.
 4. **Register it in `scripts/verify-rls.sql`.** Add the `\i` line in number
@@ -35,7 +39,8 @@ because skipping it once cost something. Follow them in order.
    - the numbers measured in step 1;
    - the review findings, with what was fixed and what was not, and why;
    - the reminder that `types.ts` now describes a database that is not applied
-     yet, so nothing runs or deploys against it until Luiz applies.
+     yet, so nothing runs or deploys against it until it is applied, right
+     before the merge.
 
 ## Known traps
 

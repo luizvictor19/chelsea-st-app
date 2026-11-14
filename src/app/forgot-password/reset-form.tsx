@@ -19,11 +19,15 @@ export function ResetForm() {
         <p className="text-muted">
           Se houver uma conta para{" "}
           <span className="font-mono text-sm">{state.email}</span>, o link para
-          definir a senha chegou na caixa de entrada. Ele vale por pouco tempo,
-          então abra logo.
+          definir a senha chega na caixa de entrada em instantes. Ele vale por
+          pouco tempo, então abra logo.
         </p>
         <p className="text-faint text-sm">
           Não chegou? Confira o spam antes de pedir outro.
+        </p>
+        <p className="text-faint text-sm">
+          Pediu de novo há pouco? Use o link que já chegou. Um novo só sai
+          depois de um minuto.
         </p>
       </div>
     );

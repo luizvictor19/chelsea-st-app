@@ -174,6 +174,74 @@ export type Database = {
           },
         ];
       };
+      billing_customers: {
+        Row: {
+          cpf_hmac: string;
+          created_at: string;
+          organization_id: string;
+          person_id: string;
+          trial_used_at: string | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          cpf_hmac: string;
+          created_at?: string;
+          organization_id: string;
+          person_id: string;
+          trial_used_at?: string | null;
+        };
+        Update: {
+          cpf_hmac?: string;
+          created_at?: string;
+          organization_id?: string;
+          person_id?: string;
+          trial_used_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "billing_customers_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "billing_customers_person_id_fkey";
+            columns: ["person_id"];
+            isOneToOne: true;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      billing_events: {
+        Row: {
+          error: string | null;
+          event_id: string;
+          event_type: string;
+          payload: NonNullable<Json>;
+          processed_at: string | null;
+          received_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          error?: string | null;
+          event_id: string;
+          event_type: string;
+          payload: NonNullable<Json>;
+          processed_at?: string | null;
+          received_at?: string;
+        };
+        Update: {
+          error?: string | null;
+          event_id?: string;
+          event_type?: string;
+          payload?: NonNullable<Json>;
+          processed_at?: string | null;
+          received_at?: string;
+        };
+        Relationships: [];
+      };
       blocks: {
         Row: {
           based_on_id: string | null;
@@ -285,6 +353,64 @@ export type Database = {
           },
         ];
       };
+      calendar_invites: {
+        Row: {
+          attempts: number;
+          created_at: string;
+          id: string;
+          last_attempt_at: string | null;
+          last_error: string | null;
+          lesson_id: string;
+          method: string;
+          organization_id: string;
+          recipient: string;
+          sent_at: string | null;
+          status: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          attempts?: number;
+          created_at?: string;
+          id?: string;
+          last_attempt_at?: string | null;
+          last_error?: string | null;
+          lesson_id: string;
+          method: string;
+          organization_id: string;
+          recipient: string;
+          sent_at?: string | null;
+          status?: string;
+        };
+        Update: {
+          attempts?: number;
+          created_at?: string;
+          id?: string;
+          last_attempt_at?: string | null;
+          last_error?: string | null;
+          lesson_id?: string;
+          method?: string;
+          organization_id?: string;
+          recipient?: string;
+          sent_at?: string | null;
+          status?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "calendar_invites_lesson_id_fkey";
+            columns: ["lesson_id"];
+            isOneToOne: false;
+            referencedRelation: "lessons";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "calendar_invites_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       contrast_set_items: {
         Row: {
           organization_id: string | null;
@@ -362,6 +488,318 @@ export type Database = {
             columns: ["organization_id"];
             isOneToOne: false;
             referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      credit_costs: {
+        Row: {
+          action: string;
+          brand: string;
+          created_at: string;
+          credits: number;
+          id: string;
+          organization_id: string | null;
+          updated_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          action: string;
+          brand: string;
+          created_at?: string;
+          credits: number;
+          id?: string;
+          organization_id?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          action?: string;
+          brand?: string;
+          created_at?: string;
+          credits?: number;
+          id?: string;
+          organization_id?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "credit_costs_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      credit_entries: {
+        Row: {
+          action: string | null;
+          amount: number;
+          asaas_payment_id: string | null;
+          created_at: string;
+          expires_at: string | null;
+          id: string;
+          kind: string;
+          lot_id: string | null;
+          organization_id: string;
+          period: number | null;
+          person_id: string;
+          reference: string | null;
+          refers_to: string | null;
+          seq: number;
+          subscription_id: string | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          action?: string | null;
+          amount: number;
+          asaas_payment_id?: string | null;
+          created_at?: string;
+          expires_at?: string | null;
+          id?: string;
+          kind: string;
+          lot_id?: string | null;
+          organization_id: string;
+          period?: number | null;
+          person_id: string;
+          reference?: string | null;
+          refers_to?: string | null;
+          seq?: never;
+          subscription_id?: string | null;
+        };
+        Update: {
+          action?: string | null;
+          amount?: number;
+          asaas_payment_id?: string | null;
+          created_at?: string;
+          expires_at?: string | null;
+          id?: string;
+          kind?: string;
+          lot_id?: string | null;
+          organization_id?: string;
+          period?: number | null;
+          person_id?: string;
+          reference?: string | null;
+          refers_to?: string | null;
+          seq?: never;
+          subscription_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "credit_entries_asaas_payment_id_fkey";
+            columns: ["asaas_payment_id"];
+            isOneToOne: false;
+            referencedRelation: "payments";
+            referencedColumns: ["asaas_payment_id"];
+          },
+          {
+            foreignKeyName: "credit_entries_lot_id_fkey";
+            columns: ["lot_id"];
+            isOneToOne: false;
+            referencedRelation: "credit_entries";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "credit_entries_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "credit_entries_person_id_fkey";
+            columns: ["person_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "credit_entries_refers_to_fkey";
+            columns: ["refers_to"];
+            isOneToOne: false;
+            referencedRelation: "credit_entries";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "credit_entries_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: false;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      founder_coupon_redemptions: {
+        Row: {
+          coupon_id: string;
+          id: string;
+          organization_id: string | null;
+          person_id: string | null;
+          redeemed_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          coupon_id: string;
+          id?: string;
+          organization_id?: string | null;
+          person_id?: string | null;
+          redeemed_at?: string;
+        };
+        Update: {
+          coupon_id?: string;
+          id?: string;
+          organization_id?: string | null;
+          person_id?: string | null;
+          redeemed_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "founder_coupon_redemptions_coupon_id_fkey";
+            columns: ["coupon_id"];
+            isOneToOne: false;
+            referencedRelation: "founder_coupons";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "founder_coupon_redemptions_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "founder_coupon_redemptions_person_id_fkey";
+            columns: ["person_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      founder_coupons: {
+        Row: {
+          brand: string;
+          code_hash: string;
+          created_at: string;
+          created_by: string | null;
+          expires_at: string;
+          id: string;
+          label: string;
+          max_uses: number;
+          organization_id: string | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          brand: string;
+          code_hash: string;
+          created_at?: string;
+          created_by?: string | null;
+          expires_at: string;
+          id?: string;
+          label: string;
+          max_uses: number;
+          organization_id?: string | null;
+        };
+        Update: {
+          brand?: string;
+          code_hash?: string;
+          created_at?: string;
+          created_by?: string | null;
+          expires_at?: string;
+          id?: string;
+          label?: string;
+          max_uses?: number;
+          organization_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "founder_coupons_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "founder_coupons_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      founder_invites: {
+        Row: {
+          accepted_at: string | null;
+          created_at: string;
+          email: string;
+          expires_at: string;
+          id: string;
+          invited_by: string | null;
+          organization_id: string | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          accepted_at?: string | null;
+          created_at?: string;
+          email: string;
+          expires_at: string;
+          id?: string;
+          invited_by?: string | null;
+          organization_id?: string | null;
+        };
+        Update: {
+          accepted_at?: string | null;
+          created_at?: string;
+          email?: string;
+          expires_at?: string;
+          id?: string;
+          invited_by?: string | null;
+          organization_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "founder_invites_invited_by_fkey";
+            columns: ["invited_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "founder_invites_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      founder_program: {
+        Row: {
+          id: boolean;
+          seats_total: number;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          id?: boolean;
+          seats_total: number;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Update: {
+          id?: boolean;
+          seats_total?: number;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "founder_program_updated_by_fkey";
+            columns: ["updated_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
             referencedColumns: ["id"];
           },
         ];
@@ -501,90 +939,238 @@ export type Database = {
         };
         Relationships: [];
       };
-      lesson_schedules: {
+      lesson_proposal_items: {
         Row: {
-          created_at: string;
           duration_minutes: number;
           id: string;
-          is_active: boolean;
+          lesson_id: string | null;
           organization_id: string;
-          start_time: string;
-          student_id: string;
-          timezone: string;
-          weekday: number;
+          proposal_id: string;
+          starts_at: string;
         };
         ComputedFields: never;
         Insert: {
-          created_at?: string;
-          duration_minutes?: number;
+          duration_minutes: number;
           id?: string;
-          is_active?: boolean;
+          lesson_id?: string | null;
           organization_id: string;
-          start_time: string;
-          student_id: string;
-          timezone?: string;
-          weekday: number;
+          proposal_id: string;
+          starts_at: string;
         };
         Update: {
-          created_at?: string;
           duration_minutes?: number;
           id?: string;
-          is_active?: boolean;
+          lesson_id?: string | null;
           organization_id?: string;
-          start_time?: string;
-          student_id?: string;
-          timezone?: string;
-          weekday?: number;
+          proposal_id?: string;
+          starts_at?: string;
         };
         Relationships: [
           {
-            foreignKeyName: "lesson_schedules_student_fkey";
+            foreignKeyName: "lesson_proposal_items_lesson_id_fkey";
+            columns: ["lesson_id"];
+            isOneToOne: true;
+            referencedRelation: "lessons";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lesson_proposal_items_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lesson_proposal_items_proposal_id_fkey";
+            columns: ["proposal_id"];
+            isOneToOne: false;
+            referencedRelation: "lesson_proposals";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      lesson_proposal_mails: {
+        Row: {
+          attempts: number;
+          created_at: string;
+          id: string;
+          last_attempt_at: string | null;
+          last_error: string | null;
+          organization_id: string;
+          proposal_id: string;
+          recipient: string;
+          sent_at: string | null;
+          status: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          attempts?: number;
+          created_at?: string;
+          id?: string;
+          last_attempt_at?: string | null;
+          last_error?: string | null;
+          organization_id: string;
+          proposal_id: string;
+          recipient: string;
+          sent_at?: string | null;
+          status?: string;
+        };
+        Update: {
+          attempts?: number;
+          created_at?: string;
+          id?: string;
+          last_attempt_at?: string | null;
+          last_error?: string | null;
+          organization_id?: string;
+          proposal_id?: string;
+          recipient?: string;
+          sent_at?: string | null;
+          status?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "lesson_proposal_mails_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lesson_proposal_mails_proposal_id_fkey";
+            columns: ["proposal_id"];
+            isOneToOne: true;
+            referencedRelation: "lesson_proposals";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      lesson_proposals: {
+        Row: {
+          answered_at: string | null;
+          answered_by: string | null;
+          created_at: string;
+          expires_at: string;
+          id: string;
+          organization_id: string;
+          proposed_by: string;
+          status: string;
+          student_id: string;
+          teacher_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          answered_at?: string | null;
+          answered_by?: string | null;
+          created_at?: string;
+          expires_at: string;
+          id?: string;
+          organization_id: string;
+          proposed_by: string;
+          status?: string;
+          student_id: string;
+          teacher_id: string;
+        };
+        Update: {
+          answered_at?: string | null;
+          answered_by?: string | null;
+          created_at?: string;
+          expires_at?: string;
+          id?: string;
+          organization_id?: string;
+          proposed_by?: string;
+          status?: string;
+          student_id?: string;
+          teacher_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "lesson_proposals_answered_by_fkey";
+            columns: ["answered_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lesson_proposals_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lesson_proposals_student_fkey";
             columns: ["organization_id", "student_id"];
             isOneToOne: false;
             referencedRelation: "students";
+            referencedColumns: ["organization_id", "id"];
+          },
+          {
+            foreignKeyName: "lesson_proposals_teacher_fkey";
+            columns: ["organization_id", "teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "teachers";
             referencedColumns: ["organization_id", "id"];
           },
         ];
       };
       lessons: {
         Row: {
+          cancelled_at: string | null;
+          cancelled_by: string | null;
           created_at: string;
+          credits_debited: number;
+          credits_refunded: boolean;
           duration_minutes: number;
           id: string;
-          meet_url: string | null;
           organization_id: string;
           scheduled_at: string;
           status: Database["public"]["Enums"]["lesson_status"];
           stopped_at_point_id: string | null;
           student_id: string;
+          teacher_id: string;
           teacher_note: string | null;
         };
         ComputedFields: never;
         Insert: {
+          cancelled_at?: string | null;
+          cancelled_by?: string | null;
           created_at?: string;
+          credits_debited?: number;
+          credits_refunded?: boolean;
           duration_minutes?: number;
           id?: string;
-          meet_url?: string | null;
           organization_id: string;
           scheduled_at: string;
           status?: Database["public"]["Enums"]["lesson_status"];
           stopped_at_point_id?: string | null;
           student_id: string;
+          teacher_id: string;
           teacher_note?: string | null;
         };
         Update: {
+          cancelled_at?: string | null;
+          cancelled_by?: string | null;
           created_at?: string;
+          credits_debited?: number;
+          credits_refunded?: boolean;
           duration_minutes?: number;
           id?: string;
-          meet_url?: string | null;
           organization_id?: string;
           scheduled_at?: string;
           status?: Database["public"]["Enums"]["lesson_status"];
           stopped_at_point_id?: string | null;
           student_id?: string;
+          teacher_id?: string;
           teacher_note?: string | null;
         };
         Relationships: [
+          {
+            foreignKeyName: "lessons_cancelled_by_fkey";
+            columns: ["cancelled_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "lessons_stopped_at_point_fkey";
             columns: ["stopped_at_point_id"];
@@ -597,6 +1183,13 @@ export type Database = {
             columns: ["organization_id", "student_id"];
             isOneToOne: false;
             referencedRelation: "students";
+            referencedColumns: ["organization_id", "id"];
+          },
+          {
+            foreignKeyName: "lessons_teacher_fkey";
+            columns: ["organization_id", "teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "teachers";
             referencedColumns: ["organization_id", "id"];
           },
         ];
@@ -750,6 +1343,7 @@ export type Database = {
           has_teacher: boolean;
           id: string;
           name: string;
+          open_signup: boolean;
           slug: string;
         };
         ComputedFields: never;
@@ -759,6 +1353,7 @@ export type Database = {
           has_teacher: boolean;
           id?: string;
           name: string;
+          open_signup?: boolean;
           slug: string;
         };
         Update: {
@@ -767,9 +1362,303 @@ export type Database = {
           has_teacher?: boolean;
           id?: string;
           name?: string;
+          open_signup?: boolean;
           slug?: string;
         };
         Relationships: [];
+      };
+      overdue_steps: {
+        Row: {
+          asaas_payment_id: string;
+          created_at: string;
+          day: number;
+          emailed_at: string | null;
+          outcome: string | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          asaas_payment_id: string;
+          created_at?: string;
+          day: number;
+          emailed_at?: string | null;
+          outcome?: string | null;
+        };
+        Update: {
+          asaas_payment_id?: string;
+          created_at?: string;
+          day?: number;
+          emailed_at?: string | null;
+          outcome?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "overdue_steps_asaas_payment_id_fkey";
+            columns: ["asaas_payment_id"];
+            isOneToOne: false;
+            referencedRelation: "payments";
+            referencedColumns: ["asaas_payment_id"];
+          },
+        ];
+      };
+      payments: {
+        Row: {
+          asaas_payment_id: string;
+          asaas_status: string;
+          created_at: string;
+          deleted: boolean;
+          due_on: string;
+          invoice_url: string | null;
+          kind: string;
+          organization_id: string;
+          paid_at: string | null;
+          person_id: string;
+          refunded_cents: number;
+          subscription_id: string | null;
+          updated_at: string;
+          value_cents: number;
+          credit_payment_grants: boolean | null;
+          credit_payment_taken_back: boolean | null;
+        };
+        ComputedFields: "credit_payment_grants" | "credit_payment_taken_back";
+        Insert: {
+          asaas_payment_id: string;
+          asaas_status: string;
+          created_at?: string;
+          deleted?: boolean;
+          due_on: string;
+          invoice_url?: string | null;
+          kind: string;
+          organization_id: string;
+          paid_at?: string | null;
+          person_id: string;
+          refunded_cents?: number;
+          subscription_id?: string | null;
+          updated_at?: string;
+          value_cents: number;
+        };
+        Update: {
+          asaas_payment_id?: string;
+          asaas_status?: string;
+          created_at?: string;
+          deleted?: boolean;
+          due_on?: string;
+          invoice_url?: string | null;
+          kind?: string;
+          organization_id?: string;
+          paid_at?: string | null;
+          person_id?: string;
+          refunded_cents?: number;
+          subscription_id?: string | null;
+          updated_at?: string;
+          value_cents?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "payments_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "payments_person_id_fkey";
+            columns: ["person_id"];
+            isOneToOne: false;
+            referencedRelation: "billing_customers";
+            referencedColumns: ["person_id"];
+          },
+          {
+            foreignKeyName: "payments_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: false;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      person_badges: {
+        Row: {
+          badge: string;
+          granted_at: string;
+          granted_by: string | null;
+          id: string;
+          organization_id: string | null;
+          person_id: string;
+          revoked_at: string | null;
+          revoked_by: string | null;
+          source: string;
+          terms_annual_price_cents: number | null;
+          terms_credit_ceiling_months: number | null;
+          terms_credit_days_after_cancel: number | null;
+          terms_fixed_at: string | null;
+          terms_monthly_credits: number | null;
+          terms_monthly_price_cents: number | null;
+          terms_teacher_lesson_credits: number | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          badge: string;
+          granted_at?: string;
+          granted_by?: string | null;
+          id?: string;
+          organization_id?: string | null;
+          person_id: string;
+          revoked_at?: string | null;
+          revoked_by?: string | null;
+          source: string;
+          terms_annual_price_cents?: number | null;
+          terms_credit_ceiling_months?: number | null;
+          terms_credit_days_after_cancel?: number | null;
+          terms_fixed_at?: string | null;
+          terms_monthly_credits?: number | null;
+          terms_monthly_price_cents?: number | null;
+          terms_teacher_lesson_credits?: number | null;
+        };
+        Update: {
+          badge?: string;
+          granted_at?: string;
+          granted_by?: string | null;
+          id?: string;
+          organization_id?: string | null;
+          person_id?: string;
+          revoked_at?: string | null;
+          revoked_by?: string | null;
+          source?: string;
+          terms_annual_price_cents?: number | null;
+          terms_credit_ceiling_months?: number | null;
+          terms_credit_days_after_cancel?: number | null;
+          terms_fixed_at?: string | null;
+          terms_monthly_credits?: number | null;
+          terms_monthly_price_cents?: number | null;
+          terms_teacher_lesson_credits?: number | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "person_badges_granted_by_fkey";
+            columns: ["granted_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "person_badges_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "person_badges_person_id_fkey";
+            columns: ["person_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "person_badges_revoked_by_fkey";
+            columns: ["revoked_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      plans: {
+        Row: {
+          annual_price_cents: number;
+          audience: string;
+          brand: string;
+          created_at: string;
+          credit_ceiling_months: number;
+          credit_days_after_cancel: number;
+          id: string;
+          is_active: boolean;
+          key: string;
+          monthly_credits: number;
+          monthly_price_cents: number;
+          name: string;
+          opens_free_conversation: boolean;
+          opens_video: boolean;
+          opens_voice_question: boolean;
+          organization_id: string | null;
+          person_email: string | null;
+          person_id: string | null;
+          position: number;
+          teacher_lesson_credits: number | null;
+          trail_minutes_per_day: number;
+          trial_credits: number;
+          trial_days: number;
+          updated_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          annual_price_cents: number;
+          audience?: string;
+          brand: string;
+          created_at?: string;
+          credit_ceiling_months: number;
+          credit_days_after_cancel: number;
+          id?: string;
+          is_active?: boolean;
+          key: string;
+          monthly_credits: number;
+          monthly_price_cents: number;
+          name: string;
+          opens_free_conversation: boolean;
+          opens_video: boolean;
+          opens_voice_question: boolean;
+          organization_id?: string | null;
+          person_email?: string | null;
+          person_id?: string | null;
+          position?: number;
+          teacher_lesson_credits?: number | null;
+          trail_minutes_per_day: number;
+          trial_credits: number;
+          trial_days: number;
+          updated_at?: string;
+        };
+        Update: {
+          annual_price_cents?: number;
+          audience?: string;
+          brand?: string;
+          created_at?: string;
+          credit_ceiling_months?: number;
+          credit_days_after_cancel?: number;
+          id?: string;
+          is_active?: boolean;
+          key?: string;
+          monthly_credits?: number;
+          monthly_price_cents?: number;
+          name?: string;
+          opens_free_conversation?: boolean;
+          opens_video?: boolean;
+          opens_voice_question?: boolean;
+          organization_id?: string | null;
+          person_email?: string | null;
+          person_id?: string | null;
+          position?: number;
+          teacher_lesson_credits?: number | null;
+          trail_minutes_per_day?: number;
+          trial_credits?: number;
+          trial_days?: number;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "plans_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "plans_person_id_fkey";
+            columns: ["person_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       platform_admins: {
         Row: {
@@ -1091,11 +1980,47 @@ export type Database = {
           },
         ];
       };
+      signup_origins: {
+        Row: {
+          created_at: string;
+          organization_id: string | null;
+          origin: string;
+          person_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          organization_id?: string | null;
+          origin: string;
+          person_id: string;
+        };
+        Update: {
+          created_at?: string;
+          organization_id?: string | null;
+          origin?: string;
+          person_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "signup_origins_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "signup_origins_person_id_fkey";
+            columns: ["person_id"];
+            isOneToOne: true;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       students: {
         Row: {
           id: string;
           is_active: boolean;
-          meet_url: string | null;
           member_role: Database["public"]["Enums"]["organization_role"];
           organization_id: string;
           started_on: string | null;
@@ -1104,7 +2029,6 @@ export type Database = {
         Insert: {
           id: string;
           is_active?: boolean;
-          meet_url?: string | null;
           member_role?: never;
           organization_id: string;
           started_on?: string | null;
@@ -1112,7 +2036,6 @@ export type Database = {
         Update: {
           id?: string;
           is_active?: boolean;
-          meet_url?: string | null;
           member_role?: never;
           organization_id?: string;
           started_on?: string | null;
@@ -1137,6 +2060,244 @@ export type Database = {
             columns: ["organization_id"];
             isOneToOne: false;
             referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      subscriptions: {
+        Row: {
+          asaas_checkout_id: string | null;
+          asaas_customer_id: string | null;
+          asaas_subscription_id: string | null;
+          billing_type: string;
+          cancel_reason: string | null;
+          canceled_at: string | null;
+          created_at: string;
+          credit_ceiling_months: number;
+          credit_days_after_cancel: number;
+          cycle: string;
+          first_due_on: string;
+          id: string;
+          monthly_credits: number;
+          organization_id: string;
+          paid_through: string | null;
+          past_due_since: string | null;
+          person_id: string;
+          plan_id: string;
+          status: string;
+          teacher_lesson_credits: number | null;
+          updated_at: string;
+          value_cents: number;
+          with_trial: boolean;
+        };
+        ComputedFields: never;
+        Insert: {
+          asaas_checkout_id?: string | null;
+          asaas_customer_id?: string | null;
+          asaas_subscription_id?: string | null;
+          billing_type: string;
+          cancel_reason?: string | null;
+          canceled_at?: string | null;
+          created_at?: string;
+          credit_ceiling_months: number;
+          credit_days_after_cancel: number;
+          cycle: string;
+          first_due_on: string;
+          id?: string;
+          monthly_credits: number;
+          organization_id: string;
+          paid_through?: string | null;
+          past_due_since?: string | null;
+          person_id: string;
+          plan_id: string;
+          status: string;
+          teacher_lesson_credits?: number | null;
+          updated_at?: string;
+          value_cents: number;
+          with_trial: boolean;
+        };
+        Update: {
+          asaas_checkout_id?: string | null;
+          asaas_customer_id?: string | null;
+          asaas_subscription_id?: string | null;
+          billing_type?: string;
+          cancel_reason?: string | null;
+          canceled_at?: string | null;
+          created_at?: string;
+          credit_ceiling_months?: number;
+          credit_days_after_cancel?: number;
+          cycle?: string;
+          first_due_on?: string;
+          id?: string;
+          monthly_credits?: number;
+          organization_id?: string;
+          paid_through?: string | null;
+          past_due_since?: string | null;
+          person_id?: string;
+          plan_id?: string;
+          status?: string;
+          teacher_lesson_credits?: number | null;
+          updated_at?: string;
+          value_cents?: number;
+          with_trial?: boolean;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "subscriptions_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "subscriptions_person_id_fkey";
+            columns: ["person_id"];
+            isOneToOne: false;
+            referencedRelation: "billing_customers";
+            referencedColumns: ["person_id"];
+          },
+          {
+            foreignKeyName: "subscriptions_plan_id_fkey";
+            columns: ["plan_id"];
+            isOneToOne: false;
+            referencedRelation: "plans";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      teacher_availability: {
+        Row: {
+          created_at: string;
+          end_time: string;
+          id: string;
+          organization_id: string;
+          start_time: string;
+          teacher_id: string;
+          timezone: string;
+          weekday: number;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          end_time: string;
+          id?: string;
+          organization_id: string;
+          start_time: string;
+          teacher_id: string;
+          timezone: string;
+          weekday: number;
+        };
+        Update: {
+          created_at?: string;
+          end_time?: string;
+          id?: string;
+          organization_id?: string;
+          start_time?: string;
+          teacher_id?: string;
+          timezone?: string;
+          weekday?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "teacher_availability_teacher_fkey";
+            columns: ["organization_id", "teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "teachers";
+            referencedColumns: ["organization_id", "id"];
+          },
+        ];
+      };
+      teacher_time_off: {
+        Row: {
+          created_at: string;
+          ends_at: string;
+          id: string;
+          organization_id: string;
+          starts_at: string;
+          teacher_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          ends_at: string;
+          id?: string;
+          organization_id: string;
+          starts_at: string;
+          teacher_id: string;
+        };
+        Update: {
+          created_at?: string;
+          ends_at?: string;
+          id?: string;
+          organization_id?: string;
+          starts_at?: string;
+          teacher_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "teacher_time_off_teacher_fkey";
+            columns: ["organization_id", "teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "teachers";
+            referencedColumns: ["organization_id", "id"];
+          },
+        ];
+      };
+      teachers: {
+        Row: {
+          calendar_email: string | null;
+          created_at: string;
+          id: string;
+          is_active: boolean;
+          meet_url: string | null;
+          member_role: Database["public"]["Enums"]["organization_role"];
+          organization_id: string;
+          updated_at: string;
+          user_id: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          calendar_email?: string | null;
+          created_at?: string;
+          id?: string;
+          is_active?: boolean;
+          meet_url?: string | null;
+          member_role: Database["public"]["Enums"]["organization_role"];
+          organization_id: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          calendar_email?: string | null;
+          created_at?: string;
+          id?: string;
+          is_active?: boolean;
+          meet_url?: string | null;
+          member_role?: Database["public"]["Enums"]["organization_role"];
+          organization_id?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "teachers_membership_fkey";
+            columns: ["organization_id", "user_id", "member_role"];
+            isOneToOne: false;
+            referencedRelation: "organization_members";
+            referencedColumns: ["organization_id", "user_id", "role"];
+          },
+          {
+            foreignKeyName: "teachers_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teachers_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
             referencedColumns: ["id"];
           },
         ];
@@ -1253,6 +2414,19 @@ export type Database = {
       };
     };
     Functions: {
+      accept_founder_invites: {
+        Args: { p_email: string; p_user: string };
+        Returns: undefined;
+      };
+      accept_lesson_proposal: {
+        Args: { p_proposal: string };
+        Returns: {
+          balance: number;
+          credits_debited: number;
+          lesson_count: number;
+          lesson_ids: string[];
+        }[];
+      };
       accept_my_organization_invite: {
         Args: { p_invite: string };
         Returns: undefined;
@@ -1265,7 +2439,183 @@ export type Database = {
         Args: { p_attempt: string };
         Returns: undefined;
       };
+      badge_grant: {
+        Args: {
+          p_badge: string;
+          p_granted_by: string;
+          p_person: string;
+          p_source: string;
+        };
+        Returns: string;
+      };
       belongs_anywhere: { Args: Record<PropertyKey, never>; Returns: boolean };
+      billing_apply_subscription: {
+        Args: {
+          p_cancel_reason: string;
+          p_customer_id: string;
+          p_id: string;
+          p_paid_through: string;
+          p_past_due_since: string;
+          p_status: string;
+          p_subscription_id: string;
+        };
+        Returns: undefined;
+      };
+      billing_customer: {
+        Args: { p_cpf_hmac: string; p_person: string };
+        Returns: string;
+      };
+      billing_find_subscription: {
+        Args: { p_checkout_id: string; p_subscription_id: string };
+        Returns: {
+          asaas_checkout_id: string | null;
+          asaas_customer_id: string | null;
+          asaas_subscription_id: string | null;
+          billing_type: string;
+          cancel_reason: string | null;
+          canceled_at: string | null;
+          created_at: string;
+          credit_ceiling_months: number;
+          credit_days_after_cancel: number;
+          cycle: string;
+          first_due_on: string;
+          id: string;
+          monthly_credits: number;
+          organization_id: string;
+          paid_through: string | null;
+          past_due_since: string | null;
+          person_id: string;
+          plan_id: string;
+          status: string;
+          teacher_lesson_credits: number | null;
+          updated_at: string;
+          value_cents: number;
+          with_trial: boolean;
+        }[];
+        SetofOptions: {
+          from: "*";
+          to: "subscriptions";
+          isOneToOne: false;
+          isSetofReturn: true;
+        };
+      };
+      billing_finish_event: {
+        Args: { p_error: string; p_event_id: string };
+        Returns: undefined;
+      };
+      billing_finish_overdue_step: {
+        Args: {
+          p_day: number;
+          p_emailed: boolean;
+          p_outcome: string;
+          p_payment_id: string;
+        };
+        Returns: undefined;
+      };
+      billing_open_subscription: {
+        Args: {
+          p_billing_type: string;
+          p_checkout_id: string;
+          p_customer_id: string;
+          p_cycle: string;
+          p_first_due_on: string;
+          p_person: string;
+          p_plan: string;
+          p_subscription_id: string;
+          p_value_cents: number;
+          p_with_trial: boolean;
+        };
+        Returns: string;
+      };
+      billing_overdue_payments: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          asaas_payment_id: string;
+          billing_type: string;
+          due_on: string;
+          invoice_url: string;
+          person_id: string;
+          subscription_id: string;
+        }[];
+      };
+      billing_record_event: {
+        Args: { p_event_id: string; p_event_type: string; p_payload: Json };
+        Returns: boolean;
+      };
+      billing_save_payment: {
+        Args: {
+          p_asaas_status: string;
+          p_deleted: boolean;
+          p_due_on: string;
+          p_invoice_url: string;
+          p_kind: string;
+          p_paid_at: string;
+          p_payment_id: string;
+          p_refunded_cents: number;
+          p_subscription: string;
+          p_value_cents: number;
+        };
+        Returns: undefined;
+      };
+      billing_take_overdue_step: {
+        Args: { p_day: number; p_payment_id: string };
+        Returns: boolean;
+      };
+      bind_personal_plans: {
+        Args: { p_email: string; p_user: string };
+        Returns: undefined;
+      };
+      book_lesson: {
+        Args: { p_starts_at: string; p_teacher: string };
+        Returns: {
+          balance: number;
+          credits_debited: number;
+          lesson_id: string;
+        }[];
+      };
+      bookable_slots: {
+        Args: { p_from: string; p_teacher: string; p_to: string };
+        Returns: {
+          starts_at: string;
+        }[];
+      };
+      bookable_teachers: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          full_name: string;
+          lesson_credits: number;
+          teacher_id: string;
+        }[];
+      };
+      calendar_invite_failed: {
+        Args: {
+          p_error: string;
+          p_give_up: boolean;
+          p_id: string;
+          p_tried: boolean;
+        };
+        Returns: undefined;
+      };
+      calendar_invite_sent: { Args: { p_id: string }; Returns: boolean };
+      calendar_invites_due: {
+        Args: { p_lesson?: string; p_limit: number };
+        Returns: {
+          attempts: number;
+          created_at: string;
+          duration_minutes: number;
+          id: string;
+          lesson_id: string;
+          meet_url: string;
+          method: string;
+          recipient: string;
+          recipient_timezone: string;
+          scheduled_at: string;
+          student_email: string;
+          student_name: string;
+          teacher_email: string;
+          teacher_name: string;
+        }[];
+      };
       can_invite: {
         Args: {
           p_organization: string;
@@ -1274,6 +2624,7 @@ export type Database = {
         Returns: boolean;
       };
       can_write_content: { Args: { p_organization: string }; Returns: boolean };
+      cancel_lesson: { Args: { p_lesson: string }; Returns: number };
       clear_word_representation: {
         Args: {
           p_kind: Database["public"]["Enums"]["representation_kind"];
@@ -1281,11 +2632,137 @@ export type Database = {
         };
         Returns: undefined;
       };
+      create_founder_coupon: {
+        Args: {
+          p_brand: string;
+          p_code: string;
+          p_expires_at: string;
+          p_label: string;
+          p_max_uses: number;
+        };
+        Returns: string;
+      };
+      credit_alive: { Args: { p_person: string }; Returns: boolean };
+      credit_balance_of: { Args: { p_person: string }; Returns: number };
+      credit_check_reader: { Args: { p_person: string }; Returns: undefined };
+      credit_close_expired: { Args: { p_person: string }; Returns: number };
+      credit_cost: {
+        Args: { p_action: string; p_person: string };
+        Returns: number;
+      };
+      credit_daily: {
+        Args: Record<PropertyKey, never>;
+        Returns: Record<string, unknown>;
+      };
+      credit_deadline: { Args: { p_person: string }; Returns: string };
+      credit_debit: {
+        Args: {
+          p_action: string;
+          p_person: string;
+          p_quantity: number;
+          p_reference: string;
+        };
+        Returns: number;
+      };
+      credit_grant_started: { Args: { p_person: string }; Returns: undefined };
+      credit_live_lots: {
+        Args: { p_person: string };
+        Returns: {
+          expires_at: string;
+          kind: string;
+          lot_id: string;
+          remaining: number;
+        }[];
+      };
+      credit_lock_person: { Args: { p_person: string }; Returns: undefined };
+      credit_lots_of: {
+        Args: { p_person: string };
+        Returns: {
+          expires_at: string;
+          kind: string;
+          lot_id: string;
+          organization_id: string;
+          remaining: number;
+          seq: number;
+        }[];
+      };
+      credit_month_starts: {
+        Args: { p_due_on: string; p_month: number };
+        Returns: string;
+      };
+      credit_payment_grants: {
+        Args: {
+          p_payment: Omit<
+            Database["public"]["Tables"]["payments"]["Row"],
+            Database["public"]["Tables"]["payments"]["ComputedFields"]
+          >;
+        };
+        Returns: boolean;
+      };
+      credit_payment_lots: {
+        Args: { p_payment_id: string };
+        Returns: {
+          lot_id: string;
+          organization_id: string;
+          person_id: string;
+          remaining: number;
+        }[];
+      };
+      credit_payment_open_lots: {
+        Args: { p_payment_id: string };
+        Returns: {
+          lot_id: string;
+          organization_id: string;
+          person_id: string;
+          remaining: number;
+        }[];
+      };
+      credit_payment_taken_back: {
+        Args: {
+          p_payment: Omit<
+            Database["public"]["Tables"]["payments"]["Row"],
+            Database["public"]["Tables"]["payments"]["ComputedFields"]
+          >;
+        };
+        Returns: boolean;
+      };
+      credit_price: {
+        Args: { p_action: string; p_person: string };
+        Returns: number;
+      };
+      credit_refund: {
+        Args: { p_person: string; p_reference: string };
+        Returns: number;
+      };
+      credit_refund_quote: {
+        Args: { p_payment_id: string };
+        Returns: Record<string, unknown>;
+      };
+      credit_settle: {
+        Args: { p_payment_id: string };
+        Returns: Record<string, unknown>;
+      };
+      credit_settle_payment: {
+        Args: { p_payment_id: string };
+        Returns: number;
+      };
+      credits_balance: { Args: { p_person: string }; Returns: number };
       dearmor: { Args: { "": string }; Returns: string };
+      decline_lesson_proposal: {
+        Args: { p_proposal: string };
+        Returns: undefined;
+      };
       delete_question: { Args: { p_question_id: string }; Returns: undefined };
       dissolve_contrast_set: { Args: { p_set_id: string }; Returns: undefined };
+      founder_coupon_hash: { Args: { p_code: string }; Returns: string };
+      founder_seats_left: { Args: Record<PropertyKey, never>; Returns: number };
       gen_random_uuid: { Args: Record<PropertyKey, never>; Returns: string };
       gen_salt: { Args: { "": string }; Returns: string };
+      grant_badge: {
+        Args: { p_badge: string; p_person: string };
+        Returns: string;
+      };
+      holds_badge: { Args: { p_badge: string }; Returns: boolean };
       is_known_time_zone: { Args: { p_zone: string }; Returns: boolean };
       is_organization_member: {
         Args: {
@@ -1296,9 +2773,115 @@ export type Database = {
       };
       is_platform_admin: { Args: Record<PropertyKey, never>; Returns: boolean };
       is_reference_list: { Args: { p_paths: string[] }; Returns: boolean };
-      materialize_lessons: {
-        Args: { p_student_id: string; p_weeks?: number };
-        Returns: number;
+      join_by_signup: {
+        Args: { p_meta: Json; p_user: string };
+        Returns: undefined;
+      };
+      lesson_booker_organization: {
+        Args: { p_teacher: string };
+        Returns: string;
+      };
+      lesson_open_slots: {
+        Args: {
+          p_from: string;
+          p_student: string;
+          p_teacher: string;
+          p_to: string;
+        };
+        Returns: {
+          starts_at: string;
+        }[];
+      };
+      lesson_proposal_check_free: {
+        Args: {
+          p_minutes: number;
+          p_starts: string[];
+          p_student: string;
+          p_teacher: string;
+        };
+        Returns: undefined;
+      };
+      lesson_proposal_cost: { Args: { p_student: string }; Returns: number };
+      lesson_proposal_for_answer: {
+        Args: { p_proposal: string };
+        Returns: {
+          answered_at: string | null;
+          answered_by: string | null;
+          created_at: string;
+          expires_at: string;
+          id: string;
+          organization_id: string;
+          proposed_by: string;
+          status: string;
+          student_id: string;
+          teacher_id: string;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "lesson_proposals";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      lesson_proposal_mail_failed: {
+        Args: {
+          p_error: string;
+          p_give_up: boolean;
+          p_id: string;
+          p_tried: boolean;
+        };
+        Returns: undefined;
+      };
+      lesson_proposal_mail_sent: { Args: { p_id: string }; Returns: undefined };
+      lesson_proposal_mails_due: {
+        Args: { p_limit: number; p_proposal?: string };
+        Returns: {
+          attempts: number;
+          created_at: string;
+          duration_minutes: number;
+          expires_at: string;
+          id: string;
+          proposal_id: string;
+          proposed_by: string;
+          proposer_name: string;
+          recipient: string;
+          recipient_email: string;
+          recipient_name: string;
+          recipient_timezone: string;
+          starts_at: string[];
+        }[];
+      };
+      lesson_proposal_rules: {
+        Args: Record<PropertyKey, never>;
+        Returns: string;
+      };
+      lesson_proposal_write: {
+        Args: {
+          p_organization: string;
+          p_proposed_by: string;
+          p_starts: string[];
+          p_student: string;
+          p_teacher: string;
+        };
+        Returns: string;
+      };
+      lesson_rules: {
+        Args: Record<PropertyKey, never>;
+        Returns: Record<string, unknown>;
+      };
+      lesson_write_paid: {
+        Args: {
+          p_minutes: number;
+          p_organization: string;
+          p_starts_at: string;
+          p_student: string;
+          p_teacher: string;
+        };
+        Returns: {
+          balance: number;
+          credits_debited: number;
+          lesson_id: string;
+        }[];
       };
       materialize_points: {
         Args: {
@@ -1307,6 +2890,39 @@ export type Database = {
           p_last_point: number;
         };
         Returns: number;
+      };
+      my_lesson_proposals: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          answered_at: string;
+          created_at: string;
+          duration_minutes: number;
+          expires_at: string;
+          lesson_credits: number;
+          my_side: string;
+          organization_id: string;
+          proposal_id: string;
+          proposed_by: string;
+          starts_at: string[];
+          status: string;
+          student_id: string;
+          student_name: string;
+          teacher_id: string;
+          teacher_name: string;
+        }[];
+      };
+      my_lessons: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          credits_debited: number;
+          credits_refunded: boolean;
+          duration_minutes: number;
+          lesson_id: string;
+          meet_url: string;
+          refund_until: string;
+          scheduled_at: string;
+          teacher_name: string;
+        }[];
       };
       my_open_organization_invites: {
         Args: Record<PropertyKey, never>;
@@ -1323,9 +2939,30 @@ export type Database = {
         Args: { "": string };
         Returns: Record<string, unknown>[];
       };
+      propose_lessons_to_student: {
+        Args: { p_starts: string[]; p_student: string };
+        Returns: string;
+      };
+      propose_lessons_to_teacher: {
+        Args: { p_starts: string[]; p_teacher: string };
+        Returns: string;
+      };
+      record_signup_origin: {
+        Args: { p_meta: Json; p_user: string };
+        Returns: undefined;
+      };
+      redeem_founder_coupon: {
+        Args: { p_code: string; p_person: string };
+        Returns: string;
+      };
+      redeem_my_founder_coupon: { Args: { p_code: string }; Returns: string };
       reorder_questions: {
         Args: { p_ids: string[]; p_point_id: string };
         Returns: undefined;
+      };
+      revoke_badge: {
+        Args: { p_badge: string; p_person: string };
+        Returns: boolean;
       };
       save_contrast_set: {
         Args: { p_expected?: string[]; p_items: string[]; p_set_id?: string };
@@ -1356,6 +2993,10 @@ export type Database = {
           minutes_this_month: number;
           person_id: string;
         }[];
+      };
+      withdraw_lesson_proposal: {
+        Args: { p_proposal: string };
+        Returns: undefined;
       };
     };
     Enums: {

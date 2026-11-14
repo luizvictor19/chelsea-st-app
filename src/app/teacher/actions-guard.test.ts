@@ -18,7 +18,9 @@ import ts from "typescript";
  * it lets the company's admin in. Under content/ only requireContentWriter
  * counts, for the actions and for every page: a teacher only teaches, and
  * content is written by the platform admin alone (0043, #211). The creation
- * of an organization (#205) passes with requirePlatformAdmin alone:
+ * of an organization (#205), the catalog of plans (#72), the founders and
+ * the personal plans (#292), the coupons and the founder invites (#296)
+ * pass with requirePlatformAdmin alone:
  * requireTeacher there would let a teacher through. Calls are read from the
  * syntax tree, so a name in a comment or a string counts for nothing.
  */
@@ -26,12 +28,29 @@ import ts from "typescript";
 const ROOT = join(import.meta.dirname);
 const INVITE_ACTIONS = join("invites", "actions.ts");
 const ORGANIZATION_ACTIONS = join("organizations", "actions.ts");
+/** The catalog of plans (#72): the platform admin alone, like the companies. */
+const PLAN_ACTIONS = join("plans", "actions.ts");
+/** The seats and seals of the founders, and the personal plans (#292). */
+const FOUNDER_ACTIONS = join("founders", "actions.ts");
+const PERSONAL_PLAN_ACTIONS = join("invites", "personal-plan-actions.ts");
+/** The founder coupons and the founder invites (#296). */
+const COUPON_ACTIONS = join("founders", "coupon-actions.ts");
+const FOUNDER_INVITE_ACTIONS = join("invites", "founder-invite-actions.ts");
 const CONTENT = "content";
 
 /** The guards that count for a file, by where it sits under /teacher. */
 function guardsFor(where: string): readonly string[] {
   if (where === INVITE_ACTIONS) return ["requireTeacher", "requireInviter"];
-  if (where === ORGANIZATION_ACTIONS) return ["requirePlatformAdmin"];
+  if (
+    where === ORGANIZATION_ACTIONS ||
+    where === PLAN_ACTIONS ||
+    where === FOUNDER_ACTIONS ||
+    where === PERSONAL_PLAN_ACTIONS ||
+    where === COUPON_ACTIONS ||
+    where === FOUNDER_INVITE_ACTIONS
+  ) {
+    return ["requirePlatformAdmin"];
+  }
   if (where.split(sep)[0] === CONTENT) return ["requireContentWriter"];
   return ["requireTeacher"];
 }

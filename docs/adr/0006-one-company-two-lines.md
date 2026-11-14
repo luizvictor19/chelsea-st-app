@@ -1,6 +1,6 @@
 # 0006 · One company, two lines, three levels of practice
 
-- **Status**: accepted
+- **Status**: accepted, in part superseded by 0007
 - **Date**: 2026-11-12 (decisions made by Luiz on 2026-11-11 and 2026-11-12, #271)
 
 ## Context
@@ -25,16 +25,18 @@ Since then:
 - **The new offer.** On 2026-11-11 Luiz and his partner set a new offer:
   - levels of practice priced by credits;
   - lessons with a teacher booked one at a time;
-  - Chelsea St sold under GrifoAI.
+  - Chelsea St sold under GrifoAI (superseded by ADR 0007, #305).
 
 ## Decision
 
-GrifoAI is the company, and it has two lines on the same app and database.
+GrifoAI is the company, and it has two lines on the same app and database
+(superseded by ADR 0007, #305).
 
 - **The two lines.** GrifoAI is the B2B line, for companies. "Chelsea St by
-  GrifoAI" is the B2C line, for people.
+  GrifoAI" is the B2C line, for people (superseded by ADR 0007, #305).
 - **Content.** The teaching material belongs to GrifoAI and serves both
-  lines. The legal entity that holds it is still open.
+  lines. The legal entity that holds it is still open (superseded by ADR
+  0007, #305).
 
 One engine serves three levels of practice:
 
@@ -62,7 +64,7 @@ what goes through them:
 - **Chelsea St.**
   - Plans are per person.
   - Signing up is direct, with no invite (#275).
-  - Payment goes through Asaas (#72).
+  - Payment goes through Asaas (#72) (superseded by ADR 0007, #305).
 - **GrifoAI.**
   - Plans are per seat.
   - The seats' credits form the organization's balance, which its admin
@@ -101,6 +103,6 @@ covers prices, credits per plan, trial length and credits, and discounts.
 - **Migration 0023 is no longer reserved for payments.** It stays unused,
   like 0024.
 - **The `LICENSE` still names Luiz.** It changes when the legal entity
-  exists.
+  exists (superseded by ADR 0007, #305).
 - **What the earlier records keep.** Nothing in ADR 0004 or 0005 is edited,
   and 0005's status in the index says it is superseded in part.

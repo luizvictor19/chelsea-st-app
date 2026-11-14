@@ -4,7 +4,9 @@ import { redirect } from "next/navigation";
 
 import { destinationFor, manages, practicesOnly, studies } from "@/lib/access";
 import { readAccess } from "@/lib/auth";
+import { billingOpen } from "@/lib/billing/server";
 import { currentSite } from "@/lib/current-site";
+import { proposalItem, type ProposalRow } from "@/lib/lessons/proposals/view";
 import { createClient } from "@/lib/supabase/server";
 
 import { PendingInvites } from "../auth/pending-invites";
@@ -12,18 +14,16 @@ import { SignOutButton } from "../auth/sign-out-button";
 import { BrandMark } from "../brand-mark";
 import { AccountPending } from "./account-pending";
 import { DailyChallenge } from "./daily-challenge";
+import { FounderBadge } from "./founder-badge";
 import { NextLessonCard } from "./next-lesson-card";
+import { ProposalCards } from "./proposal-card";
+import { readPlanScreen } from "./plano/queries";
 import { RobinPractice } from "./robin-practice";
+import { StartTrialCard } from "./start-trial-card";
 
 export const metadata: Metadata = {
   title: "Minha aula",
 };
-
-/**
- * Wider than any real lesson. Only narrows the rows fetched; the exact test for
- * "has this one finished" happens below, per lesson, against its own duration.
- */
-const LONGEST_PLAUSIBLE_LESSON_MINUTES = 8 * 60;
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -42,11 +42,7 @@ export default async function DashboardPage() {
       .eq("id", user.id)
       .maybeSingle(),
     readAccess(supabase, user.id),
-    supabase
-      .from("students")
-      .select("meet_url")
-      .eq("id", user.id)
-      .maybeSingle(),
+    supabase.from("students").select("id").eq("id", user.id).maybeSingle(),
   ]);
 
   // A teacher, or the admin of a company (0042), signs in through the same
@@ -75,43 +71,55 @@ export default async function DashboardPage() {
   }
 
   const now = new Date();
-  const earliest = new Date(
-    now.getTime() - LONGEST_PLAUSIBLE_LESSON_MINUTES * 60_000,
-  );
-
-  const { data: lessons } = await supabase
-    .from("lessons")
-    .select("id, scheduled_at, duration_minutes, meet_url")
-    .eq("student_id", user.id)
-    .eq("status", "scheduled")
-    .gte("scheduled_at", earliest.toISOString())
-    .order("scheduled_at", { ascending: true })
-    .limit(10);
-
-  // The next lesson is the first one that has not finished. Reaching back by the
-  // duration rather than cutting at now() is what keeps a lesson that is already
-  // running on the screen, because running late is normal.
-  const nextLesson = (lessons ?? []).find(
-    (lesson) =>
-      new Date(lesson.scheduled_at).getTime() +
-        lesson.duration_minutes * 60_000 >
-      now.getTime(),
-  );
+  const [{ data: lessons }, startsTrial, proposalsRead, balanceRead] =
+    await Promise.all([
+      // Her lessons not finished yet, soonest first, with the room: the Meet
+      // of the lesson's teacher (#276), for every lesson since #295. A lesson
+      // still running is in it: running late is normal.
+      supabase.rpc("my_lessons"),
+      offersTrial(supabase, user.id),
+      // The teacher's proposals waiting for her yes (#319). A failed read
+      // shows no card; /dashboard/lessons lists them too.
+      supabase.rpc("my_lesson_proposals"),
+      supabase.rpc("credits_balance", { p_person: user.id }),
+    ]);
+  const nextLesson = (lessons ?? []).at(0);
+  const proposals = ((proposalsRead.data ?? []) as ProposalRow[])
+    .filter(
+      (row) =>
+        row.my_side === "student" &&
+        row.proposed_by === "teacher" &&
+        row.status === "open",
+    )
+    .map((row) =>
+      proposalItem(row, {
+        zone: profile.timezone,
+        balance: balanceRead.error ? null : balanceRead.data,
+        timeOff: [],
+      }),
+    );
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-6 p-6">
       <Greeting name={profile.full_name} team={manages(access)} />
+      {/* The Founder seal (#292). */}
+      <FounderBadge />
+
+      <ProposalCards items={proposals} />
 
       <PendingInvites />
+
+      {startsTrial && <StartTrialCard />}
 
       {nextLesson ? (
         <NextLessonCard
           scheduledAt={nextLesson.scheduled_at}
           durationMinutes={nextLesson.duration_minutes}
           timeZone={profile.timezone}
-          // The room is fixed per student; the lesson column is an override for
-          // the odd class that happens somewhere else.
-          meetUrl={nextLesson.meet_url ?? student.meet_url}
+          // Null when the teacher has no room set (she stopped taking
+          // bookings): the generated types call every column of a function's
+          // table non-null.
+          meetUrl={nextLesson.meet_url as string | null}
           serverNow={now.toISOString()}
         />
       ) : (
@@ -122,16 +130,68 @@ export default async function DashboardPage() {
           <p className="text-faint font-mono text-xs tracking-[0.16em] uppercase">
             Próxima aula
           </p>
-          <p className="text-muted">
-            Nenhuma aula marcada por enquanto. Quando o professor marcar, ela
-            aparece aqui.
-          </p>
+          <p className="text-muted">Nenhuma aula marcada por enquanto.</p>
+          <Link
+            href="/dashboard/lessons"
+            className="bg-accent text-accent-foreground self-start rounded-sm px-5 py-3 font-semibold transition-colors hover:opacity-90"
+          >
+            Reservar aula
+          </Link>
         </section>
       )}
 
       <DailyChallenge />
+
+      <div className="flex flex-wrap gap-4">
+        <Link
+          href="/dashboard/lessons"
+          className="text-muted text-sm underline"
+        >
+          Aulas
+        </Link>
+        <Link href="/dashboard/plano" className="text-muted text-sm underline">
+          Plano e pagamento
+        </Link>
+      </div>
     </main>
   );
+}
+
+/**
+ * A student of a chelsea-st organization, while the subscription is open, to
+ * whom /dashboard/plano would offer the trial now (#275): no subscription
+ * alive (an unfinished checkout does not count), the trial never used, and a
+ * plan on sale with trial days. The same conditions the plan screen reads,
+ * from the same query, so the card never promises what that screen does not
+ * offer. A read that fails shows no card: never offer a trial on a guess.
+ */
+async function offersTrial(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  personId: string,
+): Promise<boolean> {
+  if (!billingOpen()) {
+    return false;
+  }
+  const { data: chelsea } = await supabase
+    .from("organization_members")
+    .select("organizations!inner(brand)")
+    .eq("user_id", personId)
+    .eq("role", "student")
+    .eq("organizations.brand", "chelsea-st")
+    .limit(1);
+  if ((chelsea ?? []).length === 0) {
+    return false;
+  }
+  try {
+    const { plans, current, trialUsed } = await readPlanScreen(personId);
+    const alive =
+      current !== null &&
+      current.status !== "canceled" &&
+      current.status !== "pending";
+    return !alive && !trialUsed && (plans[0]?.trialDays ?? 0) > 0;
+  } catch {
+    return false;
+  }
 }
 
 /** The brand, "Sair da conta" and her name, on top of either dashboard. */

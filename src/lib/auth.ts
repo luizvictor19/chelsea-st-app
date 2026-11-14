@@ -4,10 +4,18 @@ import { destinationFor, manages, teaches, type Access } from "@/lib/access";
 import { isBrandKey, type BrandKey } from "@/lib/brand";
 import { homeSite } from "@/lib/brand-home";
 import { currentSite, siteConfig } from "@/lib/current-site";
+import { billingOpen } from "@/lib/billing/server";
+import { pendingPersonalPlan } from "@/lib/personal-plan-way";
 import { createClient } from "@/lib/supabase/server";
 
 /** A screen of this host, or the front door of the brand she belongs to. */
-export type Destination = "/login" | "/dashboard" | "/teacher" | "/team" | URL;
+export type Destination =
+  | "/login"
+  | "/dashboard"
+  | "/teacher"
+  | "/team"
+  | `/dashboard/plano?plano=${string}`
+  | URL;
 
 type Client = Awaited<ReturnType<typeof createClient>>;
 
@@ -126,6 +134,11 @@ async function readMemberBrands(
  * Someone whose organizations all wear the other brand goes to that brand's
  * front door instead (homeSite, #195): the session is per domain, so she signs
  * in there once more.
+ *
+ * A student with a Plano Fundador Personalizado bound to her, on sale, while
+ * the subscription is open, with no subscription alive and none of that plan
+ * that ever ran, goes to its checkout (#292, pendingPersonalPlan): the way in
+ * of the plan's e-mail, after the login and after the signup.
  */
 export async function resolveDestination(): Promise<Destination> {
   const supabase = await createClient();
@@ -148,5 +161,40 @@ export async function resolveDestination(): Promise<Destination> {
     memberBrands,
     config: siteConfig(),
   });
-  return there ? new URL("/", there.origin) : destinationFor(access);
+  if (there) return new URL("/", there.origin);
+  const destination = destinationFor(access);
+  if (destination !== "/dashboard" || !billingOpen()) return destination;
+  return (await personalPlanCheckout(supabase, user.id)) ?? destination;
+}
+
+/** Her personal plan's checkout, when it waits for her; null otherwise. */
+async function personalPlanCheckout(
+  supabase: Client,
+  userId: string,
+): Promise<Destination | null> {
+  const [{ data: plans }, { data: subscriptions }] = await Promise.all([
+    supabase
+      .from("plans")
+      .select("id, is_active")
+      .eq("audience", "person")
+      .eq("person_id", userId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("subscriptions")
+      .select("plan_id, status, cancel_reason")
+      .eq("person_id", userId),
+  ]);
+  // A read that fails sends her to /dashboard, as before: never to a guess.
+  if (plans === null || subscriptions === null) return null;
+  return pendingPersonalPlan({
+    destination: "/dashboard",
+    billingOpen: billingOpen(),
+    plans: plans.map((plan) => ({ id: plan.id, isActive: plan.is_active })),
+    subscriptions: subscriptions.map((row) => ({
+      planId: row.plan_id,
+      status: row.status,
+      cancelReason: row.cancel_reason,
+    })),
+  });
 }

@@ -10,7 +10,7 @@ Run from the main folder `~/Projects/chelsea-st-app` unless a step says otherwis
     cp .env.local ../chelsea-st-app-NN/
     cd ../chelsea-st-app-NN && npm install && claude
 
-Open Claude Code inside the worktree: the no-commit-on-main hook reads the session folder.
+Open Claude Code inside the worktree: the guard-main hook reads the session folder.
 
 ## Dev servers
 
@@ -34,6 +34,10 @@ The lesson server always runs in Luiz's own terminal, never in a Claude Code ses
 
 ## Merge PR NN and clean up (session in the main folder, not in the worktree)
 
+The Claude merges when every condition of Merging in `AGENTS.md` holds; if one is missing, it
+stops and says which.
+
+    gh pr checks NN --watch --fail-fast
     gh pr merge NN --merge
     git pull
     gh release create "$(date -u +%Y.%m.%d)-NN" \
@@ -53,13 +57,31 @@ step, right after each merge: `gh release create` is allowed in Luiz's own permi
 07/11/2026. The history of what reached production is `gh release list`. `package.json` stays at
 `0.1.0`: its `version` is not used.
 
-## Migrations (Luiz only)
+## Migrations
 
-    supabase db push               # from the worktree that holds the new file
+The Claude applies the migration of issue NN right before its merge, after code-review and a green
+`verify-rls.sql` in CI, and tells Luiz. It runs from the issue's worktree, which holds the new file:
+the hook denies `supabase db push` from the main folder. NNNN is the migration's number.
+
+    cd ../chelsea-st-app-NN
+    supabase link --project-ref gmgkoriwsmlrtwdqdsuo    # once per worktree
+    B=~/backups/chelsea-st/$(date +%F)-NNNN
+    mkdir -p "$B"
+    git fetch -q && git rev-parse origin/main > "$B/commit"   # what production runs before the push
+    supabase db dump --linked --role-only -f "$B/roles.sql"
+    supabase db dump --linked -f "$B/schema.sql"
+    supabase db dump --linked --data-only --use-copy -f "$B/data.sql"
+    supabase db push --dry-run     # must list this PR's migrations and nothing else
+    supabase db push
     scripts/gen-types.sh           # regenerate types from the migrations
 
-Every merge to `main` deploys to production (#68). In a PR with a migration, push first, then
-merge: the new code may read what only the migration creates.
+Then query `supabase_migrations.schema_migrations` through the MCP: the new version is there. Only
+then merge. Every merge to `main` deploys to production (#68): the new code may read what only the
+migration creates. If the dry-run lists anything else, stop and say what.
+
+The backup holds personal data (`auth.users`): never read it, never put it in an issue, a PR or a
+chat. If `db push` or a dump asks for the database password, stop and ask Luiz where it lives; it
+never goes in the repository or in a chat.
 
 ## Vercel (Luiz only, set up once in #68)
 
@@ -74,6 +96,15 @@ Settings > Environment Variables, by name only (values live in Vercel and in `.e
                  ANTHROPIC_API_KEY
     Preview      NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
                  NEXT_PUBLIC_TEACHER_CONTACT_EMAIL
+
+`NEXT_PUBLIC_TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` (#275), Production only, the second
+as a Secret: the widget of `/cadastro`, created in the Cloudflare dashboard (Turnstile, Add widget,
+hostname `app.chelsea-st.com` and no other, mode Managed). The server does not compare the
+hostname siteverify returns: the widget's list is what keeps a token solved elsewhere out, so
+`localhost` or a preview never enters it. Without both the signup stays closed ("As inscrições
+abrem em breve"), as it does while there is no Asaas key; a preview never has the page. Locally,
+Cloudflare's test keys stand in: site key `1x00000000000000000000AA` and secret
+`1x0000000000000000000000000000000AA` always pass, and a real secret refuses their token.
 
 `GRIFOAI_HOST` (the GrifoAI domain, server only) enters Production only after #193, when the
 domain exists; until then it stays unset and nothing changes. A preview has no allowlisted host, so
@@ -118,10 +149,12 @@ cloud (DNS only).
 
 Supabase, Authentication > URL Configuration: see "Auth settings and email templates" below.
 
-## Backup and local restore (Luiz only)
+## Backup and local restore
 
 The copy holds personal data (`auth.users`). It lives in `~/backups/chelsea-st/`, outside the
-repository and outside any synced folder, and never goes into an issue, a PR or a chat.
+repository and outside any synced folder, and never goes into an issue, a PR or a chat. Luiz takes
+it and restores it below. The Claude also takes it before every migration (Migrations above), in
+a folder of its own, and never opens what it holds.
 
 Take the copy, from the main folder (it reads the linked project through the CLI login; no
 database password was asked on 2026-10-24). The Supabase CLI is a global npm package, so it is
@@ -129,6 +162,7 @@ installed once per Node version (`nvm use`, then `npm i -g supabase`):
 
     B=~/backups/chelsea-st/$(date +%F)
     mkdir -p "$B"
+    git fetch -q && git rev-parse origin/main > "$B/commit"   # whose restore file fits this copy
     supabase db dump --linked --role-only -f "$B/roles.sql"
     supabase db dump --linked -f "$B/schema.sql"
     supabase db dump --linked --data-only --use-copy -f "$B/data.sql"
@@ -140,6 +174,20 @@ both found in the 2026-10-24 rehearsal: a grant on `log_min_messages` to the Rea
 the `storage.buckets_vectors` and `storage.vector_indexes` tables (empty in production). The
 restore runs in one transaction, so any other error leaves the local database empty.
 
+The dump writes the schemas of the project, not `storage` or `auth`, so the copy comes back
+without the objects the migrations create there: the policies of `storage.objects` (#101), found
+missing in the 2026-10-24 rehearsal, and the two triggers of `auth.users` (#104), found missing in
+the 2026-10-25 one: without `on_auth_user_created` a new account gets no `profile`, and without
+`on_auth_user_email_confirmed` a confirmed email accepts no invite. Their functions are in `public`
+and come with the dump. `scripts/restore-outside-public.sql` recreates both kinds, last,
+inside the same transaction, as `$R` below. CI holds the file to the migrations. A copy takes the
+file of its own commit, saved with it in `$B/commit`. A copy without it, or whose commit is older
+than the merge of #104, takes the file of `main` instead: the objects in it have not changed since
+0047 (2026-11-07), only the file grew to cover them.
+
+    git show "$(cat "$B/commit")":scripts/restore-outside-public.sql > "$B/restore-outside-public.sql"
+    R="$B/restore-outside-public.sql"
+
     S=~/backups/chelsea-st/stack
     supabase init --workdir "$S"   # once
     supabase start --workdir "$S"
@@ -150,16 +198,24 @@ restore runs in one transaction, so any other error leaves the local database em
       --file "$B/roles-local.sql" --file "$B/schema.sql" \
       --command 'SET session_replication_role = replica' \
       --file "$B/data-local.sql" \
+      --file "$R" \
       --dbname postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
-Compare: run `scripts/row-counts.sql` on the copy and ask Claude to run it on production through
-the MCP. Every line must match.
+Compare: run `scripts/row-counts.sql` and `scripts/catalog-fingerprint.sql` on the copy, and ask
+Claude to run both on production through the MCP and write the output, one line per row, to
+`$B/row-counts.production` and `$B/catalog-fingerprint.production`. Both `diff` must print
+nothing; the fingerprint is what shows a `policy|storage.objects|...` or a `trigger|auth.users|...`
+line missing from the copy.
 
-    psql -P pager=off postgresql://postgres:postgres@127.0.0.1:54322/postgres --file scripts/row-counts.sql
+    DB=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+    for f in row-counts catalog-fingerprint; do
+      psql -X -q -At -v ON_ERROR_STOP=1 -f scripts/$f.sql "$DB" > "$B/$f.copy"
+      diff "$B/$f.production" "$B/$f.copy"
+    done
 
 Rehearse a migration on the copy (first for 0040, #199), from the worktree that holds it. Three
-read-only outputs, before and after: the row counts, the catalog of `public` and the policies of
-`storage` (`scripts/catalog-fingerprint.sql`), and how many rows each account sees in each table
+read-only outputs, before and after: the row counts, the catalog of `public`, the policies of
+`storage` and the triggers that call a function of `public` (`scripts/catalog-fingerprint.sql`), and how many rows each account sees in each table
 (`scripts/rls-visibility.sql`, local copy only: accounts by number, no email). Ask Claude to run
 the first two on production through the MCP and compare them with the copy before the migration:
 equal means the copy is production. A migration that changes behaviour states, in its plan, the
@@ -210,7 +266,15 @@ matches a Redirect URL; otherwise, and when nothing is sent (a host outside the 
 preview), it puts the Site URL in `{{ .RedirectTo }}`.
 
 Authentication > Sign In / Providers: "Allow new users to sign up" off (#109). Nobody gets an
-account without an invite; `inviteUserByEmail` is an admin call and still works.
+account without an invite; `inviteUserByEmail` is an admin call and still works. The signup of
+Chelsea St (#275) goes through it too, from the server, behind Turnstile: the switch stays off.
+
+Authentication > Rate Limits: the emails sent per hour are one cap for the whole project, and the
+public `/cadastro` spends from it, as the magic link and "Esqueci minha senha" do. Measured on the
+local stack on 2026-11-12, `inviteUserByEmail` has no limit per address (two invites to the same
+address, one right after the other, both went out), so Turnstile is the only thing between the form and that
+cap. Check the value there before the signup opens, and the Resend plan's quota, which the same
+SMTP spends.
 
 Authentication > Providers > Email: minimum password length 8, and Email OTP Expiration 86400
 seconds (24 hours, the most Supabase allows). The invite stays open 15 days in `organization_invites`,
@@ -247,6 +311,13 @@ sent before #196 (a rollback, another branch), gets the Site URL in the link: it
 only loses the host it was asked from. The order between a deploy and a template change does not
 break a link.
 
+The invite template has two branches since #275. The signup of Chelsea St (`/cadastro`) is an
+invite the person asks for: the server calls `inviteUserByEmail` with the metadata
+`{ signup: true, full_name }`, which the template reads as `.Data.signup` (measured on the local
+stack on 2026-11-12: the subject and the body of the branch arrived in Mailpit). A signup always
+sends a Chelsea St origin, so its email says Chelsea St. An organization's invite has no `signup`
+and keeps the text it had.
+
 Every template is in Portuguese, like every string a teacher or student reads. Subject and body
 of each (#196; the ones before named Chelsea St and used `{{ .SiteURL }}` alone):
 
@@ -258,13 +329,20 @@ of each (#196; the ones before named Chelsea St and used `{{ .SiteURL }}` alone)
     <p><a href="{{ $origem }}/auth/callback?token_hash={{ .TokenHash }}&type=email">Confirmar e-mail</a></p>
     <p>Se não foi você, ignore esta mensagem.</p>
 
-    Subject: {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}Seu convite para a {{ $marca }}
+    Subject: {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}{{ if .Data.signup }}Confirme o seu cadastro na {{ $marca }}{{ else }}Seu convite para a {{ $marca }}{{ end }}
 
     {{ $origem := .SiteURL }}{{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "https://app.chelsea-st.com" "http://localhost:3100" "http://127.0.0.1:3100" }}{{ $origem = .RedirectTo }}{{ end }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $origem = .RedirectTo }}{{ $marca = "GrifoAI" }}{{ end }}
+    {{ if .Data.signup }}
+    <h2>Confirme o seu cadastro na {{ $marca }}</h2>
+    <p>Clique no link abaixo para confirmar este e-mail e escolher a sua senha.</p>
+    <p><a href="{{ $origem }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/set-password">Confirmar e escolher a senha</a></p>
+    <p>O link vale por 24 horas. Se ele vencer, peça um novo em "Esqueci minha senha", na tela de entrar, com este e-mail. Se não foi você que se cadastrou, ignore esta mensagem.</p>
+    {{ else }}
     <h2>Você foi convidada para a {{ $marca }}</h2>
     <p>Clique no link abaixo para escolher a sua senha e entrar.</p>
     <p><a href="{{ $origem }}/auth/callback?token_hash={{ .TokenHash }}&type=invite&next=/set-password">Aceitar o convite</a></p>
     <p>O link vale por 24 horas. Se ele vencer, peça um novo em "Esqueci minha senha", na tela de entrar, com este e-mail.</p>
+    {{ end }}
 
     Subject: {{ $marca := "Chelsea St" }}{{ if eq .RedirectTo "http://grifoai.localhost:3100" "https://<grifoai-host>" }}{{ $marca = "GrifoAI" }}{{ end }}Seu link para entrar na {{ $marca }}
 
@@ -282,6 +360,26 @@ of each (#196; the ones before named Chelsea St and used `{{ .SiteURL }}` alone)
     <p><a href="{{ $origem }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/set-password">Escolher nova senha</a></p>
     <p>O link vale por 24 horas. Se não foi você que pediu, ignore esta mensagem: a sua senha continua a mesma.</p>
 
+### "O link não chegou" (#110)
+
+The two link screens say "Link enviado" whatever happens, so a failed send shows only in the logs.
+Ask Claude to run this through the MCP (`query_logs`, at most the last 24 hours, the Free plan's
+retention), and look in the Vercel runtime log of the same hour for `link request failed`:
+
+    select timestamp, log_attributes['request.path'] as path,
+           log_attributes['response.status_code'] as status
+      from logs
+     where source = 'edge_logs'
+       and log_attributes['request.path'] in ('/auth/v1/otp', '/auth/v1/recover')
+       and toInt32OrZero(log_attributes['response.status_code']) >= 400
+     order by timestamp desc
+
+A 429 has three causes, and the Vercel log line of the same minute tells them apart: the limit of
+one email per address per minute (`link request rate limited`, a warning: the person asked twice,
+and the first link is the one to use); the project's cap of emails per hour (`link request failed`
+with "email rate limit exceeded": nothing goes out for anyone until the hour turns); or the limit
+of requests per IP, which every request from Vercel shares (`over_request_rate_limit`).
+
 ## GitHub quirks
 
     gh api -X PATCH repos/luizvictor19/chelsea-st-app/pulls/NN -f base=main     # change PR base
@@ -298,8 +396,9 @@ Dependabot PR needs no issue of its own: the PR is its record.
 
     gh pr list --author app/dependabot     # the queue
 
-- The gate is the same: CI green. The merge is Luiz's, with the same `gh pr merge NN --merge`,
-  and it is a production deploy like any other merge. No auto-merge.
+- The gate is the same: CI green. The merge is the Claude's (Luiz, 14/11, #325), with the same
+  `gh pr merge NN --merge`, then the release, and it is a production deploy like any other merge.
+  No auto-merge in GitHub: the Claude merges after reading the checks.
 - The grouped PR (`minor-and-patch`, and `actions`) can go straight in when CI passes.
 - A major comes alone in its own PR and is read before the merge: the package's changelog, and
   for `next` (grouped with `eslint-config-next`) the upgrade guide in `node_modules/next/dist/docs/`.
@@ -394,3 +493,39 @@ on that host (#102). Signing out stays on it too (#172).
 
 The CLI fetches the project's API keys through the management API and keeps none. The database
 password is not kept in `.env.local`: when a command needs it, the CLI asks.
+
+## Asaas (#72)
+
+The environment is read as the app reads it (`@next/env`), so `ASAAS_API_KEY=\$aact_...` in
+`.env.local` works for the scripts too. The address follows the key's prefix.
+
+    node scripts/asaas-sandbox-smoke.ts        # the adapter through the real sandbox; JSONL in fixtures/asaas/
+    node scripts/asaas-webhook.ts --url https://<host>/api/asaas/webhook --email <alerts>
+
+End to end with the sandbox, never against production (the database is production):
+
+    supabase start                             # the local stack; stop it with supabase stop, never --no-backup
+    cloudflared tunnel --url http://localhost:3100
+    node scripts/asaas-webhook.ts --url https://<tunnel>.trycloudflare.com/api/asaas/webhook --email <alerts>
+
+The daily overdue routine by hand (Vercel Cron calls it at 12h UTC in production):
+
+    curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3100/api/billing/daily
+
+## Calendar invites (#294)
+
+The daily routine by hand (Vercel Cron calls it at 13h UTC in production). It sends the pending
+invites of every lesson, in the database `.env.local` points at, which is production:
+
+    curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3100/api/calendar/daily
+
+A real invite and its cancel of a made-up lesson, without the database, to see a calendar take
+them (Luiz only: it sends real e-mails). The answers go to `fixtures/calendar/smoke-<date>.jsonl`,
+without the addresses:
+
+    node scripts/calendar-smoke.ts --student <e-mail> --teacher <e-mail> --wait 60
+
+What is waiting or was given up, through the MCP (no address in the table):
+
+    select status, method, recipient, attempts, last_error, count(*)
+      from calendar_invites group by 1, 2, 3, 4, 5 order by 1;
