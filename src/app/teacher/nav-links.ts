@@ -11,7 +11,8 @@ export type NavIcon =
   | "lessons"
   | "plans"
   | "founders"
-  | "organizations";
+  | "organizations"
+  | "errors";
 
 /**
  * One item of the teacher menu. A null href is an area with no screen yet,
@@ -49,7 +50,7 @@ const TEACHING: readonly NavLink[] = [
   { label: "Aulas", href: null, icon: "lessons" },
 ];
 
-/** The platform's own screens, behind requirePlatformAdmin (#72, #205, #292). */
+/** The platform's own screens, behind requirePlatformAdmin (#72, #205, #292, #69). */
 const PLATFORM: readonly NavLink[] = [
   { label: "Planos e custos", href: "/teacher/plans", icon: "plans" },
   { label: "Fundadores", href: "/teacher/founders", icon: "founders" },
@@ -58,6 +59,7 @@ const PLATFORM: readonly NavLink[] = [
     href: "/teacher/organizations",
     icon: "organizations",
   },
+  { label: "Erros", href: "/teacher/monitoring", icon: "errors" },
 ];
 
 /**

@@ -6,7 +6,7 @@ export type ControlIcon =
 
 /*
  * Drawn here, on a 24 px grid with a round 1.75 stroke, rather than taken
- * from an icon library: none is a dependency, and eighteen simple shapes do
+ * from an icon library: none is a dependency, and nineteen simple shapes do
  * not pay for one. Each is the inside of an <svg>, which colours them with
  * currentColor, so an icon follows the text colour of its item.
  */
@@ -92,6 +92,13 @@ const PATHS: Record<NavIcon | ControlIcon, React.ReactNode> = {
       <path d="M3 21h18" />
       <path d="M9 7h.01M15 7h.01M9 11h.01M15 11h.01M9 15h.01M15 15h.01" />
       <path d="M10.5 21v-3h3v3" />
+    </>
+  ),
+  errors: (
+    <>
+      <path d="M10.3 4.2 2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0Z" />
+      <path d="M12 9.5v4.5" />
+      <path d="M12 17.5h.01" />
     </>
   ),
   collapse: (
