@@ -8,6 +8,10 @@
  * plan is born on /teacher/invites (readPersonalPlanForm) and, edited here,
  * keeps its audience and its e-mail: the form of a personal plan sends no
  * audience, and the values carry none.
+ *
+ * The annual price may be left empty: a plan without the annual cycle. A
+ * founder or personal plan never has one (0061, #331,
+ * plans_monthly_only_for_founders), and both are refused here first.
  */
 
 import { isPlanAudience, type PlanAudience } from "../badges.ts";
@@ -20,7 +24,8 @@ export type PlanNumbers = {
   readonly name: string;
   readonly position: number;
   readonly monthly_price_cents: number;
-  readonly annual_price_cents: number;
+  /** Null: the plan has no annual cycle. */
+  readonly annual_price_cents: number | null;
   readonly monthly_credits: number;
   readonly trail_minutes_per_day: number;
   readonly opens_voice_question: boolean;
@@ -75,6 +80,12 @@ function whole(value: FormDataEntryValue | null): number | null {
   return /^\d+$/.test(text) ? Number(text) : null;
 }
 
+/** Said when a founder or personal plan comes with an annual price. */
+export const FOUNDER_MONTHLY_ONLY =
+  "O Plano Fundador é só mensal: deixe o preço anual vazio.";
+export const PERSONAL_MONTHLY_ONLY =
+  "O Plano Fundador Personalizado é só mensal: deixe o preço anual vazio.";
+
 /**
  * The plan of /teacher/plans: the numbers, and the audience unless the form
  * is a personal plan's (personal=1), which keeps its own.
@@ -83,6 +94,9 @@ export function readPlanForm(form: FormData): PlanRead {
   const numbers = readPlanNumbers(form);
   if (!numbers.ok) return numbers;
   if (form.get("personal") === "1") {
+    if (numbers.values.annual_price_cents !== null) {
+      return { ok: false, message: PERSONAL_MONTHLY_ONLY };
+    }
     return { ok: true, values: numbers.values };
   }
   const audience = form.get("audience") ?? "public";
@@ -94,6 +108,9 @@ export function readPlanForm(form: FormData): PlanRead {
       ok: false,
       message: `O plano só para fundadores é do ${CHELSEA.name}.`,
     };
+  }
+  if (audience === "founder" && numbers.values.annual_price_cents !== null) {
+    return { ok: false, message: FOUNDER_MONTHLY_ONLY };
   }
   return { ok: true, values: { ...numbers.values, audience } };
 }
@@ -118,6 +135,9 @@ export function readPersonalPlanForm(form: FormData): PersonalPlanRead {
   withBrand.set("key", "personal");
   const numbers = readPlanNumbers(withBrand);
   if (!numbers.ok) return numbers;
+  if (numbers.values.annual_price_cents !== null) {
+    return { ok: false, message: PERSONAL_MONTHLY_ONLY };
+  }
   return {
     ok: true,
     values: { ...numbers.values, audience: "person", person_email: email },
@@ -146,11 +166,20 @@ function readPlanNumbers(
     return { ok: false, message: "O nome tem de 1 a 40 letras." };
   }
   const monthly = readReais(String(form.get("monthly_price") ?? ""));
-  const annual = readReais(String(form.get("annual_price") ?? ""));
-  if (monthly === null || monthly <= 0 || annual === null || annual <= 0) {
+  if (monthly === null || monthly <= 0) {
     return {
       ok: false,
-      message: "Os dois preços precisam ser valores em reais maiores que zero.",
+      message: "O preço mensal precisa ser um valor em reais maior que zero.",
+    };
+  }
+  // Empty is a plan without the annual cycle (0061).
+  const annualText = String(form.get("annual_price") ?? "").trim();
+  const annual = annualText === "" ? null : readReais(annualText);
+  if (annualText !== "" && (annual === null || annual <= 0)) {
+    return {
+      ok: false,
+      message:
+        "O preço anual fica vazio (sem cobrança anual) ou é um valor em reais maior que zero.",
     };
   }
   const position = whole(form.get("position")) ?? 0;

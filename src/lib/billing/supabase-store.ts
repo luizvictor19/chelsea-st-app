@@ -6,6 +6,7 @@
  */
 
 import { createServiceClient } from "../supabase/service.ts";
+import { STORE_REFUSALS } from "./refusal-names.ts";
 import type { Database } from "../supabase/types.ts";
 
 import {
@@ -24,18 +25,6 @@ if (typeof window !== "undefined") {
 
 type Functions = Database["public"]["Functions"];
 type Name = keyof Functions & (`billing_${string}` | `credit_${string}`);
-
-/** The constraints the app turns into sentences; others stay errors. */
-const NAMED = [
-  "billing_customers_one_person_per_cpf",
-  "billing_customers_one_cpf_per_person",
-  "billing_one_trial_per_person",
-  "billing_plan_active",
-  "subscriptions_one_alive_per_person",
-  "credits_not_negative",
-  "credit_cost_known",
-  "credit_debit_reference_used",
-];
 
 type Row = Database["public"]["Tables"]["subscriptions"]["Row"];
 
@@ -72,7 +61,7 @@ export function createSupabaseBillingStore(
     // functions themselves, so the record goes through as it is.
     const { data, error } = await client.rpc(name, args as never);
     if (error) {
-      const named = NAMED.find(
+      const named = STORE_REFUSALS.find(
         (constraint) =>
           error.message.includes(constraint) ||
           error.details?.includes(constraint),

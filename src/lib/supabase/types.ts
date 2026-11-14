@@ -1536,7 +1536,6 @@ export type Database = {
           revoked_at: string | null;
           revoked_by: string | null;
           source: string;
-          terms_annual_price_cents: number | null;
           terms_credit_ceiling_months: number | null;
           terms_credit_days_after_cancel: number | null;
           terms_fixed_at: string | null;
@@ -1555,7 +1554,6 @@ export type Database = {
           revoked_at?: string | null;
           revoked_by?: string | null;
           source: string;
-          terms_annual_price_cents?: number | null;
           terms_credit_ceiling_months?: number | null;
           terms_credit_days_after_cancel?: number | null;
           terms_fixed_at?: string | null;
@@ -1573,7 +1571,6 @@ export type Database = {
           revoked_at?: string | null;
           revoked_by?: string | null;
           source?: string;
-          terms_annual_price_cents?: number | null;
           terms_credit_ceiling_months?: number | null;
           terms_credit_days_after_cancel?: number | null;
           terms_fixed_at?: string | null;
@@ -1614,7 +1611,7 @@ export type Database = {
       };
       plans: {
         Row: {
-          annual_price_cents: number;
+          annual_price_cents: number | null;
           audience: string;
           brand: string;
           created_at: string;
@@ -1641,7 +1638,7 @@ export type Database = {
         };
         ComputedFields: never;
         Insert: {
-          annual_price_cents: number;
+          annual_price_cents?: number | null;
           audience?: string;
           brand: string;
           created_at?: string;
@@ -1667,7 +1664,7 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
-          annual_price_cents?: number;
+          annual_price_cents?: number | null;
           audience?: string;
           brand?: string;
           created_at?: string;

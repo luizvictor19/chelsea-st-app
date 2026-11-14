@@ -33,8 +33,15 @@ export function SubscribeForm({
   const [planId, setPlanId] = useState(chosenPlanId ?? plans[0]?.id);
   // The trial said is the chosen plan's, as startSubscription reads it: a
   // personal or founder plan may have none while another plan has some.
-  const chosenTrial = plans.find((plan) => plan.id === planId)?.trialDays ?? 0;
+  const chosen = plans.find((plan) => plan.id === planId);
+  const chosenTrial = chosen?.trialDays ?? 0;
   const trialDays = trialAvailable && chosenTrial > 0 ? chosenTrial : null;
+  // A plan without an annual price is monthly only (0061): the Plano Fundador
+  // and the Personalizado always. Choosing one shows and sends the monthly
+  // cycle alone; going back to a plan with both keeps what she had chosen.
+  const [cycle, setCycle] = useState<"monthly" | "annual">("monthly");
+  const chosenAnnual = chosen?.annualPriceCents ?? null;
+  const shownCycle = chosenAnnual === null ? "monthly" : cycle;
 
   return (
     <form
@@ -57,8 +64,10 @@ export function SubscribeForm({
             <span>
               <span className="font-semibold">{plan.name}</span>
               <span className="text-muted block text-sm">
-                {formatCents(plan.monthlyPriceCents)} por mês ou{" "}
-                {formatCents(plan.annualPriceCents)} por ano ·{" "}
+                {formatCents(plan.monthlyPriceCents)} por mês
+                {plan.annualPriceCents !== null &&
+                  ` ou ${formatCents(plan.annualPriceCents)} por ano`}
+                {" · "}
                 {plan.monthlyCredits} créditos por mês
                 {plan.teacherLessonCredits !== null &&
                   ` · Aula com professor: ${plan.teacherLessonCredits} ${plan.teacherLessonCredits === 1 ? "crédito" : "créditos"}`}
@@ -71,13 +80,29 @@ export function SubscribeForm({
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-2 font-semibold">Cobrança</legend>
         <label className="flex items-center gap-3">
-          <input type="radio" name="cycle" value="monthly" defaultChecked />
+          <input
+            type="radio"
+            name="cycle"
+            value="monthly"
+            checked={shownCycle === "monthly"}
+            onChange={() => setCycle("monthly")}
+          />
           Mensal
         </label>
-        <label className="flex items-center gap-3">
-          <input type="radio" name="cycle" value="annual" />
-          Anual
-        </label>
+        {chosenAnnual === null ? (
+          <p className="text-muted text-sm">Este plano é só mensal.</p>
+        ) : (
+          <label className="flex items-center gap-3">
+            <input
+              type="radio"
+              name="cycle"
+              value="annual"
+              checked={shownCycle === "annual"}
+              onChange={() => setCycle("annual")}
+            />
+            Anual
+          </label>
+        )}
       </fieldset>
 
       <fieldset className="flex flex-col gap-2">

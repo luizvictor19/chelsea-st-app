@@ -106,7 +106,9 @@ describe("the audience, the lesson and the trail of 0058", () => {
   test("no audience is everyone; founder is kept; person is refused here", () => {
     const plain = readPlanForm(form());
     assert.equal(plain.ok && plain.values.audience, "public");
-    const founder = readPlanForm(form({ audience: "founder" }));
+    const founder = readPlanForm(
+      form({ audience: "founder", annual_price: "" }),
+    );
     assert.equal(founder.ok && founder.values.audience, "founder");
     for (const audience of ["person", "everyone"]) {
       const read = readPlanForm(form({ audience }));
@@ -116,12 +118,16 @@ describe("the audience, the lesson and the trail of 0058", () => {
   });
 
   test("a founder plan is of the brand chelsea-st only (plans_founder_is_chelsea_st)", () => {
-    const read = readPlanForm(form({ audience: "founder", brand: "grifoai" }));
+    const read = readPlanForm(
+      form({ audience: "founder", brand: "grifoai", annual_price: "" }),
+    );
     assert.equal(read.ok, false);
   });
 
   test("a personal plan's form keeps its audience: the values carry none", () => {
-    const read = readPlanForm(form({ personal: "1", audience: "public" }));
+    const read = readPlanForm(
+      form({ personal: "1", audience: "public", annual_price: "" }),
+    );
     assert.equal(read.ok, true);
     if (read.ok) assert.equal("audience" in read.values, false);
   });
@@ -149,7 +155,11 @@ describe("the audience, the lesson and the trail of 0058", () => {
 describe("readPersonalPlanForm", () => {
   test("the e-mail lower-cased and trimmed, the brand chelsea-st, the audience person", () => {
     const read = readPersonalPlanForm(
-      form({ person_email: "  Ana@Example.COM ", brand: "grifoai" }),
+      form({
+        person_email: "  Ana@Example.COM ",
+        brand: "grifoai",
+        annual_price: "",
+      }),
     );
     assert.equal(read.ok, true);
     if (!read.ok) return;
@@ -164,8 +174,63 @@ describe("readPersonalPlanForm", () => {
       assert.equal(read.ok, false, bad);
     }
     const numbers = readPersonalPlanForm(
-      form({ person_email: "ana@example.com", monthly_price: "0" }),
+      form({
+        person_email: "ana@example.com",
+        monthly_price: "0",
+        annual_price: "",
+      }),
     );
     assert.equal(numbers.ok, false);
+  });
+});
+
+describe("monthly only for founders (0061, #331)", () => {
+  test("an empty annual price is a plan without the annual cycle", () => {
+    for (const empty of ["", "  "]) {
+      const read = readPlanForm(form({ annual_price: empty }));
+      assert.equal(read.ok && read.values.annual_price_cents, null, empty);
+    }
+    const absent = new FormData();
+    for (const [name, value] of form()) {
+      if (name !== "annual_price") absent.append(name, value);
+    }
+    const read = readPlanForm(absent);
+    assert.equal(read.ok && read.values.annual_price_cents, null);
+  });
+
+  test("a typed annual price is still more than zero (plans_annual_price_positive)", () => {
+    for (const bad of ["0", "x", "-5"]) {
+      const read = readPlanForm(form({ annual_price: bad }));
+      assert.equal(read.ok, false, bad);
+      if (!read.ok) assert.match(read.message, /anual/);
+    }
+  });
+
+  test("a founder plan with an annual price is refused before the database (plans_monthly_only_for_founders)", () => {
+    const read = readPlanForm(form({ audience: "founder" }));
+    assert.equal(read.ok, false);
+    if (!read.ok) assert.match(read.message, /só mensal/);
+  });
+
+  test("a personal plan, edited or written, with an annual price is refused", () => {
+    const edited = readPlanForm(form({ personal: "1" }));
+    assert.equal(edited.ok, false);
+    if (!edited.ok) assert.match(edited.message, /só mensal/);
+    const written = readPersonalPlanForm(
+      form({ person_email: "ana@example.com" }),
+    );
+    assert.equal(written.ok, false);
+    if (!written.ok) assert.match(written.message, /só mensal/);
+  });
+
+  test("a founder or personal plan without it passes, with no annual price", () => {
+    const founder = readPlanForm(
+      form({ audience: "founder", annual_price: "" }),
+    );
+    assert.equal(founder.ok && founder.values.annual_price_cents, null);
+    const personal = readPersonalPlanForm(
+      form({ person_email: "ana@example.com", annual_price: "" }),
+    );
+    assert.equal(personal.ok && personal.values.annual_price_cents, null);
   });
 });

@@ -19,7 +19,6 @@ function form(over: Record<string, string> = {}): FormData {
     name: "Plano da Ana",
     position: "0",
     monthly_price: "10",
-    annual_price: "100",
     monthly_credits: "10",
     trail_minutes_per_day: "0",
     trial_days: "0",

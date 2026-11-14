@@ -60,10 +60,9 @@ export function PersonalPlanForm() {
         Preço mensal (R$)
         <input name="monthly_price" required className={fieldClass} />
       </label>
-      <label className="flex flex-col gap-1">
-        Preço anual (R$)
-        <input name="annual_price" required className={fieldClass} />
-      </label>
+      <p className="text-muted flex flex-col justify-end gap-1">
+        Só mensal: o Personalizado não tem cobrança anual.
+      </p>
       <label className="flex flex-col gap-1">
         Créditos por mês
         <input

@@ -10331,6 +10331,176 @@ end;
 $$;
 
 
+-- 0061 lets plans.annual_price_cents be empty, adds the named check
+-- plans_monthly_only_for_founders, drops person_badges.terms_annual_price_cents
+-- (its two checks made again without it, same names), and recreates
+-- badge_grant, person_badges_fix_terms and billing_open_subscription on
+-- 0058's bodies. No row is written by it. The block of 0058 ran above against
+-- the bodies it replaces; this one holds again what the recreated bodies keep
+-- (the audience, the value, the terms fixed by the first paid founder
+-- subscription and inherited by a seal given again), besides what it adds.
+\i supabase/migrations/0061_a_founder_pays_by_the_month.sql
+
+-- A founder pays by the month (0061) -----------------------------------------------------
+--
+-- A plan without an annual price is a plan without an annual cycle; a
+-- founder or personal plan never has one; billing_open_subscription refuses
+-- the annual cycle on such a plan by name, also when the value given is a
+-- plausible one; the seal fixes and inherits monthly terms only. Numbers are
+-- made up. Nothing written here is kept.
+
+do $$
+declare
+  c_f1 constant uuid := 'b0620000-0000-4000-8000-000000000001';
+  c_plain constant uuid := 'b0620000-0000-4000-8000-000000000002';
+  c_people constant uuid[] := array[c_f1, c_plain];
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_today date := (now() at time zone 'America/Sao_Paulo')::date;
+  v_monthly uuid;
+  v_both uuid;
+  v_founder uuid;
+  v_sub uuid;
+  v_seal uuid;
+  v_terms record;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at) values
+    (c_f1, 'f1-0061@example.com', '{"full_name":"F1"}', now()),
+    (c_plain, 'plain-0061@example.com', '{"full_name":"Plain"}', now());
+  insert into organization_members (organization_id, user_id, role)
+    select v_chelsea, p, 'student' from unnest(c_people) p;
+  insert into students (id, organization_id)
+    select p, v_chelsea from unnest(c_people) p;
+  perform billing_customer(c_f1, repeat('e', 64));
+  perform billing_customer(c_plain, repeat('f', 64));
+
+  -- The plan: the annual price may be empty, and is empty on every founder
+  -- or personal plan.
+  v_monthly := verify.plan_0058('monthly-0061', 'public', 1000, null, 10, null, null, 0);
+  v_both := verify.plan_0058('both-0061', 'public', 1000, 10000, 10, null, null, 0);
+  v_founder := verify.plan_0058('founder-0061', 'founder', 500, null, 8, 2, null, 0);
+  if v_monthly is null or v_founder is null then
+    insert into verify.failures values ('[0061] a public and a founder plan without an annual price were not written');
+  else
+    raise notice '[0061] a public plan and a founder plan without an annual price: accepted';
+  end if;
+  perform verify.expect_named_refusal('[0061] a founder plan with an annual price',
+    '23514 plans_monthly_only_for_founders',
+    $q$select verify.plan_0058('founder-annual-0061', 'founder', 500, 5000, 8, 2, null, 0)$q$);
+  perform verify.expect_named_refusal('[0061] a personal plan with an annual price',
+    '23514 plans_monthly_only_for_founders',
+    $q$select verify.plan_0058('personal-annual-0061', 'person', 800, 8000, 10, 1, 'p-0061@example.com', 0)$q$);
+  perform verify.expect_named_refusal('[0061] an annual price given later to a founder plan',
+    '23514 plans_monthly_only_for_founders',
+    format('update plans set annual_price_cents = 5000 where id = %L', v_founder));
+  perform verify.expect_named_refusal('[0061] a public plan turned founder while it has an annual price',
+    '23514 plans_monthly_only_for_founders',
+    format('update plans set audience = ''founder'' where id = %L', v_both));
+  perform verify.expect_named_refusal('[0061] an annual price of 0 is still refused (0049''s check kept)',
+    '23514 plans_annual_price_positive',
+    format('update plans set annual_price_cents = 0 where id = %L', v_monthly));
+
+  -- The annual cycle, refused by name on a plan without an annual price,
+  -- whatever value comes with it.
+  perform verify.expect_named_refusal('[0061] the annual cycle of a public plan without an annual price',
+    '23514 billing_cycle_offered',
+    format('select verify.open_0058(%L, %L, ''annual'', 10000, false, null, ''sub_0061_a'')', c_plain, v_monthly));
+  perform verify.expect_named_refusal('[0061] the annual cycle of a public plan without an annual price, at the monthly price',
+    '23514 billing_cycle_offered',
+    format('select verify.open_0058(%L, %L, ''annual'', 1000, false, null, ''sub_0061_b'')', c_plain, v_monthly));
+  perform verify.expect_named_refusal('[0061] the annual cycle of a plan with an annual price, at another value, is still refused (0058''s body kept)',
+    '23514 billing_value_matches',
+    format('select verify.open_0058(%L, %L, ''annual'', 9999, false, null, ''sub_0061_d'')', c_plain, v_both));
+  perform verify.expect_accepted('[0061] the monthly cycle of a plan without an annual price',
+    format('select verify.open_0058(%L, %L, ''monthly'', 1000, false, null, ''sub_0061_f'')', c_plain, v_monthly));
+  -- One alive subscription per person: the next case needs this one gone.
+  update subscriptions set status = 'canceled', canceled_at = now(), cancel_reason = 'person'
+   where person_id = c_plain;
+  perform verify.expect_accepted('[0061] the annual cycle of a plan with an annual price, at its price',
+    format('select verify.open_0058(%L, %L, ''annual'', 10000, false, null, ''sub_0061_e'')', c_plain, v_both));
+
+  -- The founder: without a seal, still refused; with one, monthly; her first
+  -- paid subscription fixes monthly terms.
+  perform verify.expect_named_refusal('[0061] the founder plan without a seal is still refused (0058''s body kept)',
+    '23514 billing_plan_audience',
+    format('select verify.open_0058(%L, %L, ''monthly'', 500, false, null, ''sub_0061_g'')', c_plain, v_founder));
+  insert into founder_program (seats_total) values (2);
+  v_seal := badge_grant(c_f1, 'founder', 'admin', null);
+  perform verify.expect_named_refusal('[0061] the annual cycle of the founder plan, with a live seal',
+    '23514 billing_cycle_offered',
+    format('select verify.open_0058(%L, %L, ''annual'', 5000, false, null, ''sub_0061_c'')', c_f1, v_founder));
+  v_sub := verify.must_open_0058('[0061] the founder plan, monthly, at its price', c_f1, v_founder, 'monthly', 500, false, null, 'sub_0061_f1');
+  perform verify.apply_0058(v_sub, 'sub_0061_f1', 'cus_sub_0061_f1', 'active', v_today + 30, null, null);
+  select terms_monthly_price_cents, terms_monthly_credits, terms_teacher_lesson_credits,
+         terms_credit_ceiling_months, terms_credit_days_after_cancel, terms_fixed_at
+    into v_terms from person_badges where id = v_seal;
+  perform verify.holds_0058('[0061] the first paid founder subscription fixes her monthly terms',
+    (v_terms.terms_monthly_price_cents, v_terms.terms_monthly_credits, v_terms.terms_teacher_lesson_credits,
+     v_terms.terms_credit_ceiling_months, v_terms.terms_credit_days_after_cancel)
+      = (500, 8, 2, 2::smallint, 20::smallint)
+    and v_terms.terms_fixed_at is not null);
+  perform verify.holds_0058('[0061] the seal keeps no annual price',
+    not exists (select 1 from information_schema.columns
+                 where table_schema = 'public' and table_name = 'person_badges'
+                   and column_name = 'terms_annual_price_cents'));
+
+  -- Her terms on the plan's next price: the monthly value is hers, the
+  -- annual cycle still refused.
+  update plans set monthly_price_cents = 700 where id = v_founder;
+  update subscriptions set status = 'canceled', canceled_at = now(), cancel_reason = 'person' where id = v_sub;
+  perform verify.expect_named_refusal('[0061] a founder coming back at the plan''s new price is still refused (0058''s body kept)',
+    '23514 billing_value_matches',
+    format('select verify.open_0058(%L, %L, ''monthly'', 700, false, null, ''sub_0061_f1b'')', c_f1, v_founder));
+  perform verify.expect_named_refusal('[0061] a founder coming back by the year',
+    '23514 billing_cycle_offered',
+    format('select verify.open_0058(%L, %L, ''annual'', 500, false, null, ''sub_0061_f1c'')', c_f1, v_founder));
+  perform verify.expect_accepted('[0061] a founder coming back at her own monthly price',
+    format('select verify.open_0058(%L, %L, ''monthly'', 500, false, null, ''sub_0061_f1d'')', c_f1, v_founder));
+
+  -- A seal given again inherits the monthly terms (badge_grant).
+  update person_badges set revoked_at = now() where id = v_seal;
+  v_seal := badge_grant(c_f1, 'founder', 'admin', null);
+  perform verify.holds_0058('[0061] a seal given again inherits the monthly terms of the last one',
+    (select (terms_monthly_price_cents, terms_monthly_credits, terms_teacher_lesson_credits)
+       from person_badges where id = v_seal) = row(500, 8, 2)
+    and (select terms_fixed_at from person_badges where id = v_seal) is not null);
+
+  -- The two checks of the terms, made again without the annual price.
+  perform verify.expect_named_refusal('[0061] terms fixed without the monthly price',
+    '23514 person_badges_terms_whole',
+    format('insert into person_badges (person_id, badge, source, revoked_at, terms_monthly_credits, terms_credit_ceiling_months, terms_credit_days_after_cancel, terms_fixed_at) values (%L, ''founder'', ''admin'', now(), 1, 1, 0, now())', c_plain));
+  perform verify.expect_named_refusal('[0061] a monthly price without the date that fixes it',
+    '23514 person_badges_terms_whole',
+    format('insert into person_badges (person_id, badge, source, revoked_at, terms_monthly_price_cents) values (%L, ''founder'', ''admin'', now(), 100)', c_plain));
+  perform verify.expect_named_refusal('[0061] terms with a monthly price of 0',
+    '23514 person_badges_terms_ranges',
+    format('insert into person_badges (person_id, badge, source, revoked_at, terms_monthly_price_cents, terms_monthly_credits, terms_credit_ceiling_months, terms_credit_days_after_cancel, terms_fixed_at) values (%L, ''founder'', ''admin'', now(), 0, 1, 1, 0, now())', c_plain));
+  perform verify.expect_accepted('[0061] whole monthly terms on a seal',
+    format('insert into person_badges (person_id, badge, source, revoked_at, terms_monthly_price_cents, terms_monthly_credits, terms_credit_ceiling_months, terms_credit_days_after_cancel, terms_fixed_at) values (%L, ''founder'', ''admin'', now(), 100, 1, 1, 0, now())', c_plain));
+
+  -- Nothing written here is kept.
+  perform set_config('session_replication_role', 'replica', true);
+  delete from credit_entries;
+  perform set_config('session_replication_role', 'origin', true);
+  delete from subscriptions;
+  delete from billing_customers;
+  delete from plans;
+  delete from person_badges;
+  delete from founder_program;
+  delete from students where id = any (c_people);
+  delete from organization_members where user_id = any (c_people);
+  delete from auth.users where id = any (c_people);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a founder pays by the month: %', v_failures;
+  end if;
+  raise notice 'a founder pays by the month: a plan may have no annual price and a founder or personal plan never has one; the annual cycle of a plan without one is refused by billing_cycle_offered; the seal fixes and inherits monthly terms only, under the same two checks';
+end;
+$$;
+
 -- A restored copy gets back what the dump leaves out (#101, #104) --------------------
 --
 -- supabase db dump writes the schemas of the project, not storage or auth, so

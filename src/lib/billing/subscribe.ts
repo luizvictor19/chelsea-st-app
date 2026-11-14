@@ -32,7 +32,8 @@ export type PlanForSale = {
   readonly id: string;
   readonly name: string;
   readonly monthlyPriceCents: number;
-  readonly annualPriceCents: number;
+  /** Null: the plan has no annual cycle (0061), as every founder plan. */
+  readonly annualPriceCents: number | null;
   readonly trialDays: number;
 };
 
@@ -46,7 +47,7 @@ export type StartResult =
  * already hers (withFounderTerms): billing_open_subscription refuses any
  * other value (billing_value_matches).
  */
-export function priceOf(plan: PlanForSale, cycle: Cycle): number {
+export function priceOf(plan: PlanForSale, cycle: Cycle): number | null {
   return cycle === "monthly" ? plan.monthlyPriceCents : plan.annualPriceCents;
 }
 
@@ -77,6 +78,15 @@ export async function startSubscription(
   if (input.name.trim().length < 2) {
     return { kind: "refused", message: SUBSCRIBE_REFUSALS.invalid_name };
   }
+  // A cycle the plan does not sell is refused before anything is made
+  // (billing_open_subscription refuses it too, by the same name).
+  const valueCents = priceOf(input.plan, input.cycle);
+  if (valueCents === null) {
+    return {
+      kind: "refused",
+      message: SUBSCRIBE_REFUSALS.billing_cycle_offered,
+    };
+  }
 
   let trialUsedAt: string | null;
   try {
@@ -95,7 +105,6 @@ export async function startSubscription(
     input.today,
     withTrial ? input.plan.trialDays : 0,
   );
-  const valueCents = priceOf(input.plan, input.cycle);
   const common = {
     personId: input.personId,
     planId: input.plan.id,
