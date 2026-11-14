@@ -1,7 +1,8 @@
 /**
  * What the screen says when the database refuses a booking, a cancel, a
  * teacher's hours (0052, and the ledger's credits_not_negative and
- * credit_cost_known of 0050) or a lesson proposal (0057). Every refusal there
+ * credit_cost_known of 0050, and credit_refund_open of 0060) or a lesson
+ * proposal (0057). Every refusal there
  * names its rule at the start of its message, because the API passes the
  * message on and not the constraint; a refusal Postgres raises itself (an
  * exclusion, a check, a unique index) names it inside the message.
@@ -16,6 +17,9 @@ const SENTENCES: Readonly<Record<string, string>> = {
   credits_not_negative: "Seu saldo não cobre esta aula.",
   credit_cost_known: "As aulas ainda não estão à venda.",
   credit_debit_reference_used: "Essa aula já foi paga.",
+  // 0060 (#297): nothing is spent while her refund is on its way.
+  credit_refund_open:
+    "Seu reembolso está em andamento. Novas aulas ficam para depois dele.",
   lesson_booking_student: "Só quem é aluno ativo reserva aula.",
   lesson_booking_needs_teacher: "Sua organização não tem aula com professor.",
   lesson_booking_same_organization: "Esse professor não é da sua organização.",

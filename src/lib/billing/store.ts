@@ -10,7 +10,7 @@
  * memory (fake-store.ts) with the same contract.
  */
 
-import type { Cycle } from "./provider.ts";
+import type { Cycle, ProviderRefund } from "./provider.ts";
 import type { SubscriptionStatus } from "./state.ts";
 
 export type StoredSubscription = {
@@ -63,6 +63,40 @@ export type CreditDailyReport = {
   readonly granted: number;
   /** Lots past their end closed. */
   readonly closed: number;
+};
+
+/** Where a withdrawal (#297, 0060) is: reserved, taken, done or failed. */
+export type RefundStatus = "requested" | "sent" | "done" | "failed";
+
+/** What the plan screen shows of a withdrawal (billing_refund_quote). */
+export type RefundQuote = {
+  readonly paymentId: string;
+  /** The window ends at this instant: midnight in São Paulo. */
+  readonly endsAt: string;
+  readonly paymentCredits: number;
+  readonly unusedCredits: number;
+  readonly refundCents: number;
+  /** Her scheduled lessons not ended yet: each refuses the request (Q5). */
+  readonly lessonsAhead: number;
+};
+
+/** A withdrawal reserved in the database before the provider is called. */
+export type OpenedRefund = {
+  readonly id: string;
+  readonly paymentId: string;
+  /** The subscription the charge belongs to, our id. */
+  readonly subscriptionId: string;
+  readonly refundCents: number;
+};
+
+/** A withdrawal still open, for the daily routine. */
+export type OpenRefund = {
+  readonly id: string;
+  readonly personId: string;
+  readonly status: "requested" | "sent";
+  readonly createdAt: string;
+  readonly paymentId: string;
+  readonly asaasSubscriptionId: string | null;
 };
 
 /** A refusal of the database the app turns into a sentence, by its name. */
@@ -152,4 +186,27 @@ export interface BillingStore {
   settleCredits(paymentId: string): Promise<void>;
   /** The daily step of the credits: grant, void, close and carry over. */
   creditDaily(): Promise<CreditDailyReport>;
+
+  /** The charge in her window and what would come back now, or null (0060). */
+  refundQuote(personId: string): Promise<RefundQuote | null>;
+  /**
+   * Reserves her withdrawal before the provider is called, with the value
+   * the database computes. Refuses by name (StoreRefusal): an open one, no
+   * charge within the window, a lesson ahead, nothing to give back.
+   */
+  openRefund(personId: string): Promise<OpenedRefund>;
+  /** The provider took it, with the refund status it answered. */
+  refundSent(id: string, asaasStatus: string | null): Promise<RefundStatus>;
+  /** The provider refused it, or never had it: it ends, and she spends again. */
+  refundFailed(id: string, error: string): Promise<RefundStatus>;
+  /**
+   * What the provider holds of a charge's refunds, over its open withdrawal:
+   * the status after, or null when the charge has none open.
+   */
+  refundReading(
+    paymentId: string,
+    refunds: readonly ProviderRefund[],
+  ): Promise<RefundStatus | null>;
+  /** Every withdrawal requested or sent, oldest first. */
+  openRefunds(): Promise<OpenRefund[]>;
 }

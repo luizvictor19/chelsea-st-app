@@ -23,6 +23,17 @@ export type ProviderSubscription = {
   readonly valueCents: number;
 };
 
+/**
+ * One refund of a charge, as the provider holds it. The provider's status,
+ * verbatim: PENDING, AWAITING_CRITICAL_ACTION_AUTHORIZATION,
+ * AWAITING_CUSTOMER_EXTERNAL_AUTHORIZATION, CANCELLED or DONE. Only DONE is
+ * money back (docs.asaas.com/docs/estornos, read on 14/11/2026).
+ */
+export type ProviderRefund = {
+  readonly status: string;
+  readonly valueCents: number;
+};
+
 /** A charge as the provider holds it. */
 export type ProviderPayment = {
   readonly id: string;
@@ -38,6 +49,8 @@ export type ProviderPayment = {
   readonly invoiceUrl: string | null;
   /** What was given back, counting only refunds the provider calls done. */
   readonly refundedCents: number;
+  /** Every refund asked for it, done or not (#297). */
+  readonly refunds: readonly ProviderRefund[];
   /** The saved card, when the charge was by card and tokenization is on. */
   readonly cardToken: string | null;
 };
@@ -122,8 +135,16 @@ export interface BillingProvider {
     cardToken: string,
   ): Promise<ProviderPayment>;
 
-  /** Gives back part of a paid charge, or all of it when no value is given. */
-  refund(paymentId: string, valueCents?: number): Promise<void>;
+  /**
+   * Gives back part of a paid charge, or all of it when no value is given.
+   * Answers the charge as the provider holds it after, its refunds included:
+   * a refund taken is not one done until its status is DONE.
+   */
+  refund(
+    paymentId: string,
+    valueCents?: number,
+    description?: string,
+  ): Promise<ProviderPayment>;
 
   /** The value of the next charges; the ones already made keep theirs. */
   updateSubscriptionValue(id: string, valueCents: number): Promise<void>;

@@ -87,6 +87,7 @@ export async function syncSubscription(
     if (row.asaasSubscriptionId === subscription.id) {
       const payments = await provider.listSubscriptionPayments(subscription.id);
       await writePayments(deps, row, payments);
+      await readRefunds(deps, payments);
       await settlePayments(deps, payments);
     }
     return;
@@ -111,6 +112,7 @@ export async function syncSubscription(
 
   const payments = await provider.listSubscriptionPayments(subscription.id);
   await writePayments(deps, row, payments);
+  await readRefunds(deps, payments);
 
   const reading = readSubscription({
     withTrial: row.withTrial,
@@ -149,6 +151,22 @@ async function writePayments(
         invoiceUrl: payment.invoiceUrl,
       }),
     ),
+  );
+}
+
+/**
+ * What the provider holds of each charge's refunds, over its open
+ * withdrawal (#297, 0060): done, waiting or canceled. The database decides;
+ * a charge with no refund asked has nothing to say.
+ */
+async function readRefunds(
+  deps: SyncDeps,
+  payments: readonly ProviderPayment[],
+): Promise<void> {
+  await Promise.all(
+    payments
+      .filter((payment) => payment.refunds.length > 0)
+      .map((payment) => deps.store.refundReading(payment.id, payment.refunds)),
   );
 }
 

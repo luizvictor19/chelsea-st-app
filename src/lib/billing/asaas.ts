@@ -98,11 +98,15 @@ export function readSubscription(body: unknown): ProviderSubscription {
 
 export function readPayment(body: unknown): ProviderPayment {
   const value = record(body);
-  const refunds = Array.isArray(value.refunds) ? value.refunds : [];
-  const refundedCents = refunds
+  const refunds = (Array.isArray(value.refunds) ? value.refunds : [])
     .map(record)
+    .map((refund) => ({
+      status: required(refund.status, "a refund status"),
+      valueCents: toCents(refund.value),
+    }));
+  const refundedCents = refunds
     .filter((refund) => refund.status === "DONE")
-    .reduce((sum, refund) => sum + toCents(refund.value), 0);
+    .reduce((sum, refund) => sum + refund.valueCents, 0);
   return {
     id: required(value.id, "a payment id"),
     subscriptionId: text(value.subscription),
@@ -114,6 +118,7 @@ export function readPayment(body: unknown): ProviderPayment {
     paidOn: day(value.paymentDate) ?? day(value.clientPaymentDate),
     invoiceUrl: text(value.invoiceUrl),
     refundedCents,
+    refunds,
     cardToken: text(record(value.creditCard).creditCardToken),
   };
 }
@@ -296,11 +301,18 @@ export function createAsaasProvider(
       );
     },
 
-    async refund(paymentId, valueCents) {
-      await call(
-        "POST",
-        `/payments/${encodeURIComponent(paymentId)}/refund`,
-        valueCents === undefined ? {} : { value: toReais(valueCents) },
+    async refund(paymentId, valueCents, description) {
+      // The answer is the charge, with its refunds (docs.asaas.com,
+      // "Estornar cobrança", read on 14/11/2026).
+      return readPayment(
+        await call(
+          "POST",
+          `/payments/${encodeURIComponent(paymentId)}/refund`,
+          {
+            ...(valueCents === undefined ? {} : { value: toReais(valueCents) }),
+            ...(description === undefined ? {} : { description }),
+          },
+        ),
       );
     },
 

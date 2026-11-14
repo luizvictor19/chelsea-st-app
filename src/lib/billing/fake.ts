@@ -19,6 +19,8 @@ import {
   type CreditDailyReport,
   type OverdueDay,
   type OverdueOutcome,
+  type RefundQuote,
+  type RefundStatus,
   type StoredSubscription,
 } from "./store.ts";
 
@@ -29,6 +31,11 @@ export type FakeProvider = BillingProvider & {
   readonly calls: string[];
   /** The status a charge paid again with its token ends in. */
   payAgainAnswer: string;
+  /**
+   * The status a refund is born with: DONE, or what the production account
+   * answers while a critical event waits for the panel (Q3 A of #297).
+   */
+  refundAnswer: string;
   /** When set, every call fails with this error. */
   failWith: Error | null;
   /** Calls by name that fail with their error, once each. */
@@ -44,6 +51,7 @@ export function createFakeProvider(): FakeProvider {
     payments: new Map(),
     calls: [],
     payAgainAnswer: "CONFIRMED",
+    refundAnswer: "DONE",
     failWith: null,
     failOnce: new Map(),
 
@@ -134,11 +142,29 @@ export function createFakeProvider(): FakeProvider {
     async refund(paymentId, valueCents) {
       track("refund");
       const payment = found(fake.payments.get(paymentId), paymentId);
-      fake.payments.set(paymentId, {
+      const value = valueCents ?? payment.valueCents;
+      // As the provider: the refunds of a charge never pass its value.
+      const asked = payment.refunds
+        .filter((refund) => refund.status !== "CANCELLED")
+        .reduce((sum, refund) => sum + refund.valueCents, 0);
+      if (asked + value > payment.valueCents) {
+        throw new ProviderError("refunds above the charge", 400, [
+          "invalid_value",
+        ]);
+      }
+      const refunds = [
+        ...payment.refunds,
+        { status: fake.refundAnswer, valueCents: value },
+      ];
+      const after = {
         ...payment,
-        refundedCents:
-          payment.refundedCents + (valueCents ?? payment.valueCents),
-      });
+        refunds,
+        refundedCents: refunds
+          .filter((refund) => refund.status === "DONE")
+          .reduce((sum, refund) => sum + refund.valueCents, 0),
+      };
+      fake.payments.set(paymentId, after);
+      return after;
     },
     async updateSubscriptionValue(subscriptionId, valueCents) {
       track("updateSubscriptionValue");
@@ -182,6 +208,7 @@ export function createFakeProvider(): FakeProvider {
       paidOn: null,
       invoiceUrl: "https://invoice.example/i",
       refundedCents: 0,
+      refunds: [],
       cardToken,
     };
     fake.payments.set(payment.id, payment);
@@ -230,6 +257,7 @@ export function finishCheckout(
     paidOn: null,
     invoiceUrl: "https://invoice.example/i",
     refundedCents: 0,
+    refunds: [],
     cardToken: `tok_${input.checkoutId}`,
   });
   return { customerId, subscriptionId: subscription.id, paymentId };
@@ -246,6 +274,20 @@ export function setPayment(
 }
 
 type FakeEvent = { type: string; finished: boolean; error: string | null };
+
+/** A row of refund_requests, as 0060 keeps it. */
+export type FakeRefund = {
+  readonly id: string;
+  readonly personId: string;
+  readonly paymentId: string;
+  /** The subscription row the charge belongs to. */
+  readonly subscriptionId: string;
+  readonly refundCents: number;
+  status: RefundStatus;
+  asaasStatus: string | null;
+  error: string | null;
+  createdAt: string;
+};
 type FakePayment = Parameters<BillingStore["savePayment"]>[0];
 
 export type FakeStore = BillingStore & {
@@ -280,6 +322,12 @@ export type FakeStore = BillingStore & {
    * hers (0058).
    */
   refuseOpenWith: string | null;
+  /**
+   * What billing_refund_quote answers per person (0060): the database
+   * decides the window and the value; the fake is told them.
+   */
+  readonly refundQuotes: Map<string, RefundQuote & { subscriptionId: string }>;
+  readonly refunds: Map<string, FakeRefund>;
 };
 
 export function createFakeStore(): FakeStore {
@@ -295,6 +343,8 @@ export function createFakeStore(): FakeStore {
     settleFailWith: null,
     failWith: null,
     refuseOpenWith: null,
+    refundQuotes: new Map(),
+    refunds: new Map(),
 
     async customer(personId, cpfHmac) {
       check();
@@ -511,7 +561,134 @@ export function createFakeStore(): FakeStore {
       check();
       return store.dailyReport;
     },
+
+    async refundQuote(personId) {
+      check();
+      const quote = store.refundQuotes.get(personId);
+      if (quote === undefined || taken(quote.paymentId)) return null;
+      return {
+        paymentId: quote.paymentId,
+        endsAt: quote.endsAt,
+        paymentCredits: quote.paymentCredits,
+        unusedCredits: quote.unusedCredits,
+        refundCents: quote.refundCents,
+        lessonsAhead: quote.lessonsAhead,
+      };
+    },
+
+    // As billing_open_refund (0060), in its order.
+    async openRefund(personId) {
+      check();
+      if (
+        [...store.refunds.values()].some(
+          (refund) => refund.personId === personId && isOpen(refund.status),
+        )
+      ) {
+        throw new StoreRefusal("refund_requests_one_open", "one open");
+      }
+      const quote = store.refundQuotes.get(personId);
+      if (quote === undefined || taken(quote.paymentId)) {
+        throw new StoreRefusal("billing_refund_window", "no charge");
+      }
+      if (quote.lessonsAhead > 0) {
+        throw new StoreRefusal("billing_refund_lessons_ahead", "lesson");
+      }
+      if (quote.refundCents <= 0) {
+        throw new StoreRefusal("billing_refund_nothing", "nothing");
+      }
+      const refund: FakeRefund = {
+        id: `ref_${next++}`,
+        personId,
+        paymentId: quote.paymentId,
+        subscriptionId: quote.subscriptionId,
+        refundCents: quote.refundCents,
+        status: "requested",
+        asaasStatus: null,
+        error: null,
+        createdAt: new Date().toISOString(),
+      };
+      store.refunds.set(refund.id, refund);
+      return {
+        id: refund.id,
+        paymentId: refund.paymentId,
+        subscriptionId: refund.subscriptionId,
+        refundCents: refund.refundCents,
+      };
+    },
+
+    async refundSent(id, asaasStatus) {
+      check();
+      const refund = store.refunds.get(id);
+      if (refund === undefined) throw new Error(`no refund ${id}`);
+      if (refund.status === "requested") {
+        refund.status = "sent";
+        refund.asaasStatus = asaasStatus ?? refund.asaasStatus;
+      }
+      return refund.status;
+    },
+
+    async refundFailed(id, error) {
+      check();
+      const refund = store.refunds.get(id);
+      if (refund === undefined) throw new Error(`no refund ${id}`);
+      if (isOpen(refund.status)) {
+        refund.status = "failed";
+        refund.error = error;
+      }
+      return refund.status;
+    },
+
+    // As billing_refund_reading (0060).
+    async refundReading(paymentId, refunds) {
+      check();
+      const refund = [...store.refunds.values()].find(
+        (each) => each.paymentId === paymentId && isOpen(each.status),
+      );
+      if (refund === undefined) return null;
+      const statuses = refunds
+        .filter((each) => each.valueCents === refund.refundCents)
+        .map((each) => each.status);
+      if (statuses.includes("DONE")) {
+        refund.status = "done";
+        refund.asaasStatus = "DONE";
+      } else if (statuses.some((status) => status !== "CANCELLED")) {
+        refund.status = "sent";
+        refund.asaasStatus =
+          statuses.find((status) => status !== "CANCELLED") ?? null;
+      } else if (statuses.length > 0) {
+        refund.status = "failed";
+        refund.asaasStatus = "CANCELLED";
+        refund.error = "the provider canceled the refund";
+      }
+      return refund.status;
+    },
+
+    async openRefunds() {
+      check();
+      return [...store.refunds.values()]
+        .filter((refund) => isOpen(refund.status))
+        .map((refund) => ({
+          id: refund.id,
+          personId: refund.personId,
+          status: refund.status as "requested" | "sent",
+          createdAt: refund.createdAt,
+          paymentId: refund.paymentId,
+          asaasSubscriptionId:
+            store.rows.get(refund.subscriptionId)?.asaasSubscriptionId ?? null,
+        }));
+    },
   };
+
+  function isOpen(status: RefundStatus): boolean {
+    return status === "requested" || status === "sent";
+  }
+
+  /** A charge with a request that did not fail is out of the window. */
+  function taken(paymentId: string): boolean {
+    return [...store.refunds.values()].some(
+      (refund) => refund.paymentId === paymentId && refund.status !== "failed",
+    );
+  }
 
   function check(): void {
     if (store.failWith !== null) throw store.failWith;
