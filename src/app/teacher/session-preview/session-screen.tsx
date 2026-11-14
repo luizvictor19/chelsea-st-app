@@ -377,7 +377,13 @@ export function SessionScreen({
                   key={word.imageUrl}
                   src={word.imageUrl}
                   alt=""
-                  className="bg-surface aspect-square max-h-full min-h-0 w-full max-w-[min(20rem,80vw)] rounded-lg object-contain shadow-sm"
+                  // No frame of its own: width and height stay auto, so the
+                  // browser scales the picture by its own proportion inside
+                  // both limits, and the rounded box is the picture. A wide
+                  // one takes the column's width, a tall one the free height,
+                  // a square one the 20rem it had (#332). Nothing scales a
+                  // file above its own size; every uploaded one is larger.
+                  className="bg-surface max-h-[min(100%,20rem)] min-h-0 max-w-full rounded-lg object-contain shadow-sm"
                 />
                 <p
                   aria-live="polite"
