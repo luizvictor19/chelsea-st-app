@@ -4,9 +4,9 @@ import { useRef, useState } from "react";
 
 import type { ImageAttempt } from "@/lib/content/queries";
 import {
-  elapsedSeconds,
   generationSeconds,
   isRunning,
+  runningLabel,
 } from "@/lib/images/generation";
 
 import { attemptCredits, attemptOrigin, discardWarning } from "./panel-state";
@@ -40,7 +40,8 @@ export function AttemptList({
   readonly attempts: readonly ImageAttempt[];
   /** The word's term or the scene's description, for the alt text. */
   readonly label: string;
-  readonly now: number;
+  /** Null until the panel's clock first ticks (#358). */
+  readonly now: number | null;
   readonly working: boolean;
   readonly busyKey: string | null;
   readonly onApprove: (attemptId: string) => void;
@@ -159,7 +160,7 @@ export function AttemptList({
                     <span className="font-mono text-xs wrap-anywhere">
                       {STATUS_LABELS[attempt.status] ?? attempt.status}
                       {isRunning(attempt) &&
-                        `, ${elapsedSeconds(attempt.createdAt, now)}s`}
+                        runningLabel(attempt.createdAt, now)}
                       {origin !== null && ` · ${origin}`}
                       {took !== null && ` · ${took}s`}
                       {cost !== null && ` · ${cost}`}

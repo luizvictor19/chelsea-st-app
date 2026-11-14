@@ -135,6 +135,16 @@ export function elapsedSeconds(createdAt: string, now: number): number {
   return Math.max(0, Math.floor((now - started) / 1000));
 }
 
+/**
+ * The running attempt's ", Ns", or nothing before the panel's clock has
+ * ticked once. The first render happens on the server and again in the
+ * browser, on two clocks: a number there makes React discard the server's
+ * HTML (error #418, #358). Null is "no clock yet", the same on both sides.
+ */
+export function runningLabel(createdAt: string, now: number | null): string {
+  return now === null ? "" : `, ${elapsedSeconds(createdAt, now)}s`;
+}
+
 /** The parts of a finished attempt the duration is read from. */
 export type Finished = {
   readonly provider: string;

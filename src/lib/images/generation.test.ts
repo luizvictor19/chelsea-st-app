@@ -10,6 +10,7 @@ import {
   generationSeconds,
   hasExpired,
   isRunning,
+  runningLabel,
   runningAttempt,
   type Finished,
 } from "./generation.ts";
@@ -154,6 +155,22 @@ describe("elapsedSeconds", () => {
 
   test("an unreadable date counts as just started", () => {
     assert.equal(elapsedSeconds("not a date", STARTED), 0);
+  });
+});
+
+describe("runningLabel", () => {
+  test("with the clock, the seconds of the running attempt", () => {
+    assert.equal(runningLabel(attempt().createdAt, STARTED + 8_400), ", 8s");
+  });
+
+  /*
+   * The server and the browser read two different clocks, so a number in the
+   * first render makes React throw away the server's HTML (#418, #358). No
+   * clock yet, no number: both renders agree, and the seconds come with the
+   * first tick.
+   */
+  test("without the clock yet, nothing, so the first render is the server's", () => {
+    assert.equal(runningLabel(attempt().createdAt, null), "");
   });
 });
 

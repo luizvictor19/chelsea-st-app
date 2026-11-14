@@ -170,7 +170,10 @@ export function ScenePanel({
   const rowRunning = runningAttempt(shown);
   const running = tracked ?? rowRunning;
   const runningId = tracked?.attemptId ?? rowRunning?.id ?? null;
-  const [now, setNow] = useState(() => Date.now());
+  // Null on the first render, on the server and in the browser alike: a
+  // clock read there differs between the two and breaks hydration (#358).
+  // The ticking clock below gives the first value.
+  const [now, setNow] = useState<number | null>(null);
   const referenceInput = useRef<HTMLInputElement>(null);
   const finishedInput = useRef<HTMLInputElement>(null);
   const [usedSubject, setUsedSubject] = useState("");
