@@ -1,34 +1,74 @@
 # Robin: o tutor de voz
 
-Escrita em 12/11/2026 (#247), a partir de quatro fontes. Quando duas divergem, vale a mais recente:
+Escrita em 12/11/2026 (#247) e atualizada em 14/11/2026, a partir destas fontes. Quando duas
+divergem, vale a mais recente:
 
+- o ADR 0007 (13/11/2026) e as issues fechadas depois dele: #292, #275, #276 e #319;
 - o ADR 0006 (12/11/2026);
 - as notas de 11/11/2026 na #71, #248, #250 e #255;
 - o plano da #71 (07/11/2026);
 - a spec consolidada pelo Luiz em 06/11/2026, que fica fora do repositório porque tem preço e
   oferta.
 
-Este arquivo é só a parte técnica. Não traz preço, oferta, plano por nome nem nome de aluna. O
-schema é das migrations: onde este texto e uma migration divergirem, vale a migration.
+Este arquivo é só a parte técnica. Não traz preço, crédito por plano, oferta nem nome de aluna: os
+planos aparecem pelo nome e pelo que abrem, como no `docs/context.md`. O schema é das migrations:
+onde este texto e uma migration divergirem, vale a migration.
 
 Uma sub-issue que muda uma regra daqui atualiza este arquivo na mesma PR.
 
 ## O que o Robin é
 
 Uma sessão diária curta, por voz, que segue a trilha do livro ponto por ponto. A pessoa segura o
-botão para falar e solta para ouvir. Não existe conversa livre.
+botão para falar e solta para ouvir. Na trilha não existe conversa livre: ela é o nível 2.
 
-É o nível 1 do ADR 0006, a trilha. Não gasta crédito e é limitado por minutos por dia. A voz ao
-vivo (#277) e o vídeo (#278) são outros níveis, sobre o mesmo motor, e ficam fora da v1.
+**Os três níveis** do ADR 0006, sobre o mesmo motor. Só a trilha é v1.
+
+1. **A trilha** (v1): este documento. Não gasta crédito e é limitada pelos minutos por dia do plano
+   (ver "O teto diário").
+2. **A voz ao vivo** (#277): a dúvida por voz dentro da trilha, que pausa a pergunta e volta a ela, e
+   a conversa livre guiada pelo que a pessoa já viu e mais erra. Gasta créditos.
+3. **O vídeo** (#278): o motor da voz ao vivo com um avatar. Gasta créditos.
+
+A **dúvida por chat** dentro da trilha (#279) não gasta crédito em plano nenhum e pausa o relógio
+da trilha. Também fica fora da v1.
+
+**Quando o Robin chega.** O Plano Fundador lança primeiro e dá só aula com professor (#292): a
+trilha dele tem 0 minutos por dia, e as ferramentas do tutor aparecem com cadeado, que leva à troca
+de plano (#274). O Robin lança junto com os planos com IA (Essencial, Fluência e Imersão), não
+antes. O Plano Fundador Personalizado (#292), feito pelo admin da plataforma para uma pessoa, abre
+o que a linha dele diz, como qualquer plano.
+
+**Como a pessoa chega.** No Chelsea St, ela se cadastra direto (#275), entra com senha ou com o link
+por e-mail e assina pela Asaas (#72). Na GrifoAI não há cadastro direto: a empresa contrata fora do
+app, e o admin da plataforma cria a organização e convida (#205).
 
 **Um motor, duas marcas.** A sessão, as regras, o juiz, o conteúdo e a fila por pessoa são os
 mesmos nas duas marcas. Muda só a cara: Robin no Chelsea St e Grifo na GrifoAI (nome, mascote, cor e
-voz), tudo em `src/lib/brand.ts` (#217).
+voz).
+
+- A cara fica em `src/lib/brand.ts`. O nome do tutor por marca é a #217, ainda aberta: hoje o código
+  chama o tutor de Robin nas duas.
+- A arte do Robin está em `public/robin/` (parado e ouvindo, claro e escuro, e o vídeo do parado). A
+  do Grifo vai para `public/grifo/`; até lá, a GrifoAI mostra a arte do Robin.
+
+**De quem é cada parte** (ADR 0007):
+
+- O motor do tutor e as ferramentas dele (a sessão, o juiz, o reconhecimento de fala, a voz ao vivo
+  e o vídeo) são da GrifoAI, qualquer que seja a arte.
+- A arte do Robin é do Chelsea St, e a do Grifo, da GrifoAI. O Grifo é o tutor da GrifoAI (#217).
+- O conteúdo e a metodologia são do Chelsea St, e também o histórico da prática: `attempts`,
+  `review_schedule` e o progresso na trilha. Só a sessão do tutor (as vezes, o áudio, as notas do
+  juiz, #248) é da GrifoAI.
 
 **O Robin sempre conduz a trilha.** O modo revisor de 07/11, em que quem tinha aula ao vivo recebia
-um Robin limitado pelo último "Parei aqui", foi retirado em 11/11 (ADR 0006). Motivo: a aula com
-professor passou a ser reservada e paga com créditos (#276), e o professor segue a trilha. O
-`lesson_schedules` não muda o comportamento do tutor.
+um Robin limitado pelo último "Parei aqui", foi retirado em 11/11 (ADR 0006, #271), e o plano com
+acompanhamento da spec de 06/11 deixou de existir. A aula com professor é outra coisa:
+
+- A pessoa reserva um horário livre, ou um dos dois propõe e o outro aceita (#319).
+- Os créditos saem na reserva ou no aceite, pelo custo da aula do plano dela (#276, #292).
+- Cancelar até 1 h antes devolve os créditos (#276).
+- O professor segue a trilha, e a aula não muda o comportamento do tutor. A agenda fixa
+  (`lesson_schedules`) saiu na 0054.
 
 ## Regras
 
@@ -204,9 +244,14 @@ Toda tabela nova nomeia a organização e tem RLS na mesma migration.
 
 - **Aplicado no servidor:** no teto, o tutor termina a pergunta atual e para.
 - **É limite, não promessa.**
-- **O valor vem do plano** da pessoa (#274), lido pelo `daily-cap.ts`. Até o plano existir, o padrão
-  é 15 min (`DAILY_PRACTICE_MINUTES`).
-- **Na GrifoAI,** o plano é o da organização.
+- **O valor é uma coluna de cada plano:** `plans.trail_minutes_per_day` (0049, #72). Não há um
+  valor fixo para todos.
+- **0 é um plano sem trilha** (0058, #292): a pessoa vê o cadeado (#274) em vez da sessão. É o
+  Plano Fundador hoje.
+- **Hoje o código ainda não lê a coluna.** O `daily-cap.ts` guarda 15 min fixos
+  (`DAILY_PRACTICE_MINUTES`), que o `/team` usa para o tempo disponível no mês. A #250 troca a
+  constante pela coluna do plano, e a #274 mostra o cadeado.
+- **Na GrifoAI,** o plano é o da organização, por assento (ADR 0006).
 
 ## Nivelamento
 
@@ -232,7 +277,8 @@ Sai dos registros acima, sem tabela própria na v1:
 
 **Quem vê o quê:**
 
-- A pessoa e quem ensina veem tudo isso.
+- A pessoa e quem ensina veem tudo isso. Antes de uma aula reservada, o professor vê onde a pessoa
+  está na trilha e o que ela mais erra (#276, #255).
 - O admin da empresa vê só o que o `team_practice` mostra: dias e minutos, nunca o que foi dito
   (#198).
 - Robin e Grifo mudam só a marca do painel.
@@ -250,18 +296,23 @@ Cada um fica numa constante nomeada, num lugar só, marcada "provisório, ajusta
 
 ## As decisões de 06/11, hoje
 
-As 13 decisões do topo da spec consolidada de 06/11, com a situação em 12/11:
+As 13 decisões do topo da spec consolidada de 06/11, com a situação em 14/11:
 
 1. **Um motor só para as duas marcas,** Robin e Grifo. Valendo.
 2. **Nivelamento automático,** ao menos na organização sem professor. Valendo; no beta, à mão.
-3. **Avaliação 100% automática,** sem amostra ouvida pelo professor. Valendo.
-4. **Teto de 15 min nas duas marcas.** Mudou: o teto vem do plano (ADR 0006, #250), com 15 min como
-   padrão até o plano existir.
+3. **Avaliação 100% automática,** sem amostra semanal ouvida pelo professor. Valendo: ninguém ouve
+   amostra, e a escuta do Luiz é só das próprias sessões de teste (decisão 8).
+4. **Teto de 15 min nas duas marcas.** Mudou: o teto é a coluna `trail_minutes_per_day` de cada plano
+   (ADR 0006, #292, 0058), e 0 é um plano sem trilha. Os 15 min ficam só na constante do
+   `daily-cap.ts`, até a #250.
 5. **Sotaque britânico e americano,** com as diferenças de vocabulário. Valendo (#215).
 6. **Piloto definido pelo Luiz.** Em aberto, do Luiz.
 7. **Acertos que já valiam** (teste grátis, "escola" virou "organização", conteúdo só comum).
-   - O conteúdo comum e a "organização" valem.
-   - O teste grátis é termo comercial e fica fora do repositório (ADR 0006).
+   - "Organização" no lugar de "escola" (#199) e o conteúdo só comum, escrito só pelo admin da
+     plataforma (#211), valem.
+   - O teste grátis vale, com créditos (#201, #275). Os dias e os créditos do teste são colunas do
+     plano (`plans.trial_days`, `plans.trial_credits`), um teste por pessoa. Os números são termo
+     comercial e ficam fora do repositório (ADR 0006).
 8. **Precisão do juiz medida nas aulas de teste do Luiz,** com toda vez gravada com o áudio. Valendo
    (#256).
 9. **Variedade do inglês por pessoa,** com a lista do que falta na versão americana. Valendo (#215).
@@ -281,8 +332,9 @@ As 13 decisões do topo da spec consolidada de 06/11, com a situação em 12/11:
 ## Fora da v1
 
 - ditado;
-- conversa livre e voz ao vivo (#277);
-- vídeo (#278);
+- a dúvida por voz e a conversa livre, com voz ao vivo (#277);
+- o vídeo (#278);
+- a dúvida por chat (#279);
 - painel completo de quem ensina;
 - correção que cita o erro da pessoa com voz gerada na hora;
 - qualquer voz gerada na hora.
@@ -304,3 +356,7 @@ As 13 decisões do topo da spec consolidada de 06/11, com a situação em 12/11:
 | #215  | britânico ou americano                              |
 | #216  | as vozes                                            |
 | #217  | o Grifo                                             |
+| #274  | o cadeado do que o plano não abre                   |
+| #277  | a voz ao vivo (nível 2)                             |
+| #278  | o vídeo (nível 3)                                   |
+| #279  | a dúvida por chat                                   |
