@@ -11,12 +11,16 @@ import {
 } from "@/lib/billing/server";
 import { cronAuthorized } from "@/lib/cron-auth";
 import { runDaily } from "@/lib/credits/daily";
+import { creditsFailure } from "@/lib/monitoring/jobs";
+import { reportError } from "@/lib/monitoring/server";
 
 /**
  * The daily routine, called by Vercel Cron (vercel.json) with Authorization:
  * Bearer CRON_SECRET, as Vercel sends it. Anyone else gets a 401 and nothing
  * runs. First the credits' step (#273), everywhere, also before billing is
- * open; then the overdue steps (Q5 of the #72 plan), only where it is.
+ * open; then the overdue steps (Q5 of the #72 plan), only where it is. A
+ * failure of the credits also reaches the error log (#69): the report it
+ * answers with is read by nobody.
  */
 export async function GET(request: Request): Promise<Response> {
   if (
@@ -50,5 +54,7 @@ export async function GET(request: Request): Promise<Response> {
       : null,
     log,
   });
+  const failure = creditsFailure(report);
+  if (failure !== null) await reportError(failure);
   return Response.json(report);
 }

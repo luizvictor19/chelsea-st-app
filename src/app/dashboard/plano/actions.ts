@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 
 import { billingDay } from "@/lib/billing/dates";
 import { billingDeps, billingOpen } from "@/lib/billing/server";
@@ -13,6 +14,8 @@ import {
 import { siteOfBrand } from "@/lib/brand";
 import { redeemAnswer, type RedeemState } from "@/lib/founder-coupon";
 import { currentSite, siteConfig } from "@/lib/current-site";
+import { planFailure } from "@/lib/monitoring/jobs";
+import { reportError } from "@/lib/monitoring/server";
 import { createClient } from "@/lib/supabase/server";
 
 import { readPlanForSale, readPlanScreen } from "./queries";
@@ -80,6 +83,8 @@ export async function subscribe(
     });
   } catch (cause) {
     console.error(`subscribe ${user.id}: ${String(cause)}`);
+    // The error log (#69) gets the step, never who: no user.id there.
+    after(() => reportError(planFailure("subscribe", cause)));
     return { status: "error", message: TRY_AGAIN };
   }
   if (result.kind === "refused")
@@ -103,6 +108,8 @@ export async function showPix(): Promise<PixState> {
       : { status: "shown", ...pix };
   } catch (cause) {
     console.error(`pix ${user.id}: ${String(cause)}`);
+    // The error log (#69) gets the step, never who: no user.id there.
+    after(() => reportError(planFailure("pix", cause)));
     return { status: "none", message: TRY_AGAIN };
   }
 }
@@ -127,6 +134,8 @@ export async function cancel(
     await cancelSubscription(deps, current);
   } catch (cause) {
     console.error(`cancel ${user.id}: ${String(cause)}`);
+    // The error log (#69) gets the step, never who: no user.id there.
+    after(() => reportError(planFailure("cancel", cause)));
     return { status: "error", message: TRY_AGAIN };
   }
   revalidatePath("/dashboard/plano");
