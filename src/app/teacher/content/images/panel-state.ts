@@ -160,8 +160,26 @@ export function attemptCredits(attempt: {
 export function asksBeforeReclassifying(
   kind: string,
   imageUrl: string | null,
+  symbolText: string | null,
 ): boolean {
+  // A symbol's character goes with any other kind (0063, #370), and unlike
+  // a picture it is not kept anywhere: the one loss here with no way back.
+  if (kind !== "symbol" && symbolText !== null) return true;
   return !isDrawableKind(kind) && imageUrl !== null;
+}
+
+/**
+ * What the confirmation says before a symbol with its character moves to
+ * another kind. Only a symbol holds a character
+ * (vocabulary_items_symbol_text_only_symbol), so it comes off, and nothing
+ * keeps it: unlike a picture, there is no candidate to approve again.
+ */
+export function characterWarning(label: string, symbolText: string): string {
+  return (
+    `O caractere ${symbolText} sai desta palavra, porque só Símbolo tem ` +
+    `caractere, e ${label.toLowerCase()} não. Ele não fica guardado: se a ` +
+    "palavra voltar a ser Símbolo, é preciso escrever de novo."
+  );
 }
 
 /**
@@ -195,17 +213,42 @@ export function reclassifyWarning(label: string): string {
  * true things, in the plural. `labels` are the kinds the words are moving to,
  * one or more, since accepting suggestions can move each word to its own.
  */
-export function reclassifyWarningMany(labels: readonly string[]): string {
-  const kinds = [...new Set(labels.map((label) => label.toLowerCase()))];
-  const named =
-    kinds.length === 1
-      ? `${kinds[0]} não leva imagem`
-      : `${kinds.slice(0, -1).join(", ")} e ${kinds.at(-1)} não levam imagem`;
-  return (
-    `A imagem sai destas palavras, porque ${named}. ` +
-    "As imagens continuam na lista como candidatas, com os arquivos, e podem " +
-    "ser aprovadas de novo se você mudar o tipo outra vez."
-  );
+export function reclassifyWarningMany(
+  labels: readonly string[],
+  characters: readonly string[] = [],
+): string {
+  const parts: string[] = [];
+  if (labels.length > 0) {
+    const kinds = [...new Set(labels.map((label) => label.toLowerCase()))];
+    const named =
+      kinds.length === 1
+        ? `${kinds[0]} não leva imagem`
+        : `${kinds.slice(0, -1).join(", ")} e ${kinds.at(-1)} não levam imagem`;
+    parts.push(
+      `A imagem sai destas palavras, porque ${named}. ` +
+        "As imagens continuam na lista como candidatas, com os arquivos, e " +
+        "podem ser aprovadas de novo se você mudar o tipo outra vez.",
+    );
+  }
+  // 0063, #370: the character of a symbol is not kept anywhere.
+  if (characters.length > 0) {
+    parts.push(
+      `O caractere sai ${characters.length === 1 ? "da palavra" : "das palavras"} ` +
+        `${characters.join(", ")}, porque só Símbolo tem caractere. Ele não ` +
+        "fica guardado: se voltar a ser Símbolo, é preciso escrever de novo.",
+    );
+  }
+  return parts.join(" ");
+}
+
+/** The confirmation's title, by what the change takes off. */
+export function reclassifyTitleMany(
+  pictures: number,
+  characters: number,
+): string {
+  if (characters === 0) return "Tirar a imagem destas palavras?";
+  if (pictures === 0) return "Tirar o caractere destas palavras?";
+  return "Tirar a imagem e o caractere destas palavras?";
 }
 
 /**

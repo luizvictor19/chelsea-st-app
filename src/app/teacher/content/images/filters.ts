@@ -2,18 +2,15 @@ import type { Representation, WordClass } from "@/lib/content/queries";
 // Relative, with the extension: these are value imports, so they survive to
 // runtime, and filters.test.ts runs under node, which resolves neither the
 // @/ alias nor a missing extension.
-import { isDrawableKind } from "../../../../lib/images/style.ts";
+import {
+  situationOf,
+  type Situation,
+} from "../../../../lib/images/situation.ts";
 
 import { REPRESENTATIONS } from "./representation.ts";
 import { WORD_CLASS_LABELS } from "./word-class.ts";
 
-/**
- * Where a word stands, as one of four states that partition the vocabulary:
- * every word is in exactly one, so the four counts always add up to the
- * whole and a word can never hide between filters.
- */
-export type Situation =
-  "com-imagem" | "sem-imagem" | "nao-leva" | "sem-decidir";
+export { situationOf, type Situation };
 
 export const SITUATIONS = [
   { value: "com-imagem", label: "Com imagem" },
@@ -21,17 +18,6 @@ export const SITUATIONS = [
   { value: "nao-leva", label: "Não leva imagem" },
   { value: "sem-decidir", label: "Sem decidir" },
 ] as const satisfies readonly { value: Situation; label: string }[];
-
-export function situationOf(
-  representation: Representation | null,
-  imageUrl: string | null,
-): Situation {
-  if (representation === null) return "sem-decidir";
-  // none and symbol are decided and will never have a picture, which is not
-  // the same as waiting for one.
-  if (!isDrawableKind(representation)) return "nao-leva";
-  return imageUrl === null ? "sem-imagem" : "com-imagem";
-}
 
 /** The three axes, each filtering independently of the others. */
 export const FILTER_GROUPS = [
@@ -86,6 +72,7 @@ export function matchesSelection(
     readonly representation: Representation | null;
     readonly wordClass: WordClass | null;
     readonly imageUrl: string | null;
+    readonly symbolText: string | null;
   },
   selection: Selection,
 ): boolean {
@@ -95,7 +82,10 @@ export function matchesSelection(
   return (
     passes(selection.tipo, word.representation) &&
     passes(selection.classe, word.wordClass) &&
-    passes(selection.situacao, situationOf(word.representation, word.imageUrl))
+    passes(
+      selection.situacao,
+      situationOf(word.representation, word.imageUrl, word.symbolText),
+    )
   );
 }
 
@@ -114,22 +104,29 @@ export function toggled(
 
 /**
  * How many of a lesson's words have their picture, out of the ones that take
- * a picture at all.
+ * a picture at all. A symbol counts, and its character is its picture (0063,
+ * #370).
  *
- * The denominator is not the lesson. A word decided as none or symbol will
- * never have an image, and an undecided word might never take one, so
- * counting either would make a finished lesson read as unfinished forever.
+ * The denominator is not the lesson. A word of usage, metalanguage or none
+ * will never show anything, and an undecided word might never take a
+ * picture, so counting either would make a finished lesson read as
+ * unfinished forever.
  */
 export function imageCounts(
   words: readonly {
     readonly representation: Representation | null;
     readonly imageUrl: string | null;
+    readonly symbolText: string | null;
   }[],
 ): { withImage: number; takesImage: number } {
   let withImage = 0;
   let takesImage = 0;
   for (const word of words) {
-    const situation = situationOf(word.representation, word.imageUrl);
+    const situation = situationOf(
+      word.representation,
+      word.imageUrl,
+      word.symbolText,
+    );
     if (situation === "com-imagem" || situation === "sem-imagem") {
       takesImage += 1;
       if (situation === "com-imagem") withImage += 1;

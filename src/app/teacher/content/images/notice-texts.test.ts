@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import {
   IMAGE_STYLE_LABELS,
   classChanged,
+  symbolChanged,
   contrastSuggested,
   generationNotice,
   imageApproved,
@@ -49,6 +50,14 @@ describe("a notice about a word starts with its term", () => {
     assert.deepEqual(
       classChanged("apple", null),
       ok("apple: classe removida."),
+    );
+    assert.deepEqual(
+      symbolChanged("twelfth", "12th"),
+      ok("twelfth: caractere alterado para 12th."),
+    );
+    assert.deepEqual(
+      symbolChanged("twelfth", null),
+      ok("twelfth: caractere removido."),
     );
     assert.deepEqual(
       styleChanged("ceiling", "realistic"),

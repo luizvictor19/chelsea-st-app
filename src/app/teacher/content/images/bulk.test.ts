@@ -10,7 +10,7 @@ import {
   type BulkWord,
 } from "./bulk.ts";
 import { bulkError, bulkNotice, subjectsNotice } from "./notice-texts.ts";
-import { reclassifyWarningMany } from "./panel-state.ts";
+import { reclassifyTitleMany, reclassifyWarningMany } from "./panel-state.ts";
 
 function word(over: Partial<BulkWord> & { id: string }): BulkWord {
   return {
@@ -20,6 +20,7 @@ function word(over: Partial<BulkWord> & { id: string }): BulkWord {
     wordClass: null,
     imageStyle: "flat",
     imageUrl: null,
+    symbolText: null,
     imageSubject: null,
     inSet: false,
     ...over,
@@ -158,6 +159,44 @@ describe("losingPicture, the confirmation's list", () => {
         word({ id: "x", representation: "none", imageUrl: "https://x/x.png" }),
       ]),
       [],
+    );
+  });
+
+  test("a symbol with its character is asked about, by any other kind (0063)", () => {
+    const twelfth = word({
+      id: "twelfth",
+      representation: "symbol",
+      symbolText: "12th",
+    });
+    assert.deepEqual(
+      losingPicture({ kind: "representation", value: "photo" }, [twelfth]).map(
+        (item) => [item.word.term, item.kind],
+      ),
+      [["twelfth", "photo"]],
+    );
+    assert.deepEqual(
+      losingPicture({ kind: "representation", value: "symbol" }, [twelfth]),
+      [],
+    );
+  });
+
+  test("the warning and the title name the characters apart from the pictures", () => {
+    assert.equal(
+      reclassifyWarningMany([], ["twelfth"]),
+      "O caractere sai da palavra twelfth, porque só Símbolo tem caractere. Ele não fica guardado: se voltar a ser Símbolo, é preciso escrever de novo.",
+    );
+    assert.match(
+      reclassifyWarningMany(["Nada"], ["five", "six"]),
+      /^A imagem sai destas palavras, porque nada não leva imagem\..* O caractere sai das palavras five, six,/u,
+    );
+    assert.equal(reclassifyTitleMany(2, 0), "Tirar a imagem destas palavras?");
+    assert.equal(
+      reclassifyTitleMany(0, 1),
+      "Tirar o caractere destas palavras?",
+    );
+    assert.equal(
+      reclassifyTitleMany(1, 1),
+      "Tirar a imagem e o caractere destas palavras?",
     );
   });
 

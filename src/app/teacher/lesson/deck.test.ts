@@ -13,6 +13,7 @@ import {
   showAt,
   slidesAt,
   waitingFor,
+  wordFace,
   withQuestions,
   type DeckQuestion,
   type DeckWord,
@@ -28,6 +29,7 @@ const word = (term: string, pointNumber: number): DeckWord => ({
   createdAt: new Date(Date.UTC(2026, 8, 1, 0, 0, tick++)).toISOString(),
   representation: null,
   imageUrl: null,
+  symbolText: null,
 });
 
 const row = (set_id: string, vocabulary_item_id: string, position: number) => ({
@@ -402,5 +404,42 @@ describe("waitingFor", () => {
   test("shows the line from its level on", () => {
     assert.equal(waitingFor(3, 3, "text-muted"), "text-muted");
     assert.equal(waitingFor(2, 3, "text-muted"), "text-muted");
+  });
+});
+
+describe("wordFace (0063, #370)", () => {
+  const base = word("five", 5);
+
+  test("a symbol with its character shows the character", () => {
+    assert.deepEqual(
+      wordFace({ ...base, representation: "symbol", symbolText: "5" }),
+      { kind: "symbol", text: "5" },
+    );
+  });
+
+  test("a symbol without one shows the term, waiting", () => {
+    assert.deepEqual(wordFace({ ...base, representation: "symbol" }), {
+      kind: "term",
+      waiting: true,
+    });
+  });
+
+  test("a drawn word shows its picture, or waits for it", () => {
+    assert.deepEqual(
+      wordFace({ ...base, representation: "photo", imageUrl: "/p.png" }),
+      { kind: "picture", url: "/p.png" },
+    );
+    assert.deepEqual(wordFace({ ...base, representation: "photo" }), {
+      kind: "term",
+      waiting: true,
+    });
+  });
+
+  test("a word that shows nothing, or is undecided, is the term alone", () => {
+    assert.deepEqual(wordFace({ ...base, representation: "usage" }), {
+      kind: "term",
+      waiting: false,
+    });
+    assert.deepEqual(wordFace(base), { kind: "term", waiting: false });
   });
 });

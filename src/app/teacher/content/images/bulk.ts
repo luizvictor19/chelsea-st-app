@@ -82,12 +82,15 @@ export type BulkWord = BulkRow & {
   readonly term: string;
   /** The approved picture, or null. */
   readonly imageUrl: string | null;
+  /** A symbol's character (0063), or null. */
+  readonly symbolText: string | null;
   readonly imageSubject: string | null;
   readonly inSet: boolean;
 };
 
 /**
- * The words a change would take an approved picture off, in the order given,
+ * The words a change would take an approved picture or a symbol's character
+ * off (0063), in the order given,
  * for the one confirmation before it. The same test the panel asks for one
  * word, asksBeforeReclassifying, on the kind each word would get.
  */
@@ -99,7 +102,9 @@ export function losingPicture(
     const plan = planWrite(change, word);
     if (!("write" in plan) || plan.write.kind !== "representation") return [];
     const kind = plan.write.value;
-    return asksBeforeReclassifying(kind, word.imageUrl) ? [{ word, kind }] : [];
+    return asksBeforeReclassifying(kind, word.imageUrl, word.symbolText)
+      ? [{ word, kind }]
+      : [];
   });
 }
 

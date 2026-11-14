@@ -180,6 +180,7 @@ export default async function VocabularyImagesPage({
       wordClass: word.wordClass,
       imageStyle: word.imageStyle,
       imageUrl: word.imageUrl,
+      symbolText: word.symbolText,
       imageSubject: word.imageSubject,
       inSet: inASet.has(word.id),
     })),
@@ -428,6 +429,7 @@ export default async function VocabularyImagesPage({
                                   situation={situationOf(
                                     word.representation,
                                     word.imageUrl,
+                                    word.symbolText,
                                   )}
                                 />
                                 {/*

@@ -10,6 +10,7 @@ import type { Representation } from "@/lib/content/queries";
 
 // Relative, with the extension: a value import, and deck.test.ts runs under
 // node, which resolves neither the @/ alias nor a missing extension.
+import { situationOf } from "../../../lib/images/situation.ts";
 import { approvedPicture } from "../../../lib/questions/shown-word.ts";
 
 import type { ContrastRow } from "../content/images/contrast-sets";
@@ -28,7 +29,37 @@ export type DeckWord = {
   readonly createdAt: string;
   readonly representation: Representation | null;
   readonly imageUrl: string | null;
+  /**
+   * What a symbol shows in place of a picture (0063, #370), or null on any
+   * other kind and on a symbol still waiting for it.
+   */
+  readonly symbolText: string | null;
 };
+
+/**
+ * What a word's card shows above its term: its approved picture, its
+ * character when it is a symbol (0063, #370), or the term alone, which
+ * says when the word is still waiting for one of the two.
+ */
+export type WordFace =
+  | { readonly kind: "picture"; readonly url: string }
+  | { readonly kind: "symbol"; readonly text: string }
+  | { readonly kind: "term"; readonly waiting: boolean };
+
+export function wordFace(word: DeckWord): WordFace {
+  const situation = situationOf(
+    word.representation,
+    word.imageUrl,
+    word.symbolText,
+  );
+  if (situation === "com-imagem") {
+    if (word.representation === "symbol" && word.symbolText !== null) {
+      return { kind: "symbol", text: word.symbolText };
+    }
+    if (word.imageUrl !== null) return { kind: "picture", url: word.imageUrl };
+  }
+  return { kind: "term", waiting: situation === "sem-imagem" };
+}
 
 /** A published question as the screen needs it. */
 export type DeckQuestion = {

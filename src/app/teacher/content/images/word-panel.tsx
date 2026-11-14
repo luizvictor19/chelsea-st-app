@@ -37,6 +37,7 @@ import {
   setReference,
   setImageStyle,
   setRepresentation,
+  setSymbolText,
   setWordClass,
   saveSubject,
   startGeneration,
@@ -47,11 +48,14 @@ import {
 import { useArrivalScroll } from "./arrival-scroll";
 import { AttemptList } from "./attempt-list";
 import { BackToList } from "./back-to-list";
+import { SymbolField } from "./symbol-field";
+import { symbolTextOf } from "./symbol-text";
 import { rowId } from "./panel-into-view";
 import { NotAPicture, shrinkReference } from "./shrink-reference";
 import {
   attemptsToShow,
   asksBeforeReclassifying,
+  characterWarning,
   reclassifyWarning,
   settle,
   type LastAnswer,
@@ -64,6 +68,7 @@ import { WORD_CLASS_LABELS } from "./word-class";
 import {
   IMAGE_STYLE_LABELS,
   classChanged,
+  symbolChanged,
   imageApproved,
   imageDiscarded,
   kindChanged,
@@ -249,6 +254,22 @@ export function WordPanel({
     );
   }
 
+  /*
+   * The character of a symbol (0063). Outside run on purpose: run takes the
+   * panel's busy state and drops any click while it is held, and this save
+   * starts on the blur that the next click causes. The notice is the same
+   * either way, the failure always and the success with the term.
+   */
+  async function saveSymbol(text: string) {
+    const result = await settle(() => setSymbolText(word.id, text));
+    if (result.ok) {
+      tell(symbolChanged(word.term, symbolTextOf(text)));
+      return;
+    }
+    tell(wordFailed(word.term, result.error));
+    if ("cause" in result) console.error(result.cause);
+  }
+
   /**
    * Pressing a type: straight through, unless it would take an approved
    * picture off the word.
@@ -260,7 +281,7 @@ export function WordPanel({
    * column: a save that drops work without saying so.
    */
   function pressKind(kind: Representation) {
-    if (!asksBeforeReclassifying(kind, word.imageUrl)) {
+    if (!asksBeforeReclassifying(kind, word.imageUrl, word.symbolText)) {
       saveKind(kind);
       return;
     }
@@ -630,6 +651,14 @@ export function WordPanel({
           </div>
         )}
       </div>
+
+      {word.representation === "symbol" && (
+        <SymbolField
+          key={`${word.id}:${word.symbolText ?? ""}`}
+          saved={word.symbolText}
+          onSave={saveSymbol}
+        />
+      )}
 
       {/*
         Only the kinds an image is generated for. A symbol is the character,
@@ -1056,10 +1085,14 @@ export function WordPanel({
               id="reclassificar-titulo"
               className="text-base font-extrabold tracking-tight"
             >
-              Tirar a imagem desta palavra?
+              {word.symbolText === null
+                ? "Tirar a imagem desta palavra?"
+                : "Tirar o caractere desta palavra?"}
             </h2>
             <p className="text-muted text-sm">
-              {reclassifyWarning(labelFor(reclassifying))}
+              {word.symbolText === null
+                ? reclassifyWarning(labelFor(reclassifying))
+                : characterWarning(labelFor(reclassifying), word.symbolText)}
             </p>
             <div className="flex flex-wrap justify-end gap-2">
               <form method="dialog">

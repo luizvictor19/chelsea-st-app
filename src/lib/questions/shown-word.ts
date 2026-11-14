@@ -27,8 +27,10 @@ export type PicturedWord = LessonWord & {
 /**
  * The approved picture of a word, or null when it has none to show.
  *
- * The same reading as "com-imagem" on the images screen: a kind that is
- * drawn, and a picture on the word. vocabulary_items.image_path is the
+ * The picture half of "com-imagem" on the images screen: a kind that is
+ * drawn, and a picture on the word. Since 0063 a symbol is "com-imagem" by
+ * its character, which is not a picture and which a question does not show
+ * yet, so a symbol is never offered here (#371). vocabulary_items.image_path is the
  * approved picture and nothing else (vocabulary_items_approved_pair holds it
  * to the approved attempt). Measured on 2026-10-02: 69 of the 283 words have
  * one, and none of the 69 is of a kind that is not drawn, so today the kind

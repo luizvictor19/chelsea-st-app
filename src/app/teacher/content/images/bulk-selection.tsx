@@ -30,7 +30,11 @@ import {
   subjectsNotice,
   tell,
 } from "./notice-texts";
-import { reclassifyWarningMany, settle } from "./panel-state";
+import {
+  reclassifyTitleMany,
+  reclassifyWarningMany,
+  settle,
+} from "./panel-state";
 import { REPRESENTATIONS, labelFor } from "./representation";
 import { WORD_CLASS_LABELS } from "./word-class";
 
@@ -420,7 +424,12 @@ function BulkBar({
               id="reclassificar-varias-titulo"
               className="text-base font-extrabold tracking-tight"
             >
-              Tirar a imagem destas palavras?
+              {reclassifyTitleMany(
+                pending.losing.filter(({ word }) => word.symbolText === null)
+                  .length,
+                pending.losing.filter(({ word }) => word.symbolText !== null)
+                  .length,
+              )}
             </h2>
             <ul className="text-sm">
               {pending.losing.map(({ word, kind }) => (
@@ -435,7 +444,12 @@ function BulkBar({
             </ul>
             <p className="text-muted text-sm">
               {reclassifyWarningMany(
-                pending.losing.map(({ kind }) => labelFor(kind)),
+                pending.losing
+                  .filter(({ word }) => word.symbolText === null)
+                  .map(({ kind }) => labelFor(kind)),
+                pending.losing.flatMap(({ word }) =>
+                  word.symbolText === null ? [] : [word.term],
+                ),
               )}
             </p>
             <div className="flex flex-wrap justify-end gap-2">

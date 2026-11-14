@@ -307,7 +307,8 @@ Acrescentado em 19/09/2026. O critério geral é onde mora o sentido da palavra.
   preenchida, a mesma para todas; país e cidade são a silhueta do mapa. Estado de objeto também é
   Figura: `open` e `closed` estão decididos `figure` no banco (medido em 24/10/2026). Quando duas
   palavras se explicam juntas, o objeto é o mesmo nas duas: a mesma caixa em `box` e em `on`.
-- **Símbolo**: não gera imagem, a tela renderiza o caractere.
+- **Símbolo**: não gera imagem, a tela mostra o caractere no lugar dela (`5`, `12th`, `+`). O
+  caractere mora em `vocabulary_items.symbol_text` e o professor escreve no painel (migration 0063).
 - **Uso**: palavra funcional, sem nada para desenhar, mas com sentido que uma frase sobre o mundo
   mostra em uso (`a`, `the`, `or`, `this`, `yes`, `where`, `him`). Título sozinho (Mr, Mrs) entra
   aqui: "Mr Brown is a man." é a frase de que ele precisa.
@@ -413,6 +414,32 @@ alter type representation_kind add value if not exists 'pose' after 'action';
 Nada mais pode entrar nesse arquivo. `alter type ... add value` não permite usar o valor novo na
 mesma transação em que ele é acrescentado, então qualquer consulta, função ou índice que mencione
 `'pose'` tem de esperar uma migration posterior.
+
+## Migration 0063
+
+O caractere do Símbolo (#370). A regra acima existia desde 19/09, mas nenhuma coluna guardava o
+caractere: a ingestão do livro 1 foi em 07/09, o tipo `symbol` nasceu em 18/09 (0008) e as palavras
+foram decididas Símbolo depois, sobre o que já estava gravado.
+
+- `vocabulary_items.symbol_text`: o que a tela mostra no lugar da imagem. Só uma palavra Símbolo tem
+  (`vocabulary_items_symbol_text_only_symbol`), nunca em branco
+  (`vocabulary_items_symbol_text_not_blank`). Símbolo sem caractere é aceito: é a espera, como
+  palavra com desenho sem imagem.
+- `clear_word_representation` tira o caractere quando o tipo deixa de ser Símbolo, no mesmo
+  `update` que troca o tipo. Voltar para Símbolo pede o caractere de novo.
+  Por isso, trocar o tipo de uma palavra Símbolo com caractere pergunta antes, no painel e na
+  seleção em massa: ao contrário da imagem, o caractere não fica guardado como candidato.
+- O espaço em branco recusado inclui tabulação e espaço sem quebra (U+00A0) e os outros espaços
+  Unicode: o `[:space:]` do Postgres não conta o U+00A0 (medido em 14/11).
+- Numerada 0063, e não 0064 como no plano: entra em produção antes da #297, e o `db push` recusa
+  um número menor que o último aplicado. A #297 fica com a 0064.
+- A migration preencheu os 41 Símbolos do livro 1 (medidos em 14/11): `1` a `20`, as dezenas,
+  `100`, `1,000`, `1,000,000`, os ordinais `1st` a `20th`, `+`, `=` e `2 + 2 = 4`.
+- No painel de imagens, uma palavra Símbolo tem o campo **Caractere**, que salva ao sair do campo
+  ou com Enter. Símbolo sem caractere conta como "Sem imagem ainda" e entra no progresso; com ele,
+  conta como "Com imagem".
+- Na tela da aula, o cartão de uma palavra Símbolo mostra o caractere grande, com a palavra embaixo
+  no segundo nível, como uma imagem. Uma pergunta ainda não mostra palavra Símbolo: #371.
 
 ## Tela
 
