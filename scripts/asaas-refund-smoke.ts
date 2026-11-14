@@ -5,6 +5,11 @@
  * and it refuses a production key. It writes no database.
  *
  *   node scripts/asaas-refund-smoke.ts
+ *   node scripts/asaas-refund-smoke.ts --refund <payment id>
+ *
+ * With --refund it only asks for the partial refund of that charge and reads
+ * it back: a card partial refund goes only from the day after the charge on
+ * (measured on 14/11/2026), so a charge made one day is refunded the next.
  *
  * What it does, in order: a customer with a made-up CPF; a Pix subscription
  * whose first charge is due today, confirmed by the sandbox; a card charge
@@ -21,7 +26,7 @@ import { createAsaasProvider } from "../src/lib/billing/asaas.ts";
 import { billingDay } from "../src/lib/billing/dates.ts";
 import { REFUND_DESCRIPTION } from "../src/lib/billing/messages.ts";
 import { ProviderError } from "../src/lib/billing/provider.ts";
-import { loadAsaasEnv } from "./asaas-env.ts";
+import { loadAsaasEnv, option } from "./asaas-env.ts";
 
 const { config } = loadAsaasEnv();
 if (!config.sandbox) {
@@ -116,6 +121,16 @@ async function partialRefund(kind: string, paymentId: string): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, WAIT_MS));
     }
   }
+}
+
+const only = option("refund");
+if (only !== null) {
+  await partialRefund("given", only);
+  await step("given: the charge after the refund", () =>
+    provider.getPayment(only),
+  );
+  console.log(`\nWritten to ${out}`);
+  process.exit(0);
 }
 
 const cpf = madeUpCpf();
