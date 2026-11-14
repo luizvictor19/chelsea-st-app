@@ -21,13 +21,11 @@ import {
 type MyLessonItem = {
   readonly id: string;
   readonly label: string;
-  readonly teacher: string | null;
+  readonly teacher: string;
   readonly meetUrl: string | null;
   /** What her cancel would do now, said in the confirmation. */
   readonly refundNote: string;
   readonly started: boolean;
-  /** Booked by her; a lesson of the fixed agenda is the teacher's to move. */
-  readonly booked: boolean;
 };
 
 type Chosen = {
@@ -301,9 +299,7 @@ function MyLessonRow({
     <li className="flex flex-wrap items-center justify-between gap-3 p-4">
       <span className="flex flex-col">
         <span className="first-letter:uppercase">{lesson.label}</span>
-        {lesson.teacher === null ? null : (
-          <span className="text-muted text-sm">Com {lesson.teacher}</span>
-        )}
+        <span className="text-muted text-sm">Com {lesson.teacher}</span>
       </span>
       {lesson.started ? (
         lesson.meetUrl === null ? null : (
@@ -316,7 +312,7 @@ function MyLessonRow({
             Entrar na aula
           </a>
         )
-      ) : lesson.booked ? (
+      ) : (
         <button
           type="button"
           disabled={pending}
@@ -325,10 +321,6 @@ function MyLessonRow({
         >
           Cancelar
         </button>
-      ) : (
-        <span className="text-muted text-sm">
-          Para mudar esta aula, fale com o professor.
-        </span>
       )}
       <dialog ref={dialog} aria-labelledby={titleId} className={dialogClass}>
         <div className="flex flex-col gap-4">

@@ -27,7 +27,7 @@ type MyLesson = {
   readonly lesson_id: string;
   readonly scheduled_at: string;
   readonly duration_minutes: number;
-  readonly teacher_name: string | null;
+  readonly teacher_name: string;
   readonly meet_url: string | null;
   readonly credits_debited: number;
   readonly credits_refunded: boolean;
@@ -154,9 +154,6 @@ export default async function LessonsPage({
             meetUrl: lesson.meet_url,
             refundNote: refundNote(lesson, now, zone),
             started: start <= now,
-            // A lesson of the fixed agenda has no teacher: its student did
-            // not book it and does not cancel it (cancel_lesson, 0052).
-            booked: lesson.teacher_name !== null,
           };
         })}
         teachers={teachers.map((teacher) => ({
