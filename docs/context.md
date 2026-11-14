@@ -430,7 +430,7 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
   service role holds nothing on it. A number sent twice is two rows (history, nothing is
   overwritten); the latest send of each number is the view `leads_latest`, with no privilege for
   any API role. The number is stored with the 55 (`leads_whatsapp_br`).
-- The app's errors follow 0063 (#69): `app_errors`, one row per error per day (UTC) by a
+- The app's errors follow 0061 (#69): `app_errors`, one row per error per day (UTC) by a
   fingerprint the app computes (`src/lib/monitoring/fingerprint.ts`), a repeat only counting; what
   it holds was scrubbed by the app first (`scrub.ts`), and it holds no user, header, cookie, IP,
   body or query. Nobody reads or writes it through the API (RLS on, no policy, no privilege for
@@ -560,7 +560,7 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
   (#294), which calls only the three `calendar_*` functions of 0056, and by
   `src/lib/lessons/proposals/supabase-outbox.ts` (#319), which calls only the three
   `lesson_proposal_mail*` functions of 0057, and by `src/lib/monitoring/store.ts` (#69), which
-  calls only `app_error_record` of 0063. It passes every policy: never use it to read or
+  calls only `app_error_record` of 0061. It passes every policy: never use it to read or
   write a table directly; it holds no privilege on the billing tables or the ledger, only `execute`
   on their functions.
 - Asaas (#72, `docs/spec-pagamento.md`): `ASAAS_API_KEY` (the address follows its prefix; written

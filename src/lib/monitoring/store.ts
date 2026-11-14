@@ -1,5 +1,5 @@
 /**
- * app_error_record of 0063, called with the service role (#69). Server only:
+ * app_error_record of 0061, called with the service role (#69). Server only:
  * the client holds the key that passes every policy, and this file names no
  * table, only the function.
  */

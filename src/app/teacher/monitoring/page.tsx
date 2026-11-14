@@ -17,7 +17,7 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 /**
- * The error log of the last 30 days (#69, 0063), for the platform admin
+ * The error log of the last 30 days (#69, 0061), for the platform admin
  * alone: app_errors_recent gives nobody else a row. What is here was
  * scrubbed before it was stored. The two buttons make one test error each.
  */
