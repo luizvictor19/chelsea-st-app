@@ -4,6 +4,7 @@ import { requireTeacher } from "@/lib/content/queries";
 
 import type { AgendaLesson, CancelRights } from "./agenda";
 import { progressOf, type Mark, type Progress } from "./progress";
+import { taught } from "./taught";
 
 type Supabase = Awaited<ReturnType<typeof requireTeacher>>["supabase"];
 
@@ -138,7 +139,10 @@ export async function readMarks(
   );
 }
 
-/** Every active student the reader teaches, by name. RLS decides which. */
+/**
+ * Every active student the reader teaches, by name: RLS decides which rows,
+ * and only those of an organization with a teacher stay (#362).
+ */
 export async function listStudents(
   supabase: Supabase,
   now: Date,
@@ -146,14 +150,14 @@ export async function listStudents(
   const [students, upcoming, marks] = await Promise.all([
     supabase
       .from("students")
-      .select("id, profiles!inner(full_name)")
+      .select("id, profiles!inner(full_name), organizations!inner(has_teacher)")
       .eq("is_active", true),
     readUpcoming(supabase, now, null),
     readMarks(supabase),
   ]);
   if (students.error) throw new Error(students.error.message);
 
-  return students.data
+  return taught(students.data)
     .map((student) => {
       const own = upcoming.filter((row) => row.studentId === student.id);
       return {
@@ -180,14 +184,17 @@ export async function readAgenda(
   const [student, upcoming, marks] = await Promise.all([
     supabase
       .from("students")
-      .select("id, profiles!inner(full_name)")
+      .select("id, profiles!inner(full_name), organizations!inner(has_teacher)")
       .eq("id", studentId)
       .maybeSingle(),
     readUpcoming(supabase, now, studentId),
     readMarks(supabase, [studentId]),
   ]);
   if (student.error) throw new Error(student.error.message);
-  if (student.data === null) notFound();
+  // An employee's row is no student's agenda (#362).
+  if (student.data === null || taught([student.data]).length === 0) {
+    notFound();
+  }
 
   return {
     id: student.data.id,
