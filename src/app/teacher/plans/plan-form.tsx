@@ -232,7 +232,7 @@ export function PlanForm({ plan }: { readonly plan: PlanFields }) {
         <button
           type="submit"
           disabled={isPending}
-          className="bg-accent text-on-accent rounded-sm px-4 py-2 font-semibold disabled:opacity-60"
+          className="bg-accent text-accent-foreground rounded-sm px-4 py-2 font-semibold disabled:opacity-60"
         >
           {isPending
             ? "Salvando…"

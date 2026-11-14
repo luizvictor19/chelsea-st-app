@@ -135,7 +135,7 @@ export function SubscriptionCard({
                 <button
                   type="submit"
                   disabled={cancelPending}
-                  className="bg-accent text-on-accent rounded-sm px-4 py-2 text-sm font-semibold"
+                  className="bg-accent text-accent-foreground rounded-sm px-4 py-2 text-sm font-semibold"
                 >
                   {cancelPending ? "Cancelando…" : "Sim, cancelar a assinatura"}
                 </button>

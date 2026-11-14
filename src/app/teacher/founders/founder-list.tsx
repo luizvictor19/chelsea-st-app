@@ -67,7 +67,7 @@ function FounderRow({ founder }: { readonly founder: Founder }) {
             <button
               type="submit"
               disabled={isPending}
-              className="bg-accent text-on-accent rounded-sm px-4 py-2 font-semibold disabled:opacity-60"
+              className="bg-accent text-accent-foreground rounded-sm px-4 py-2 font-semibold disabled:opacity-60"
             >
               {isPending ? "Tirando…" : "Sim, tirar o selo"}
             </button>

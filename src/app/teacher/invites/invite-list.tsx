@@ -208,7 +208,7 @@ function PersonalPlanRow({ plan }: { readonly plan: WaitingPersonalPlan }) {
                 setConfirming(false);
                 run(endPersonalPlan);
               }}
-              className="bg-accent text-on-accent rounded-sm px-3 py-1.5 font-semibold disabled:opacity-60"
+              className="bg-accent text-accent-foreground rounded-sm px-3 py-1.5 font-semibold disabled:opacity-60"
             >
               Sim, tirar de venda
             </button>

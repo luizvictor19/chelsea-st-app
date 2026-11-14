@@ -144,7 +144,7 @@ export function SubscribeForm({
       <button
         type="submit"
         disabled={isPending}
-        className="bg-accent text-on-accent rounded-sm px-5 py-3 font-semibold disabled:opacity-60"
+        className="bg-accent text-accent-foreground rounded-sm px-5 py-3 font-semibold disabled:opacity-60"
       >
         {isPending ? "Enviando…" : "Assinar"}
       </button>

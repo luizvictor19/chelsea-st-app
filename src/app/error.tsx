@@ -37,7 +37,7 @@ export default function ErrorPage({
       <button
         type="button"
         onClick={() => retry()}
-        className="bg-accent text-on-accent self-start rounded-sm px-4 py-2 font-semibold"
+        className="bg-accent text-accent-foreground self-start rounded-sm px-4 py-2 font-semibold"
       >
         Tentar de novo
       </button>
