@@ -11,13 +11,8 @@
  */
 
 import { JudgeError, judgeErrorFrom } from "./errors.ts";
-import { parseJudgement } from "./parse.ts";
-import {
-  JUDGE_SYSTEM,
-  JUDGEMENT_TOOL,
-  JUDGEMENT_TOOL_DEFINITION,
-  judgeUserText,
-} from "./prompt.ts";
+import { parseJudgement, parseTranslationJudgement } from "./parse.ts";
+import { JUDGEMENT_TOOL, judgeUserText, promptFor } from "./prompt.ts";
 import type {
   AnswerJudge,
   JudgeModelId,
@@ -113,8 +108,12 @@ export function createOpenAiAudioJudge(
       contentType,
       question,
       expected,
+      answerLanguage,
     }): Promise<JudgeResult> {
       const format = audioFormat(contentType);
+      const { system, tool } = promptFor(answerLanguage);
+      const parse =
+        answerLanguage === "pt" ? parseTranslationJudgement : parseJudgement;
       const started = performance.now();
       // Every way this fails is a JudgeError whose message carries no text
       // from the provider: see errors.ts.
@@ -131,13 +130,13 @@ export function createOpenAiAudioJudge(
             model,
             modalities: ["text"],
             temperature: TEMPERATURE,
-            tools: [JUDGEMENT_TOOL_DEFINITION],
+            tools: [tool],
             tool_choice: {
               type: "function",
               function: { name: JUDGEMENT_TOOL },
             },
             messages: [
-              { role: "system", content: JUDGE_SYSTEM },
+              { role: "system", content: system },
               {
                 role: "user",
                 content: [
@@ -175,7 +174,7 @@ export function createOpenAiAudioJudge(
       }
       let judgement;
       try {
-        judgement = parseJudgement(raw);
+        judgement = parse(raw);
       } catch (cause) {
         // The raw answer goes with the error: it was paid for, and it is the
         // only way to see what the model got wrong. In detail, never in the

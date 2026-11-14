@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import {
   DIFFERENCE_KINDS,
   NO_ENGLISH_REASONS,
+  type AnswerLanguage,
   type Judgement,
 } from "./provider.ts";
 
@@ -105,13 +106,84 @@ export function judgeUserText(
 }
 
 /**
+ * The translation question (`answer_language = 'pt'`): the person hears an
+ * English sentence and says it in Portuguese. Its own wording and its own
+ * tool, so the English ones stay byte for byte what was measured on
+ * 2026-09-25 (prompt.test.ts holds their fingerprint).
+ *
+ * The difference from English is the reason there is no answer. There is no
+ * "other language" here: an answer in English is the wrong answer to a
+ * translation question, compared with the Portuguese like any other answer,
+ * never "In English, please". So the tool has `speech` and a reason that is
+ * only silence or noise.
+ *
+ * Not measured yet. Six cases (t01 to t06 in scripts/stt-cases.json) are
+ * the sanity check before the tutor asks a translation question (#249).
+ */
+export const TRANSLATION_SPEECH_REASONS = ["silence", "noise"] as const;
+
+export const TRANSLATION_TOOL_DEFINITION = {
+  type: "function",
+  function: {
+    name: JUDGEMENT_TOOL,
+    description: "Report the judgement.",
+    strict: true,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["heard", "speech", "noSpeechReason", "matches", "differences"],
+      properties: {
+        heard: { type: "string" },
+        speech: { type: "boolean" },
+        noSpeechReason: {
+          anyOf: [
+            { type: "string", enum: [...TRANSLATION_SPEECH_REASONS] },
+            { type: "null" },
+          ],
+        },
+        matches: { type: "boolean" },
+        differences:
+          JUDGEMENT_TOOL_DEFINITION.function.parameters.properties.differences,
+      },
+    },
+  },
+} as const;
+
+export const TRANSLATION_SYSTEM = [
+  "The student heard an English sentence and translated it into Portuguese, aloud. Compare the spoken answer (the audio) with the expected Portuguese answer.",
+  "heard: exactly what the student said, in the language it was said. Never correct grammar, fill in words or fix endings. The expected answer is only for comparison, never for deciding what you heard.",
+  "differences: every word that differs, however small: a missing article, a changed ending or gender, a word said in English, a repeated word. Ignore punctuation and capital letters. Never list a word said as expected. missing: expected word, said null. extra: said word, expected null. replaced: both.",
+  "matches: true only if differences is empty.",
+  "An answer in English is not a translation: compare it with the expected Portuguese answer like any other answer, and speech is true.",
+  "speech is false only when there is no answer at all (silence, noise); then give noSpeechReason, otherwise null.",
+].join("\n");
+
+/** What the model is told for a question, by the language of its answer. */
+export function promptFor(language: AnswerLanguage): {
+  readonly system: string;
+  readonly tool:
+    typeof JUDGEMENT_TOOL_DEFINITION | typeof TRANSLATION_TOOL_DEFINITION;
+} {
+  return language === "pt"
+    ? { system: TRANSLATION_SYSTEM, tool: TRANSLATION_TOOL_DEFINITION }
+    : { system: JUDGE_SYSTEM, tool: JUDGEMENT_TOOL_DEFINITION };
+}
+
+/**
  * Identifies the prompt and schema a result was produced with. A result
  * judged under another wording is a different measurement, so the key of a
  * results line carries this, and the report reads one prompt at a time.
+ *
+ * English hashes exactly what it hashed before translation existed, so the
+ * lines of 2026-09-25 keep their fingerprint.
  */
-export function promptFingerprint(): string {
+export function promptFingerprint(language: AnswerLanguage = "en"): string {
+  const wording =
+    language === "pt"
+      ? { TRANSLATION_SYSTEM, TRANSLATION_TOOL_DEFINITION }
+      : { JUDGE_SYSTEM, JUDGEMENT_TOOL_DEFINITION };
   return createHash("sha256")
-    .update(JSON.stringify({ JUDGE_SYSTEM, JUDGEMENT_TOOL_DEFINITION }))
+    .update(JSON.stringify(wording))
     .digest("hex")
     .slice(0, 12);
 }

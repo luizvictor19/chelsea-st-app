@@ -193,6 +193,7 @@ for (const each of cases) {
           contentType: "audio/wav",
           question: each.question,
           expected: each.expected,
+          answerLanguage: "en",
         });
         line = {
           ...base,

@@ -87,6 +87,53 @@ export function parseJudgement(argumentsJson: string): Judgement {
   };
 }
 
+const TRANSLATION_REASONS: readonly NoEnglishReason[] = ["silence", "noise"];
+
+/**
+ * The judgement of a translation question (TRANSLATION_TOOL_DEFINITION),
+ * read into the shared Judgement: `speech` becomes `englishSpeech` and
+ * `noSpeechReason` becomes `noEnglishReason`, which here is only silence or
+ * noise. Same checks, same refusal to repair.
+ */
+export function parseTranslationJudgement(argumentsJson: string): Judgement {
+  let value: unknown;
+  try {
+    value = JSON.parse(argumentsJson);
+  } catch {
+    throw new Error("Judgement is not JSON");
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Judgement is not an object");
+  }
+  const { heard, speech, noSpeechReason, matches, differences } =
+    value as Record<string, unknown>;
+
+  if (typeof heard !== "string") throw new Error("heard must be text");
+  if (typeof speech !== "boolean") {
+    throw new Error("speech must be true or false");
+  }
+  if (
+    noSpeechReason !== null &&
+    !TRANSLATION_REASONS.some((reason) => reason === noSpeechReason)
+  ) {
+    throw new Error(`unknown noSpeechReason ${String(noSpeechReason)}`);
+  }
+  if (typeof matches !== "boolean") {
+    throw new Error("matches must be true or false");
+  }
+  if (!Array.isArray(differences)) {
+    throw new Error("differences must be a list");
+  }
+
+  return {
+    heard,
+    englishSpeech: speech,
+    noEnglishReason: noSpeechReason as NoEnglishReason | null,
+    matches,
+    differences: differences.map(parseDifference),
+  };
+}
+
 /**
  * Why this difference is not one, or null when it is well formed. Each kind
  * has one shape: missing names the expected word and nothing said, extra the

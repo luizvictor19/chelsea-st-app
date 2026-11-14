@@ -46,6 +46,7 @@ async function failure(): Promise<JudgeError> {
       contentType: "audio/wav",
       question: "Is this a pen?",
       expected: "Yes, it's a pen.",
+      answerLanguage: "en",
     });
   } catch (cause) {
     assert.ok(cause instanceof JudgeError, `not a JudgeError: ${cause}`);

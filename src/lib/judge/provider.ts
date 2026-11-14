@@ -33,13 +33,37 @@ export const NO_ENGLISH_REASONS = [
 ] as const;
 export type NoEnglishReason = (typeof NO_ENGLISH_REASONS)[number];
 
-/** What the model answered, read and checked, nothing inferred. */
+/**
+ * The language of the expected answer, as `questions.answer_language` says:
+ * English, or Portuguese for a translation question, where the person
+ * translates and an English answer is a wrong answer, not "In English,
+ * please" (docs/spec-robin.md, "A pergunta de tradução").
+ */
+export const ANSWER_LANGUAGES = ["en", "pt"] as const;
+export type AnswerLanguage = (typeof ANSWER_LANGUAGES)[number];
+
+export function isAnswerLanguage(value: unknown): value is AnswerLanguage {
+  return ANSWER_LANGUAGES.some((language) => language === value);
+}
+
+/**
+ * What the model answered, read and checked, nothing inferred.
+ *
+ * The names are the English question's, whose tool they come from byte for
+ * byte (its fingerprint is the measurement of 2026-09-25). A translation
+ * question's tool says `speech` and `noSpeechReason` instead, and its answer
+ * is read into the same fields: `englishSpeech` is then "there was an answer
+ * at all", and `noEnglishReason` is never "other_language".
+ */
 export type Judgement = {
   /** What the student said, literally, mistakes and all. */
   readonly heard: string;
-  /** False for silence, noise, or speech in another language only. */
+  /**
+   * False for silence, noise, or speech in another language only. For a
+   * translation question: false for silence or noise only.
+   */
   readonly englishSpeech: boolean;
-  /** Why there was no English speech; null when there was. */
+  /** Why there was no answer to judge; null when there was. */
   readonly noEnglishReason: NoEnglishReason | null;
   /** Whether what was said matches the expected answer. */
   readonly matches: boolean;
@@ -71,6 +95,8 @@ export interface AnswerJudge {
     question: string;
     /** Null when no English answer is expected at all. */
     expected: string | null;
+    /** Which prompt and tool judge it: see ANSWER_LANGUAGES. */
+    answerLanguage: AnswerLanguage;
   }): Promise<JudgeResult>;
 }
 
