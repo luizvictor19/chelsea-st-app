@@ -104,9 +104,11 @@ function readSidecar(id: string): Sidecar {
   }
 }
 
+// The transcribers are measured on English: the translation cases (#249)
+// are the judge's alone.
 const cases = parseCases(
   JSON.parse(readFileSync(join(ROOT, "scripts", "stt-cases.json"), "utf8")),
-);
+).filter((each) => each.answerLanguage === "en");
 const onlyCases = option("cases")?.split(",") ?? null;
 const providerIds =
   option("providers")?.split(",") ?? Object.keys(TRANSCRIBERS);

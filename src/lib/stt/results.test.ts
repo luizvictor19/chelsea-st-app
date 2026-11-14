@@ -75,6 +75,51 @@ describe("parseCases", () => {
     );
   });
 
+  test("a case without a language answers in English", () => {
+    const [one] = parseCases([{ id: "c01", category: "correct", ...base }]);
+    assert.equal(one.answerLanguage, "en");
+  });
+
+  test("a translation case answers in Portuguese", () => {
+    const translation = {
+      id: "t01",
+      category: "translation",
+      question: "Translate: It's a pen.",
+      spoken: "É uma caneta.",
+      expected: "É uma caneta.",
+    };
+    assert.equal(
+      parseCases([{ ...translation, answerLanguage: "pt" }])[0].answerLanguage,
+      "pt",
+    );
+    assert.throws(() => parseCases([translation]), /answers in pt/);
+    assert.throws(
+      () =>
+        parseCases([{ ...translation, answerLanguage: "pt", expected: null }]),
+      /expects a sentence/,
+    );
+  });
+
+  test("only a translation case answers in Portuguese", () => {
+    assert.throws(
+      () =>
+        parseCases([
+          { id: "c01", category: "correct", answerLanguage: "pt", ...base },
+        ]),
+      /only a translation case/,
+    );
+  });
+
+  test("an unknown language is refused", () => {
+    assert.throws(
+      () =>
+        parseCases([
+          { id: "c01", category: "correct", answerLanguage: "es", ...base },
+        ]),
+      /answerLanguage must be en or pt/,
+    );
+  });
+
   test("a duplicate id is refused", () => {
     const one = { id: "c01", category: "correct", ...base };
     assert.throws(() => parseCases([one, one]), /duplicate id c01/);

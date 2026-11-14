@@ -11,6 +11,11 @@
  *   node scripts/report-judge.ts
  *   node scripts/report-judge.ts --file fixtures/stt/judge-results/2026-09-25.jsonl
  *   node scripts/report-judge.ts --prompt legacy
+ *
+ * The translation cases (t01 to t06, #249) are read under the current
+ * translation prompt, whatever --prompt says, and counted apart: six cases
+ * are a sanity check before the tutor asks a translation question, not a
+ * measure of accuracy.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -35,7 +40,11 @@ import {
   substantiveDifferences,
 } from "../src/lib/judge/score.ts";
 import { parseCases, type SttCase } from "../src/lib/stt/cases.ts";
-import { errorPreserved, matchesSpoken } from "../src/lib/stt/score.ts";
+import {
+  errorPreserved,
+  matchesSpoken,
+  normalize,
+} from "../src/lib/stt/score.ts";
 
 const args = process.argv.slice(2);
 function option(name: string): string | null {
@@ -84,7 +93,8 @@ for (const each of cases) {
 }
 
 const { lines: all, unreadable } = parseJudgeLines(readFileSync(path, "utf8"));
-const prompt = option("prompt") ?? promptFingerprint();
+const prompt = option("prompt") ?? promptFingerprint("en");
+const translationPrompt = promptFingerprint("pt");
 let stale = 0;
 let otherPrompt = 0;
 const chosen = new Map<string, JudgeLine>();
@@ -94,7 +104,11 @@ for (const line of all) {
     stale++;
     continue;
   }
-  if ((line.prompt ?? LEGACY_PROMPT) !== prompt) {
+  const wanted =
+    caseById.get(line.caseId)?.answerLanguage === "pt"
+      ? translationPrompt
+      : prompt;
+  if ((line.prompt ?? LEGACY_PROMPT) !== wanted) {
     otherPrompt++;
     continue;
   }
@@ -162,7 +176,7 @@ function header(title: string): void {
 // ---------- report ----------
 
 console.log(`Arquivo: ${path}`);
-console.log(`Prompt: ${prompt}`);
+console.log(`Prompt: ${prompt} (tradução: ${translationPrompt})`);
 console.log(
   `${chosen.size} chamada(s) consideradas, ${stale} de gravações substituídas ignoradas, ${otherPrompt} de outro prompt ignoradas, ${unreadable} linha(s) ilegíveis.`,
 );
@@ -172,8 +186,9 @@ console.log(
 
 for (const model of JUDGE_MODELS) {
   const provider = model.id;
-  const every = linesFor(provider, () => true);
-  if (every.length === 0) {
+  const every = linesFor(provider, (c) => c.answerLanguage === "en");
+  const translated = linesFor(provider, (c) => c.answerLanguage === "pt");
+  if (every.length === 0 && translated.length === 0) {
     console.log(`\n=== ${model.label}: sem resultados`);
     continue;
   }
@@ -416,6 +431,39 @@ for (const model of JUDGE_MODELS) {
   if (costs.length < ok.length) {
     console.log(
       `    ${ok.length - costs.length} resposta(s) sem uso de tokens, fora da conta`,
+    );
+  }
+
+  // Tradução, à parte.
+  header(
+    `Tradução (resposta em português, prompt ${translationPrompt}) · conferência de sanidade, não medida de acerto`,
+  );
+  const translations = answered(translated);
+  if (translations.length === 0) {
+    console.log("    sem resultados");
+  }
+  let ptAcceptedWrong = 0;
+  let ptRefusedRight = 0;
+  let ptUnsure = 0;
+  for (const { each, line, judgement } of translations) {
+    const right = normalize(each.spoken) === normalize(each.expected ?? "");
+    const verdict = recountedVerdict(judgement);
+    if (verdict === "uncertain") ptUnsure++;
+    else if (right && verdict === "mismatch") ptRefusedRight++;
+    else if (!right && verdict === "match") ptAcceptedWrong++;
+    const mark =
+      verdict === "uncertain"
+        ? "incerto"
+        : right === (verdict === "match")
+          ? "certo  "
+          : "ERRADO ";
+    console.log(
+      `    ${mark}  ${tag(each, line)}  ${right ? "tradução certa" : "tradução errada"}  veredito ${verdictOf(judgement)}  ouviu "${judgement.heard}"  ·  ${substantiveText(judgement)}`,
+    );
+  }
+  if (translations.length > 0) {
+    console.log(
+      `    aceitou errado: ${ptAcceptedWrong}  ·  recusou certo: ${ptRefusedRight}  ·  incerto: ${ptUnsure}  (de ${translations.length})`,
     );
   }
 }

@@ -140,7 +140,9 @@ export function correctSpoken(
  * What a case expects, for the categories where it follows from the case:
  * the sentence as said when it was right, the corrected sentence when it had
  * a mistake. Null for the categories whose expectation is a judgement about
- * the recording (silence, noise, Portuguese), which live in the file by hand.
+ * the recording (silence, noise, Portuguese), which live in the file by hand,
+ * and for a translation, whose expectation is the right Portuguese whatever
+ * was said.
  */
 export function derivedExpected(each: {
   category: string;

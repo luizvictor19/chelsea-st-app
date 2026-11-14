@@ -117,8 +117,9 @@ describe("derivedExpected", () => {
 
 /*
  * The file against the rule: every case whose expectation follows from it
- * holds exactly what the rule builds, and the five set by hand hold what Luiz
- * decided on 2026-09-25.
+ * holds exactly what the rule builds, the five set by hand hold what Luiz
+ * decided on 2026-09-25, and the six translation cases (#249) hold the
+ * Portuguese a right translation says, whatever the case has spoken.
  */
 describe("scripts/stt-cases.json expected", () => {
   const cases = parseCases(
@@ -136,6 +137,12 @@ describe("scripts/stt-cases.json expected", () => {
     s03: "It's a pen.",
     m01: "It's a chair.",
     m02: null,
+    t01: "O livro está na mesa.",
+    t02: "É uma caneta.",
+    t03: "A cadeira é marrom.",
+    t04: "O lápis é comprido.",
+    t05: "A Anna está sentada.",
+    t06: "É uma mesa.",
   };
 
   for (const each of cases) {
@@ -146,7 +153,7 @@ describe("scripts/stt-cases.json expected", () => {
     });
   }
 
-  test("only the five by hand are outside the rule", () => {
+  test("only the cases by hand are outside the rule", () => {
     const outside = cases
       .filter((each) => derivedExpected(each) === null)
       .map((each) => each.id)

@@ -22,6 +22,7 @@ const CATEGORY_LABELS: Record<SttCategory, string> = {
   hesitation: "Hesitação",
   mixed_portuguese: "Mistura com português",
   silence_noise: "Silêncio e ruído",
+  translation: "Tradução (resposta em português)",
 };
 
 /**
