@@ -9,6 +9,18 @@ import {
   isBadgeSource,
 } from "@/lib/badges";
 
+import { siteOfBrand } from "@/lib/brand";
+import { siteConfig } from "@/lib/current-site";
+import { founderSignupLink } from "@/lib/founder-invite-mail";
+
+import { FounderInviteForm } from "../invites/founder-invite-form";
+import { HowItWorks } from "../invites/how-it-works";
+import {
+  readOpenFounderInvites,
+  readWaitingPersonalPlans,
+} from "../invites/invitable";
+import { InviteList } from "../invites/invite-list";
+import { PersonalPlanForm } from "../invites/personal-plan-form";
 import { Coupons, type CouponRow } from "./coupons";
 import { FounderList, type Founder } from "./founder-list";
 import { RepairGrant } from "./repair-grant";
@@ -22,34 +34,48 @@ export const metadata: Metadata = {
  * The founders (#292, 0058), for the platform admin alone: the seats, the
  * coupons (#296, 0059), who holds a live Founder seal, the seal given by hand
  * as a repair, and the seal taken back. The seal comes normally by a coupon
- * or a founder invite (/teacher/invites). Every write goes through the
+ * or a founder invite (this page, since #366). Every write goes through the
  * admin's own client: founder_program's policies, create_founder_coupon,
  * founder_coupons_update, grant_badge and revoke_badge decide.
  */
 export default async function FoundersPage() {
   const { supabase } = await requirePlatformAdmin();
+  const now = new Date();
+  const origin = siteOfBrand("chelsea-st", siteConfig())?.origin ?? null;
 
-  const [program, left, seals, signupDoor, couponRows, origins] =
-    await Promise.all([
-      supabase.from("founder_program").select("seats_total").maybeSingle(),
-      supabase.rpc("founder_seats_left"),
-      supabase
-        .from("person_badges")
-        .select(
-          "person_id, source, granted_at, terms_fixed_at, profiles!person_badges_person_id_fkey(full_name)",
-        )
-        .eq("badge", "founder")
-        .is("revoked_at", null)
-        .order("granted_at"),
-      supabase.from("organizations").select("id").eq("open_signup", true),
-      supabase
-        .from("founder_coupons")
-        .select(
-          "id, label, max_uses, expires_at, founder_coupon_redemptions(count)",
-        )
-        .order("created_at", { ascending: false }),
-      supabase.from("signup_origins").select("person_id, origin"),
-    ]);
+  const [
+    program,
+    left,
+    seals,
+    signupDoor,
+    couponRows,
+    origins,
+    founderInvites,
+    personalPlans,
+  ] = await Promise.all([
+    supabase.from("founder_program").select("seats_total").maybeSingle(),
+    supabase.rpc("founder_seats_left"),
+    supabase
+      .from("person_badges")
+      .select(
+        "person_id, source, granted_at, terms_fixed_at, profiles!person_badges_person_id_fkey(full_name)",
+      )
+      .eq("badge", "founder")
+      .is("revoked_at", null)
+      .order("granted_at"),
+    supabase.from("organizations").select("id").eq("open_signup", true),
+    supabase
+      .from("founder_coupons")
+      .select(
+        "id, label, max_uses, expires_at, founder_coupon_redemptions(count)",
+      )
+      .order("created_at", { ascending: false }),
+    supabase.from("signup_origins").select("person_id, origin"),
+    readOpenFounderInvites(supabase, now, (email) =>
+      origin === null ? null : founderSignupLink(origin, email),
+    ),
+    readWaitingPersonalPlans(supabase),
+  ]);
   if (program.error)
     throw new Error(`founder_program: ${program.error.message}`);
   if (left.error) throw new Error(`founder_seats_left: ${left.error.message}`);
@@ -64,7 +90,6 @@ export default async function FoundersPage() {
     throw new Error(`signup_origins: ${origins.error.message}`);
   }
 
-  const now = new Date();
   const coupons: CouponRow[] = couponRows.data.map((coupon) => {
     const open = new Date(coupon.expires_at) > now;
     return {
@@ -159,6 +184,29 @@ export default async function FoundersPage() {
         </h2>
         <Coupons coupons={coupons} />
       </section>
+
+      <section aria-labelledby="invite-founder" className="flex flex-col gap-3">
+        <h2 id="invite-founder" className="text-xl font-bold tracking-tight">
+          Convidar fundador
+        </h2>
+        <HowItWorks kind="founder" />
+        <FounderInviteForm seatsLeft={left.data ?? null} />
+      </section>
+
+      <section aria-labelledby="personal" className="flex flex-col gap-3">
+        <h2 id="personal" className="text-xl font-bold tracking-tight">
+          Plano personalizado
+        </h2>
+        <HowItWorks kind="personal" />
+        <PersonalPlanForm />
+      </section>
+
+      <InviteList
+        invites={[]}
+        showOrganization={false}
+        personalPlans={personalPlans}
+        founderInvites={founderInvites}
+      />
 
       <section aria-labelledby="founders" className="flex flex-col gap-3">
         <h2 id="founders" className="text-xl font-bold tracking-tight">

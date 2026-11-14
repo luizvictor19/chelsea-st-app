@@ -50,8 +50,14 @@ function routes(dir: string): string[] {
 }
 
 const pages = routes(TEACHER);
+// Either menu: Convites is a school admin's item, not the platform admin's
+// (#366).
 const menu = new Set(
-  teacherLinks(true).flatMap(({ href }) => (href === null ? [] : [href])),
+  [true, false].flatMap((platformAdmin) =>
+    teacherLinks(platformAdmin).flatMap(({ href }) =>
+      href === null ? [] : [href],
+    ),
+  ),
 );
 
 describe("the teacher menu covers every screen", () => {

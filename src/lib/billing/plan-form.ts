@@ -5,7 +5,7 @@
  * the database (ADR 0006).
  *
  * The audience is chosen here between everyone and the founders; a personal
- * plan is born on /teacher/invites (readPersonalPlanForm) and, edited here,
+ * plan is born on /teacher/founders (readPersonalPlanForm) and, edited here,
  * keeps its audience and its e-mail: the form of a personal plan sends no
  * audience, and the values carry none.
  *
@@ -117,7 +117,7 @@ export function readPlanForm(form: FormData): PlanRead {
 
 /**
  * A Plano Fundador Personalizado, written for one e-mail on
- * /teacher/invites: the numbers of any plan, always of the brand chelsea-st, and the
+ * /teacher/founders: the numbers of any plan, always of the brand chelsea-st, and the
  * e-mail as the database keeps it (lower-cased, plans_person_email_shape).
  */
 export function readPersonalPlanForm(form: FormData): PersonalPlanRead {

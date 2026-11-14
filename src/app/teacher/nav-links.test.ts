@@ -16,7 +16,6 @@ describe("teacherLinks", () => {
       "Aula ao vivo",
       "Agenda",
       "Alunos",
-      "Convites",
       "Aulas",
       "Planos e custos",
       "Fundadores",

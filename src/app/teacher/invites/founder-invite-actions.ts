@@ -32,7 +32,6 @@ function origin(): string | null {
 }
 
 function refresh(): void {
-  revalidatePath("/teacher/invites");
   revalidatePath("/teacher/founders");
 }
 

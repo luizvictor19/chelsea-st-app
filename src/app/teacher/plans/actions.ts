@@ -23,7 +23,7 @@ export type PlanState =
  * provider, and a founder whose terms are fixed keeps hers (0058).
  *
  * A personal plan (personal=1) is only changed here, never created: it is
- * born on /teacher/invites, for an e-mail. Its update is held to rows that
+ * born on /teacher/founders (since #366), for an e-mail. Its update is held to rows that
  * are personal, so the flag cannot turn a public plan's audience away.
  */
 export async function savePlan(
@@ -85,7 +85,7 @@ export async function savePlan(
     };
   }
   revalidatePath("/teacher/plans");
-  revalidatePath("/teacher/invites");
+  revalidatePath("/teacher/founders");
   revalidatePath("/dashboard/plano");
   return { status: "saved", name: read.values.name };
 }

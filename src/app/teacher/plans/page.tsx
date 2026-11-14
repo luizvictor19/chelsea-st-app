@@ -167,7 +167,7 @@ export default async function PlansPage() {
         <h2 className="text-xl font-bold">Personalizados</h2>
         <p className="text-muted max-w-prose text-sm">
           Cada Plano Fundador Personalizado é de uma pessoa só. Ele nasce em
-          Convites, para um e-mail; aqui mudam os números, não a pessoa.
+          Fundadores, para um e-mail; aqui mudam os números, não a pessoa.
         </p>
       </div>
       {personal.length === 0 ? (

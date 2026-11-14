@@ -1,5 +1,5 @@
 /**
- * The founder invite as /teacher/invites makes it (#296, 0059): written in
+ * The founder invite as /teacher/founders makes it (#296, 0059): written in
  * founder_invites with the platform admin's own client, then mailed from
  * agenda@. When an account is already confirmed with the e-mail, the
  * database gives the seal as the row is written (founder_invites_grant_confirmed)

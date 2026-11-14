@@ -42,7 +42,7 @@ export type PlanFields = {
 /**
  * One plan, new (id "") or existing, every number of the offer in one form.
  * A personal plan (audience person) is edited here with its numbers only: its
- * brand, its audience and its e-mail stay as /teacher/invites wrote them.
+ * brand, its audience and its e-mail stay as /teacher/founders wrote them.
  */
 export function PlanForm({ plan }: { readonly plan: PlanFields }) {
   const personal = plan.audience === "person";

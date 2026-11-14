@@ -71,7 +71,18 @@ const PLATFORM: readonly NavLink[] = [
 export function teacherSections(
   platformAdmin: boolean,
 ): readonly (readonly NavLink[])[] {
-  return platformAdmin ? [HOME, CONTENT, TEACHING, PLATFORM] : [HOME, TEACHING];
+  return platformAdmin
+    ? [HOME, CONTENT, TEACHING.filter(notInvites), PLATFORM]
+    : [HOME, TEACHING];
+}
+
+/**
+ * The platform admin invites where each invite belongs (#366): to an
+ * organization in Organizações, a founder and a personal plan in
+ * Fundadores. Convites stays for the admin of a school.
+ */
+function notInvites(link: NavLink): boolean {
+  return link.href !== "/teacher/invites";
 }
 
 /** Every item of the menu, in order. */
