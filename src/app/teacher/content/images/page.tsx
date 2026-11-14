@@ -48,12 +48,12 @@ import {
 import { lessonLabel, suggestedCount } from "./notice-texts";
 import { WORD_LIST_ID } from "./panel-into-view";
 import { disagreement, labelFor } from "./representation";
+import { PanelLink } from "./panel-link";
 import { ScenePanel } from "./scene-panel";
 import { firstPoint, groupScenes } from "./scenes";
 import { ScenesSection } from "./scenes-section";
 import { StatusMark } from "./status-mark";
 import { SuggestButton } from "./suggest-button";
-import { WordLink } from "./word-link";
 import { WordPanel } from "./word-panel";
 
 export const metadata: Metadata = {
@@ -390,7 +390,7 @@ export default async function VocabularyImagesPage({
                             the word; the rest of the row still does.
                           */}
                             <SelectBox id={word.id} term={word.term} />
-                            <WordLink
+                            <PanelLink
                               href={filterHref(
                                 selection,
                                 { kind: "word", id: word.id },
@@ -468,7 +468,7 @@ export default async function VocabularyImagesPage({
                                   </span>
                                 )}
                               </span>
-                            </WordLink>
+                            </PanelLink>
                           </li>
                         ))}
                       </ul>
