@@ -10,9 +10,9 @@
 -- Measured through the MCP on 2026-11-14 before writing: migrations up to
 -- 0059 applied; no table app_errors and no function app_error_*; the
 -- database at 16 MB. 0060 to 0062 were not on main nor on any branch. In
--- production order this is 0061: #297's 0060 merges first, #306 and #331
--- take 0062 and 0063 later; nothing here depends on 0060. The migration
--- touches no existing row.
+-- production order this is 0060: it merges before #297, which waits for a
+-- sandbox check and takes a later number, as #306 and #331 do. The
+-- migration touches no existing row.
 --
 --   1. app_errors: one row per error per day (UTC), by a fingerprint the
 --      app computes (the sha256 of the kind, the route, the scrubbed message

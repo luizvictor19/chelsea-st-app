@@ -10135,10 +10135,10 @@ $$;
 drop extension dblink;
 
 
--- 0061 adds app_errors, empty, and its two functions. No row is written by it.
-\i supabase/migrations/0061_an_error_reaches_luiz.sql
+-- 0060 adds app_errors, empty, and its two functions. No row is written by it.
+\i supabase/migrations/0060_an_error_reaches_luiz.sql
 
--- An error reaches Luiz (0061) -----------------------------------------------------------
+-- An error reaches Luiz (0060) -----------------------------------------------------------
 --
 -- Nobody reads or writes app_errors through the API: RLS on and no policy,
 -- no privilege for anon, authenticated or service_role. service_role alone
@@ -10149,7 +10149,7 @@ drop extension dblink;
 -- the platform admin the last 30 days and anyone else nothing. Every refusal
 -- is named by its constraint or its code. Nothing written here is kept.
 
-create function verify.holds_0061(p_what text, p_ok boolean) returns void
+create function verify.holds_0060(p_what text, p_ok boolean) returns void
 language plpgsql as $$
 begin
   if p_ok is distinct from true then
@@ -10161,15 +10161,15 @@ end;
 $$;
 
 -- A fingerprint of the app's shape, from a number.
-create function verify.fp_0061(p_n integer) returns text
+create function verify.fp_0060(p_n integer) returns text
 language sql immutable as $$
-  select encode(sha256(convert_to('0061-' || p_n, 'UTF8')), 'hex');
+  select encode(sha256(convert_to('0060-' || p_n, 'UTF8')), 'hex');
 $$;
 
 do $$
 declare
   c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
-  c_someone constant uuid := 'b0610000-0000-4000-8000-000000000001';
+  c_someone constant uuid := 'b0600000-0000-4000-8000-000000000001';
   v_uid text := current_setting('test.uid', true);
   v_today date := (now() at time zone 'UTC')::date;
   v_first record;
@@ -10184,14 +10184,14 @@ begin
   delete from app_errors;
 
   -- Who holds what.
-  perform verify.holds_0061('[0061] app_errors has row level security on and no policy',
+  perform verify.holds_0060('[0060] app_errors has row level security on and no policy',
     (select relrowsecurity from pg_class where oid = 'public.app_errors'::regclass)
     and not exists (select 1 from pg_policy where polrelid = 'public.app_errors'::regclass));
-  perform verify.holds_0061('[0061] anon, authenticated and service_role hold no privilege on app_errors',
+  perform verify.holds_0060('[0060] anon, authenticated and service_role hold no privilege on app_errors',
     not exists (select 1 from unnest(array['anon', 'authenticated', 'service_role']) r
                 cross join unnest(array['select', 'insert', 'update', 'delete']) p
                 where has_table_privilege(r, 'public.app_errors', p)));
-  perform verify.holds_0061('[0061] app_error_record is executed by service_role alone, app_errors_recent by authenticated alone',
+  perform verify.holds_0060('[0060] app_error_record is executed by service_role alone, app_errors_recent by authenticated alone',
         has_function_privilege('service_role', 'public.app_error_record(text, text, text, text, text, text, text)', 'execute')
     and not has_function_privilege('anon', 'public.app_error_record(text, text, text, text, text, text, text)', 'execute')
     and not has_function_privilege('authenticated', 'public.app_error_record(text, text, text, text, text, text, text)', 'execute')
@@ -10204,38 +10204,38 @@ begin
   set local role authenticated;
   v_n := verify.rows_0059('app_errors');
   reset role;
-  perform verify.holds_0061(format('[0061] the platform admin reads no row of app_errors through the table (%s)', v_n), v_n = -1);
+  perform verify.holds_0060(format('[0060] the platform admin reads no row of app_errors through the table (%s)', v_n), v_n = -1);
   set local role service_role;
   v_n := verify.rows_0059('app_errors');
   reset role;
-  perform verify.holds_0061(format('[0061] service_role reads no row of app_errors through the table (%s)', v_n), v_n = -1);
+  perform verify.holds_0060(format('[0060] service_role reads no row of app_errors through the table (%s)', v_n), v_n = -1);
   set local role anon;
   v_n := verify.rows_0059('app_errors');
   reset role;
-  perform verify.holds_0061(format('[0061] anon reads no row of app_errors (%s)', v_n), v_n = -1);
+  perform verify.holds_0060(format('[0060] anon reads no row of app_errors (%s)', v_n), v_n = -1);
   set local role authenticated;
-  perform verify.expect_named_refusal('[0061] the platform admin writes app_errors through the table',
-    '42501', format($q$insert into app_errors (day, fingerprint, kind, route, message) values (current_date, %L, 'client', '/', 'x')$q$, verify.fp_0061(0)));
-  perform verify.expect_named_refusal('[0061] the platform admin calls app_error_record',
-    '42501', format($q$select app_error_record(%L, 'client', '/', 'x', null, null, null)$q$, verify.fp_0061(0)));
+  perform verify.expect_named_refusal('[0060] the platform admin writes app_errors through the table',
+    '42501', format($q$insert into app_errors (day, fingerprint, kind, route, message) values (current_date, %L, 'client', '/', 'x')$q$, verify.fp_0060(0)));
+  perform verify.expect_named_refusal('[0060] the platform admin calls app_error_record',
+    '42501', format($q$select app_error_record(%L, 'client', '/', 'x', null, null, null)$q$, verify.fp_0060(0)));
   reset role;
   set local role anon;
-  perform verify.expect_named_refusal('[0061] anon calls app_error_record',
-    '42501', format($q$select app_error_record(%L, 'client', '/', 'x', null, null, null)$q$, verify.fp_0061(0)));
-  perform verify.expect_named_refusal('[0061] anon calls app_errors_recent', '42501', 'select app_errors_recent()');
+  perform verify.expect_named_refusal('[0060] anon calls app_error_record',
+    '42501', format($q$select app_error_record(%L, 'client', '/', 'x', null, null, null)$q$, verify.fp_0060(0)));
+  perform verify.expect_named_refusal('[0060] anon calls app_errors_recent', '42501', 'select app_errors_recent()');
   reset role;
   set local role service_role;
-  perform verify.expect_named_refusal('[0061] service_role calls app_errors_recent', '42501', 'select app_errors_recent()');
+  perform verify.expect_named_refusal('[0060] service_role calls app_errors_recent', '42501', 'select app_errors_recent()');
   reset role;
 
   -- A new error asks for an alert; its repeat the same day only counts.
   set local role service_role;
-  select * into v_first from app_error_record(verify.fp_0061(1), 'server', '/teacher/[book]',
+  select * into v_first from app_error_record(verify.fp_0060(1), 'server', '/teacher/[book]',
     'TypeError: x', E'TypeError: x\n    at f (a.js:1:2)', '2830441736', 'abc1234');
-  select * into v_again from app_error_record(verify.fp_0061(1), 'server', '/teacher/[book]',
+  select * into v_again from app_error_record(verify.fp_0060(1), 'server', '/teacher/[book]',
     'TypeError: x', null, null, 'abc1234');
   reset role;
-  perform verify.holds_0061(format('[0061] a new error asks for an alert (%s); its repeat does not and counts 2 (%s)', v_first, v_again),
+  perform verify.holds_0060(format('[0060] a new error asks for an alert (%s); its repeat does not and counts 2 (%s)', v_first, v_again),
         v_first.alert and v_first.count = 1 and v_first.day = v_today and not v_first.overflow
     and not v_again.alert and v_again.count = 2 and v_again.first_at = v_first.first_at and not v_again.overflow
     and (select count(*) from app_errors) = 1
@@ -10244,79 +10244,79 @@ begin
   -- 20 alerts a day: errors 2 to 25 are new, and only up to the 20th asks.
   set local role service_role;
   for i in 2..25 loop
-    select * into v_r from app_error_record(verify.fp_0061(i), 'client', '/dashboard', format('Error %s', i), null, null, null);
+    select * into v_r from app_error_record(verify.fp_0060(i), 'client', '/dashboard', format('Error %s', i), null, null, null);
     v_alerts := v_alerts || v_r.alert;
   end loop;
   reset role;
-  perform verify.holds_0061(format('[0061] 20 alerts a day: errors 2 to 20 ask, 21 to 25 do not (%s)', v_alerts),
+  perform verify.holds_0060(format('[0060] 20 alerts a day: errors 2 to 20 ask, 21 to 25 do not (%s)', v_alerts),
         v_alerts = array_fill(true, array[19]) || array_fill(false, array[5])
     and (select count(*) from app_errors where alerted) = 20);
 
   -- 200 rows a day: errors 26 to 200 are rows, 201 and 202 count on the overflow row.
   set local role service_role;
   for i in 26..200 loop
-    perform app_error_record(verify.fp_0061(i), 'job', '/api/billing/daily', format('Error %s', i), null, null, null);
+    perform app_error_record(verify.fp_0060(i), 'job', '/api/billing/daily', format('Error %s', i), null, null, null);
   end loop;
-  select * into v_first from app_error_record(verify.fp_0061(201), 'job', '/api/billing/daily', 'Error 201', null, null, null);
-  select * into v_again from app_error_record(verify.fp_0061(202), 'job', '/api/billing/daily', 'Error 202', null, null, null);
-  select * into v_r from app_error_record(verify.fp_0061(5), 'client', '/dashboard', 'Error 5', null, null, null);
+  select * into v_first from app_error_record(verify.fp_0060(201), 'job', '/api/billing/daily', 'Error 201', null, null, null);
+  select * into v_again from app_error_record(verify.fp_0060(202), 'job', '/api/billing/daily', 'Error 202', null, null, null);
+  select * into v_r from app_error_record(verify.fp_0060(5), 'client', '/dashboard', 'Error 5', null, null, null);
   reset role;
-  perform verify.holds_0061(format('[0061] past 200 rows a day new errors count on the overflow row (%s, %s), a known one still on its own (%s)', v_first, v_again, v_r),
+  perform verify.holds_0060(format('[0060] past 200 rows a day new errors count on the overflow row (%s, %s), a known one still on its own (%s)', v_first, v_again, v_r),
         v_first.overflow and v_first.count = 1 and not v_first.alert
     and v_again.overflow and v_again.count = 2 and not v_again.alert
     and not v_r.overflow and v_r.count = 2
     and (select count(*) from app_errors where day = v_today and fingerprint <> 'overflow') = 200
     and (select count from app_errors where fingerprint = 'overflow') = 2
-    and not exists (select 1 from app_errors where fingerprint in (verify.fp_0061(201), verify.fp_0061(202))));
+    and not exists (select 1 from app_errors where fingerprint in (verify.fp_0060(201), verify.fp_0060(202))));
 
   -- 30 days: a row of 31 days ago goes with the next call, one of 30 stays.
   insert into app_errors (day, fingerprint, kind, route, message) values
-    (v_today - 31, verify.fp_0061(900), 'server', '/', 'old'),
-    (v_today - 30, verify.fp_0061(901), 'server', '/', 'kept');
+    (v_today - 31, verify.fp_0060(900), 'server', '/', 'old'),
+    (v_today - 30, verify.fp_0060(901), 'server', '/', 'kept');
   set local role service_role;
-  perform app_error_record(verify.fp_0061(1), 'server', '/teacher/[book]', 'TypeError: x', null, null, null);
+  perform app_error_record(verify.fp_0060(1), 'server', '/teacher/[book]', 'TypeError: x', null, null, null);
   reset role;
-  perform verify.holds_0061('[0061] a row older than 30 days goes with the next call, one of 30 days stays',
-        not exists (select 1 from app_errors where fingerprint = verify.fp_0061(900))
-    and exists (select 1 from app_errors where fingerprint = verify.fp_0061(901)));
+  perform verify.holds_0060('[0060] a row older than 30 days goes with the next call, one of 30 days stays',
+        not exists (select 1 from app_errors where fingerprint = verify.fp_0060(900))
+    and exists (select 1 from app_errors where fingerprint = verify.fp_0060(901)));
 
   -- The reader: the platform admin gets the last 30 days, anyone else none.
   perform set_config('test.uid', c_someone::text, false);
   set local role authenticated;
   select count(*) into v_n from app_errors_recent();
   reset role;
-  perform verify.holds_0061(format('[0061] someone who is not the platform admin gets no row from app_errors_recent (%s)', v_n), v_n = 0);
+  perform verify.holds_0060(format('[0060] someone who is not the platform admin gets no row from app_errors_recent (%s)', v_n), v_n = 0);
   perform set_config('test.uid', c_admin::text, false);
   set local role authenticated;
   v_counts := array(select count(*) from app_errors_recent()
                     union all select count(*) from app_errors_recent() where fingerprint = 'overflow');
   reset role;
-  perform verify.holds_0061(format('[0061] the platform admin gets every row of the last 30 days, the overflow row too (%s)', v_counts),
+  perform verify.holds_0060(format('[0060] the platform admin gets every row of the last 30 days, the overflow row too (%s)', v_counts),
     v_counts = array[(select count(*) from app_errors), 1]::bigint[] and v_counts[1] = 202);
 
   -- Each column's ceiling, named.
-  perform verify.expect_named_refusal('[0061] a fingerprint of another shape', '23514 app_errors_fingerprint_shape',
+  perform verify.expect_named_refusal('[0060] a fingerprint of another shape', '23514 app_errors_fingerprint_shape',
     $q$insert into app_errors (day, fingerprint, kind, route, message) values (current_date, 'ana@example.com', 'server', '/', 'x')$q$);
-  perform verify.expect_named_refusal('[0061] an unknown kind', '23514 app_errors_kind_known',
-    format($q$insert into app_errors (day, fingerprint, kind, route, message) values (current_date, %L, 'user', '/', 'x')$q$, verify.fp_0061(950)));
-  perform verify.expect_named_refusal('[0061] the overflow kind on a fingerprint', '23514 app_errors_overflow_row',
-    format($q$insert into app_errors (day, fingerprint, kind, route, message) values (current_date, %L, 'overflow', '/', 'x')$q$, verify.fp_0061(951)));
-  perform verify.expect_named_refusal('[0061] an empty route', '23514 app_errors_route_short',
-    format($q$insert into app_errors (day, fingerprint, kind, route, message) values (current_date, %L, 'server', '', 'x')$q$, verify.fp_0061(952)));
-  perform verify.expect_named_refusal('[0061] a route of 201 characters', '23514 app_errors_route_short',
-    format($q$insert into app_errors (day, fingerprint, kind, route, message) values (current_date, %L, 'server', repeat('r', 201), 'x')$q$, verify.fp_0061(952)));
-  perform verify.expect_named_refusal('[0061] a message of 501 characters', '23514 app_errors_message_short',
-    format($q$insert into app_errors (day, fingerprint, kind, route, message) values (current_date, %L, 'server', '/', repeat('m', 501))$q$, verify.fp_0061(953)));
-  perform verify.expect_named_refusal('[0061] a stack of 4001 characters', '23514 app_errors_stack_short',
-    format($q$insert into app_errors (day, fingerprint, kind, route, message, stack) values (current_date, %L, 'server', '/', 'x', repeat('s', 4001))$q$, verify.fp_0061(954)));
-  perform verify.expect_named_refusal('[0061] a digest that is not a hash', '23514 app_errors_digest_shape',
-    format($q$insert into app_errors (day, fingerprint, kind, route, message, digest) values (current_date, %L, 'server', '/', 'x', 'a b')$q$, verify.fp_0061(955)));
-  perform verify.expect_named_refusal('[0061] a release that is not 7 hex characters', '23514 app_errors_release_shape',
-    format($q$insert into app_errors (day, fingerprint, kind, route, message, release) values (current_date, %L, 'server', '/', 'x', 'main')$q$, verify.fp_0061(956)));
-  perform verify.expect_named_refusal('[0061] a count of 0', '23514 app_errors_count_positive',
-    format($q$insert into app_errors (day, fingerprint, kind, route, message, count) values (current_date, %L, 'server', '/', 'x', 0)$q$, verify.fp_0061(957)));
-  perform verify.expect_named_refusal('[0061] the same error twice a day', '23505 app_errors_once_a_day',
-    format($q$insert into app_errors (day, fingerprint, kind, route, message) values (current_date, %L, 'server', '/', 'x'), (current_date, %L, 'server', '/', 'x')$q$, verify.fp_0061(958), verify.fp_0061(958)));
+  perform verify.expect_named_refusal('[0060] an unknown kind', '23514 app_errors_kind_known',
+    format($q$insert into app_errors (day, fingerprint, kind, route, message) values (current_date, %L, 'user', '/', 'x')$q$, verify.fp_0060(950)));
+  perform verify.expect_named_refusal('[0060] the overflow kind on a fingerprint', '23514 app_errors_overflow_row',
+    format($q$insert into app_errors (day, fingerprint, kind, route, message) values (current_date, %L, 'overflow', '/', 'x')$q$, verify.fp_0060(951)));
+  perform verify.expect_named_refusal('[0060] an empty route', '23514 app_errors_route_short',
+    format($q$insert into app_errors (day, fingerprint, kind, route, message) values (current_date, %L, 'server', '', 'x')$q$, verify.fp_0060(952)));
+  perform verify.expect_named_refusal('[0060] a route of 201 characters', '23514 app_errors_route_short',
+    format($q$insert into app_errors (day, fingerprint, kind, route, message) values (current_date, %L, 'server', repeat('r', 201), 'x')$q$, verify.fp_0060(952)));
+  perform verify.expect_named_refusal('[0060] a message of 501 characters', '23514 app_errors_message_short',
+    format($q$insert into app_errors (day, fingerprint, kind, route, message) values (current_date, %L, 'server', '/', repeat('m', 501))$q$, verify.fp_0060(953)));
+  perform verify.expect_named_refusal('[0060] a stack of 4001 characters', '23514 app_errors_stack_short',
+    format($q$insert into app_errors (day, fingerprint, kind, route, message, stack) values (current_date, %L, 'server', '/', 'x', repeat('s', 4001))$q$, verify.fp_0060(954)));
+  perform verify.expect_named_refusal('[0060] a digest that is not a hash', '23514 app_errors_digest_shape',
+    format($q$insert into app_errors (day, fingerprint, kind, route, message, digest) values (current_date, %L, 'server', '/', 'x', 'a b')$q$, verify.fp_0060(955)));
+  perform verify.expect_named_refusal('[0060] a release that is not 7 hex characters', '23514 app_errors_release_shape',
+    format($q$insert into app_errors (day, fingerprint, kind, route, message, release) values (current_date, %L, 'server', '/', 'x', 'main')$q$, verify.fp_0060(956)));
+  perform verify.expect_named_refusal('[0060] a count of 0', '23514 app_errors_count_positive',
+    format($q$insert into app_errors (day, fingerprint, kind, route, message, count) values (current_date, %L, 'server', '/', 'x', 0)$q$, verify.fp_0060(957)));
+  perform verify.expect_named_refusal('[0060] the same error twice a day', '23505 app_errors_once_a_day',
+    format($q$insert into app_errors (day, fingerprint, kind, route, message) values (current_date, %L, 'server', '/', 'x'), (current_date, %L, 'server', '/', 'x')$q$, verify.fp_0060(958), verify.fp_0060(958)));
 
   -- Nothing written here is kept.
   delete from app_errors;

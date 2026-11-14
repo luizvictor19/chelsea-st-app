@@ -1,6 +1,6 @@
 /**
  * Reporting an error of the app (#69): scrub it, write the clean line to the
- * log, and in production record it in app_errors (0061) and e-mail Luiz when
+ * log, and in production record it in app_errors (0060) and e-mail Luiz when
  * the database asks. Everything is passed in, so every path is tested without
  * a server; src/lib/monitoring/server.ts wires the real pieces.
  *
