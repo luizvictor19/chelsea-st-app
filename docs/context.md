@@ -599,11 +599,11 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
   landing. Never log it, never paste it into an issue.
 - An error message never interpolates a name, an e-mail or what someone said (#69). Every error
   that escapes (`onRequestError`, the browser through `/api/errors`, the boundaries) and every
-  handled failure reported (the Asaas webhook's 500 and "set aside", the credits' step, the
+  handled failure reported (the Asaas webhook's 500, 401 and "set aside", the credits' step, the
   calendar's abandoned rows, the three steps of `/dashboard/plano`) goes through
-  `src/lib/monitoring/scrub.ts` before `app_errors` and the e-mail: an e-mail, quoted text (a
-  quoted identifier with an underscore, such as a constraint, stays), Postgres's
-  `Key (column)=(value)`, a UUID, a CPF and any run of 8 digits or more, a JWT, a key by its
+  `src/lib/monitoring/scrub.ts` before `app_errors` and the e-mail: an e-mail, quoted text (an
+  identifier Postgres quotes after its kind, `constraint "x"` or `relation "x"`, stays), control
+  characters, half an emoji left by a cut, Postgres's `Key (column)=(value)`, a UUID, a CPF and any run of 8 digits or more, a JWT, a key by its
   prefix (`sb_secret_`, `sb_publishable_`, `aact_`, `re_`), a bearer token, and the query and
   fragment of a URL. A pattern cannot see a loose name or a sentence without quotes: those are
   kept out at the source. The ids a message names (`user.id` in `queries.ts`) become `[id]`.
