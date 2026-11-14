@@ -6,6 +6,7 @@ import { BRAND_KEYS } from "@/lib/brand";
 import { CREDIT_ACTION_LABEL, CREDIT_ACTIONS } from "@/lib/credits/actions";
 
 import { CostForm } from "./cost-form";
+import { PlanCard } from "./plan-card";
 import { PlanForm, type PlanFields } from "./plan-form";
 
 export const metadata: Metadata = {
@@ -150,9 +151,15 @@ export default async function PlansPage() {
           Fundadores
         </Link>
       </div>
-      {catalog.map((plan) => (
-        <PlanForm key={plan.id} plan={fieldsOf(plan)} />
-      ))}
+      {catalog.length === 0 ? (
+        <p className="text-muted text-sm">Nenhum plano criado ainda.</p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {catalog.map((plan) => (
+            <PlanCard key={plan.id} plan={fieldsOf(plan)} />
+          ))}
+        </div>
+      )}
       <h2 className="text-xl font-bold">Novo plano</h2>
       <PlanForm plan={EMPTY} />
 
@@ -179,7 +186,7 @@ export default async function PlansPage() {
                 <span className="font-semibold">{nameOf(plan.person_id)}</span>
               )}
             </p>
-            <PlanForm plan={fieldsOf(plan)} />
+            <PlanCard plan={fieldsOf(plan)} />
           </div>
         ))
       )}
