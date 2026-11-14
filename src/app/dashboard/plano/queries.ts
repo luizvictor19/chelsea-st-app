@@ -1,8 +1,10 @@
 import { withFounderTerms, type SealTerms } from "@/lib/billing/founder-terms";
+import { billingStore } from "@/lib/billing/server";
 import { toStored } from "@/lib/billing/supabase-store";
 import type { StoredSubscription } from "@/lib/billing/store";
 import type { PlanForSale } from "@/lib/billing/subscribe";
 import { summarize, type CreditSummary } from "@/lib/credits/summary";
+import type { RefundOffer, RefundRequestShown } from "./refund-card";
 import { createClient } from "@/lib/supabase/server";
 
 export type PlanOnSale = PlanForSale & {
@@ -162,4 +164,58 @@ export async function readCredits(personId: string): Promise<CreditSummary> {
       expiresAt: lot.expires_at,
     })),
   );
+}
+
+/** How long a finished request (done or failed) stays on the screen. */
+const REFUND_SHOWN_DAYS = 14;
+
+/**
+ * Her withdrawal (#297): what the database would give back now, if a charge
+ * of hers is in the window (billing_refund_quote, through the service role:
+ * the database decides the window and the value, 0060), and her latest
+ * request, read with her own client (row level security). A finished
+ * request leaves the screen after REFUND_SHOWN_DAYS.
+ */
+export async function readRefund(personId: string): Promise<{
+  offer: RefundOffer | null;
+  request: RefundRequestShown | null;
+}> {
+  const supabase = await createClient();
+  const [{ data, error }, offer] = await Promise.all([
+    supabase
+      .from("refund_requests")
+      .select("status, refund_cents, created_at")
+      .eq("person_id", personId)
+      .order("created_at", { ascending: false })
+      .limit(1),
+    billingStore()
+      .refundQuote(personId)
+      .catch((cause: unknown) => {
+        console.error(`refund quote ${personId}: ${String(cause)}`);
+        return null;
+      }),
+  ]);
+  if (error) throw new Error(`refund_requests: ${error.message}`);
+  const row = data?.[0];
+  const shownSince = Date.now() - REFUND_SHOWN_DAYS * 86_400_000;
+  const request =
+    row === undefined ||
+    ((row.status === "done" || row.status === "failed") &&
+      Date.parse(row.created_at) < shownSince)
+      ? null
+      : {
+          status: row.status as RefundRequestShown["status"],
+          refundCents: row.refund_cents,
+        };
+  return {
+    offer:
+      offer === null
+        ? null
+        : {
+            refundCents: offer.refundCents,
+            endsAt: offer.endsAt,
+            lessonsAhead: offer.lessonsAhead,
+          },
+    request,
+  };
 }

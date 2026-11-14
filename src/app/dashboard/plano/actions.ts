@@ -4,12 +4,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { billingDay } from "@/lib/billing/dates";
-import { billingDeps, billingOpen } from "@/lib/billing/server";
+import { billingDeps, billingOpen, refundNotice } from "@/lib/billing/server";
 import {
   cancelSubscription,
   pixToPay,
   startSubscription,
 } from "@/lib/billing/subscribe";
+import { withdraw } from "@/lib/billing/withdraw";
 import { siteOfBrand } from "@/lib/brand";
 import { redeemAnswer, type RedeemState } from "@/lib/founder-coupon";
 import { currentSite, siteConfig } from "@/lib/current-site";
@@ -27,6 +28,11 @@ export type PixState =
 
 export type CancelState =
   { status: "idle" } | { status: "error"; message: string };
+
+export type RefundState =
+  | { status: "idle" }
+  | { status: "pending"; message: string }
+  | { status: "error"; message: string };
 
 const NOT_OPEN = "A assinatura ainda não abriu. Fale com a gente.";
 const TRY_AGAIN = "Não conseguimos falar com o pagamento agora. Tente de novo.";
@@ -130,6 +136,48 @@ export async function cancel(
     return { status: "error", message: TRY_AGAIN };
   }
   revalidatePath("/dashboard/plano");
+  return { status: "idle" };
+}
+
+/**
+ * The withdrawal of CDC art. 49 (#297): the refund of what she did not use,
+ * and the subscription canceled once the provider took it. The form sends
+ * confirm=sim only after she said yes to the value on the screen. The
+ * database decides the window and the value (0060), never the form.
+ */
+export async function askRefund(
+  _previous: RefundState,
+  formData: FormData,
+): Promise<RefundState> {
+  const user = await signedPerson();
+  if (formData.get("confirm") !== "sim") return { status: "idle" };
+  if (!billingOpen()) return { status: "error", message: NOT_OPEN };
+  const { current } = await readPlanScreen(user.id);
+  let result;
+  try {
+    result = await withdraw(
+      {
+        ...billingDeps(),
+        notify: refundNotice,
+        log: (line) => console.error(line),
+      },
+      { personId: user.id, current },
+    );
+  } catch (cause) {
+    console.error(`refund ${user.id}: ${String(cause)}`);
+    return { status: "error", message: TRY_AGAIN };
+  }
+  revalidatePath("/dashboard/plano");
+  if (result.kind === "refused") {
+    return { status: "error", message: result.message };
+  }
+  if (result.kind === "pending") {
+    return {
+      status: "pending",
+      message:
+        "Pedido enviado. A resposta do pagamento demorou: confira aqui em alguns minutos.",
+    };
+  }
   return { status: "idle" };
 }
 
