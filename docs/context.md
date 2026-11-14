@@ -114,8 +114,10 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
   - What to watch: the Storage, before Robin's pre-generated audio (#252) and the person's audio
     kept for 30 days (#256); the pause, while nobody uses the app every day.
 - Backups: the logical copy is the only copy.
-  - Before every large migration, Luiz takes a logical copy (`supabase db dump`) and the Storage
-    files, and restores the copy on a local stack. Commands in `docs/commands.md`. First rehearsal
+  - Before every migration, the Claude takes a logical copy (`supabase db dump`) into
+    `~/backups/chelsea-st/<date>-<migration>/` and never opens it. Before a large one, Luiz also
+    copies the Storage files and restores the copy on a local stack. Commands in
+    `docs/commands.md`. First rehearsal
     on 2026-10-24: every row count matched production, and the 185 Storage files were copied.
   - A copy holds the database only. Storage files are copied apart: a deleted file never comes
     back from a database restore.
@@ -127,7 +129,8 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
     if Vercel pauses the project for that, the way out is Pro or another host.
   - Functions in `gru1` (São Paulo, `vercel.json`), next to the database in `sa-east-1`.
   - Every merge to `main` is a production deploy. A PR with a migration is merged only after
-    Luiz's `supabase db push`: the new code may read what only the migration creates.
+    the Claude's `supabase db push`, checked through the MCP: the new code may read what only the
+    migration creates. The Claude merges under the conditions of Merging in `AGENTS.md`.
   - A preview per PR, behind Vercel's login, against the production database (there is no
     staging). Preview variables are only the public Supabase ones and the contact: no service
     role and no paid API key, so a preview sends no invite and spends no credit.
@@ -178,8 +181,9 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
 
 ## Database rules
 
-- DDL only through a migration in `supabase/migrations`, applied by Luiz with `supabase db push`
-  from the worktree that holds the file. The SQL Editor is for reads only.
+- DDL only through a migration in `supabase/migrations`, applied by the Claude with
+  `supabase db push` from the worktree that holds the file, right before the merge, after a
+  logical backup and a `--dry-run` (`docs/commands.md`). The SQL Editor is for reads only.
 - Migration numbers: 0023 and 0024 stay unused (0023 was reserved for payments until ADR 0006),
   and so do 0053 and 0055 (numbers of plans rewritten before they were written, #292, #296); the next free number
   is the lowest one above the highest file on disk. Luiz gives the number in the prompt; a session
