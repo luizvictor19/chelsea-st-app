@@ -167,7 +167,8 @@ nem pelo `postgres` (`credit_entries_append_only`).
   `AWAITING_CHARGEBACK_REVERSAL`) ou a cobrança apagada.
 - Se a contestação for ganha ou o estorno revertido na Asaas, o lote anulado não volta sozinho. O
   ajuste manual do admin não existe ainda.
-- Uma cobrança estornada depois que a assinatura foi cancelada ainda não chega ao banco: #302.
+- Uma cobrança estornada depois que a assinatura foi cancelada também chega ao banco (#302): o
+  webhook grava as cobranças da assinatura com que a linha rodou, e a anulação acontece.
 
 ## O reembolso proporcional (CDC art. 49)
 
@@ -175,6 +176,12 @@ nem pelo `postgres` (`credit_entries_append_only`).
 lotes vivos dela, o que o teto cortou dos meses dela, mais os meses ainda não concedidos) e o valor em centavos:
 `ceil(valor × não usados ÷ créditos da cobrança)`. O arredondamento nunca vai contra a pessoa. Uma
 cobrança de plano sem créditos devolve o valor inteiro; uma cobrança que não concede devolve 0.
+
+Quem pede é a desistência da #297 (0060, `docs/spec-pagamento.md`, "Desistência"): o valor fica
+gravado em `refund_requests` na hora do pedido, e enquanto o pedido está aberto `credit_debit` recusa
+todo débito dela (`credit_refund_open`), porque o valor foi calculado do saldo daquela hora. O pedido
+é recusado enquanto ela tem aula marcada que não terminou: o crédito de uma aula cancelada depois
+voltaria a um lote que a anulação leva. Os créditos saem só quando a Asaas dá o estorno como `DONE`.
 
 ## O que se grava (0050)
 
@@ -194,7 +201,7 @@ As funções:
 | `credits_balance`       | o saldo da pessoa                                               | `authenticated`, `service_role`  |
 | `credit_live_lots`      | cada lote vivo, o que resta e quando vence (nulo: não vence)    | `authenticated`, `service_role`  |
 | `credit_cost`           | o custo de uma ação para a pessoa                               | `authenticated`, `service_role`  |
-| `credit_debit`          | o consumo                                                       | ninguém: outra função chama      |
+| `credit_debit`          | o consumo (recusa com um pedido de reembolso aberto, 0060)      | ninguém: outra função chama      |
 | `credit_refund`         | o estorno de um consumo                                         | ninguém: outra função chama      |
 | `credit_settle_payment` | concede os meses ou anula, a partir da cobrança gravada         | `service_role` (o webhook)       |
 | `credit_daily`          | concede os meses que começaram, anula e fecha os lotes vencidos | `service_role` (a rotina diária) |

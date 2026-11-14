@@ -504,6 +504,7 @@ The environment is read as the app reads it (`@next/env`), so `ASAAS_API_KEY=\$a
 `.env.local` works for the scripts too. The address follows the key's prefix.
 
     node scripts/asaas-sandbox-smoke.ts        # the adapter through the real sandbox; JSONL in fixtures/asaas/
+    node scripts/asaas-refund-smoke.ts         # the partial refund of #297, Pix and card, in the sandbox; no database
     node scripts/asaas-webhook.ts --url https://<host>/api/asaas/webhook --email <alerts>
 
 End to end with the sandbox, never against production (the database is production):
@@ -515,6 +516,9 @@ End to end with the sandbox, never against production (the database is productio
 The daily overdue routine by hand (Vercel Cron calls it at 12h UTC in production):
 
     curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3100/api/billing/daily
+
+The same routine reads every withdrawal still open (#297) back from Asaas: a request left
+`requested` for 30 minutes with no refund of its value there fails; a refund `DONE` makes it done.
 
 ## Calendar invites (#294)
 
