@@ -46,9 +46,10 @@ import {
   type Selection,
 } from "./filters";
 import { lessonLabel, suggestedCount } from "./notice-texts";
-import { WORD_LIST_ID } from "./panel-into-view";
+import { WORD_LIST_ID, rowId } from "./panel-into-view";
 import { disagreement, labelFor } from "./representation";
 import { PanelLink } from "./panel-link";
+import { rowClass } from "./row-style";
 import { ScenePanel } from "./scene-panel";
 import { firstPoint, groupScenes } from "./scenes";
 import { ScenesSection } from "./scenes-section";
@@ -396,14 +397,11 @@ export default async function VocabularyImagesPage({
                                 { kind: "word", id: word.id },
                                 term,
                               )}
+                              id={rowId("word", word.id)}
                               aria-current={
                                 selectedId === word.id ? "true" : undefined
                               }
-                              className={
-                                selectedId === word.id
-                                  ? "bg-surface border-rule flex min-w-0 flex-1 items-center justify-between gap-3 rounded-sm border px-3 py-2"
-                                  : "border-rule hover:bg-surface flex min-w-0 flex-1 items-center justify-between gap-3 rounded-sm border border-transparent px-3 py-2 transition-colors"
-                              }
+                              className={rowClass(selectedId === word.id)}
                             >
                               <span className="flex min-w-0 items-baseline gap-3">
                                 <span className="text-faint w-10 shrink-0 font-mono text-xs">

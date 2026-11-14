@@ -17,6 +17,15 @@
 /** The id of the list column, so the click can measure it. */
 export const WORD_LIST_ID = "lista";
 
+/**
+ * The id of a row in the list, on its link, so "Voltar à lista" can find it
+ * (#351). A word and a scene may share no uuid, but the prefix keeps the two
+ * apart all the same.
+ */
+export function rowId(kind: "word" | "scene", id: string): string {
+  return `linha-${kind === "word" ? "palavra" : "cena"}-${id}`;
+}
+
 /** The part of a DOMRect this needs; plain numbers so a test can make one. */
 export type Box = {
   readonly left: number;

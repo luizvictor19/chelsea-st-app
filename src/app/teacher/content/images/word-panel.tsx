@@ -45,6 +45,8 @@ import {
   type ActionResult,
 } from "./actions";
 import { AttemptList } from "./attempt-list";
+import { BackToList } from "./back-to-list";
+import { rowId } from "./panel-into-view";
 import { NotAPicture, shrinkReference } from "./shrink-reference";
 import {
   attemptsToShow,
@@ -527,6 +529,7 @@ export function WordPanel({
       className="border-rule bg-surface flex flex-col gap-6 rounded-sm border p-6"
     >
       <header className="flex flex-col gap-1">
+        <BackToList rowId={rowId("word", word.id)} />
         <h2 className="text-2xl font-extrabold tracking-tight">{word.term}</h2>
         {word.pointNumber !== null && (
           <span className="text-faint font-mono text-xs">
