@@ -211,14 +211,16 @@ describe("the stack is scrubbed whole and cut", () => {
       { length: STACK_FRAMES + 10 },
       (_, i) => `    at f${i} (file.js:1:${i})`,
     );
-    const lines = scrubStack(["Error: x", ...frames].join("\n")).split("\n");
+    const lines = String(scrubStack(["Error: x", ...frames].join("\n"))).split(
+      "\n",
+    );
     assert.equal(lines.length, STACK_FRAMES + 1);
     assert.equal(lines[0], "Error: x");
   });
 
   test(`at most ${STACK_LIMIT} characters`, () => {
     const long = `Error: ${"x".repeat(STACK_LIMIT * 2)}`;
-    assert.equal(scrubStack(long).length, STACK_LIMIT);
+    assert.equal(String(scrubStack(long)).length, STACK_LIMIT);
   });
 
   test("an empty or missing stack is null", () => {

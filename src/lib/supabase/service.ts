@@ -1,7 +1,8 @@
 /**
  * The client with the service role key, for the server code that calls the
- * functions only service_role executes: billing and credits (#72, #273) and
- * the calendar invites (#294), and the routine reading a person's e-mail from
+ * functions only service_role executes: billing and credits (#72, #273), the
+ * calendar invites (#294), the proposal e-mails (#319) and the error log
+ * (#69, app_error_record), and the routine reading a person's e-mail from
  * auth. It passes every policy: never use it to read or write a table.
  */
 
