@@ -120,6 +120,11 @@ Secret, Production only (a preview pays for nothing, and the panel says the judg
 there), and one in `.env.local`. Each rotates without touching the other. `DEEPGRAM_API_KEY` is
 read only by the measurement scripts, never by the app: it stays out of Vercel.
 
+`ERROR_ALERT_TO` (#69): the address the error e-mails go to, from `alertas@chelsea-st.com`.
+Production only, type Sensitive. Without it errors are still recorded in `app_errors`, and the
+log says the e-mail was not sent. Only Production records (`VERCEL_ENV`): a preview, local and
+CI write the scrubbed line to the console alone.
+
 `DEEPSEEK_API_KEY` is read only by the measurement scripts since #225: the app calls Claude for
 every suggestion, and `no-deepseek.test.ts` keeps any file of `src/` from importing
 `src/lib/text/deepseek.ts`. It stays in Production by Luiz's decision (06/11/2026), so going back
@@ -533,3 +538,23 @@ What is waiting or was given up, through the MCP (no address in the table):
 
     select status, method, recipient, attempts, last_error, count(*)
       from calendar_invites group by 1, 2, 3, 4, 5 order by 1;
+
+## Error log (#69)
+
+What failed in production, the last 30 days, through the MCP (the same rows `/teacher/monitoring`
+shows the platform admin; no person in them):
+
+    select day, kind, route, message, count, last_at, alerted, release, digest
+      from app_errors order by last_at desc limit 50;
+
+One error by the line of its e-mail, with the stack:
+
+    select * from app_errors where fingerprint = '<fingerprint>' and day = '<day>';
+
+A code a person passed on from "Algo deu errado" is the `digest` of a server error:
+
+    select * from app_errors where digest = '<code>';
+
+The test, after a deploy: on `/teacher/monitoring` (the platform admin), "Erro de teste no
+servidor" and "Erro de teste no navegador". Each makes the row "erro de teste do monitoramento"
+of its kind (`server`, `client`), once a day, with one e-mail each the first time.

@@ -4,10 +4,14 @@
  * Authorization: Bearer CRON_SECRET: it sends what the actions left pending,
  * of any lesson and any proposal. Anyone else gets a 401 and nothing is read
  * or sent. Apart from the billing routine, which stays closed while there is
- * no Asaas key: an invite cannot wait for that.
+ * no Asaas key: an invite cannot wait for that. A row given up (abandoned)
+ * also reaches the error log (#69): the teacher sees it on her agenda, Luiz
+ * did not.
  */
 
 import { cronAuthorized } from "../cron-auth.ts";
+import { calendarFailure } from "../monitoring/jobs.ts";
+import type { ErrorReport } from "../monitoring/report.ts";
 
 import type { DrainReport } from "./outbox.ts";
 
@@ -27,6 +31,7 @@ export async function calendarDaily(
     readonly secret: string | undefined;
     readonly drain: (limit: number) => Promise<DrainReport>;
     readonly drainProposals: (limit: number) => Promise<DrainReport>;
+    readonly report: (error: ErrorReport) => Promise<void>;
   },
 ): Promise<Response> {
   if (!cronAuthorized(request.headers.get("authorization"), deps.secret)) {
@@ -34,5 +39,7 @@ export async function calendarDaily(
   }
   const invites = await deps.drain(DAILY_LIMIT);
   const proposals = await deps.drainProposals(DAILY_PROPOSAL_LIMIT);
+  const failure = calendarFailure(invites, proposals);
+  if (failure !== null) await deps.report(failure);
   return Response.json({ ...invites, proposals });
 }

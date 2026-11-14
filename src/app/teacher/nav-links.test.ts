@@ -21,6 +21,7 @@ describe("teacherLinks", () => {
       "Planos e custos",
       "Fundadores",
       "Organizações",
+      "Erros",
     ]);
   });
 
@@ -41,11 +42,13 @@ describe("teacherLinks", () => {
       assert.notEqual(href, "/teacher/plans");
       assert.notEqual(href, "/teacher/founders");
       assert.notEqual(href, "/teacher/organizations");
+      assert.notEqual(href, "/teacher/monitoring");
     }
     const admin = teacherLinks(true).map(({ href }) => href);
     assert.ok(admin.includes("/teacher/plans"));
     assert.ok(admin.includes("/teacher/founders"));
     assert.ok(admin.includes("/teacher/organizations"));
+    assert.ok(admin.includes("/teacher/monitoring"));
   });
 
   test("Aulas is the one item with no screen", () => {

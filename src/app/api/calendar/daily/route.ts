@@ -1,6 +1,7 @@
 import { calendarDaily } from "@/lib/calendar/daily";
 import { drainAllCalendarInvites } from "@/lib/calendar/server";
 import { drainAllProposalMails } from "@/lib/lessons/proposals/server";
+import { reportError } from "@/lib/monitoring/server";
 
 /**
  * The daily routine of the calendar invites (#294) and of the proposal
@@ -15,5 +16,6 @@ export async function GET(request: Request): Promise<Response> {
     secret: process.env.CRON_SECRET,
     drain: drainAllCalendarInvites,
     drainProposals: drainAllProposalMails,
+    report: reportError,
   });
 }

@@ -77,8 +77,11 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
     `organizations`, `plans`, the layout, the nav and the notices); `src/app/dashboard` except
     Robin's practice; `src/app/proposal-form.tsx` and `src/app/proposal-list.tsx` (#319, shared by
     both sides); `src/app/cadastro`, `login`, `auth`, `forgot-password`, `set-password`,
-    `src/app/api` (`asaas`, `billing`, `calendar`); `src/lib/billing`, `credits`, `lessons`,
-    `calendar`, `mail`, `supabase`, and the loose files of `src/lib` (`auth*`, `access`, `invites`,
+    `src/app/api` (`asaas`, `billing`, `calendar`, `errors`), `src/app/teacher/monitoring`,
+    `src/instrumentation.ts`, `src/instrumentation-client.ts`, `src/app/error.tsx`,
+    `src/app/global-error.tsx`; `src/lib/billing`, `credits`, `lessons`,
+    `calendar`, `mail`, `supabase`, `monitoring` (the error log, #69), and the loose files of
+    `src/lib` (`auth*`, `access`, `invites`,
     `organizations`, `signup`, `turnstile`, `magic-link`, `link-request`, `session-cookies`,
     `safe-redirect`, `brand*`, `current-site`, `credentials`, `cron-auth`, `heartbeat`,
     `renamed-paths`, `datetime`, `env`); `scripts/asaas-*`, `calendar-smoke.ts`, `verify-rls.sql`,
@@ -90,7 +93,8 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
     `lessons`, `calendar_invites`, `lesson_proposals`, `lesson_proposal_items`,
     `lesson_proposal_mails`, `assignments`, `assignment_items`, `attempts`,
     `review_schedule`, `leads`, `plans`, `billing_customers`, `subscriptions`, `payments`,
-    `billing_events`, `overdue_steps`, `credit_costs`, `credit_entries`. The migration sequence is
+    `billing_events`, `overdue_steps`, `credit_costs`, `credit_entries`, `app_errors`. The migration
+    sequence is
     one, and belongs to nobody in particular.
 - **The boundary.** On 13/11 nothing outside the AI tutor tools imported `lib/stt`, `lib/judge` or
   `lib/audio`. The first module to cross it (Robin's session reading the content, #248) goes
@@ -426,6 +430,16 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
   service role holds nothing on it. A number sent twice is two rows (history, nothing is
   overwritten); the latest send of each number is the view `leads_latest`, with no privilege for
   any API role. The number is stored with the 55 (`leads_whatsapp_br`).
+- The app's errors follow 0060 (#69): `app_errors`, one row per error per day (UTC) by a
+  fingerprint the app computes (`src/lib/monitoring/fingerprint.ts`), a repeat only counting; what
+  it holds was scrubbed by the app first (`scrub.ts`), and it holds no user, header, cookie, IP,
+  body or query. Nobody reads or writes it through the API (RLS on, no policy, no privilege for
+  any API role). `app_error_record` (`service_role` alone, the same exception as billing's) counts
+  the repeat or writes the new row, asks for an e-mail while the day has had fewer than 20, puts
+  what passes 200 new rows a day on the one `overflow` row, and removes rows older than 30 days.
+  `app_errors_recent` (`authenticated`) gives the platform admin the last 30 days, at most 500,
+  and anyone else nothing (`/teacher/monitoring`). Only Vercel's production writes
+  (`VERCEL_ENV`); a preview, local and CI write only to the console.
 - A time zone is one both Postgres and the screen read (0048, #219): `profiles.timezone` and
   `teacher_availability.timezone` (0052) take only a name in `pg_timezone_names` that is not
   `posix/` and not `Factory`. A trigger on each, `before insert or update of timezone`
@@ -545,15 +559,16 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
   person's e-mail from auth for the overdue e-mails, and by `src/lib/calendar/supabase-outbox.ts`
   (#294), which calls only the three `calendar_*` functions of 0056, and by
   `src/lib/lessons/proposals/supabase-outbox.ts` (#319), which calls only the three
-  `lesson_proposal_mail*` functions of 0057. It passes every policy: never use it to read or
+  `lesson_proposal_mail*` functions of 0057, and by `src/lib/monitoring/store.ts` (#69), which
+  calls only `app_error_record` of 0060. It passes every policy: never use it to read or
   write a table directly; it holds no privilege on the billing tables or the ledger, only `execute`
   on their functions.
 - Asaas (#72, `docs/spec-pagamento.md`): `ASAAS_API_KEY` (the address follows its prefix; written
   `\$aact_...` in `.env.local`, or Next reads it empty; the app runs the sandbox key only against a
   local Supabase, never the production one `.env.local` points at, and never in Vercel
   Production), `ASAAS_WEBHOOK_TOKEN`, `BILLING_CPF_KEY` (the HMAC of a CPF; the digits stay at
-  Asaas), `RESEND_API_KEY` (the billing e-mails and the calendar invites of
-  #294, a key of its own) and `CRON_SECRET` (both daily routines). Production has no Asaas key until the CNPJ's account exists.
+  Asaas), `RESEND_API_KEY` (the billing e-mails, the calendar invites of
+  #294 and the error alerts of #69, a key of its own) and `CRON_SECRET` (both daily routines). Production has no Asaas key until the CNPJ's account exists.
 - Cloudflare Turnstile (#275): `TURNSTILE_SECRET_KEY` (server only, Vercel Production as a Secret)
   and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (public by design). `src/lib/turnstile.ts` refuses every
   signup without the secret; locally Cloudflare's test keys stand in (`docs/commands.md`).
@@ -582,6 +597,21 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
   `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` among the Supabase variables.
 - Student personal data (name, email, audio) is processed under the privacy terms published on the
   landing. Never log it, never paste it into an issue.
+- An error message never interpolates a name, an e-mail or what someone said (#69). Every error
+  that escapes (`onRequestError`, the browser through `/api/errors`, the boundaries) and every
+  handled failure reported (the Asaas webhook's 500, 401 and "set aside", the credits' step, the
+  calendar's abandoned rows, the three steps of `/dashboard/plano`) goes through
+  `src/lib/monitoring/scrub.ts` before `app_errors` and the e-mail: an e-mail, quoted text (an
+  identifier Postgres quotes after its kind, `constraint "x"` or `relation "x"`, stays), control
+  characters, half an emoji left by a cut, Postgres's `Key (column)=(value)`, a UUID, a CPF and any run of 8 digits or more, a JWT, a key by its
+  prefix (`sb_secret_`, `sb_publishable_`, `aact_`, `re_`), a bearer token, and the query and
+  fragment of a URL. A pattern cannot see a loose name or a sentence without quotes: those are
+  kept out at the source. The ids a message names (`user.id` in `queries.ts`) become `[id]`.
+- `ERROR_ALERT_TO` (#69): where the error e-mails go, Vercel Production only, as Sensitive. They
+  leave from `alertas@chelsea-st.com` through `RESEND_API_KEY`, at most 20 a day (Resend Free
+  sends 100 a day for every sender of the app), and one more every 15 minutes per instance when
+  the database does not answer (the pause of Supabase Free). Without it errors are recorded and
+  not sent.
 
 ## Test accounts
 
