@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { requirePlatformAdmin } from "@/lib/auth";
+import { inBrasilia } from "@/lib/monitoring/alert";
 
 import { TestButtons } from "./test-buttons";
 
@@ -14,14 +15,6 @@ const KIND_LABEL: Record<string, string> = {
   job: "rotina",
   overflow: "excesso",
 };
-
-function inBrasilia(instant: string): string {
-  return new Intl.DateTimeFormat("pt-BR", {
-    timeZone: "America/Sao_Paulo",
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(instant));
-}
 
 /**
  * The error log of the last 30 days (#69, 0063), for the platform admin
@@ -50,9 +43,10 @@ export default async function MonitoringPage() {
         <h1 className="text-3xl font-extrabold tracking-tight">Erros do app</h1>
         <p className="text-muted max-w-prose">
           Cada erro aparece uma vez por dia (UTC), com quantas vezes aconteceu.
-          Um erro novo manda um e-mail, até 20 por dia. Ficam 30 dias. Nada aqui
-          leva o nome, o e-mail ou o que a pessoa disse: a mensagem é limpa
-          antes de ser guardada.
+          Um erro novo pede um e-mail, até 20 por dia (&ldquo;e-mail
+          pedido&rdquo;: sai se ERROR_ALERT_TO existe e o Resend aceita). Ficam
+          30 dias. Nada aqui leva o nome, o e-mail ou o que a pessoa disse: a
+          mensagem é limpa antes de ser guardada.
         </p>
       </div>
 
@@ -90,7 +84,7 @@ export default async function MonitoringPage() {
                   {row.count === 1 ? "1 vez" : `${row.count} vezes`} em{" "}
                   {row.day} · primeira {inBrasilia(row.first_at)} · última{" "}
                   {inBrasilia(row.last_at)}
-                  {row.alerted ? " · e-mail enviado" : ""}
+                  {row.alerted ? " · e-mail pedido" : ""}
                 </p>
                 <p className="text-faint font-mono text-xs">
                   {row.release === null
