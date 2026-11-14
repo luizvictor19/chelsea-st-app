@@ -13,16 +13,41 @@
 -- students, 10 lessons as the student (3 scheduled in the past, 7 cancelled),
 -- 24 rows of calendar_invites of those lessons; 0 lesson proposals, 0 paid
 -- lessons, 0 lessons with a stop marked, 0 credit entries, 0 attempts,
--- 0 assignments, 0 review rows.
+-- 0 assignments, 0 review rows, 0 subscriptions, 0 seals; no lesson to come.
 --
 -- No new rule: only the cleaning asked for. The teacher profile of the same
 -- account, its admin membership and everything it teaches stay.
 
--- What the measurement said was not there stops the migration whole, named:
--- a proposal (whose foreign key restricts), a lesson paid in credits or with
--- a stop marked, a credit entry. None is deleted by guess.
+-- What the measurement said was not there stops the migration whole, named,
+-- for Luiz to decide; none of it is deleted or left behind by guess:
+-- a proposal (whose foreign key restricts); a lesson paid in credits, with a
+-- stop marked, or still to come (its calendar event was mailed, and only
+-- cancel_lesson sends the cancel); practice that the row of students would
+-- take with it by cascade (attempts, assignments, review_schedule); credits;
+-- and what the student role would leave behind, a subscription alive or a
+-- live seal.
 do $$
 begin
+  if exists (select 1 from public.lessons l
+               join public.platform_admins a on a.user_id = l.student_id
+              where l.status = 'scheduled' and l.scheduled_at > now()) then
+    raise exception '0062: a platform admin has a lesson still to come as a student; cancel it through the app first';
+  end if;
+  if exists (select 1 from public.attempts t join public.platform_admins a on a.user_id = t.student_id)
+     or exists (select 1 from public.assignments t join public.platform_admins a on a.user_id = t.student_id)
+     or exists (select 1 from public.review_schedule t join public.platform_admins a on a.user_id = t.student_id) then
+    raise exception '0062: a platform admin has practice as a student; decide it before this migration';
+  end if;
+  if exists (select 1 from public.subscriptions s
+               join public.platform_admins a on a.user_id = s.person_id
+              where s.status <> 'canceled') then
+    raise exception '0062: a platform admin has a subscription alive; decide it before this migration';
+  end if;
+  if exists (select 1 from public.person_badges b
+               join public.platform_admins a on a.user_id = b.person_id
+              where b.revoked_at is null) then
+    raise exception '0062: a platform admin holds a live seal; decide it before this migration';
+  end if;
   if exists (select 1 from public.lesson_proposals p
                join public.platform_admins a on a.user_id = p.student_id) then
     raise exception '0062: a platform admin has a lesson proposal as a student; decide it before this migration';

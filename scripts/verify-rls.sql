@@ -10535,12 +10535,17 @@ begin
     values (v_chelsea, c_tutor, 'teacher', 'https://meet.example.com/0062', 'tutor-0062@example.com', false)
     returning id into v_tutor;
   insert into lessons (organization_id, student_id, teacher_id, scheduled_at, duration_minutes, status) values
-    (v_chelsea, c_admin_student, v_tutor, now() + interval '3 days', 50, 'scheduled'),
-    (v_chelsea, c_admin_student, v_tutor, now() - interval '3 days', 50, 'cancelled'),
+    (v_chelsea, c_admin_student, v_tutor, now() - interval '10 days', 50, 'scheduled'),
+    (v_chelsea, c_admin_student, v_tutor, now() + interval '3 days', 50, 'cancelled'),
     (v_chelsea, c_plain, v_tutor, now() + interval '4 days', 50, 'scheduled');
   insert into calendar_invites (organization_id, lesson_id, method, recipient)
     select v_chelsea, l.id, 'request', 'student' from lessons l where l.teacher_id = v_tutor
      and not exists (select 1 from calendar_invites ci where ci.lesson_id = l.id and ci.recipient = 'student' and ci.method = 'request');
+  -- The admin's lessons, kept by id, so the block after the migration can
+  -- count their invites gone instead of trusting the cascade.
+  create table verify.admin_lessons_0062 as
+    select l.id, (select count(*) from calendar_invites ci where ci.lesson_id = l.id) as invites
+      from lessons l where l.student_id = c_admin_student;
 end;
 $$;
 
@@ -10560,8 +10565,11 @@ begin
     not exists (select 1 from lessons l join platform_admins a on a.user_id = l.student_id)
     and not exists (select 1 from students s join platform_admins a on a.user_id = s.id)
     and not exists (select 1 from organization_members m join platform_admins a on a.user_id = m.user_id where m.role = 'student'));
-  perform verify.holds_0058('[0062] the calendar invites of the admin''s lessons went with them',
-    not exists (select 1 from calendar_invites ci where ci.lesson_id not in (select id from lessons)));
+  perform verify.holds_0058('[0062] the admin had 2 lessons with invites before, and none of them or their invites is left',
+    (select count(*) from verify.admin_lessons_0062) = 2
+    and (select min(invites) from verify.admin_lessons_0062) >= 1
+    and not exists (select 1 from lessons where id in (select id from verify.admin_lessons_0062))
+    and not exists (select 1 from calendar_invites where lesson_id in (select id from verify.admin_lessons_0062)));
   perform verify.holds_0058('[0062] the admin keeps the platform and the admin membership',
     exists (select 1 from platform_admins where user_id = c_admin_student)
     and exists (select 1 from organization_members where user_id = c_admin_student and role = 'admin'));
@@ -10572,10 +10580,10 @@ begin
     and (select count(*) from calendar_invites ci join lessons l on l.id = ci.lesson_id where l.student_id = c_plain) >= 1);
 
   -- Nothing written here is kept.
-  delete from calendar_invites where lesson_id in (select id from lessons where teacher_id = v_tutor);
-  perform set_config('session_replication_role', 'replica', true);
+  -- As the owner of lessons, whom lessons_booked_through_functions lets
+  -- through; the invites go by cascade.
   delete from lessons where teacher_id = v_tutor;
-  perform set_config('session_replication_role', 'origin', true);
+  drop table verify.admin_lessons_0062;
   delete from teachers where id = v_tutor;
   delete from students where id in (c_admin_student, c_plain);
   delete from organization_members where user_id in (c_admin_student, c_plain, c_tutor);
