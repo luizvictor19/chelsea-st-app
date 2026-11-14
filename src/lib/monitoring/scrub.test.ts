@@ -10,6 +10,7 @@ import {
   scrubRoute,
   scrubStack,
   scrubText,
+  wellFormed,
 } from "./scrub.ts";
 
 /**
@@ -52,11 +53,23 @@ describe("scrubText takes out what names a person", () => {
     );
   });
 
-  test("a constraint name in quotes stays: it names no person and says where it failed", () => {
+  test("an identifier Postgres quotes after its kind stays: it names no person and says where it failed", () => {
     assert.equal(
       scrubText('violates unique constraint "profiles_email_key"'),
       'violates unique constraint "profiles_email_key"',
     );
+    assert.equal(
+      scrubText('relation "lessons" does not exist'),
+      'relation "lessons" does not exist',
+    );
+  });
+
+  test("a quoted word with an underscore anywhere else goes: it could be a login", () => {
+    assert.equal(scrubText('said "joao_silva"'), 'said "[texto]"');
+  });
+
+  test("a NUL and the other control characters go; the line break and the tab stay", () => {
+    assert.equal(scrubText("a\u0000b\u0007c\n\td"), "abc\n\td");
   });
 
   test("the value of Postgres's Key (column)=(value)", () => {
@@ -227,6 +240,26 @@ describe("the stack is scrubbed whole and cut", () => {
     assert.equal(scrubStack(""), null);
     assert.equal(scrubStack(null), null);
     assert.equal(scrubStack(undefined), null);
+  });
+});
+
+describe("a cut never splits an emoji", () => {
+  test("the message, the stack and the route end on a whole character", () => {
+    const emoji = "😀";
+    const message = scrubMessage(`${"a".repeat(MESSAGE_LIMIT - 1)}${emoji}`);
+    assert.equal(message, "a".repeat(MESSAGE_LIMIT - 1));
+    const stack = String(scrubStack(`${"s".repeat(STACK_LIMIT - 1)}${emoji}`));
+    assert.equal(stack, "s".repeat(STACK_LIMIT - 1));
+    assert.equal(
+      scrubRoute(`/${"r".repeat(198)}${emoji}`),
+      `/${"r".repeat(198)}`,
+    );
+  });
+
+  test("wellFormed drops a lone half and keeps a whole emoji", () => {
+    assert.equal(wellFormed("a\ud83db"), "ab");
+    assert.equal(wellFormed("a\ude00b"), "ab");
+    assert.equal(wellFormed("a😀b"), "a😀b");
   });
 });
 

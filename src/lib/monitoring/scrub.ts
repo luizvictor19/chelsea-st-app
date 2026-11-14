@@ -28,6 +28,9 @@ const URL_END = `\\s"'<>()`;
  * [valor]; the UUID before the numbers, for the same reason.
  */
 const RULES: readonly (readonly [RegExp, string])[] = [
+  // Control characters but the line break and the tab: Postgres refuses a
+  // NUL in text, and the others only hide what follows.
+  [/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ""],
   // The query and the fragment of a URL, with or without its host; a frame's
   // line and column after the query stay.
   [
@@ -50,10 +53,14 @@ const RULES: readonly (readonly [RegExp, string])[] = [
   // Postgres's detail of a unique or foreign key: the value is a person's.
   [/\bKey \(([^\n]*?)\)=\(([^\n]*)\)/g, "Key ($1)=([valor])"],
   [/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, "[email]"],
-  // Quoted text: what someone said, a name. A quoted identifier with an
-  // underscore (a constraint, a function) is no person and says where it
-  // failed, so it stays; any other quoted text goes.
-  [/"(?![a-z0-9]+(?:_[a-z0-9]+)+")[^"\n]*"/g, '"[texto]"'],
+  // Quoted text: what someone said, a name. An identifier Postgres quotes
+  // after the word that names it (constraint "x", relation "x", column "x")
+  // is no person and says where it failed, so it stays; any other quoted
+  // text goes.
+  [
+    /(?<!\b(?:constraint|relation|column|table|index|trigger|policy|sequence|view|schema|type|function) )"[^"\n]*"/g,
+    '"[texto]"',
+  ],
   [/`[^`\n]*`/g, '"[texto]"'],
   [/“[^”\n]*”/g, '"[texto]"'],
   [/‘[^’\n]*’/g, '"[texto]"'],
@@ -73,6 +80,14 @@ const RULES: readonly (readonly [RegExp, string])[] = [
   [/\+?\d(?:[ .()-]{0,2}\d){7,}/g, "[número]"],
 ];
 
+/** Without a lone surrogate: a cut can split an emoji, and Postgres refuses half of one. */
+export function wellFormed(text: string): string {
+  return text.replace(
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
+    "",
+  );
+}
+
 export function scrubText(text: string): string {
   let out = text;
   for (const [pattern, replacement] of RULES) {
@@ -82,18 +97,20 @@ export function scrubText(text: string): string {
 }
 
 export function scrubMessage(text: string): string {
-  const out = scrubText(text).trim().slice(0, MESSAGE_LIMIT);
+  const out = wellFormed(scrubText(text).trim().slice(0, MESSAGE_LIMIT));
   return out === "" ? "(sem mensagem)" : out;
 }
 
 /** The whole stack: its first line repeats the message. */
 export function scrubStack(text: string | null | undefined): string | null {
   if (text === null || text === undefined || text.trim() === "") return null;
-  return scrubText(text)
-    .split("\n")
-    .slice(0, STACK_FRAMES + 1)
-    .join("\n")
-    .slice(0, STACK_LIMIT);
+  return wellFormed(
+    scrubText(text)
+      .split("\n")
+      .slice(0, STACK_FRAMES + 1)
+      .join("\n")
+      .slice(0, STACK_LIMIT),
+  );
 }
 
 /**
@@ -110,8 +127,9 @@ export function scrubRoute(text: string): string {
         "[id]",
       )
       .replace(/(?<=\/)\d+(?=\/|$)/g, "[n]"),
-  ).slice(0, ROUTE_LIMIT);
-  return out === "" ? "/" : out;
+  );
+  const cut = wellFormed(out.slice(0, ROUTE_LIMIT));
+  return cut === "" ? "/" : cut;
 }
 
 /** Next's digest is a hash of the error, letters, digits and hyphens. */
