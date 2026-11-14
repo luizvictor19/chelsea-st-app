@@ -165,7 +165,7 @@ projeto.
   informação. Na pergunta de tradução, o "In English, please" não vale.
 - **Falha do fornecedor:** vira "Não consegui ouvir agora. Tente de novo.". Não conta como resposta.
 - **O áudio:** o navegador grava em WAV, 24 kHz, mono, porque os modelos de áudio aceitam só wav ou
-  mp3 e a função da Vercel não tem ffmpeg. Uma vez é de até 15 s, uns 720 KB.
+  mp3 e a função da Vercel não tem ffmpeg. Uma vez é de até 15 s (`MAX_TAKE_MS`, `src/lib/audio/wav.ts`); o servidor aceita até 16 s, 768 044 bytes, com 1 s de folga.
 - **O modelo de hoje:** `gpt-audio-1.5`, com o prompt curto e chamada de função forçada (os modelos
   de áudio recusam `response_format`). O Gemini 3.8 Flash é um candidato mais barato, a medir.
 - **A medição de 25/09:** 30 casos gravados pelo Luiz.
@@ -289,7 +289,7 @@ Cada um fica numa constante nomeada, num lugar só, marcada "provisório, ajusta
 
 - 300 ms: o toque mais curto que conta como vez (`MIN_HOLD_MS`);
 - 5 s sem apertar até a ajuda (`NUDGE_AFTER_MS`);
-- 15 s: a vez mais longa (`MAX_SPEAKING_MS`);
+- 15 s: a fala mais longa da pessoa (`MAX_TAKE_MS`), e 15 s: o máximo da voz do tutor antes de a vez voltar para ela (`MAX_SPEAKING_MS`);
 - três erros até a pergunta sair da sessão;
 - o gatilho inicial do dia de revisão;
 - o limiar de acerto que esconde o texto na tela e a modelagem.
