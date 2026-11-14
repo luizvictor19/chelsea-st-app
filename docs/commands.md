@@ -113,8 +113,12 @@ it always shows the neutral brand.
 `NEXT_PUBLIC_SITE_URL` is read by nothing since #196 (auth links follow the site of the request):
 it can be deleted from Production whenever, and keeping it changes nothing.
 
-`OPENAI_API_KEY` and `DEEPGRAM_API_KEY` are read only by the measurement scripts, never by the
-app: they stay out of Vercel.
+`OPENAI_API_KEY` is read by the app since #249 (the judge, `src/lib/judge/server.ts`; today only
+"Julgar uma resposta" on `/teacher/audio-test`, the platform admin's) and by the measurement
+scripts. Two keys in the OpenAI dashboard, in the mould of the Anthropic ones: one in Vercel, type
+Secret, Production only (a preview pays for nothing, and the panel says the judge is not set up
+there), and one in `.env.local`. Each rotates without touching the other. `DEEPGRAM_API_KEY` is
+read only by the measurement scripts, never by the app: it stays out of Vercel.
 
 `DEEPSEEK_API_KEY` is read only by the measurement scripts since #225: the app calls Claude for
 every suggestion, and `no-deepseek.test.ts` keeps any file of `src/` from importing
