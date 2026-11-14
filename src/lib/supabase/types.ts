@@ -1869,6 +1869,90 @@ export type Database = {
           },
         ];
       };
+      refund_requests: {
+        Row: {
+          asaas_payment_id: string;
+          asaas_refund_status: string | null;
+          created_at: string;
+          done_at: string | null;
+          error: string | null;
+          failed_at: string | null;
+          id: string;
+          organization_id: string;
+          payment_credits: number;
+          person_id: string;
+          refund_cents: number;
+          sent_at: string | null;
+          status: string;
+          subscription_id: string;
+          unused_credits: number;
+        };
+        ComputedFields: never;
+        Insert: {
+          asaas_payment_id: string;
+          asaas_refund_status?: string | null;
+          created_at?: string;
+          done_at?: string | null;
+          error?: string | null;
+          failed_at?: string | null;
+          id?: string;
+          organization_id: string;
+          payment_credits: number;
+          person_id: string;
+          refund_cents: number;
+          sent_at?: string | null;
+          status?: string;
+          subscription_id: string;
+          unused_credits: number;
+        };
+        Update: {
+          asaas_payment_id?: string;
+          asaas_refund_status?: string | null;
+          created_at?: string;
+          done_at?: string | null;
+          error?: string | null;
+          failed_at?: string | null;
+          id?: string;
+          organization_id?: string;
+          payment_credits?: number;
+          person_id?: string;
+          refund_cents?: number;
+          sent_at?: string | null;
+          status?: string;
+          subscription_id?: string;
+          unused_credits?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "refund_requests_asaas_payment_id_fkey";
+            columns: ["asaas_payment_id"];
+            isOneToOne: false;
+            referencedRelation: "payments";
+            referencedColumns: ["asaas_payment_id"];
+          },
+          {
+            foreignKeyName: "refund_requests_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "refund_requests_person_id_fkey";
+            columns: ["person_id"];
+            isOneToOne: false;
+            referencedRelation: "billing_customers";
+            referencedColumns: ["person_id"];
+          },
+          {
+            foreignKeyName: "refund_requests_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: false;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       review_schedule: {
         Row: {
           due_on: string;
@@ -2512,6 +2596,32 @@ export type Database = {
         };
         Returns: undefined;
       };
+      billing_open_refund: {
+        Args: { p_person: string };
+        Returns: {
+          asaas_payment_id: string;
+          asaas_refund_status: string | null;
+          created_at: string;
+          done_at: string | null;
+          error: string | null;
+          failed_at: string | null;
+          id: string;
+          organization_id: string;
+          payment_credits: number;
+          person_id: string;
+          refund_cents: number;
+          sent_at: string | null;
+          status: string;
+          subscription_id: string;
+          unused_credits: number;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "refund_requests";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       billing_open_subscription: {
         Args: {
           p_billing_type: string;
@@ -2541,6 +2651,45 @@ export type Database = {
       billing_record_event: {
         Args: { p_event_id: string; p_event_type: string; p_payload: Json };
         Returns: boolean;
+      };
+      billing_refund_failed: {
+        Args: { p_error: string; p_id: string };
+        Returns: string;
+      };
+      billing_refund_quote: {
+        Args: { p_person: string };
+        Returns: {
+          asaas_payment_id: string;
+          ends_at: string;
+          lessons_ahead: number;
+          payment_credits: number;
+          refund_cents: number;
+          unused_credits: number;
+        }[];
+      };
+      billing_refund_reading: {
+        Args: { p_payment_id: string; p_refunds: Json };
+        Returns: string;
+      };
+      billing_refund_window: {
+        Args: { p_person: string };
+        Returns: {
+          asaas_payment_id: string;
+          ends_at: string;
+          subscription_id: string;
+        }[];
+      };
+      billing_refunds_open: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          asaas_payment_id: string;
+          asaas_subscription_id: string;
+          created_at: string;
+          id: string;
+          person_id: string;
+          refund_cents: number;
+          status: string;
+        }[];
       };
       billing_save_payment: {
         Args: {

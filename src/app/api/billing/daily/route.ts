@@ -8,7 +8,9 @@ import {
   billingOpen,
   billingStore,
   emailOf,
+  refundNotice,
 } from "@/lib/billing/server";
+import { reconcileRefunds, type RefundReport } from "@/lib/billing/withdraw";
 import { cronAuthorized } from "@/lib/cron-auth";
 import { runDaily } from "@/lib/credits/daily";
 
@@ -16,7 +18,8 @@ import { runDaily } from "@/lib/credits/daily";
  * The daily routine, called by Vercel Cron (vercel.json) with Authorization:
  * Bearer CRON_SECRET, as Vercel sends it. Anyone else gets a 401 and nothing
  * runs. First the credits' step (#273), everywhere, also before billing is
- * open; then the overdue steps (Q5 of the #72 plan), only where it is.
+ * open; then the overdue steps (Q5 of the #72 plan) and the withdrawals
+ * still open (#297), only where it is.
  */
 export async function GET(request: Request): Promise<Response> {
   if (
@@ -50,5 +53,24 @@ export async function GET(request: Request): Promise<Response> {
       : null,
     log,
   });
-  return Response.json(report);
+  // The withdrawals still open (#297), only where billing is open: each is
+  // read back from the provider. A failure is logged and kept in the report.
+  let refunds: RefundReport | { skipped: string } | { error: string } = {
+    skipped: "billing is not open here",
+  };
+  if (billingOpen()) {
+    try {
+      refunds = await reconcileRefunds({
+        ...billingDeps(),
+        notify: refundNotice,
+        now: new Date(),
+        log,
+      });
+    } catch (cause) {
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      log(`refunds daily failed: ${reason}`);
+      refunds = { error: reason.slice(0, 500) };
+    }
+  }
+  return Response.json({ ...report, refunds });
 }

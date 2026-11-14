@@ -12,7 +12,8 @@ import { createClient } from "@/lib/supabase/server";
 import { CouponForm } from "./coupon-form";
 import { CreditsCard } from "./credits-card";
 import { formatDay } from "./format";
-import { readCredits, readPlanScreen } from "./queries";
+import { readCredits, readPlanScreen, readRefund } from "./queries";
+import { RefundCard } from "./refund-card";
 import { SubscribeForm } from "./subscribe-form";
 import { SubscriptionCard } from "./subscription-card";
 
@@ -80,11 +81,15 @@ export default async function PlanPage({
   const [
     { plans, current, pastDueSince, trialUsed, seal },
     credits,
+    refund,
     seats,
     seals,
   ] = await Promise.all([
     readPlanScreen(user.id),
     readCredits(user.id),
+    billingOpen()
+      ? readRefund(user.id)
+      : Promise.resolve({ offer: null, request: null }),
     supabase.rpc("founder_seats_left"),
     // Her Founder seals, revoked ones too (person_badges_read): a seal she
     // ever held says her signup coupon did count.
@@ -142,6 +147,8 @@ export default async function PlanPage({
           pastDueSince={pastDueSince}
         />
       )}
+
+      <RefundCard offer={refund.offer} request={refund.request} />
 
       {current?.status === "canceled" &&
         current.paidThrough !== null &&

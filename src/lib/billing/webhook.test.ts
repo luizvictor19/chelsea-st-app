@@ -342,6 +342,96 @@ describe("handleWebhook", () => {
     assert.equal(store.rows.get(rowId)!.cancelReason, "provider");
   });
 
+  // #302: the natural order of a refund under CDC art. 49 is cancel, then
+  // the money back. The charge refunded after the cancel must still reach
+  // the database, so its credits are voided; the row stays canceled.
+  test("a charge refunded after the cancel is written and settled, and the row stays canceled", async () => {
+    const { rowId, subscriptionId, paymentId } = await pixRow();
+    setPayment(provider, paymentId, {
+      status: "CONFIRMED",
+      paidOn: "2026-11-26",
+    });
+    await send("PAYMENT_CONFIRMED", {
+      id: paymentId,
+      subscription: subscriptionId,
+    });
+    await provider.deleteSubscription(subscriptionId);
+    await store.applySubscription(rowId, {
+      subscriptionId: null,
+      customerId: null,
+      status: "canceled",
+      paidThrough: null,
+      pastDueSince: null,
+      cancelReason: "person",
+    });
+    store.settled.length = 0;
+    setPayment(provider, paymentId, {
+      status: "REFUNDED",
+      refundedCents: 1000,
+    });
+    const result = await send("PAYMENT_REFUNDED", {
+      id: paymentId,
+      subscription: subscriptionId,
+    });
+    assert.equal(result.status, 200);
+    assert.equal(store.payments.get(paymentId)?.asaasStatus, "REFUNDED");
+    assert.equal(store.payments.get(paymentId)?.refundedCents, 1000);
+    assert.deepEqual(store.settled, [paymentId]);
+    const row = store.rows.get(rowId)!;
+    assert.equal(row.status, "canceled");
+    assert.equal(row.cancelReason, "person");
+    assert.equal(row.paidThrough, "2026-12-25");
+  });
+
+  // Review of #297: in production a refund waits for the panel. The undo
+  // of a checkout paid behind a canceled row must not ask again for a refund
+  // already on its way, or the provider refuses it and the subscription is
+  // never deleted.
+  test("a refund on its way behind a canceled row is not asked for again", async () => {
+    await store.customer(PERSON, cpfHmac(CPF, KEY));
+    const rowId = await store.openSubscription({
+      personId: PERSON,
+      planId: "plan",
+      cycle: "monthly",
+      billingType: "card",
+      valueCents: 1000,
+      withTrial: false,
+      firstDueOn: "2026-11-12",
+      checkoutId: "chk_wait",
+      customerId: null,
+      subscriptionId: null,
+    });
+    await store.applySubscription(rowId, {
+      subscriptionId: null,
+      customerId: null,
+      status: "canceled",
+      paidThrough: null,
+      pastDueSince: null,
+      cancelReason: "replaced",
+    });
+    const made = finishCheckout(provider, {
+      checkoutId: "chk_wait",
+      cpf: CPF,
+      valueCents: 1000,
+      firstDueOn: "2026-11-12",
+    });
+    setPayment(provider, made.paymentId, {
+      status: "CONFIRMED",
+      refunds: [
+        { status: "AWAITING_CRITICAL_ACTION_AUTHORIZATION", valueCents: 1000 },
+      ],
+    });
+    const result = await send("SUBSCRIPTION_CREATED", {
+      id: made.subscriptionId,
+    });
+    assert.equal(result.status, 200);
+    assert.equal(provider.calls.includes("refund"), false);
+    assert.equal(
+      provider.subscriptions.get(made.subscriptionId)!.deleted,
+      true,
+    );
+  });
+
   // Review of #72, finding 1: a checkout left open after its row was
   // canceled (by her, or replaced by another subscription) could still be
   // paid, and the subscription it made ran with no row alive.

@@ -12,6 +12,7 @@ import { createServiceClient } from "../supabase/service.ts";
 
 import { createAsaasProvider } from "./asaas.ts";
 import { asaasConfig, cpfKey, webhookToken } from "./config.ts";
+import { refundNoticeEmail } from "./messages.ts";
 import type { BillingStore } from "./store.ts";
 import { createSupabaseBillingStore } from "./supabase-store.ts";
 import type { SyncDeps } from "./sync.ts";
@@ -22,8 +23,9 @@ if (typeof window !== "undefined") {
   );
 }
 
-/** The address the billing e-mails come from: the brand's, on its domain. */
-const FROM = `${CHELSEA.name} <contato@chelsea-st.com>`;
+/** The brand's address, on its domain: the billing e-mails come from it. */
+const CONTACT = "contato@chelsea-st.com";
+const FROM = `${CHELSEA.name} <${CONTACT}>`;
 
 /**
  * Whether this environment sells at all. Before the CNPJ the production has
@@ -73,6 +75,22 @@ export function billingMailer(): Mailer {
   return createResendMailer({
     apiKey: process.env.RESEND_API_KEY ?? "",
     from: FROM,
+  });
+}
+
+/**
+ * The notice while a withdrawal's refund waits for the critical event's
+ * authorization in the Asaas panel (Q3 A of #297): to the brand's own
+ * address, the one the billing e-mails come from, with the charge's id and
+ * nothing of the person. One per charge (the idempotency key).
+ */
+export async function refundNotice(paymentId: string): Promise<void> {
+  const { subject, text } = refundNoticeEmail(paymentId);
+  await billingMailer().send({
+    to: CONTACT,
+    subject,
+    text,
+    idempotencyKey: `refund-notice:${paymentId}`,
   });
 }
 

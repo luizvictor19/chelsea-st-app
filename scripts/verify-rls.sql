@@ -10135,6 +10135,418 @@ $$;
 drop extension dblink;
 
 
+-- 0060 adds refund_requests, empty, its functions, and recreates credit_debit
+-- on 0050's body with one refusal more. The blocks of 0050, 0052, 0057 and
+-- 0058 ran above against the body it replaces; its own block holds again
+-- what the recreated body keeps (a debit, its refusals, a booking through
+-- it), besides what it adds.
+\i supabase/migrations/0060_a_withdrawal_gives_back_what_was_not_used.sql
+
+-- A withdrawal gives back what was not used (0060) ---------------------------------------
+--
+-- refund_requests is read by its person and the platform admin and written
+-- by no API role; only service_role executes the five refund functions,
+-- nobody the window. The window is the first charge paid of a
+-- subscription, to the end of the 7th day in São Paulo after its payment
+-- day; a renewal and an older charge open none. A scheduled lesson not
+-- ended refuses the request. The value is credit_refund_quote's, rounded up.
+-- One request open per person, one not failed per charge; while one is open
+-- nothing of hers is spent, a booking included, and done or failed lets her
+-- spend again. The provider's reading moves a request: a refund of its value
+-- DONE, once the charge is written with it, makes it done; one waiting, or
+-- DONE before that, makes it sent; all CANCELLED make it failed; another
+-- value moves nothing. The money back voids what was left.
+-- The recreated debit still debits and still refuses as 0050 did. Every
+-- refusal by its own name. Numbers are made up. Nothing written here is kept.
+
+create function verify.holds_0060(p_what text, p_ok boolean) returns void
+language plpgsql as $$
+begin
+  if p_ok is distinct from true then
+    insert into verify.failures values (p_what);
+  else
+    raise notice '%', p_what;
+  end if;
+end;
+$$;
+
+-- A person with a monthly subscription whose charge, due and paid on the
+-- given days, is written and settled as the webhook does. Returns the charge.
+create function verify.paid_0060(
+  p_person uuid, p_plan uuid, p_value integer, p_ref text, p_due date, p_paid date,
+  p_first boolean default true)
+returns text
+language plpgsql as $$
+declare
+  v_sub uuid;
+begin
+  if p_first then
+    perform public.billing_customer(p_person, encode(sha256(convert_to(p_person::text, 'UTF8')), 'hex'));
+    v_sub := public.billing_open_subscription(p_person, p_plan, 'monthly', 'pix', p_value, false,
+      p_due, null, 'cus_' || p_ref, 'sub_' || p_ref);
+  else
+    select id into v_sub from public.subscriptions where asaas_subscription_id = 'sub_' || p_ref;
+  end if;
+  perform public.billing_save_payment('pay_' || p_ref || '_' || p_due, v_sub, 'cycle', p_value,
+    'CONFIRMED', false, p_due, (p_paid::timestamp at time zone 'UTC'), 0, null);
+  perform public.credit_settle_payment('pay_' || p_ref || '_' || p_due);
+  return 'pay_' || p_ref || '_' || p_due;
+exception when others then
+  insert into verify.failures values (format('[0060] the charge %s the case needed was refused: %s %s',
+    p_ref, sqlstate, sqlerrm));
+  return null;
+end;
+$$;
+
+do $$
+declare
+  c_admin constant uuid := '11111111-1111-1111-1111-111111111111';
+  c_used constant uuid := 'b0600000-0000-4000-8000-000000000001';
+  c_win constant uuid := 'b0600000-0000-4000-8000-000000000002';
+  c_edge7 constant uuid := 'b0600000-0000-4000-8000-000000000003';
+  c_edge8 constant uuid := 'b0600000-0000-4000-8000-000000000004';
+  c_renew constant uuid := 'b0600000-0000-4000-8000-000000000005';
+  c_lesson constant uuid := 'b0600000-0000-4000-8000-000000000006';
+  c_free constant uuid := 'b0600000-0000-4000-8000-000000000007';
+  c_tutor constant uuid := 'b0600000-0000-4000-8000-000000000008';
+  c_people constant uuid[] := array[c_used, c_win, c_edge7, c_edge8, c_renew, c_lesson, c_free];
+  c_zone constant text := 'America/Sao_Paulo';
+  c_service constant regprocedure[] := array[
+    'public.billing_refund_quote(uuid)',
+    'public.billing_open_refund(uuid)',
+    'public.billing_refund_failed(uuid, text)',
+    'public.billing_refund_reading(text, jsonb)',
+    'public.billing_refunds_open()']::regprocedure[];
+  v_uid text := current_setting('test.uid', true);
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_today date := (now() at time zone 'America/Sao_Paulo')::date;
+  v_ten timestamptz := ((now() at time zone 'America/Sao_Paulo')::date + 2 + time '10:00') at time zone 'America/Sao_Paulo';
+  v_plan uuid;
+  v_free_plan uuid;
+  v_tutor uuid;
+  v_pay_used text;
+  v_pay_win text;
+  v_pay_edge7 text;
+  v_pay_edge8 text;
+  v_pay_renew text;
+  v_pay_lesson text;
+  v_pay_free text;
+  v_req public.refund_requests;
+  v_req2 public.refund_requests;
+  v_quote record;
+  v_fn regprocedure;
+  v_role text;
+  v_privilege text;
+  v_text text;
+  v_int integer;
+  v_n bigint;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  -- The people: Chelsea St students, confirmed, and a teacher who takes
+  -- bookings at any hour.
+  insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at)
+    select p, 'w' || right(p::text, 2) || '-0060@example.com', '{"full_name":"W"}', now()
+      from unnest(c_people || c_tutor) p;
+  insert into organization_members (organization_id, user_id, role)
+    select v_chelsea, p, 'student' from unnest(c_people) p;
+  insert into organization_members (organization_id, user_id, role) values (v_chelsea, c_tutor, 'teacher');
+  insert into students (id, organization_id) select p, v_chelsea from unnest(c_people) p;
+  insert into teachers (organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+    values (v_chelsea, c_tutor, 'teacher', 'https://meet.example.com/0060', 'tutor-0060@example.com', true)
+    returning id into v_tutor;
+  insert into teacher_availability (organization_id, teacher_id, weekday, start_time, end_time, timezone)
+    select v_chelsea, v_tutor, d, '00:00', '24:00', c_zone from generate_series(0, 6) d;
+  insert into credit_costs (brand, action, credits) values
+    ('chelsea-st', 'teacher_lesson', 4),
+    ('chelsea-st', 'voice_minute', 1);
+
+  -- The plans: 7 credits a month for 1000 cents, and one with no credits.
+  v_plan := verify.plan_0058('w0060', 'public', 1000, 10000, 7, null, null, 0);
+  v_free_plan := verify.plan_0058('free0060', 'public', 1000, 10000, 0, null, null, 0);
+
+  -- The charges.
+  v_pay_used := verify.paid_0060(c_used, v_plan, 1000, 'used0060', v_today, v_today);
+  v_pay_win := verify.paid_0060(c_win, v_plan, 1000, 'win0060', v_today - 2, v_today - 1);
+  v_pay_edge7 := verify.paid_0060(c_edge7, v_plan, 1000, 'edge70060', v_today - 7, v_today - 7);
+  v_pay_edge8 := verify.paid_0060(c_edge8, v_plan, 1000, 'edge80060', v_today - 8, v_today - 8);
+  perform verify.paid_0060(c_renew, v_plan, 1000, 'renew0060', v_today - 40, v_today - 40);
+  v_pay_renew := verify.paid_0060(c_renew, v_plan, 1000, 'renew0060', v_today - 10, v_today, false);
+  v_pay_lesson := verify.paid_0060(c_lesson, v_plan, 1000, 'lesson0060', v_today, v_today);
+  v_pay_free := verify.paid_0060(c_free, v_free_plan, 1000, 'free0060', v_today, v_today);
+
+  -- 1. Who writes and reads refund_requests, who executes what.
+  foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+    foreach v_privilege in array array['insert', 'update', 'delete'] loop
+      perform verify.holds_0060(format('[0060 #1] %s holds no %s on refund_requests', v_role, v_privilege),
+        not has_table_privilege(v_role, 'public.refund_requests', v_privilege));
+    end loop;
+    perform verify.holds_0060(format('[0060 #1] %s reads refund_requests only when it is authenticated', v_role),
+      has_table_privilege(v_role, 'public.refund_requests', 'select') = (v_role = 'authenticated'));
+  end loop;
+  foreach v_fn in array c_service loop
+    perform verify.holds_0060(format('[0060 #1] %s is executed by service_role alone', v_fn),
+      has_function_privilege('service_role', v_fn, 'execute')
+      and not has_function_privilege('anon', v_fn, 'execute')
+      and not has_function_privilege('authenticated', v_fn, 'execute'));
+  end loop;
+  perform verify.holds_0060('[0060 #1] billing_refund_window and the recreated credit_debit are executed by no API role',
+    not has_function_privilege('anon', 'public.billing_refund_window(uuid)', 'execute')
+    and not has_function_privilege('authenticated', 'public.billing_refund_window(uuid)', 'execute')
+    and not has_function_privilege('service_role', 'public.billing_refund_window(uuid)', 'execute')
+    and not has_function_privilege('anon', 'public.credit_debit(uuid, text, integer, text)', 'execute')
+    and not has_function_privilege('authenticated', 'public.credit_debit(uuid, text, integer, text)', 'execute')
+    and not has_function_privilege('service_role', 'public.credit_debit(uuid, text, integer, text)', 'execute'));
+  perform verify.holds_0060('[0060 #1] row level security is on for refund_requests',
+    (select relrowsecurity from pg_class where oid = 'public.refund_requests'::regclass));
+
+  -- 2. The recreated debit still debits, spends the oldest lot, and refuses
+  -- as 0050 did: c_used spends 4 of her 7, by reference.
+  begin
+    v_int := credit_debit(c_used, 'voice_minute', 4, 'w0060:minute:1');
+  exception when others then
+    insert into verify.failures values (format('[0060 #2] a debit with no request was refused: %s %s', sqlstate, sqlerrm));
+  end;
+  perform verify.holds_0060(format('[0060 #2] the recreated debit spends 4 of 7 and leaves 3 (%s)', v_int),
+    v_int = 3 and credit_balance_of(c_used) = 3);
+  perform verify.expect_refused_undone('[0060 #2] the same reference again',
+    '23505 credit_debit_reference_used',
+    format($q$select credit_debit(%L, 'voice_minute', 1, 'w0060:minute:1')$q$, c_used));
+  perform verify.expect_refused_undone('[0060 #2] more than her balance',
+    '23514 credits_not_negative',
+    format($q$select credit_debit(%L, 'voice_minute', 4, 'w0060:minute:2')$q$, c_used));
+  perform verify.expect_refused_undone('[0060 #2] an action without a cost in her brand',
+    '23514 credit_cost_known',
+    format($q$select credit_debit(%L, 'video_minute', 1, 'w0060:minute:3')$q$, c_used));
+
+  -- 3. A booking through the recreated debit: c_lesson books a lesson ahead.
+  perform set_config('test.uid', c_lesson::text, false);
+  begin
+    set local role authenticated;
+    select credits_debited into v_int from book_lesson(v_tutor, v_ten);
+  exception when others then
+    insert into verify.failures values (format('[0060 #3] a student could not book: %s %s', sqlstate, sqlerrm));
+  end;
+  reset role;
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+  perform verify.holds_0060(format('[0060 #3] book_lesson debits through the recreated debit (%s)', v_int),
+    v_int = 4 and credit_balance_of(c_lesson) = 3);
+
+  -- 4. The value, rounded never against her: 3 of 7 credits left of 1000
+  -- cents is 428.57, so 429; nothing used is all of it; a plan with no
+  -- credits gives back all of it.
+  select * into v_quote from billing_refund_quote(c_used);
+  perform verify.holds_0060(format('[0060 #4] 3 of 7 credits not used of 1000 cents give back 429 (%s of %s, %s)',
+      v_quote.unused_credits, v_quote.payment_credits, v_quote.refund_cents),
+    v_quote.asaas_payment_id = v_pay_used and v_quote.payment_credits = 7
+    and v_quote.unused_credits = 3 and v_quote.refund_cents = 429 and v_quote.lessons_ahead = 0);
+  select * into v_quote from billing_refund_quote(c_win);
+  perform verify.holds_0060(format('[0060 #4] nothing used gives back all of it (%s)', v_quote.refund_cents),
+    v_quote.refund_cents = 1000 and v_quote.unused_credits = 7);
+  select * into v_quote from billing_refund_quote(c_free);
+  perform verify.holds_0060(format('[0060 #4] a plan with no credits gives back all of it (%s)', v_quote.refund_cents),
+    v_quote.refund_cents = 1000 and v_quote.payment_credits = 0);
+
+  -- 5. The window: paid 7 days ago is still in it (to the end of that 7th
+  -- day in São Paulo), paid 8 days ago is not; a renewal paid today opens
+  -- none.
+  select * into v_quote from billing_refund_quote(c_edge7);
+  perform verify.holds_0060(format('[0060 #5] a charge paid 7 days ago is in the window, until the midnight that starts the 8th day (%s)', v_quote.ends_at),
+    v_quote.asaas_payment_id = v_pay_edge7
+    and v_quote.ends_at = ((v_today + 1)::timestamp at time zone c_zone));
+  perform verify.holds_0060('[0060 #5] a charge paid 8 days ago is out of the window',
+    not exists (select 1 from billing_refund_quote(c_edge8)));
+  perform verify.expect_refused_undone('[0060 #5] a request for a charge paid 8 days ago',
+    '23514 billing_refund_window', format('select billing_open_refund(%L)', c_edge8));
+  perform verify.holds_0060('[0060 #5] a renewal paid today opens no window',
+    not exists (select 1 from billing_refund_quote(c_renew)));
+  perform verify.expect_refused_undone('[0060 #5] a request for a renewal',
+    '23514 billing_refund_window', format('select billing_open_refund(%L)', c_renew));
+
+  -- 6. A scheduled lesson not ended refuses the request, and the quote says
+  -- how many there are.
+  select * into v_quote from billing_refund_quote(c_lesson);
+  perform verify.holds_0060(format('[0060 #6] the quote counts her lesson ahead (%s)', v_quote.lessons_ahead),
+    v_quote.lessons_ahead = 1);
+  perform verify.expect_refused_undone('[0060 #6] a request with a lesson ahead',
+    '23514 billing_refund_lessons_ahead', format('select billing_open_refund(%L)', c_lesson));
+
+  -- 7. The request is reserved with the database's value; a second one is
+  -- refused; while it is open nothing of hers is spent, a booking included.
+  v_req := billing_open_refund(c_used);
+  perform verify.holds_0060(format('[0060 #7] the request is requested, for her charge, with 429 cents (%s, %s)', v_req.status, v_req.refund_cents),
+    v_req.status = 'requested' and v_req.asaas_payment_id = v_pay_used and v_req.refund_cents = 429
+    and v_req.unused_credits = 3 and v_req.payment_credits = 7
+    and v_req.organization_id = v_chelsea);
+  perform verify.expect_refused_undone('[0060 #7] a second request while one is open',
+    '23505 refund_requests_one_open', format('select billing_open_refund(%L)', c_used));
+  perform verify.expect_refused_undone('[0060 #7] a debit while her request is open',
+    '23514 credit_refund_open',
+    format($q$select credit_debit(%L, 'voice_minute', 1, 'w0060:minute:4')$q$, c_used));
+  perform set_config('test.uid', c_used::text, false);
+  set local role authenticated;
+  v_text := verify.named_refusal_undone(format('select book_lesson(%L, %L)', v_tutor, v_ten + interval '3 hours'));
+  reset role;
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+  perform verify.holds_0060(format('[0060 #7] a booking while her request is open is refused by credit_refund_open (%s)', coalesce(v_text, 'accepted')),
+    v_text = '23514 credit_refund_open');
+  perform verify.holds_0060('[0060 #7] the quote shows no charge once a request of it is open',
+    not exists (select 1 from billing_refund_quote(c_used)));
+
+  -- 8. The provider's reading: another value moves nothing; a refund
+  -- waiting for the panel makes it sent; DONE before the charge is written
+  -- with the money back keeps it sent, so her balance stays held until the
+  -- void can run; written, DONE makes it done, and the void took the rest.
+  perform verify.holds_0060('[0060 #8] a refund of another value leaves the request requested',
+    billing_refund_reading(v_pay_used, '[{"status":"DONE","value_cents":428}]') = 'requested');
+  -- A function's write is seen by the next statement, not by the one that
+  -- calls it: each reading is taken first, and checked after.
+  v_text := billing_refund_reading(v_pay_used, '[{"status":"AWAITING_CRITICAL_ACTION_AUTHORIZATION","value_cents":429}]');
+  perform verify.holds_0060('[0060 #8] a refund waiting for the panel makes it sent',
+    v_text = 'sent'
+    and (select asaas_refund_status from refund_requests where id = v_req.id) = 'AWAITING_CRITICAL_ACTION_AUTHORIZATION'
+    and (select sent_at from refund_requests where id = v_req.id) is not null);
+  select o.status into v_text from billing_refunds_open() o
+   where o.id = v_req.id and o.asaas_payment_id = v_pay_used and o.refund_cents = 429
+     and o.asaas_subscription_id = 'sub_used0060' and o.person_id = c_used;
+  perform verify.holds_0060(format('[0060 #8] the routine lists the open request with its value and provider ids (%s)', v_text),
+    v_text = 'sent');
+  v_text := billing_refund_reading(v_pay_used, '[{"status":"DONE","value_cents":429}]');
+  perform verify.holds_0060(format('[0060 #8] DONE before the charge is written with the money back keeps it sent (%s)', v_text),
+    v_text = 'sent'
+    and (select asaas_refund_status from refund_requests where id = v_req.id) = 'DONE');
+  perform verify.expect_refused_undone('[0060 #8] a debit between DONE and the charge written is refused by the request',
+    '23514 credit_refund_open',
+    format($q$select credit_debit(%L, 'voice_minute', 1, 'w0060:minute:7')$q$, c_used));
+  -- The webhook writes the charge, then settles it (the void), then reads.
+  perform billing_save_payment(v_pay_used, (select subscription_id from payments where asaas_payment_id = v_pay_used),
+    'cycle', 1000, 'CONFIRMED', false, v_today, (v_today::timestamp at time zone 'UTC'), 429, null);
+  perform credit_settle_payment(v_pay_used);
+  v_text := billing_refund_reading(v_pay_used, '[{"status":"CANCELLED","value_cents":429},{"status":"DONE","value_cents":429}]');
+  perform verify.holds_0060('[0060 #8] a refund of its value DONE, the charge written with it, makes it done',
+    v_text = 'done'
+    and (select done_at from refund_requests where id = v_req.id) is not null);
+  perform verify.holds_0060('[0060 #8] a done request is no longer read, and never fails',
+    billing_refund_reading(v_pay_used, '[{"status":"CANCELLED","value_cents":429}]') is null
+    and billing_refund_failed(v_req.id, 'late') = 'done');
+  perform verify.holds_0060(format('[0060 #8] the money back voids what was left (%s)', credit_balance_of(c_used)),
+    credit_balance_of(c_used) = 0
+    and (select sum(amount) from credit_entries where person_id = c_used and kind = 'void') = -3);
+  perform verify.expect_refused_undone('[0060 #8] after done, a debit is refused by the balance, not by the request',
+    '23514 credits_not_negative',
+    format($q$select credit_debit(%L, 'voice_minute', 1, 'w0060:minute:5')$q$, c_used));
+
+  -- 9. Failed lets her spend and ask again; a refund of its value all
+  -- CANCELLED fails it; a charge has one request not failed.
+  v_req := billing_open_refund(c_win);
+  v_text := billing_refund_failed(v_req.id, 'Asaas 400');
+  perform verify.holds_0060('[0060 #9] the provider refused: failed',
+    v_text = 'failed'
+    and (select error from refund_requests where id = v_req.id) = 'Asaas 400');
+  perform verify.holds_0060('[0060 #9] a failed one is no longer read',
+    billing_refund_reading(v_pay_win, '[{"status":"PENDING","value_cents":1000}]') is null);
+  begin
+    v_int := credit_debit(c_win, 'voice_minute', 1, 'w0060:minute:6');
+  exception when others then
+    v_int := null;
+  end;
+  perform verify.holds_0060(format('[0060 #9] after failed, she spends again (%s)', v_int), v_int = 6);
+  v_req2 := billing_open_refund(c_win);
+  perform verify.holds_0060(format('[0060 #9] after failed, she asks again, with what is left now (%s)', v_req2.refund_cents),
+    v_req2.status = 'requested' and v_req2.refund_cents = 858);
+  perform verify.holds_0060('[0060 #9] a requested one with no refund of its value stays requested',
+    billing_refund_reading(v_pay_win, '[]') = 'requested');
+  perform verify.holds_0060('[0060 #9] refunds of its value all CANCELLED fail it',
+    billing_refund_reading(v_pay_win, '[{"status":"CANCELLED","value_cents":858}]') = 'failed');
+  perform verify.expect_refused_undone('[0060 #9] a second request of a charge not failed',
+    '23505 refund_requests_once_per_payment',
+    format($q$insert into refund_requests (person_id, organization_id, subscription_id, asaas_payment_id,
+              payment_credits, unused_credits, refund_cents)
+            select person_id, organization_id, subscription_id, asaas_payment_id, 7, 3, 429
+              from refund_requests where id = %L$q$, (select id from refund_requests where asaas_payment_id = v_pay_used)));
+
+  -- 10. The checks of the table, each by its name.
+  perform verify.expect_refused_undone('[0060 #10] a request of 0 cents',
+    '23514 refund_requests_cents_positive',
+    format($q$insert into refund_requests (person_id, organization_id, subscription_id, asaas_payment_id,
+              payment_credits, unused_credits, refund_cents, status, failed_at)
+            select person_id, organization_id, subscription_id, asaas_payment_id, 7, 3, 0, 'failed', now()
+              from refund_requests where id = %L$q$, v_req.id));
+  perform verify.expect_refused_undone('[0060 #10] more unused credits than the charge paid for',
+    '23514 refund_requests_unused_within_payment',
+    format($q$insert into refund_requests (person_id, organization_id, subscription_id, asaas_payment_id,
+              payment_credits, unused_credits, refund_cents, status, failed_at)
+            select person_id, organization_id, subscription_id, asaas_payment_id, 7, 8, 1, 'failed', now()
+              from refund_requests where id = %L$q$, v_req.id));
+  -- Each clause of refund_requests_status_says_when alone: the row is made
+  -- right in every other column, so only the clause named can refuse it.
+  perform verify.expect_refused_undone('[0060 #10] a done request without when it was done',
+    '23514 refund_requests_status_says_when',
+    format('update refund_requests set status = %L, failed_at = null, sent_at = now() where id = %L', 'done', v_req.id));
+  perform verify.expect_refused_undone('[0060 #10] a sent request without when it was sent',
+    '23514 refund_requests_status_says_when',
+    format('update refund_requests set status = %L, failed_at = null, sent_at = null where id = %L', 'sent', v_req.id));
+  perform verify.expect_refused_undone('[0060 #10] a failed request without when it failed',
+    '23514 refund_requests_status_says_when',
+    format('update refund_requests set failed_at = null where id = %L', v_req.id));
+  perform verify.expect_accepted('[0060 #10] the same row made right in every column is taken',
+    format('update refund_requests set status = %L, failed_at = null, sent_at = now(), done_at = now() where id = %L', 'done', v_req.id));
+  perform verify.expect_refused_undone('[0060 #10] a status of its own',
+    '23514 refund_requests_status_known',
+    format('update refund_requests set status = %L where id = %L', 'refunded', v_req.id));
+
+  -- 11. Who reads the requests: her own, the admin all, another student and
+  -- anon none.
+  perform set_config('test.uid', c_win::text, false);
+  set local role authenticated;
+  select count(*) into v_n from refund_requests;
+  reset role;
+  perform verify.holds_0060(format('[0060 #11] she reads her own 2 requests (%s)', v_n), v_n = 2);
+  perform set_config('test.uid', c_edge7::text, false);
+  set local role authenticated;
+  select count(*) into v_n from refund_requests;
+  reset role;
+  perform verify.holds_0060(format('[0060 #11] another student reads none (%s)', v_n), v_n = 0);
+  perform set_config('test.uid', c_admin::text, false);
+  set local role authenticated;
+  select count(*) into v_n from refund_requests;
+  reset role;
+  perform verify.holds_0060(format('[0060 #11] the platform admin reads all 3 (%s)', v_n), v_n = 3);
+  perform set_config('test.uid', '', false);
+  set local role anon;
+  v_text := verify.named_refusal('select 1 from refund_requests');
+  reset role;
+  perform verify.holds_0060(format('[0060 #11] anon reads none (%s)', coalesce(v_text, 'accepted')), v_text = '42501');
+  perform set_config('test.uid', coalesce(v_uid, ''), false);
+
+  -- Nothing written here is kept.
+  delete from refund_requests;
+  perform set_config('session_replication_role', 'replica', true);
+  delete from credit_entries;
+  perform set_config('session_replication_role', 'origin', true);
+  delete from lessons where teacher_id = v_tutor;
+  delete from teacher_availability where teacher_id = v_tutor;
+  delete from teachers where id = v_tutor;
+  delete from overdue_steps;
+  delete from payments;
+  delete from subscriptions;
+  delete from billing_customers;
+  delete from credit_costs;
+  delete from plans;
+  delete from students where id = any (c_people);
+  delete from organization_members where user_id = any (c_people || c_tutor);
+  delete from auth.users where id = any (c_people || c_tutor);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a withdrawal gives back what was not used: %', v_failures;
+  end if;
+  raise notice 'a withdrawal gives back what was not used: the request is read by its person and the admin and written only by service_role''s functions; the window is the first paid charge to the end of its 7th day; a lesson ahead refuses it; the value rounds up; one open per person, one not failed per charge; nothing is spent while it is open; DONE makes it done and the money back voids the rest';
+end;
+$$;
+
+
 -- A restored copy gets back what the dump leaves out (#101, #104) --------------------
 --
 -- supabase db dump writes the schemas of the project, not storage or auth, so

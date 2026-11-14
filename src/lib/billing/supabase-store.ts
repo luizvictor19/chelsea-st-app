@@ -13,6 +13,8 @@ import {
   StoreRefusal,
   type BillingStore,
   type CreditDailyReport,
+  type OpenRefund,
+  type RefundStatus,
   type StoredSubscription,
 } from "./store.ts";
 
@@ -35,6 +37,13 @@ const NAMED = [
   "credits_not_negative",
   "credit_cost_known",
   "credit_debit_reference_used",
+  // The withdrawal (0060, #297).
+  "refund_requests_one_open",
+  "refund_requests_once_per_payment",
+  "billing_refund_window",
+  "billing_refund_lessons_ahead",
+  "billing_refund_nothing",
+  "credit_refund_open",
 ];
 
 type Row = Database["public"]["Tables"]["subscriptions"]["Row"];
@@ -197,6 +206,61 @@ export function createSupabaseBillingStore(
         granted: row?.granted ?? 0,
         closed: row?.closed ?? 0,
       };
+    },
+
+    async refundQuote(personId) {
+      const rows = await call("billing_refund_quote", { p_person: personId });
+      const row = rows[0];
+      return row === undefined
+        ? null
+        : {
+            paymentId: row.asaas_payment_id,
+            endsAt: row.ends_at,
+            paymentCredits: row.payment_credits,
+            unusedCredits: row.unused_credits,
+            refundCents: row.refund_cents,
+            lessonsAhead: row.lessons_ahead,
+          };
+    },
+
+    async openRefund(personId) {
+      const row = await call("billing_open_refund", { p_person: personId });
+      return {
+        id: row.id,
+        paymentId: row.asaas_payment_id,
+        subscriptionId: row.subscription_id,
+        refundCents: row.refund_cents,
+      };
+    },
+
+    async refundFailed(id, error) {
+      return (await call("billing_refund_failed", {
+        p_id: id,
+        p_error: error.slice(0, 500),
+      })) as RefundStatus;
+    },
+
+    async refundReading(paymentId, refunds) {
+      return (await call("billing_refund_reading", {
+        p_payment_id: paymentId,
+        p_refunds: refunds.map((refund) => ({
+          status: refund.status,
+          value_cents: refund.valueCents,
+        })),
+      })) as RefundStatus | null;
+    },
+
+    async openRefunds() {
+      const rows = await call("billing_refunds_open", {});
+      return rows.map((row): OpenRefund => ({
+        id: row.id,
+        personId: row.person_id,
+        status: row.status as OpenRefund["status"],
+        createdAt: row.created_at,
+        refundCents: row.refund_cents,
+        paymentId: row.asaas_payment_id,
+        asaasSubscriptionId: row.asaas_subscription_id,
+      }));
     },
   };
 }

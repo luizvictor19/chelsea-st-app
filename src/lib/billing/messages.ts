@@ -70,3 +70,50 @@ export function overdueEmail(input: {
     ].join("\n"),
   };
 }
+
+/**
+ * Why a withdrawal (#297, 0060) could not be asked for, by the refusal's
+ * name; and what the screen says while it is on its way.
+ */
+export const REFUND_REFUSALS: Readonly<Record<string, string>> = {
+  refund_requests_one_open: "O seu pedido de reembolso já está em andamento.",
+  refund_requests_once_per_payment: "O reembolso desta cobrança já foi pedido.",
+  billing_refund_window: "O prazo de 7 dias para desistir já passou.",
+  billing_refund_lessons_ahead:
+    "Cancele antes as aulas marcadas. Depois, peça o reembolso.",
+  billing_refund_nothing: "Não há valor a devolver nesta cobrança.",
+  provider_refused:
+    "Não conseguimos pedir o reembolso agora. Nada foi cancelado. Tente de novo em alguns instantes.",
+};
+
+/**
+ * When the provider takes the refund only later (REFUND_LATER in
+ * withdraw.ts): on a card, a partial refund goes from the day after the
+ * charge on (measured in the sandbox on 14/11/2026).
+ */
+export const REFUND_LATER_SENTENCE =
+  "Pedido guardado. No cartão, o reembolso só sai a partir do dia seguinte ao pagamento: ele vai sozinho, e a assinatura é cancelada quando ele sair.";
+
+/** The text the refund goes with at the provider. */
+export const REFUND_DESCRIPTION = `Desistência da assinatura ${BRAND} (CDC art. 49)`;
+
+/**
+ * The notice to the brand's contact while the refund waits for the critical
+ * event's authorization in the provider's panel (Q3 A of #297). The charge's
+ * id at the provider and nothing of the person: no name, no e-mail.
+ */
+export function refundNoticeEmail(paymentId: string): {
+  subject: string;
+  text: string;
+} {
+  return {
+    subject: `${BRAND}: reembolso pedido, autorize no painel da Asaas`,
+    text: [
+      "Uma pessoa desistiu da assinatura no prazo de 7 dias e pediu o reembolso proporcional (CDC art. 49).",
+      "",
+      `Cobrança na Asaas: ${paymentId}`,
+      "",
+      "O estorno espera a sua autorização no painel da Asaas (evento crítico). O app só o conta como feito quando a Asaas disser DONE.",
+    ].join("\n"),
+  };
+}

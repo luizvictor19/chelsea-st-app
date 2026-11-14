@@ -65,6 +65,7 @@ describe("asaas", () => {
       paidOn: null,
       invoiceUrl: "https://sandbox.asaas.com/i/0_egp9e02js10lq2",
       refundedCents: 0,
+      refunds: [],
       cardToken: "d0c39dc8-1057-49f3-9da9-a684c8822768",
     });
     const refunded = readPayment({
@@ -77,6 +78,10 @@ describe("asaas", () => {
       ],
     });
     assert.equal(refunded.refundedCents, 300);
+    assert.deepEqual(refunded.refunds, [
+      { status: "DONE", valueCents: 300 },
+      { status: "PENDING", valueCents: 200 },
+    ]);
     assert.equal(refunded.paidOn, "2026-11-26");
   });
 
@@ -252,6 +257,7 @@ describe("asaas", () => {
       assert.ok(error instanceof ProviderError);
       assert.equal(error.status, 400);
       assert.deepEqual(error.codes, ["invalid_object"]);
+      assert.deepEqual(error.descriptions, ["O campo phone deve existir."]);
       assert.match(error.message, /phone/);
       return true;
     });
@@ -259,14 +265,33 @@ describe("asaas", () => {
     await assert.rejects(limited.getPayment("pay_1"), /rate limit/);
   });
 
-  test("a partial refund sends the value, a whole one sends none", async () => {
+  test("a partial refund sends the value and the reason, a whole one sends none, and the charge comes back", async () => {
     const sent: Sent[] = [];
-    const provider = createAsaasProvider(CONFIG, fakeFetch(200, {}, sent));
-    await provider.refund("pay_1", 250);
+    const answer = {
+      ...PAYMENT,
+      status: "RECEIVED",
+      paymentDate: "2026-11-26",
+      refunds: [
+        {
+          status: "AWAITING_CRITICAL_ACTION_AUTHORIZATION",
+          value: 2.5,
+          dateCreated: "2026-11-26 10:00:00",
+        },
+      ],
+    };
+    const provider = createAsaasProvider(CONFIG, fakeFetch(200, answer, sent));
+    const read = await provider.refund("pay_1", 250, "CDC art. 49");
     await provider.refund("pay_1");
-    assert.deepEqual(JSON.parse(String(sent[0].init.body)), { value: 2.5 });
+    assert.deepEqual(JSON.parse(String(sent[0].init.body)), {
+      value: 2.5,
+      description: "CDC art. 49",
+    });
     assert.deepEqual(JSON.parse(String(sent[1].init.body)), {});
     assert.match(sent[0].url, /\/payments\/pay_1\/refund$/);
+    assert.deepEqual(read.refunds, [
+      { status: "AWAITING_CRITICAL_ACTION_AUTHORIZATION", valueCents: 250 },
+    ]);
+    assert.equal(read.refundedCents, 0);
   });
 
   test("a charge is paid again with the token alone", async () => {

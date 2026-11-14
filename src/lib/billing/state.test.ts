@@ -26,6 +26,7 @@ function payment(over: Partial<ProviderPayment>): ProviderPayment {
     paidOn: null,
     invoiceUrl: null,
     refundedCents: 0,
+    refunds: [],
     cardToken: null,
     ...over,
   };

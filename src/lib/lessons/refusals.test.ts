@@ -114,6 +114,10 @@ describe("refusalSentence", () => {
       ),
       "Seu saldo não cobre esta aula.",
     );
+    assert.equal(
+      refusalSentence("credit_refund_open: person x has a refund request open"),
+      "Seu reembolso está em andamento. Novas aulas ficam para depois dele.",
+    );
   });
 
   test("finds the rule Postgres names inside its own message", () => {

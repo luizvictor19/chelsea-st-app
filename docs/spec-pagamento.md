@@ -95,8 +95,58 @@ Recalculados a cada evento a partir do que a Asaas guarda agora, nunca do corpo 
 - Na Asaas, a assinatura é apagada, e com ela as cobranças pendentes e vencidas. As pagas ficam.
 - No teste, nada foi cobrado. Depois do teste, o acesso vai até `paid_through`.
 - O reembolso proporcional ao saldo de créditos (CDC art. 49): o cálculo é da #273
-  (`credit_refund_quote`, `docs/spec-creditos.md`), e o botão, pelo estorno parcial que o provedor já
-  tem (`refund`), é da #297.
+  (`credit_refund_quote`, `docs/spec-creditos.md`), e o botão é da #297: ver "Desistência" abaixo.
+- O estorno de uma cobrança que chega depois do cancelamento ainda é lido e gravado, e anula os
+  créditos dela (#302): o webhook grava as cobranças da assinatura com que a linha rodou também
+  depois de cancelada, e a linha continua cancelada.
+
+## Desistência (CDC art. 49, 0060, #297)
+
+Plano aprovado pelo Luiz em 14/11 (Q1 B, Q2 A, Q3 A, Q4 A, Q5 A). O texto do art. 49 e do parágrafo
+único está no plano da issue; o que se decidiu aqui é do produto, e o que o art. 49 exige fica com o
+Luiz.
+
+- **O prazo (Q1 B):** a primeira cobrança paga de uma assinatura, até as 23h59 (São Paulo) do 7º dia
+  depois do dia do pagamento. Com teste grátis, conta o pagamento da primeira cobrança, depois do
+  teste. Renovação não abre prazo novo.
+- **O valor (Q2 A):** proporcional ao que ela não usou, o de `credit_refund_quote` na hora do pedido,
+  arredondado para cima. Sem nada usado, é o valor inteiro; um plano sem créditos devolve tudo. A
+  correção monetária não entra.
+- **Aulas marcadas (Q5 A):** com uma aula marcada que ainda não terminou, o pedido é recusado e a tela
+  pede que ela cancele antes, pelo cancelamento de sempre (até 1 h antes, com devolução).
+- **O pedido (Q4 A):** `refund_requests`, gravado no banco antes de chamar a Asaas: um aberto por
+  pessoa, um não falho por cobrança. Enquanto ele está aberto, nada do saldo dela é gasto
+  (`credit_refund_open`): nem aula, nem proposta aceita.
+- **A ordem:** o banco reserva o pedido com o valor; o app pede o estorno parcial
+  (`POST /v3/payments/{id}/refund`, com `value` e `description`); só com o estorno aceito pela Asaas
+  a assinatura é cancelada, como no "Cancelar". Um 4xx da Asaas (sem saldo na conta, estorno cedo
+  demais) encerra o pedido como falho e nada é cancelado. Uma resposta perdida (tempo esgotado, 5xx)
+  deixa o pedido como pedido; a rotina diária lê a cobrança depois de 30 minutos e, sem estorno do
+  valor lá, pede de novo.
+- **Estorno cedo demais** (medido no sandbox em 14/11, `fixtures/asaas/refund-2026-11-14.jsonl`):
+  a Asaas responde 400 com "Não é possível solicitar estorno para essa cobrança no momento. Tente
+  novamente em alguns instantes." (um Pix logo depois da confirmação; aceito 20 s depois) ou "Esta
+  transação só pode ser estornada parcialmente no próximo dia." (o estorno parcial no cartão no dia
+  da cobrança). As duas frases (`REFUND_LATER` em `src/lib/billing/withdraw.ts`) não são falha: o
+  pedido fica aberto, nada é cancelado, a tela diz que o reembolso no cartão sai a partir do dia
+  seguinte, e a rotina diária pede de novo até a Asaas aceitar.
+- **Os estados:** `requested` (reservado), `sent` (a Asaas aceitou: `PENDING` ou
+  `AWAITING_CRITICAL_ACTION_AUTHORIZATION`), `done` (um estorno do valor em `DONE`), `failed` (a Asaas
+  recusou, nunca recebeu, ou todos os estornos do valor ficaram `CANCELLED`). Toda leitura da cobrança
+  (o webhook, a rotina) passa os `refunds[]` lidos para `billing_refund_reading`, e o banco decide.
+- **Os créditos:** só no `DONE`. A cobrança é gravada com `refunded_cents` e `credit_settle` anula o
+  que restava nos lotes dela (0050); só depois disso o pedido passa a `done` (um `DONE` lido antes de
+  a cobrança ser gravada deixa o pedido `sent`). Com `done` ou `failed`, o saldo volta a ser gasto.
+- **Depois do estorno aceito, uma falha nossa** (o banco fora, o cancelamento na Asaas fora) não vira
+  "tente de novo": fica no log, e a rotina diária termina o que faltou.
+- **A autorização no painel (Q3 A):** fica ligada na conta de produção. Enquanto o estorno espera, o
+  app manda um e-mail para contato@chelsea-st.com com o id da cobrança na Asaas, sem nome nem e-mail
+  da pessoa; o Luiz autoriza no painel.
+- **O que não muda:** o selo de fundador (nada o liga à assinatura) e o acesso até `paid_through`,
+  como em todo cancelamento.
+- **Na tela** (`/dashboard/plano`, cartão "Reembolso"): o valor e o último dia, "Desistir e pedir
+  reembolso" atrás de uma segunda confirmação que diz o valor e que a assinatura é cancelada, e o
+  estado do pedido.
 
 ## Atraso (Q5)
 
@@ -149,6 +199,7 @@ falhas seguidas, a fila para (os eventos ficam guardados por até 14 dias).
 | `payments`          | cada cobrança, como o app a leu por último      | ela e o admin da plataforma |
 | `billing_events`    | cada evento do webhook, uma vez                 | ninguém pela API            |
 | `overdue_steps`     | os passos da rotina de atraso                   | ninguém pela API            |
+| `refund_requests`   | cada pedido de desistência e como ele andou     | ela e o admin da plataforma |
 
 - O CPF em claro fica só na Asaas.
 - `payments.asaas_payment_id` é a chave pela qual os créditos de um ciclo são concedidos, uma vez
@@ -290,8 +341,7 @@ O selo chega por dois caminhos, os dois pelo `badge_grant` da 0058: só com vaga
   tentativa no cartão do atraso e o upgrade em um toque (#274) não funcionam em produção.
 - **Nota fiscal:** automática pela Asaas na conta de pessoa jurídica, configurada quando ela existir.
 - **A taxa do Pix:** conferir no menu Taxas da conta; o regulamento e a página de preços divergem.
-- **Estorno pela API:** fica esperando a autorização de evento crítico no painel. Antes do reembolso
-  proporcional (#297), decidir na conta de produção se essa autorização fica (cada estorno passa por
-  alguém) ou se a API é liberada nas configurações de segurança.
+- **Estorno pela API:** decidido em 14/11 (#297, Q3 A): a autorização de evento crítico fica ligada na
+  conta de produção, e cada estorno passa pelo Luiz no painel.
 - **Sem resposta oficial (central de ajuda fechada à leitura automática):** se a Asaas tenta de novo
   sozinha depois do cartão recusado, e o prazo do estorno.
