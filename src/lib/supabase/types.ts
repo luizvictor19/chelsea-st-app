@@ -23,6 +23,55 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      app_errors: {
+        Row: {
+          alerted: boolean;
+          count: number;
+          day: string;
+          digest: string | null;
+          fingerprint: string;
+          first_at: string;
+          id: number;
+          kind: string;
+          last_at: string;
+          message: string;
+          release: string | null;
+          route: string;
+          stack: string | null;
+        };
+        ComputedFields: never;
+        Insert: {
+          alerted?: boolean;
+          count?: number;
+          day: string;
+          digest?: string | null;
+          fingerprint: string;
+          first_at?: string;
+          id?: never;
+          kind: string;
+          last_at?: string;
+          message: string;
+          release?: string | null;
+          route: string;
+          stack?: string | null;
+        };
+        Update: {
+          alerted?: boolean;
+          count?: number;
+          day?: string;
+          digest?: string | null;
+          fingerprint?: string;
+          first_at?: string;
+          id?: never;
+          kind?: string;
+          last_at?: string;
+          message?: string;
+          release?: string | null;
+          route?: string;
+          stack?: string | null;
+        };
+        Relationships: [];
+      };
       assignment_items: {
         Row: {
           assignment_id: string;
@@ -2434,6 +2483,41 @@ export type Database = {
       accept_organization_invites: {
         Args: { p_email: string; p_user: string };
         Returns: undefined;
+      };
+      app_error_record: {
+        Args: {
+          p_digest: string;
+          p_fingerprint: string;
+          p_kind: string;
+          p_message: string;
+          p_release: string;
+          p_route: string;
+          p_stack: string;
+        };
+        Returns: {
+          alert: boolean;
+          count: number;
+          day: string;
+          first_at: string;
+          overflow: boolean;
+        }[];
+      };
+      app_errors_recent: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          alerted: boolean;
+          count: number;
+          day: string;
+          digest: string;
+          fingerprint: string;
+          first_at: string;
+          kind: string;
+          last_at: string;
+          message: string;
+          release: string;
+          route: string;
+          stack: string;
+        }[];
       };
       approve_image_attempt: {
         Args: { p_attempt: string };
