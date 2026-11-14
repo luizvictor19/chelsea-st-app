@@ -860,7 +860,7 @@ export function WordPanel({
                     setModelPicked(true);
                     setModel(event.target.value);
                   }}
-                  className="border-rule bg-background rounded-sm border px-3 py-2 text-sm"
+                  className="border-rule bg-background max-w-full rounded-sm border px-3 py-2 text-sm"
                 >
                   {modelOptions.map((option) => (
                     <option
