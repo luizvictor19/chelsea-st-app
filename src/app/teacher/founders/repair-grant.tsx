@@ -44,7 +44,7 @@ export function RepairGrant({
           <button
             type="submit"
             disabled={isPending}
-            className="bg-accent text-on-accent self-start rounded-sm px-4 py-2 font-semibold disabled:opacity-60"
+            className="bg-accent text-accent-foreground self-start rounded-sm px-4 py-2 font-semibold disabled:opacity-60"
           >
             {isPending ? "Dando…" : "Dar o selo à mão"}
           </button>
