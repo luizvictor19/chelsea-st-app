@@ -28,8 +28,8 @@ export async function acceptInvite(
     return { status: "error", message: acceptRefusal(error) };
   }
 
-  // The new role changes the teacher layout too (the notice, "Ver como aluna"),
-  // and the redirect alone may reuse it.
+  // The new role changes the teacher layout too (the notice), and the
+  // redirect alone may reuse it.
   revalidatePath("/", "layout");
   redirect("/");
 }

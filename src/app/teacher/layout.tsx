@@ -1,6 +1,5 @@
 import { cookies } from "next/headers";
 
-import { studies } from "@/lib/access";
 import { requireTeacher } from "@/lib/content/queries";
 import { currentSite } from "@/lib/current-site";
 
@@ -33,7 +32,6 @@ export default async function TeacherLayout({
       <TeacherNav
         brandName={site?.brand.name ?? null}
         initial={initial}
-        alsoStudent={studies(access)}
         platformAdmin={access.platformAdmin}
         initialCollapsed={isCollapsed(cookieStore.get(NAV_COOKIE)?.value)}
       />

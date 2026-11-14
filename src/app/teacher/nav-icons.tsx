@@ -1,8 +1,7 @@
 import type { NavIcon } from "./nav-links";
 
 /** The drawings of the menu's own controls, beside the items' drawings. */
-export type ControlIcon =
-  "collapse" | "expand" | "menu" | "close" | "student" | "signOut";
+export type ControlIcon = "collapse" | "expand" | "menu" | "close" | "signOut";
 
 /*
  * Drawn here, on a 24 px grid with a round 1.75 stroke, rather than taken
@@ -117,12 +116,6 @@ const PATHS: Record<NavIcon | ControlIcon, React.ReactNode> = {
   ),
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
   close: <path d="M6 6l12 12M18 6 6 18" />,
-  student: (
-    <>
-      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
-      <circle cx="12" cy="12" r="3" />
-    </>
-  ),
   signOut: (
     <>
       <path d="M10 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4" />

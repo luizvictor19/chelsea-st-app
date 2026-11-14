@@ -84,8 +84,8 @@ só roteamento. Uma pessoa pode ter mais de um papel na mesma escola.
 - sem sessão: `/login`
 - admin ou professor de alguma escola, ou admin da plataforma: `/teacher`
 - aluna com linha em `students`: `/dashboard`
-- quem também é aluna abre o `/dashboard` pelo link "Ver como aluna" do menu do
-  professor, sem trocar de usuário
+- o menu do professor não tem mais "Ver como aluna" (#364): a tela do aluno se vê
+  com uma conta de aluno
 - sem papel, ou aluna sem linha em `students`: tela dizendo que a conta ainda não
   foi liberada, com contato do professor. Acontece se alguém logar sem convite
 

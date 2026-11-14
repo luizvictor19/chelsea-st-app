@@ -11,8 +11,6 @@ import { navCookie } from "./nav-state";
 
 type Account = {
   readonly initial: string;
-  /** Also a student: the admin who checks the student's screens. */
-  readonly alsoStudent: boolean;
   /** The platform admin: the content and platform screens (0043, #211). */
   readonly platformAdmin: boolean;
 };
@@ -174,13 +172,12 @@ function Avatar({
 /**
  * The items and the account. The items scroll on their own only in a window
  * too short for them, so the account stays in sight and nothing is ever cut
- * off. Rows of h-8 keep the whole column of the platform admin, with "Ver
- * como aluna", at 639 px (measured in Chromium on 13/11), inside a laptop's
- * 1366x768 window once the browser takes its bar.
+ * off. Rows of h-8 keep the whole column of the platform admin (639 px
+ * with the "Ver como aluna" row that left in #364, measured in Chromium on
+ * 13/11) inside a laptop's 1366x768 window once the browser takes its bar.
  */
 function Menu({
   initial,
-  alsoStudent,
   platformAdmin,
   collapsed,
   onNavigate,
@@ -231,18 +228,6 @@ function Menu({
             </span>
           )}
         </div>
-        {alsoStudent ? (
-          <Link
-            href="/dashboard"
-            onClick={onNavigate}
-            aria-label={collapsed ? "Ver como aluna" : undefined}
-            title={collapsed ? "Ver como aluna" : undefined}
-            className={rowClass(collapsed, IDLE)}
-          >
-            <Icon name="student" />
-            {collapsed ? null : <span>Ver como aluna</span>}
-          </Link>
-        ) : null}
         <SignOutButton
           label={collapsed ? "Sair da conta" : undefined}
           className={rowClass(collapsed, IDLE)}
