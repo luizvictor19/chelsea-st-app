@@ -6,6 +6,7 @@ import {
   beginPass,
   confirmedWords,
   fillClass,
+  passDone,
   raceTarget,
   widthOf,
 } from "./suggestion-bar.ts";
@@ -159,5 +160,65 @@ describe("widthOf", () => {
   test("clamps rather than overflowing the track", () => {
     assert.equal(widthOf(90, 60), "100.00%");
     assert.equal(widthOf(-5, 60), "0.00%");
+  });
+});
+
+describe("passDone", () => {
+  const full = { covered: 26, total: 26, racingTo: null, instant: false };
+
+  /* The case of 14/11: 26 of 26, and a full bar that read as a hang. */
+  test("shows once a run ends whole with the bar full", () => {
+    assert.equal(passDone(full, "whole"), true);
+  });
+
+  /*
+   * A batch lost twice, an error, or words left unanswered: the notice says
+   * so, and a ✓ beside it would say the opposite.
+   */
+  test("does not show when the run ended short", () => {
+    assert.equal(passDone(full, "short"), false);
+    assert.equal(
+      passDone({ ...full, covered: 10 }, "short"),
+      false,
+      "a stalled bar",
+    );
+  });
+
+  test("does not show while a run is going", () => {
+    assert.equal(passDone(full, null), false);
+    assert.equal(
+      passDone({ covered: 10, total: 26, racingTo: 20, instant: false }, null),
+      false,
+    );
+  });
+
+  test("does not show before the first run", () => {
+    assert.equal(passDone(null, null), false);
+    assert.equal(passDone(null, "whole"), false);
+  });
+
+  /*
+   * The ✓ goes when a new run starts. The end is put back to null in the
+   * same frame, but the pass alone is enough: a fresh pass is never done.
+   */
+  test("a new pass takes it away, whatever the last run said", () => {
+    assert.equal(passDone(beginPass(26), "whole"), false);
+  });
+
+  test("never sits beside a bar that is not full or still moving", () => {
+    assert.equal(passDone({ ...full, covered: 25 }, "whole"), false);
+    assert.equal(passDone({ ...full, racingTo: 26 }, "whole"), false);
+    assert.equal(passDone({ ...full, instant: true }, "whole"), false);
+  });
+
+  /* A lesson of no words has nothing to finish; its button is disabled. */
+  test("a lesson of no words is never done", () => {
+    assert.equal(
+      passDone(
+        { covered: 0, total: 0, racingTo: null, instant: false },
+        "whole",
+      ),
+      false,
+    );
   });
 });
