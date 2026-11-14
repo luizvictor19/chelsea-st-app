@@ -22,9 +22,11 @@ import {
   beginPass,
   confirmedWords,
   fillClass,
+  passDone,
   raceTarget,
   widthOf,
   type Pass,
+  type PassEnd,
 } from "./suggestion-bar";
 
 /**
@@ -87,6 +89,11 @@ export function SuggestButton({
    * on the confirmed number instead of creeping towards a guess.
    */
   const [pass, setPass] = useState<Pass | null>(null);
+  /*
+   * How the last run ended, for the ✓ beside the bar; null while one is
+   * going. See passDone.
+   */
+  const [end, setEnd] = useState<PassEnd | null>(null);
   /*
    * The fill, held so the first batch can be made to transition. See the
    * comment where run() starts: this is read for its side effect, not its
@@ -154,7 +161,11 @@ export function SuggestButton({
      * because nothing uses the result will find the first batch jumping
      * again, and nothing failing to say so.
      */
-    flushSync(() => setPass(beginPass(words)));
+    flushSync(() => {
+      setPass(beginPass(words));
+      // The ✓ of the last run goes with its bar.
+      setEnd(null);
+    });
     fill.current?.getBoundingClientRect();
 
     /*
@@ -330,6 +341,7 @@ export function SuggestButton({
         setBusy(false);
         // Left where it stopped; the notice says where that was, and why.
         setPass({ covered, total, racingTo: null, instant: false });
+        setEnd("short");
         tell(typesStalled(lessonNumber, covered, total, result.error));
         // What was written before it stopped; see the refresh at the end.
         router.refresh();
@@ -365,6 +377,8 @@ export function SuggestButton({
      * happen.
      */
     setPass({ covered: total, total, racingTo: null, instant: false });
+    // Words left unanswered get the error notice below, so no ✓ beside it.
+    setEnd(missed === 0 ? "whole" : "short");
     // One notice for the run, not one a batch; see typesSuggested.
     tell(typesSuggested(lessonNumber, written, missed));
     /*
@@ -466,6 +480,16 @@ export function SuggestButton({
                 } as CSSProperties
               }
             />
+          </span>
+        )}
+        {passDone(pass, end) && (
+          <span
+            role="img"
+            aria-label="Sugestão terminada"
+            title="Sugestão terminada"
+            className="text-accent text-xs font-semibold"
+          >
+            ✓
           </span>
         )}
       </span>
