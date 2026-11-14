@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { FounderInviteForm } from "./founder-invite-form";
 import { InviteForm, type InvitableOrganization } from "./invite-form";
+import { INVITE_KINDS, type InviteKind } from "./invite-kinds";
 import { PersonalPlanForm } from "./personal-plan-form";
 
 /**
@@ -24,18 +25,12 @@ export function InviteTypes({
   // Where the signup is the door, a teacher who is not the admin offers no
   // role, and the organization has no form (its open invites still list).
   const offerable = organizations.filter((each) => each.roles.length > 0);
-  const kinds = [
-    ...(offerable.length > 0
-      ? [{ key: "organization", label: "Organização" } as const]
-      : []),
-    ...(platformAdmin
-      ? ([
-          { key: "founder", label: "Fundador" },
-          { key: "personal", label: "Plano personalizado" },
-        ] as const)
-      : []),
+  const kinds: InviteKind[] = [
+    ...(offerable.length > 0 ? (["organization"] as const) : []),
+    ...(platformAdmin ? (["founder", "personal"] as const) : []),
   ];
-  const [kind, setKind] = useState(kinds[0]?.key);
+  const [kind, setKind] = useState<InviteKind | undefined>(kinds[0]);
+  const chosen = kind === undefined ? null : INVITE_KINDS[kind];
 
   if (kinds.length === 0) {
     return <p className="text-muted">Você não pode convidar ninguém.</p>;
@@ -44,21 +39,52 @@ export function InviteTypes({
   return (
     <div className="flex flex-col gap-4">
       {kinds.length > 1 && (
-        <fieldset className="flex flex-wrap gap-4">
+        <fieldset className="flex flex-col gap-2">
           <legend className="mb-2 font-semibold">Tipo de convite</legend>
-          {kinds.map((each) => (
-            <label key={each.key} className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="invite-kind"
-                value={each.key}
-                checked={kind === each.key}
-                onChange={() => setKind(each.key)}
-              />
-              {each.label}
-            </label>
-          ))}
+          <div className="grid gap-2 sm:grid-cols-3">
+            {kinds.map((each) => (
+              <label
+                key={each}
+                className={
+                  kind === each
+                    ? "border-accent bg-surface flex cursor-pointer gap-3 rounded-sm border p-3"
+                    : "border-rule hover:bg-surface flex cursor-pointer gap-3 rounded-sm border p-3"
+                }
+              >
+                <input
+                  type="radio"
+                  name="invite-kind"
+                  value={each}
+                  checked={kind === each}
+                  onChange={() => setKind(each)}
+                  className="mt-1 shrink-0"
+                />
+                <span className="flex flex-col gap-1">
+                  <span className="font-semibold">
+                    {INVITE_KINDS[each].label}
+                  </span>
+                  <span className="text-muted text-sm">
+                    {INVITE_KINDS[each].line}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
         </fieldset>
+      )}
+      {chosen !== null && (
+        <div className="border-rule flex flex-col gap-2 rounded-sm border p-4 text-sm">
+          <p className="font-semibold">Como funciona</p>
+          {kinds.length === 1 && <p className="text-muted">{chosen.line}</p>}
+          <ol className="text-muted flex list-decimal flex-col gap-1 pl-5">
+            {chosen.steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+          {chosen.note !== undefined && (
+            <p className="text-muted">{chosen.note}</p>
+          )}
+        </div>
       )}
       {kind === "organization" ? (
         <InviteForm organizations={offerable} />
