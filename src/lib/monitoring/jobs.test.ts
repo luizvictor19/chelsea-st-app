@@ -33,10 +33,16 @@ describe("webhookFailure", () => {
     );
   });
 
-  test("a handled event, a wrong token or a repeat is not", () => {
+  test("a wrong token is reported: a token changed on one side stops every event", () => {
+    assert.equal(
+      webhookFailure({ status: 401, note: "wrong token" })?.message,
+      "asaas webhook 401: wrong token",
+    );
+  });
+
+  test("a handled event or a repeat is not", () => {
     for (const result of [
       { status: 200, note: "subscription sub_1 read" },
-      { status: 401, note: "wrong token" },
       { status: 200, note: "already handled" },
     ] as const) {
       assert.equal(webhookFailure(result), null);

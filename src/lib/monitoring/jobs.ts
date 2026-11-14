@@ -8,14 +8,18 @@ import type { WebhookResult } from "../billing/webhook.ts";
 import type { DrainReport } from "../calendar/outbox.ts";
 import type { DailyReport } from "../credits/daily.ts";
 
-import { describeThrown, type ErrorReport } from "./report.ts";
+import type { ErrorReport } from "./report.ts";
+import { describeThrown } from "./thrown.ts";
 
 /**
- * The Asaas webhook: a 500 (Asaas delivers again) or an event set aside (a
- * 200: the money event has no effect and Asaas never sends it again).
+ * The Asaas webhook: a 500 (Asaas delivers again), an event set aside (a
+ * 200: the money event has no effect and Asaas never sends it again), or a
+ * wrong token (a 401: a token changed on one side only stops every money
+ * event, and Asaas pauses the queue after 15). A 401 from anyone else is one
+ * row and at most one e-mail a day, like any repeat.
  */
 export function webhookFailure(result: WebhookResult): ErrorReport | null {
-  if (result.status !== 500 && !result.note.startsWith("set aside")) {
+  if (result.status === 200 && !result.note.startsWith("set aside")) {
     return null;
   }
   return {

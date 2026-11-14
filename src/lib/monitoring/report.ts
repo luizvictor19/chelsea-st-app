@@ -19,6 +19,7 @@ import {
   scrubStack,
   scrubText,
 } from "./scrub.ts";
+import { describeThrown, digestOf } from "./thrown.ts";
 
 export type ErrorKind = "server" | "client" | "job";
 
@@ -68,6 +69,17 @@ export type ReporterDeps = {
   readonly log: (line: string) => void;
 };
 
+/**
+ * The database answered and refused the row (a value it cannot take): not
+ * the database down, so no e-mail about it, only the log.
+ */
+export class RecordRefused extends Error {
+  constructor(code: string) {
+    super(`app_error_record refused: ${code}`);
+    this.name = "RecordRefused";
+  }
+}
+
 /** One e-mail about the database not answering, per instance, in this time. */
 export const DATABASE_DOWN_EVERY_MS = 15 * 60 * 1000;
 
@@ -100,21 +112,6 @@ export function cleanError(
   };
 }
 
-/** The value of a throw, as the message and stack an ErrorReport takes. */
-export function describeThrown(thrown: unknown): {
-  message: string;
-  stack: string | null;
-} {
-  if (thrown instanceof Error) {
-    const message =
-      thrown.name && thrown.name !== "Error"
-        ? `${thrown.name}: ${thrown.message}`
-        : thrown.message;
-    return { message, stack: thrown.stack ?? null };
-  }
-  return { message: String(thrown), stack: null };
-}
-
 /**
  * Next's own throws that are not failures: redirect(), notFound() and the
  * rest of the router's signals, by their digest.
@@ -131,10 +128,7 @@ export function serverErrorReport(
   thrown: unknown,
   context: { readonly routePath: string; readonly routeType: string },
 ): ErrorReport | null {
-  const digest =
-    typeof thrown === "object" && thrown !== null && "digest" in thrown
-      ? String((thrown as { digest: unknown }).digest)
-      : null;
+  const digest = digestOf(thrown);
   if (digest !== null && CONTROL_FLOW.test(digest)) return null;
   return {
     kind: "server",
@@ -180,6 +174,10 @@ export function createReporter(
       try {
         recorded = await deps.record(error);
       } catch (cause) {
+        if (cause instanceof RecordRefused) {
+          deps.log(`app error not recorded: ${cause.message}`);
+          return;
+        }
         await databaseDown(error, cause);
         return;
       }

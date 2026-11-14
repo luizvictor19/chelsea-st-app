@@ -15,18 +15,26 @@ const BASE = {
 };
 
 describe("firstFrame", () => {
-  test("Chrome's shape, without the line and column", () => {
-    assert.equal(firstFrame(BASE.stack), "at render (/var/task/page.js)");
-  });
-
-  test("Firefox's shape, without the line and column", () => {
+  test("Chrome's shape: the function, not the file", () => {
+    assert.equal(firstFrame(BASE.stack), "render");
     assert.equal(
-      firstFrame("onClick@https://app.chelsea-st.com/a.js:1:20\nb@c.js:1:1"),
-      "onClick@https://app.chelsea-st.com/a.js",
+      firstFrame("Error: x\n    at async load (/var/task/a.js:1:2)"),
+      "load",
     );
   });
 
-  test("no stack, or none with a frame, is empty", () => {
+  test("Firefox's shape: the function, not the file", () => {
+    assert.equal(
+      firstFrame("onClick@https://app.chelsea-st.com/a.js:1:20\nb@c.js:1:1"),
+      "onClick",
+    );
+  });
+
+  test("an anonymous first frame, no stack, or none with a frame, is empty", () => {
+    assert.equal(
+      firstFrame("Error: x\n    at /var/task/a.js:1:2\n    at f (b.js:1:1)"),
+      "",
+    );
     assert.equal(firstFrame(null), "");
     assert.equal(firstFrame("Error: only a message"), "");
   });
@@ -35,6 +43,15 @@ describe("firstFrame", () => {
 describe("fingerprint", () => {
   test("64 hex characters, as app_errors_fingerprint_shape takes", () => {
     assert.match(fingerprint(BASE), /^[0-9a-f]{64}$/);
+  });
+
+  test("the same error in another build is the same: the chunk's hash changes, the function does not", () => {
+    const chunk = (hash: string) =>
+      `TypeError: x is undefined\n    at render (/var/task/.next/server/chunks/ssr/${hash}._.js:1:2)`;
+    assert.equal(
+      fingerprint({ ...BASE, stack: chunk("0a1b2c3d") }),
+      fingerprint({ ...BASE, stack: chunk("9f8e7d6c") }),
+    );
   });
 
   test("the same error with other digits, or moved lines, is the same", () => {

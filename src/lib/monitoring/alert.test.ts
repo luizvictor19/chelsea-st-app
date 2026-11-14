@@ -68,16 +68,6 @@ describe("errorAlertEmail", () => {
       `app-error-${"a".repeat(64)}-2026-11-14`,
     );
   });
-
-  test("the overflow row says so, and its query names it", () => {
-    const email = errorAlertEmail("luiz@example.com", ERROR, {
-      ...RECORDED,
-      overflow: true,
-    });
-    assert.equal(email.subject, "[erro] mais de 200 erros diferentes hoje");
-    assert.match(email.text, /fingerprint = 'overflow'/);
-    assert.equal(email.idempotencyKey, "app-error-overflow-2026-11-14");
-  });
 });
 
 describe("databaseDownEmail", () => {

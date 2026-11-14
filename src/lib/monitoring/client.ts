@@ -7,7 +7,10 @@
  * and the stack are scrubbed on the server, like everything that arrives.
  */
 
-import { MESSAGE_LIMIT, scrubRoute } from "./scrub.ts";
+import { MESSAGE_LIMIT, scrubRoute, wellFormed } from "./scrub.ts";
+import { describeThrown, digestOf } from "./thrown.ts";
+
+export { digestOf };
 
 export const CLIENT_ENDPOINT = "/api/errors";
 
@@ -32,20 +35,9 @@ export type ClientWindow = {
   ): void;
 };
 
-function describe(thrown: unknown): { message: string; stack: string | null } {
-  if (thrown instanceof Error) {
-    const message =
-      thrown.name && thrown.name !== "Error"
-        ? `${thrown.name}: ${thrown.message}`
-        : thrown.message;
-    return { message, stack: thrown.stack ?? null };
-  }
-  return { message: String(thrown), stack: null };
-}
-
 /** The JSON sent, under the route's 8 KB: the stack is cut until it fits. */
 export function clientPayload(thrown: unknown, pathname: string): string {
-  const { message, stack } = describe(thrown);
+  const { message, stack } = describeThrown(thrown);
   const base = {
     message: message.slice(0, MESSAGE_LIMIT),
     route: scrubRoute(pathname),
@@ -54,7 +46,7 @@ export function clientPayload(thrown: unknown, pathname: string): string {
     const body = JSON.stringify(
       stack === null || cut === 0
         ? base
-        : { ...base, stack: stack.slice(0, cut) },
+        : { ...base, stack: wellFormed(stack.slice(0, cut)) },
     );
     if (new TextEncoder().encode(body).length <= BODY_LIMIT) return body;
   }
@@ -108,15 +100,6 @@ export function installErrorReporting(win: ClientWindow): void {
   } catch {
     // Without the listeners the page still works.
   }
-}
-
-/** The digest of a server error: the code the person can pass on. */
-export function digestOf(thrown: unknown): string | null {
-  if (typeof thrown !== "object" || thrown === null || !("digest" in thrown)) {
-    return null;
-  }
-  const digest = (thrown as { digest?: unknown }).digest;
-  return typeof digest === "string" && digest !== "" ? digest : null;
 }
 
 /**

@@ -17,7 +17,8 @@ function oneLine(text: string, limit: number): string {
   return flat.length > limit ? `${flat.slice(0, limit - 1)}…` : flat;
 }
 
-function inBrasilia(instant: string | number): string {
+/** An instant as Luiz reads it: day and time in Brasília. */
+export function inBrasilia(instant: string | number): string {
   return new Intl.DateTimeFormat("pt-BR", {
     timeZone: "America/Sao_Paulo",
     dateStyle: "short",
@@ -30,14 +31,10 @@ export function errorAlertEmail(
   error: CleanError,
   recorded: Recorded,
 ): Email {
-  const subject = recorded.overflow
-    ? "[erro] mais de 200 erros diferentes hoje"
-    : `[erro] ${error.kind} ${error.route}: ${oneLine(error.message, SUBJECT_MESSAGE)}`;
-  const fingerprint = recorded.overflow ? "overflow" : error.fingerprint;
+  const subject = `[erro] ${error.kind} ${error.route}: ${oneLine(error.message, SUBJECT_MESSAGE)}`;
+  const { fingerprint } = error;
   const lines = [
-    recorded.overflow
-      ? "Hoje passou de 200 erros diferentes. Os novos só são contados na linha overflow, e nenhum outro alerta sai até amanhã (UTC)."
-      : "Um erro novo hoje no app.",
+    "Um erro novo hoje no app.",
     "",
     `Tipo: ${error.kind}`,
     `Rota: ${error.route}`,

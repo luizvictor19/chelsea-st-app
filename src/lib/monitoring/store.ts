@@ -6,7 +6,7 @@
 
 import { createServiceClient } from "../supabase/service.ts";
 
-import type { CleanError, Recorded } from "./report.ts";
+import { RecordRefused, type CleanError, type Recorded } from "./report.ts";
 
 if (typeof window !== "undefined") {
   throw new Error(
@@ -30,8 +30,12 @@ export async function recordAppError(error: CleanError): Promise<Recorded> {
     },
   );
   if (failure) {
-    // The code alone: the message of a refusal can repeat what was sent.
-    throw new Error(`app_error_record failed: ${failure.code || "no code"}`);
+    // The code alone: the message of a refusal can repeat what was sent. A
+    // data exception (22) or a constraint (23) is the row refused, not the
+    // database down.
+    const code = failure.code || "no code";
+    if (/^2[23]/.test(code)) throw new RecordRefused(code);
+    throw new Error(`app_error_record failed: ${code}`);
   }
   const row = data[0];
   if (row === undefined) throw new Error("app_error_record answered no row");

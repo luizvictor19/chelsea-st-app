@@ -6,8 +6,8 @@ import type { Email } from "../mail/mailer.ts";
 import {
   DATABASE_DOWN_EVERY_MS,
   cleanError,
+  RecordRefused,
   createReporter,
-  describeThrown,
   releaseOf,
   serverErrorReport,
   type CleanError,
@@ -15,6 +15,7 @@ import {
   type Recorded,
   type ReporterDeps,
 } from "./report.ts";
+import { describeThrown } from "./thrown.ts";
 
 const ALERT_TO = "luiz@example.com";
 const FIRST: Recorded = {
@@ -139,6 +140,17 @@ describe("describeThrown and serverErrorReport", () => {
     assert.equal(report?.kind, "server");
   });
 
+  test("a digest that is not text is none, never the word undefined", () => {
+    for (const digest of [undefined, null, 42]) {
+      const thrown = Object.assign(new Error("boom"), { digest });
+      assert.equal(
+        serverErrorReport(thrown, { routePath: "/", routeType: "render" })
+          ?.digest,
+        null,
+      );
+    }
+  });
+
   test("Next's redirect and notFound are no errors", () => {
     for (const digest of [
       "NEXT_REDIRECT;replace;/login;307;",
@@ -213,6 +225,19 @@ describe("createReporter", () => {
     tick(1);
     await report(REPORT);
     assert.equal(sent.length, 2);
+  });
+
+  test("a row the database refused is not the database down: only the log, no e-mail", async () => {
+    const { report, sent, logs } = setup({
+      record: async () => {
+        throw new RecordRefused("22P05");
+      },
+    });
+    await report(REPORT);
+    assert.equal(sent.length, 0);
+    assert.ok(
+      logs.includes("app error not recorded: app_error_record refused: 22P05"),
+    );
   });
 
   test("the database down and no ERROR_ALERT_TO: only the log", async () => {
