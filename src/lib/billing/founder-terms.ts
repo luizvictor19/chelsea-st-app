@@ -4,7 +4,7 @@
  * plan's prices, credits of a month and cost of a lesson are hers, whatever
  * the plan says today. The database copies the same terms onto her new
  * subscription and refuses another value; this is the screen's side of it.
- * The terms are monthly only (0062, #331): a founder plan has no annual
+ * The terms are monthly only (0061, #331): a founder plan has no annual
  * price, and the seal keeps none.
  *
  * Pure: no database.

@@ -143,7 +143,7 @@ describe("startSubscription", () => {
     await assert.rejects(start(), /x/);
   });
 
-  test("a plan without an annual price is not sold by the year, and nothing is made (0062)", async () => {
+  test("a plan without an annual price is not sold by the year, and nothing is made (0061)", async () => {
     const monthlyOnly = { ...PLAN, annualPriceCents: null };
     assert.equal(priceOf(monthlyOnly, "annual"), null);
     assert.equal(priceOf(monthlyOnly, "monthly"), 1000);

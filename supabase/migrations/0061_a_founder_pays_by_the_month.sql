@@ -41,16 +41,16 @@ do $$
 begin
   if exists (select 1 from public.plans
               where audience <> 'public' and annual_price_cents is not null) then
-    raise exception '0062: a founder or personal plan has an annual price; decide it before this migration';
+    raise exception '0061: a founder or personal plan has an annual price; decide it before this migration';
   end if;
   if exists (select 1 from public.person_badges
               where terms_annual_price_cents is not null) then
-    raise exception '0062: a seal keeps an annual price; decide it before this migration';
+    raise exception '0061: a seal keeps an annual price; decide it before this migration';
   end if;
   if exists (select 1 from public.subscriptions s
                join public.plans p on p.id = s.plan_id
               where p.audience <> 'public' and s.cycle = 'annual' and s.status <> 'canceled') then
-    raise exception '0062: an annual founder or personal subscription is alive; decide it before this migration';
+    raise exception '0061: an annual founder or personal subscription is alive; decide it before this migration';
   end if;
 end;
 $$;
@@ -233,7 +233,7 @@ begin
       using errcode = 'check_violation', constraint = 'billing_plan_audience';
   end if;
 
-  -- New in 0062: a plan without an annual price has no annual cycle. Every
+  -- New in 0061: a plan without an annual price has no annual cycle. Every
   -- founder and personal plan is one (plans_monthly_only_for_founders).
   if p_cycle = 'annual' and v_plan.annual_price_cents is null then
     raise exception 'billing_cycle_offered: plan % has no annual cycle', p_plan
@@ -241,7 +241,7 @@ begin
   end if;
 
   -- A seal's terms belong to a founder plan, which the refusal above keeps
-  -- monthly: only the monthly price is read from them (0062).
+  -- monthly: only the monthly price is read from them (0061).
   if v_has_seal and v_seal.terms_fixed_at is not null then
     v_value := case p_cycle when 'monthly' then v_seal.terms_monthly_price_cents end;
   else

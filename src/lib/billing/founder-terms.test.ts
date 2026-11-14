@@ -11,7 +11,7 @@ const FOUNDER: ShownPlan & { readonly id: string } = {
   id: "plan-f",
   audience: "founder",
   monthlyPriceCents: 700,
-  // A founder plan is monthly only (0062).
+  // A founder plan is monthly only (0061).
   annualPriceCents: null,
   monthlyCredits: 6,
   teacherLessonCredits: 3,

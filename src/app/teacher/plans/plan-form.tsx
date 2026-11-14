@@ -47,7 +47,7 @@ export type PlanFields = {
 export function PlanForm({ plan }: { readonly plan: PlanFields }) {
   const personal = plan.audience === "person";
   const [state, formAction, isPending] = useActionState(savePlan, INITIAL);
-  // The founder and personal plans are monthly only (0062): their form has
+  // The founder and personal plans are monthly only (0061): their form has
   // no annual price to type, and sends none. The select stays uncontrolled
   // like every other field, so a reset after a save puts it back with them;
   // this state only follows it, and the reset puts it back too.

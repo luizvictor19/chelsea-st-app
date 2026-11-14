@@ -10,7 +10,7 @@
  * audience, and the values carry none.
  *
  * The annual price may be left empty: a plan without the annual cycle. A
- * founder or personal plan never has one (0062, #331,
+ * founder or personal plan never has one (0061, #331,
  * plans_monthly_only_for_founders), and both are refused here first.
  */
 
@@ -172,7 +172,7 @@ function readPlanNumbers(
       message: "O preço mensal precisa ser um valor em reais maior que zero.",
     };
   }
-  // Empty is a plan without the annual cycle (0062).
+  // Empty is a plan without the annual cycle (0061).
   const annualText = String(form.get("annual_price") ?? "").trim();
   const annual = annualText === "" ? null : readReais(annualText);
   if (annualText !== "" && (annual === null || annual <= 0)) {

@@ -174,7 +174,7 @@ falhas seguidas, a fila para (os eventos ficam guardados por até 14 dias).
   `active`), o selo guarda os termos dela: o preço mensal, os créditos do mês, o teto, os
   dias depois do cancelamento e o custo da aula. Quem volta ao Plano Fundador assina com esses
   termos, não com os do plano no dia. Um checkout abandonado ou um Pix nunca pago não guarda nada.
-- **Só mensal** (#331, 0062): o Plano Fundador e o Personalizado não têm preço anual
+- **Só mensal** (#331, 0061): o Plano Fundador e o Personalizado não têm preço anual
   (`plans_monthly_only_for_founders`), e o selo não guarda preço anual. Num plano público o preço
   anual é opcional: vazio é um plano sem cobrança anual.
 - **O Plano Fundador nunca sai de venda**: o último Plano Fundador ativo da marca não pode ser
@@ -186,7 +186,7 @@ falhas seguidas, a fila para (os eventos ficam guardados por até 14 dias).
   - `billing_value_matches`: valor diferente do que a pessoa tem direito (os termos do selo no
     Plano Fundador, o preço do plano no resto, para o ciclo); frase "O valor deste plano mudou.
     Recarregue a página e assine de novo.".
-  - `billing_cycle_offered` (0062): ciclo anual num plano sem preço anual; frase "Este plano é só
+  - `billing_cycle_offered` (0061): ciclo anual num plano sem preço anual; frase "Este plano é só
     mensal. Escolha a cobrança mensal.".
 - **O Personalizado** nasce em `/teacher/invites` (tipo "Plano personalizado"), para um e-mail. O
   app manda da agenda@ "Seu plano personalizado está pronto", com o nome do plano e dois links

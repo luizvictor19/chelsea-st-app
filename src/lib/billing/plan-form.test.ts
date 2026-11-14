@@ -184,7 +184,7 @@ describe("readPersonalPlanForm", () => {
   });
 });
 
-describe("monthly only for founders (0062, #331)", () => {
+describe("monthly only for founders (0061, #331)", () => {
   test("an empty annual price is a plan without the annual cycle", () => {
     for (const empty of ["", "  "]) {
       const read = readPlanForm(form({ annual_price: empty }));

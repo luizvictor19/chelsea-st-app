@@ -36,7 +36,7 @@ export function SubscribeForm({
   const chosen = plans.find((plan) => plan.id === planId);
   const chosenTrial = chosen?.trialDays ?? 0;
   const trialDays = trialAvailable && chosenTrial > 0 ? chosenTrial : null;
-  // A plan without an annual price is monthly only (0062): the Plano Fundador
+  // A plan without an annual price is monthly only (0061): the Plano Fundador
   // and the Personalizado always. Choosing one shows and sends the monthly
   // cycle alone; going back to a plan with both keeps what she had chosen.
   const [cycle, setCycle] = useState<"monthly" | "annual">("monthly");

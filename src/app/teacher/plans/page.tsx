@@ -46,7 +46,7 @@ type PlanRow = {
   name: string;
   position: number;
   monthly_price_cents: number;
-  /** Null: no annual cycle (0062). */
+  /** Null: no annual cycle (0061). */
   annual_price_cents: number | null;
   monthly_credits: number;
   trail_minutes_per_day: number;

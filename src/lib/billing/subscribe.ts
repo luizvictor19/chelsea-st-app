@@ -32,7 +32,7 @@ export type PlanForSale = {
   readonly id: string;
   readonly name: string;
   readonly monthlyPriceCents: number;
-  /** Null: the plan has no annual cycle (0062), as every founder plan. */
+  /** Null: the plan has no annual cycle (0061), as every founder plan. */
   readonly annualPriceCents: number | null;
   readonly trialDays: number;
 };
