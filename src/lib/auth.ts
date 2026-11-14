@@ -82,7 +82,8 @@ export async function requireManager() {
 }
 
 /**
- * The invite actions serve /teacher/invites and /team: whoever teaches, or
+ * The invite actions serve /teacher/invites, /teacher/organizations,
+ * /teacher/founders and /team: whoever teaches, or
  * runs an organization without a teacher. What each may invite is the
  * database's rule (can_invite, 0031, and the triggers of 0042).
  */

@@ -31,6 +31,7 @@ const ROLES: readonly OrganizationRole[] = ["student", "teacher", "admin"];
 /** Both screens that list invites: the teacher's and the company admin's (0042). */
 function refreshInviteScreens(): void {
   revalidatePath("/teacher/invites");
+  revalidatePath("/teacher/organizations");
   revalidatePath("/team");
 }
 

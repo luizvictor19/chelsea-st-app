@@ -35,11 +35,7 @@ export default async function StudentsPage() {
           <Link href="/teacher/agenda" className="underline">
             Agenda
           </Link>
-          . Quem ainda não aparece aqui entra pela tela de{" "}
-          <Link href="/teacher/invites" className="underline">
-            Convites
-          </Link>
-          .
+          . O aluno entra se cadastrando pelo site.
         </p>
       </div>
 

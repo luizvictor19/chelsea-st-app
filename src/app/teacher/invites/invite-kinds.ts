@@ -1,7 +1,7 @@
 /**
- * What each kind of invite does, said on /teacher/invites (#366): one line
- * on its option, and the steps of "Como funciona" once it is chosen, from
- * the invite to where the person ends up. Plain text, a plain module.
+ * What each kind of invite does, said on /teacher/invites (#366): a line and the
+ * steps of "Como funciona", from the invite to where the person ends up,
+ * shown where each invite lives. Plain text, a plain module.
  */
 
 export type InviteKind = "organization" | "founder" | "personal";
@@ -10,7 +10,6 @@ export const INVITE_KINDS: Readonly<
   Record<
     InviteKind,
     {
-      readonly label: string;
       readonly line: string;
       readonly steps: readonly string[];
       readonly note?: string;
@@ -18,7 +17,6 @@ export const INVITE_KINDS: Readonly<
   >
 > = {
   organization: {
-    label: "Organização",
     line: "Põe alguém numa escola ou empresa com um papel. Não cobra nada pelo app.",
     steps: [
       "Você escolhe a organização, o papel e o e-mail.",
@@ -27,7 +25,6 @@ export const INVITE_KINDS: Readonly<
     ],
   },
   founder: {
-    label: "Fundador",
     line: "Dá o selo de fundador a um e-mail. Com ele, a pessoa assina o Plano Fundador.",
     steps: [
       "Você escreve o e-mail.",
@@ -38,7 +35,6 @@ export const INVITE_KINDS: Readonly<
     note: "Para quem chega pela landing, use o cupom de Fundadores: o link do botão já leva o cupom.",
   },
   personal: {
-    label: "Plano personalizado",
     line: "Um Plano Fundador só para um e-mail, com o preço, os créditos e o custo da aula que você decide.",
     steps: [
       "Você escreve o e-mail e os números do plano.",

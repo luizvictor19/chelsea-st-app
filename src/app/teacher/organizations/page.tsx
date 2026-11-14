@@ -6,6 +6,14 @@ import { BRANDS, isBrandKey, siteOfBrand } from "@/lib/brand";
 import { siteConfig } from "@/lib/current-site";
 import { adminCount, COMPANY } from "@/lib/organizations";
 
+import { HowItWorks } from "../invites/how-it-works";
+import {
+  openInvites,
+  readInvitableOrganizations,
+  readOpenInvites,
+} from "../invites/invitable";
+import { InviteForm } from "../invites/invite-form";
+import { InviteList } from "../invites/invite-list";
 import { CompanyForm } from "./company-form";
 
 export const metadata: Metadata = {
@@ -28,7 +36,11 @@ type Row = {
  * Only she reaches it; organizations_write refuses anyone else's insert anyway.
  */
 export default async function OrganizationsPage() {
-  const { supabase } = await requirePlatformAdmin();
+  const { supabase, user } = await requirePlatformAdmin();
+  const [invitable, inviteRows] = await Promise.all([
+    readInvitableOrganizations(supabase, user.id, true),
+    readOpenInvites(supabase),
+  ]);
 
   const { data, error } = await supabase
     .from("organizations")
@@ -39,6 +51,8 @@ export default async function OrganizationsPage() {
   if (error) throw new Error(error.message);
 
   const now = new Date();
+  const invites = openInvites(inviteRows, invitable, now);
+  const offerable = invitable.filter((each) => each.roles.length > 0);
   const rows: Row[] = data.map((organization) => ({
     id: organization.id,
     slug: organization.slug,
@@ -121,6 +135,26 @@ export default async function OrganizationsPage() {
           ))}
         </ul>
       </section>
+
+      <section
+        id="convidar"
+        aria-labelledby="invite-organization"
+        className="flex scroll-mt-20 flex-col gap-3"
+      >
+        <h2
+          id="invite-organization"
+          className="text-xl font-bold tracking-tight"
+        >
+          Convidar para uma organização
+        </h2>
+        <HowItWorks kind="organization" />
+        {offerable.length === 0 ? (
+          <p className="text-muted">Nenhuma organização aceita convite.</p>
+        ) : (
+          <InviteForm organizations={offerable} />
+        )}
+        <InviteList invites={invites} showOrganization />
+      </section>
     </section>
   );
 }
@@ -130,8 +164,8 @@ function AdminCell({ row }: { readonly row: Row }) {
     return (
       <span className="text-accent">
         Sem admin ·{" "}
-        <Link href="/teacher/invites" className="underline">
-          Convites
+        <Link href="#convidar" className="underline">
+          Convidar
         </Link>
       </span>
     );

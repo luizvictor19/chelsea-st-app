@@ -1,5 +1,5 @@
 /**
- * The Plano Fundador Personalizado as /teacher/invites makes it (#292, 0058):
+ * The Plano Fundador Personalizado as /teacher/founders makes it (#292, 0058):
  * written for one e-mail with the platform admin's own client, then mailed
  * from agenda@. The plan is kept whatever the mail does: a mail that did not
  * go is said, and "Reenviar" sends it again.
