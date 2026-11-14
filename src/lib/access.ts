@@ -11,8 +11,8 @@ export type Membership = {
 /**
  * What the current person may do, as the database records it since 0029: a
  * platform admin above every organization, and one role per row of
- * organization_members. The same person can hold several, which is how an
- * admin also opens the student's screens without a second account.
+ * organization_members. The same person can hold several roles: a teacher
+ * who also studies keeps both.
  *
  * This only decides which screen someone lands on. RLS is the real defence.
  */
@@ -73,8 +73,8 @@ export function practicesOnly(access: Access): boolean {
 
 /**
  * Where someone goes after signing in. Teaching wins, then running a company:
- * the admin who is also a student lands on her own screen and opens
- * /dashboard from there. Someone with no role at all still lands on
+ * the admin who is also a student lands on her own screen, and /dashboard
+ * stays hers by its address. Someone with no role at all still lands on
  * /dashboard, the screen that explains the account is not released yet.
  */
 export function destinationFor(

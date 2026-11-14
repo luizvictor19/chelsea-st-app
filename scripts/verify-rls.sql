@@ -10501,6 +10501,103 @@ begin
 end;
 $$;
 
+-- A platform admin is not a student (0062) -----------------------------------------------
+--
+-- 0062 deletes, for every platform admin, the lessons as a student (their
+-- calendar invites by cascade), the row of students and the student
+-- membership; and stops, named, on a proposal, a paid or marked lesson or a
+-- credit entry of one. Before it runs, this block makes a platform admin who
+-- is also a student with a lesson, and a plain student with one, both taught
+-- by one teacher; after it, only the admin's rows are gone. Numbers are made
+-- up. Nothing written here is kept.
+
+do $$
+declare
+  c_admin_student constant uuid := 'b0620000-0000-4000-8000-00000000a001';
+  c_plain constant uuid := 'b0620000-0000-4000-8000-00000000a002';
+  c_tutor constant uuid := 'b0620000-0000-4000-8000-00000000a003';
+  v_chelsea uuid := (select id from organizations where slug = 'chelsea-st');
+  v_tutor uuid;
+begin
+  insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at) values
+    (c_admin_student, 'admin-student-0062@example.com', '{"full_name":"Admin"}', now()),
+    (c_plain, 'plain-0062b@example.com', '{"full_name":"Plain"}', now()),
+    (c_tutor, 'tutor-0062@example.com', '{"full_name":"Tutor"}', now());
+  insert into platform_admins (user_id) values (c_admin_student);
+  insert into organization_members (organization_id, user_id, role) values
+    (v_chelsea, c_admin_student, 'admin'),
+    (v_chelsea, c_admin_student, 'student'),
+    (v_chelsea, c_plain, 'student'),
+    (v_chelsea, c_tutor, 'teacher');
+  insert into students (id, organization_id) values
+    (c_admin_student, v_chelsea), (c_plain, v_chelsea);
+  insert into teachers (organization_id, user_id, member_role, meet_url, calendar_email, is_active)
+    values (v_chelsea, c_tutor, 'teacher', 'https://meet.example.com/0062', 'tutor-0062@example.com', false)
+    returning id into v_tutor;
+  insert into lessons (organization_id, student_id, teacher_id, scheduled_at, duration_minutes, status) values
+    (v_chelsea, c_admin_student, v_tutor, now() - interval '10 days', 50, 'scheduled'),
+    (v_chelsea, c_admin_student, v_tutor, now() + interval '3 days', 50, 'cancelled'),
+    (v_chelsea, c_plain, v_tutor, now() + interval '4 days', 50, 'scheduled');
+  insert into calendar_invites (organization_id, lesson_id, method, recipient)
+    select v_chelsea, l.id, 'request', 'student' from lessons l where l.teacher_id = v_tutor
+     and not exists (select 1 from calendar_invites ci where ci.lesson_id = l.id and ci.recipient = 'student' and ci.method = 'request');
+  -- The admin's lessons, kept by id, so the block after the migration can
+  -- count their invites gone instead of trusting the cascade.
+  create table verify.admin_lessons_0062 as
+    select l.id, (select count(*) from calendar_invites ci where ci.lesson_id = l.id) as invites
+      from lessons l where l.student_id = c_admin_student;
+end;
+$$;
+
+\i supabase/migrations/0062_a_platform_admin_is_not_a_student.sql
+
+do $$
+declare
+  c_admin_student constant uuid := 'b0620000-0000-4000-8000-00000000a001';
+  c_plain constant uuid := 'b0620000-0000-4000-8000-00000000a002';
+  c_tutor constant uuid := 'b0620000-0000-4000-8000-00000000a003';
+  v_tutor uuid := (select id from teachers where user_id = c_tutor);
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  perform verify.holds_0058('[0062] no platform admin is a student: no lesson, no row of students, no student membership',
+    not exists (select 1 from lessons l join platform_admins a on a.user_id = l.student_id)
+    and not exists (select 1 from students s join platform_admins a on a.user_id = s.id)
+    and not exists (select 1 from organization_members m join platform_admins a on a.user_id = m.user_id where m.role = 'student'));
+  perform verify.holds_0058('[0062] the admin had 2 lessons with invites before, and none of them or their invites is left',
+    (select count(*) from verify.admin_lessons_0062) = 2
+    and (select min(invites) from verify.admin_lessons_0062) >= 1
+    and not exists (select 1 from lessons where id in (select id from verify.admin_lessons_0062))
+    and not exists (select 1 from calendar_invites where lesson_id in (select id from verify.admin_lessons_0062)));
+  perform verify.holds_0058('[0062] the admin keeps the platform and the admin membership',
+    exists (select 1 from platform_admins where user_id = c_admin_student)
+    and exists (select 1 from organization_members where user_id = c_admin_student and role = 'admin'));
+  perform verify.holds_0058('[0062] a plain student keeps the row, the membership, the lesson and its invite',
+    exists (select 1 from students where id = c_plain)
+    and exists (select 1 from organization_members where user_id = c_plain and role = 'student')
+    and (select count(*) from lessons where student_id = c_plain) = 1
+    and (select count(*) from calendar_invites ci join lessons l on l.id = ci.lesson_id where l.student_id = c_plain) >= 1);
+
+  -- Nothing written here is kept.
+  -- As the owner of lessons, whom lessons_booked_through_functions lets
+  -- through; the invites go by cascade.
+  delete from lessons where teacher_id = v_tutor;
+  drop table verify.admin_lessons_0062;
+  delete from teachers where id = v_tutor;
+  delete from students where id in (c_admin_student, c_plain);
+  delete from organization_members where user_id in (c_admin_student, c_plain, c_tutor);
+  delete from platform_admins where user_id = c_admin_student;
+  delete from auth.users where id in (c_admin_student, c_plain, c_tutor);
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a platform admin is not a student: %', v_failures;
+  end if;
+  raise notice 'a platform admin is not a student: the admin''s lessons, invites, row of students and student membership are gone; the admin role and a plain student''s rows stay';
+end;
+$$;
+
 -- A restored copy gets back what the dump leaves out (#101, #104) --------------------
 --
 -- supabase db dump writes the schemas of the project, not storage or auth, so
