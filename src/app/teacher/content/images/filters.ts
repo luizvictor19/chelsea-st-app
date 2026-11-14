@@ -25,10 +25,17 @@ export const SITUATIONS = [
 export function situationOf(
   representation: Representation | null,
   imageUrl: string | null,
+  symbolText: string | null,
 ): Situation {
   if (representation === null) return "sem-decidir";
-  // none and symbol are decided and will never have a picture, which is not
-  // the same as waiting for one.
+  // A symbol shows its character in place of a picture (0064, #370): with
+  // it, the word is resolved; without it, it waits as a drawn word without
+  // its picture does.
+  if (representation === "symbol") {
+    return symbolText === null ? "sem-imagem" : "com-imagem";
+  }
+  // usage, metalanguage and none are decided and will never show anything
+  // in place of a picture, which is not the same as waiting for one.
   if (!isDrawableKind(representation)) return "nao-leva";
   return imageUrl === null ? "sem-imagem" : "com-imagem";
 }
@@ -86,6 +93,7 @@ export function matchesSelection(
     readonly representation: Representation | null;
     readonly wordClass: WordClass | null;
     readonly imageUrl: string | null;
+    readonly symbolText: string | null;
   },
   selection: Selection,
 ): boolean {
@@ -95,7 +103,10 @@ export function matchesSelection(
   return (
     passes(selection.tipo, word.representation) &&
     passes(selection.classe, word.wordClass) &&
-    passes(selection.situacao, situationOf(word.representation, word.imageUrl))
+    passes(
+      selection.situacao,
+      situationOf(word.representation, word.imageUrl, word.symbolText),
+    )
   );
 }
 
@@ -114,22 +125,29 @@ export function toggled(
 
 /**
  * How many of a lesson's words have their picture, out of the ones that take
- * a picture at all.
+ * a picture at all. A symbol counts, and its character is its picture (0064,
+ * #370).
  *
- * The denominator is not the lesson. A word decided as none or symbol will
- * never have an image, and an undecided word might never take one, so
- * counting either would make a finished lesson read as unfinished forever.
+ * The denominator is not the lesson. A word of usage, metalanguage or none
+ * will never show anything, and an undecided word might never take a
+ * picture, so counting either would make a finished lesson read as
+ * unfinished forever.
  */
 export function imageCounts(
   words: readonly {
     readonly representation: Representation | null;
     readonly imageUrl: string | null;
+    readonly symbolText: string | null;
   }[],
 ): { withImage: number; takesImage: number } {
   let withImage = 0;
   let takesImage = 0;
   for (const word of words) {
-    const situation = situationOf(word.representation, word.imageUrl);
+    const situation = situationOf(
+      word.representation,
+      word.imageUrl,
+      word.symbolText,
+    );
     if (situation === "com-imagem" || situation === "sem-imagem") {
       takesImage += 1;
       if (situation === "com-imagem") withImage += 1;

@@ -28,6 +28,11 @@ export type DeckWord = {
   readonly createdAt: string;
   readonly representation: Representation | null;
   readonly imageUrl: string | null;
+  /**
+   * What a symbol shows in place of a picture (0064, #370), or null on any
+   * other kind and on a symbol still waiting for it.
+   */
+  readonly symbolText: string | null;
 };
 
 /** A published question as the screen needs it. */

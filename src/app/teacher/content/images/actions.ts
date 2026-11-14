@@ -69,6 +69,7 @@ import {
   usdOrNull,
 } from "./suggestion-call";
 import { contrastError } from "./contrast-sets";
+import { symbolTextOf } from "./symbol-text";
 import {
   storeSubject,
   storeSuggestion,
@@ -1013,6 +1014,31 @@ export async function setWordClass(
     const { supabase } = await requireContentWriter();
     const error = await writeWordClass(supabase, wordId, wordClass);
     if (error !== null) return { ok: false, error };
+    revalidatePath(SCREEN);
+    return { ok: true };
+  } catch (cause) {
+    return failure(cause);
+  }
+}
+
+/**
+ * The character a word decided symbol shows in place of a picture (0064,
+ * #370). An empty field writes null, the waiting state. The database refuses
+ * a character on any other kind (vocabulary_items_symbol_text_only_symbol),
+ * so a word reclassified in another tab comes back with that refusal rather
+ * than a character nobody will see.
+ */
+export async function setSymbolText(
+  wordId: string,
+  text: string,
+): Promise<ActionResult> {
+  try {
+    const { supabase } = await requireContentWriter();
+    const { error } = await supabase
+      .from("vocabulary_items")
+      .update({ symbol_text: symbolTextOf(text) })
+      .eq("id", wordId);
+    if (error) return { ok: false, error: error.message };
     revalidatePath(SCREEN);
     return { ok: true };
   } catch (cause) {

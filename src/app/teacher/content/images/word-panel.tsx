@@ -37,6 +37,7 @@ import {
   setReference,
   setImageStyle,
   setRepresentation,
+  setSymbolText,
   setWordClass,
   saveSubject,
   startGeneration,
@@ -47,6 +48,8 @@ import {
 import { useArrivalScroll } from "./arrival-scroll";
 import { AttemptList } from "./attempt-list";
 import { BackToList } from "./back-to-list";
+import { SymbolField } from "./symbol-field";
+import { symbolTextOf } from "./symbol-text";
 import { rowId } from "./panel-into-view";
 import { NotAPicture, shrinkReference } from "./shrink-reference";
 import {
@@ -64,6 +67,7 @@ import { WORD_CLASS_LABELS } from "./word-class";
 import {
   IMAGE_STYLE_LABELS,
   classChanged,
+  symbolChanged,
   imageApproved,
   imageDiscarded,
   kindChanged,
@@ -630,6 +634,22 @@ export function WordPanel({
           </div>
         )}
       </div>
+
+      {word.representation === "symbol" && (
+        <SymbolField
+          key={`${word.id}:${word.symbolText ?? ""}`}
+          saved={word.symbolText}
+          disabled={working}
+          saving={busy?.key === "caractere"}
+          onSave={(text) =>
+            void run(
+              "caractere",
+              () => setSymbolText(word.id, text),
+              () => symbolChanged(word.term, symbolTextOf(text)),
+            )
+          }
+        />
+      )}
 
       {/*
         Only the kinds an image is generated for. A symbol is the character,

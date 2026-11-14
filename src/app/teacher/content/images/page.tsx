@@ -428,6 +428,7 @@ export default async function VocabularyImagesPage({
                                   situation={situationOf(
                                     word.representation,
                                     word.imageUrl,
+                                    word.symbolText,
                                   )}
                                 />
                                 {/*

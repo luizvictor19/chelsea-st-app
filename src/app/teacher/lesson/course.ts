@@ -61,7 +61,7 @@ export async function loadCourse(): Promise<Course> {
   const { data: words, error: wordsError } = await supabase
     .from("vocabulary_items")
     .select(
-      "id, term, representation, image_path, created_at, points!inner(number)",
+      "id, term, representation, image_path, symbol_text, created_at, points!inner(number)",
     );
   if (wordsError) throw new Error(wordsError.message);
 
@@ -80,6 +80,7 @@ export async function loadCourse(): Promise<Course> {
     createdAt: row.created_at,
     representation: row.representation,
     imageUrl: publicImageUrl(supabase, row.image_path),
+    symbolText: row.symbol_text,
   }));
 
   // A question shows a word (0028), a scene or is acted out (0030), and its

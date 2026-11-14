@@ -33,7 +33,7 @@ describe("situationOf", () => {
     const seen = new Set<string>();
     for (const kind of [...KINDS, null]) {
       for (const image of ["/x.png", null]) {
-        seen.add(situationOf(kind, image));
+        seen.add(situationOf(kind, image, null));
       }
     }
     assert.deepEqual(
@@ -43,20 +43,34 @@ describe("situationOf", () => {
   });
 
   test("undecided is undecided whether or not a file happens to exist", () => {
-    assert.equal(situationOf(null, null), "sem-decidir");
-    assert.equal(situationOf(null, "/x.png"), "sem-decidir");
+    assert.equal(situationOf(null, null, null), "sem-decidir");
+    assert.equal(situationOf(null, "/x.png", null), "sem-decidir");
   });
 
-  test("none and symbol are decided, not waiting", () => {
-    assert.equal(situationOf("none", null), "nao-leva");
-    assert.equal(situationOf("symbol", null), "nao-leva");
+  test("usage, metalanguage and none are decided, not waiting", () => {
+    assert.equal(situationOf("none", null, null), "nao-leva");
+    assert.equal(situationOf("usage", null, null), "nao-leva");
+    assert.equal(situationOf("metalanguage", null, null), "nao-leva");
+  });
+
+  // 0064, #370: the character is a symbol's picture.
+  test("a symbol is waiting until its character exists, and no file counts", () => {
+    assert.equal(situationOf("symbol", null, null), "sem-imagem");
+    assert.equal(situationOf("symbol", "/x.png", null), "sem-imagem");
+    assert.equal(situationOf("symbol", null, "5"), "com-imagem");
+  });
+
+  test("a character on any other kind changes nothing", () => {
+    assert.equal(situationOf("photo", null, "5"), "sem-imagem");
+    assert.equal(situationOf("none", null, "5"), "nao-leva");
+    assert.equal(situationOf(null, null, "5"), "sem-decidir");
   });
 
   test("a drawable kind is waiting until the image exists", () => {
-    assert.equal(situationOf("photo", null), "sem-imagem");
-    assert.equal(situationOf("photo", "/x.png"), "com-imagem");
-    assert.equal(situationOf("pose", null), "sem-imagem");
-    assert.equal(situationOf("figure", "/x.png"), "com-imagem");
+    assert.equal(situationOf("photo", null, null), "sem-imagem");
+    assert.equal(situationOf("photo", "/x.png", null), "com-imagem");
+    assert.equal(situationOf("pose", null, null), "sem-imagem");
+    assert.equal(situationOf("figure", "/x.png", null), "com-imagem");
   });
 });
 
@@ -74,6 +88,7 @@ describe("matchesSelection", () => {
     representation: "photo",
     wordClass: "noun",
     imageUrl: null,
+    symbolText: null,
   } as const;
 
   test("nothing selected constrains nothing", () => {
@@ -140,7 +155,8 @@ describe("imageCounts", () => {
   const word = (
     representation: (typeof KINDS)[number] | null,
     imageUrl: string | null,
-  ) => ({ representation, imageUrl });
+    symbolText: string | null = null,
+  ) => ({ representation, imageUrl, symbolText });
 
   /*
    * The denominator is the words that take a picture, not the lesson. A word
@@ -153,14 +169,23 @@ describe("imageCounts", () => {
       word("photo", "/a.png"),
       word("pose", null),
       word("none", null),
-      word("symbol", null),
+      word("usage", null),
       word(null, null),
     ];
     assert.deepEqual(imageCounts(words), { withImage: 1, takesImage: 2 });
   });
 
+  test("a symbol counts, with its character as its picture", () => {
+    const words = [
+      word("photo", "/a.png"),
+      word("symbol", null, "5"),
+      word("symbol", null),
+    ];
+    assert.deepEqual(imageCounts(words), { withImage: 2, takesImage: 3 });
+  });
+
   test("a lesson of none and undecided words has no denominator at all", () => {
-    const words = [word("none", null), word("symbol", null), word(null, null)];
+    const words = [word("none", null), word("usage", null), word(null, null)];
     assert.deepEqual(imageCounts(words), { withImage: 0, takesImage: 0 });
   });
 

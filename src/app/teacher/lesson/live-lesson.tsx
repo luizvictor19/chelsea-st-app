@@ -40,9 +40,29 @@ function subscribeToFullscreen(onChange: () => void): () => void {
   return () => document.removeEventListener("fullscreenchange", onChange);
 }
 
-/** Whether the word is shown as its approved picture, with the term under it. */
+/**
+ * Whether the word is shown as its approved picture, or as its character when
+ * it is a symbol (0064, #370), with the term under it.
+ */
 function hasPicture(word: DeckWord): boolean {
-  return situationOf(word.representation, word.imageUrl) === "com-imagem";
+  return (
+    situationOf(word.representation, word.imageUrl, word.symbolText) ===
+    "com-imagem"
+  );
+}
+
+/*
+ * A symbol's character as large as its column allows, the same reckoning as
+ * termSize: the longest character of the slide sets the size for all of them,
+ * so a row of numbers reads as one line of equals.
+ */
+function symbolSize(slide: Slide): string {
+  const longest = Math.max(
+    2,
+    ...slide.words.map((word) => word.symbolText?.length ?? 0),
+  );
+  const fit = 80 / slide.words.length / (0.6 * longest);
+  return `min(${fit.toFixed(2)}vw * var(--card), 40vh)`;
 }
 
 /*
@@ -494,15 +514,33 @@ export function LiveLesson({
               }}
             >
               {slide.words.map((word) => {
-                const picture = hasPicture(word) ? word.imageUrl : null;
+                const shown = hasPicture(word);
+                const symbol =
+                  shown && word.representation === "symbol"
+                    ? word.symbolText
+                    : null;
+                const picture = shown && symbol === null ? word.imageUrl : null;
                 const waiting =
-                  situationOf(word.representation, word.imageUrl) ===
-                  "sem-imagem";
+                  situationOf(
+                    word.representation,
+                    word.imageUrl,
+                    word.symbolText,
+                  ) === "sem-imagem";
                 return (
                   <figure
                     key={word.id}
                     className="flex min-h-0 min-w-0 flex-col items-center justify-center gap-3"
                   >
+                    {symbol !== null && (
+                      <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+                        <span
+                          className="leading-none font-extrabold tracking-tight"
+                          style={{ fontSize: symbolSize(slide) }}
+                        >
+                          {symbol}
+                        </span>
+                      </div>
+                    )}
                     {picture !== null && (
                       <div className="relative min-h-0 w-full flex-1">
                         <Image
@@ -524,7 +562,7 @@ export function LiveLesson({
                     */}
                     <figcaption
                       className={
-                        hiding && picture !== null
+                        hiding && shown
                           ? "invisible text-center leading-tight font-extrabold tracking-tight"
                           : "text-center leading-tight font-extrabold tracking-tight"
                       }

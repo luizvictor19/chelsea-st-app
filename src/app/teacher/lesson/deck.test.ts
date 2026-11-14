@@ -28,6 +28,7 @@ const word = (term: string, pointNumber: number): DeckWord => ({
   createdAt: new Date(Date.UTC(2026, 8, 1, 0, 0, tick++)).toISOString(),
   representation: null,
   imageUrl: null,
+  symbolText: null,
 });
 
 const row = (set_id: string, vocabulary_item_id: string, position: number) => ({
