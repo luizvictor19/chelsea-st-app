@@ -54,9 +54,11 @@ if (path === null || !existsSync(path)) {
   process.exit(1);
 }
 
+// The transcribers are measured on English: the translation cases (#249)
+// are the judge's alone.
 const cases = parseCases(
   JSON.parse(readFileSync(join(ROOT, "scripts", "stt-cases.json"), "utf8")),
-);
+).filter((each) => each.answerLanguage === "en");
 const caseById = new Map(cases.map((each) => [each.id, each]));
 
 const currentHash = new Map<string, string>();

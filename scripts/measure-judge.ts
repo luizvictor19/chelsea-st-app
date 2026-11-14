@@ -17,7 +17,17 @@
  * The conversion is this script's, not the judge's: in the tutor, where the
  * webm becomes wav is still to be decided.
  *
- * Paid: 30 cases × 2 judges × 2 rounds is 120 calls, a few cents.
+ * Each case is judged with the prompt of its answer's language: the six
+ * translation cases (t01 to t06, #249) with the translation prompt, every
+ * other with the English one, and each line keys on the fingerprint it was
+ * judged with.
+ *
+ * Paid: 30 cases × 2 judges × 2 rounds is 120 calls, a few cents. The six
+ * translation cases on gpt-audio-1.5 alone, twice, are 12 calls, about
+ * US$ 0.03:
+ *
+ *   node --env-file=.env.local scripts/measure-judge.ts \
+ *     --cases t01,t02,t03,t04,t05,t06 --judges openai-gpt-audio-1.5
  *
  *   node --env-file=.env.local scripts/measure-judge.ts
  *   node --env-file=.env.local scripts/measure-judge.ts --cases g01,g02 \
@@ -28,6 +38,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { JudgeError } from "../src/lib/judge/errors.ts";
 import { createOpenAiAudioJudge } from "../src/lib/judge/openai-audio.ts";
 import { promptFingerprint } from "../src/lib/judge/prompt.ts";
 import {
@@ -130,8 +141,9 @@ const judges: AnswerJudge[] = JUDGE_MODELS.filter((model) =>
   judgeIds.includes(model.id),
 ).map((model) => createOpenAiAudioJudge(model.id, model.model));
 
-const prompt = promptFingerprint();
-console.log(`prompt ${prompt}`);
+console.log(
+  `prompt en ${promptFingerprint("en")}, pt ${promptFingerprint("pt")}`,
+);
 
 mkdirSync(RESULTS_DIR, { recursive: true });
 const outPath = join(RESULTS_DIR, `${today()}.jsonl`);
@@ -161,6 +173,7 @@ for (const each of cases) {
     .update(readFileSync(webmPath))
     .digest("hex");
   const audioSeconds = readSeconds(each.id);
+  const prompt = promptFingerprint(each.answerLanguage);
   let wav: Uint8Array | null = null;
 
   for (const judge of judges) {
@@ -192,6 +205,7 @@ for (const each of cases) {
           contentType: "audio/wav",
           question: each.question,
           expected: each.expected,
+          answerLanguage: each.answerLanguage,
         });
         line = {
           ...base,
@@ -216,7 +230,14 @@ for (const each of cases) {
           raw: null,
           usage: null,
           ms: null,
-          error: cause instanceof Error ? cause.message : String(cause),
+          // The provider's own text too: this file stays on Luiz's machine,
+          // and it is the only way to see what went wrong in a paid call.
+          error:
+            cause instanceof JudgeError
+              ? `${cause.message}: ${cause.detail}`
+              : cause instanceof Error
+                ? cause.message
+                : String(cause),
         };
         console.log(`${each.id} ${judge.id} #${round} ERROR ${line.error}`);
       }

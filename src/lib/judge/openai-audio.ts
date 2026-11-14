@@ -3,19 +3,16 @@
  *
  * Read and probed on 2026-09-25: POST /v1/chat/completions with an
  * input_audio content part, whose format is "wav" or "mp3" and nothing else
- * ("Invalid value: 'webm'. Supported values are: 'wav' and 'mp3'."). The
- * browser records webm, so the caller converts; see scripts/measure-judge.ts.
+ * ("Invalid value: 'webm'. Supported values are: 'wav' and 'mp3'."). The app
+ * records WAV in the browser (src/lib/audio/wav-recorder.ts); the measurement
+ * cases are webm, and scripts/measure-judge.ts converts them.
  * response_format is refused by these models, so the answer comes back as
  * the arguments of a forced, strict function call. See prompt.ts.
  */
 
-import { parseJudgement } from "./parse.ts";
-import {
-  JUDGE_SYSTEM,
-  JUDGEMENT_TOOL,
-  JUDGEMENT_TOOL_DEFINITION,
-  judgeUserText,
-} from "./prompt.ts";
+import { JudgeError, judgeErrorFrom } from "./errors.ts";
+import { parseJudgement, parseTranslationJudgement } from "./parse.ts";
+import { JUDGEMENT_TOOL, judgeUserText, promptFor } from "./prompt.ts";
 import type {
   AnswerJudge,
   JudgeModelId,
@@ -32,8 +29,12 @@ if (typeof window !== "undefined") {
 
 const ENDPOINT = "https://api.openai.com/v1/chat/completions";
 
-/** Per call timeout. A tutor that waits longer than this has already failed. */
-const TIMEOUT_MS = 60_000;
+/**
+ * Per call timeout for the measurement script. The app passes its own,
+ * shorter one (src/lib/judge/server.ts): a tutor that waits a minute has
+ * already failed.
+ */
+const DEFAULT_TIMEOUT_MS = 60_000;
 
 /**
  * Zero, because this is a judgement and not writing: the same recording
@@ -96,7 +97,9 @@ function readUsage(body: unknown): JudgeUsage | null {
 export function createOpenAiAudioJudge(
   id: JudgeModelId,
   model: string,
+  options: { readonly timeoutMs?: number } = {},
 ): AnswerJudge {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   return {
     id,
 
@@ -105,65 +108,79 @@ export function createOpenAiAudioJudge(
       contentType,
       question,
       expected,
+      answerLanguage,
     }): Promise<JudgeResult> {
       const format = audioFormat(contentType);
+      const { system, tool } = promptFor(answerLanguage);
+      const parse =
+        answerLanguage === "pt" ? parseTranslationJudgement : parseJudgement;
       const started = performance.now();
-      const response = await fetch(ENDPOINT, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${apiKey()}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          modalities: ["text"],
-          temperature: TEMPERATURE,
-          tools: [JUDGEMENT_TOOL_DEFINITION],
-          tool_choice: { type: "function", function: { name: JUDGEMENT_TOOL } },
-          messages: [
-            { role: "system", content: JUDGE_SYSTEM },
-            {
-              role: "user",
-              content: [
-                { type: "text", text: judgeUserText(question, expected) },
-                {
-                  type: "input_audio",
-                  input_audio: {
-                    data: Buffer.from(audio).toString("base64"),
-                    format,
-                  },
-                },
-              ],
+      // Every way this fails is a JudgeError whose message carries no text
+      // from the provider: see errors.ts.
+      let response: Response;
+      let body: unknown = null;
+      try {
+        response = await fetch(ENDPOINT, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${apiKey()}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model,
+            modalities: ["text"],
+            temperature: TEMPERATURE,
+            tools: [tool],
+            tool_choice: {
+              type: "function",
+              function: { name: JUDGEMENT_TOOL },
             },
-          ],
-        }),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-        cache: "no-store",
-      });
-      const body: unknown = response.ok ? await response.json() : null;
-      const ms = performance.now() - started;
-
-      if (!response.ok) {
-        const detail = await response.text().catch(() => "");
-        throw new Error(
-          `OpenAI judge failed: ${response.status} ${detail.slice(0, 300)}`,
-        );
+            messages: [
+              { role: "system", content: system },
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: judgeUserText(question, expected) },
+                  {
+                    type: "input_audio",
+                    input_audio: {
+                      data: Buffer.from(audio).toString("base64"),
+                      format,
+                    },
+                  },
+                ],
+              },
+            ],
+          }),
+          signal: AbortSignal.timeout(timeoutMs),
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          const detail = await response.text().catch(() => "");
+          throw new JudgeError("http", detail.slice(0, 300), response.status);
+        }
+        body = await response.json().catch(() => null);
+      } catch (cause) {
+        throw judgeErrorFrom(cause);
       }
+      const ms = performance.now() - started;
 
       const raw = readArguments(body);
       if (raw === null) {
-        throw new Error("OpenAI judge answered without the judgement call");
+        throw new JudgeError(
+          "no-call",
+          JSON.stringify(body)?.slice(0, 1000) ?? "",
+        );
       }
       let judgement;
       try {
-        judgement = parseJudgement(raw);
+        judgement = parse(raw);
       } catch (cause) {
         // The raw answer goes with the error: it was paid for, and it is the
-        // only way to see what the model got wrong.
+        // only way to see what the model got wrong. In detail, never in the
+        // message, because it holds what the person said.
         const reason = cause instanceof Error ? cause.message : String(cause);
-        throw new Error(
-          `Unreadable judgement (${reason}): ${raw.slice(0, 1000)}`,
-        );
+        throw new JudgeError("unreadable", `${reason}: ${raw.slice(0, 1000)}`);
       }
       return {
         judgement,

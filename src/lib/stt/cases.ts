@@ -15,6 +15,12 @@ export const STT_CATEGORIES = [
   "hesitation",
   "mixed_portuguese",
   "silence_noise",
+  /**
+   * A translation question (#249): the tutor says an English sentence and
+   * the answer is the Portuguese. Measured by the judge only; the
+   * transcribers' measurement is of English and skips these.
+   */
+  "translation",
 ] as const;
 
 export type SttCategory = (typeof STT_CATEGORIES)[number];
@@ -48,6 +54,12 @@ export type SttCase = {
    * English sentence (decided by Luiz on 2026-09-25).
    */
   readonly expected: string | null;
+  /**
+   * The language of the expected answer, as `questions.answer_language`:
+   * "pt" exactly for a translation case, "en" for every other. Absent in the
+   * file means "en", which is what the 30 cases of 2026-09-25 were.
+   */
+  readonly answerLanguage: "en" | "pt";
 };
 
 /** Safe as a filename: the id becomes fixtures/stt/<id>.webm. */
@@ -72,7 +84,7 @@ export function parseCases(raw: unknown): SttCase[] {
     }
     const value = item as Record<string, unknown>;
     const { id, category, question, spoken, direction } = value;
-    const { errorSpan, correctedSpan, expected } = value;
+    const { errorSpan, correctedSpan, expected, answerLanguage } = value;
 
     if (typeof id !== "string" || !ID.test(id)) {
       throw new Error(`${where}: id must look like g01`);
@@ -113,6 +125,26 @@ export function parseCases(raw: unknown): SttCase[] {
       );
     }
 
+    if (
+      answerLanguage !== undefined &&
+      answerLanguage !== "en" &&
+      answerLanguage !== "pt"
+    ) {
+      throw new Error(`${id}: answerLanguage must be en or pt`);
+    }
+    const language = answerLanguage ?? "en";
+    const isTranslation = category === "translation";
+    if (isTranslation !== (language === "pt")) {
+      throw new Error(
+        isTranslation
+          ? `${id}: a translation case answers in pt`
+          : `${id}: only a translation case answers in pt`,
+      );
+    }
+    if (isTranslation && expected === null) {
+      throw new Error(`${id}: a translation case expects a sentence`);
+    }
+
     return {
       id,
       category,
@@ -121,6 +153,7 @@ export function parseCases(raw: unknown): SttCase[] {
       ...(typeof direction === "string" ? { direction } : {}),
       ...(hasSpans ? { errorSpan, correctedSpan } : {}),
       expected,
+      answerLanguage: language,
     };
   });
 }

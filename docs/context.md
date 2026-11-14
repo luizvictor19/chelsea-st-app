@@ -573,6 +573,10 @@ content tool, so it belongs to Chelsea St; "AI tools" means the tutors' tools.
   conjuntos"), and by the measurement scripts. The app reads no `DEEPSEEK_API_KEY` since #225
   (`no-deepseek.test.ts`). Two Console keys: `chelsea-vercel` in Vercel Production only, as a Secret,
   and `chelsea-local` in `.env.local`, so each one rotates without touching the other.
+- `OPENAI_API_KEY` is read by the app since #249, for the judge (`src/lib/judge/server.ts`), and by
+  the measurement scripts: in Vercel Production only, as a Secret, and a key of its own in
+  `.env.local`. A judge failure reaches the server log as its kind and HTTP status only
+  (`JudgeError`, `src/lib/judge/errors.ts`): the provider's text can hold what the person said.
 - The site (`luizvictor19/chelsea-st-site`) holds only the publishable key
   (`SUPABASE_PUBLISHABLE_KEY`), never the service role (#146). Its Vercel project has only
   `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` among the Supabase variables.

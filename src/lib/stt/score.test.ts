@@ -168,8 +168,12 @@ describe("scripts/stt-cases.json", () => {
     ),
   );
 
-  test("has the 30 cases", () => {
-    assert.equal(cases.length, 30);
+  test("has the 30 cases of English and the 6 of translation", () => {
+    assert.equal(cases.length, 36);
+    assert.equal(
+      cases.filter((each) => each.answerLanguage === "pt").length,
+      6,
+    );
   });
 
   for (const each of cases) {

@@ -237,5 +237,53 @@
     "spoken": "It's a pen.",
     "direction": "com ruído de fundo",
     "expected": "It's a pen."
+  },
+  {
+    "id": "t01",
+    "category": "translation",
+    "answerLanguage": "pt",
+    "question": "Translate: The book is on the table.",
+    "spoken": "O livro está na mesa.",
+    "expected": "O livro está na mesa."
+  },
+  {
+    "id": "t02",
+    "category": "translation",
+    "answerLanguage": "pt",
+    "question": "Translate: It's a pen.",
+    "spoken": "É uma caneta.",
+    "expected": "É uma caneta."
+  },
+  {
+    "id": "t03",
+    "category": "translation",
+    "answerLanguage": "pt",
+    "question": "Translate: The chair is brown.",
+    "spoken": "A cadeira é marrom.",
+    "expected": "A cadeira é marrom."
+  },
+  {
+    "id": "t04",
+    "category": "translation",
+    "answerLanguage": "pt",
+    "question": "Translate: The pencil is long.",
+    "spoken": "O lápis é curto.",
+    "expected": "O lápis é comprido."
+  },
+  {
+    "id": "t05",
+    "category": "translation",
+    "answerLanguage": "pt",
+    "question": "Translate: Anna is sitting.",
+    "spoken": "A Anna está em pé.",
+    "expected": "A Anna está sentada."
+  },
+  {
+    "id": "t06",
+    "category": "translation",
+    "answerLanguage": "pt",
+    "question": "Translate: It's a table.",
+    "spoken": "It's a table.",
+    "expected": "É uma mesa."
   }
 ]
