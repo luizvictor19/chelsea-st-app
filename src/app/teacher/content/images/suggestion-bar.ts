@@ -131,3 +131,36 @@ export function widthOf(part: number, total: number): string {
   const fraction = Math.min(1, Math.max(0, part / total));
   return `${(fraction * 100).toFixed(2)}%`;
 }
+
+/**
+ * How a run ended, as the ✓ beside the bar needs it.
+ *
+ *   whole  the run went to the end of the lesson and every word sent came
+ *          back with a suggestion. A batch whose answer was lost and that
+ *          the witness then found written is in here: the run did not stop
+ *          and no word was left out.
+ *   short  anything else that ended: a batch lost twice, an error, or words
+ *          the model left unanswered. Each of those already has its notice,
+ *          and a ✓ beside it would say the opposite of what the notice says.
+ *
+ * Null while a run is going, and before the first one.
+ */
+export type PassEnd = "whole" | "short";
+
+/**
+ * Whether the bar wears the ✓ that says the run finished.
+ *
+ * A full bar standing still did not say that: on 14/11 a run that had
+ * suggested 26 of 26 words read as one that had hung. So the end is said in
+ * a mark of its own, and only for a run that ended whole.
+ *
+ * The pass is asked too, and not only the end, so the mark cannot sit beside
+ * a bar that is not full or still moving: a new run puts the end back to null
+ * in the same frame that zeroes the bar, and either one is enough to take the
+ * ✓ away.
+ */
+export function passDone(pass: Pass | null, end: PassEnd | null): boolean {
+  if (pass === null || end !== "whole") return false;
+  if (pass.instant || pass.racingTo !== null) return false;
+  return pass.total > 0 && pass.covered >= pass.total;
+}
