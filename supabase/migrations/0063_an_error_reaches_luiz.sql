@@ -26,7 +26,8 @@
 --      billing). Past 200 new rows in a day the rest only count on one
 --      overflow row, so a flood of made-up errors through /api/errors costs
 --      at most 200 rows a day. Rows older than 30 days go in the same call.
---      Worst case 200 rows x 31 days x about 5 KB, 31 MB.
+--      The overflow row asks for no e-mail (the first 20 rows of such a day
+--      spent them). Worst case 200 rows x 31 days x about 5 KB, 31 MB.
 --   3. app_errors_recent: the last 30 days, for the platform admin alone
 --      (/teacher/monitoring), empty for anyone else; executed by
 --      authenticated.
@@ -71,6 +72,8 @@ comment on table public.app_errors is
   'The errors of the app (#69), already scrubbed of any person by the app: one row per error per day (UTC), a repeat only counts. Written only by app_error_record, executed by service_role; read only through app_errors_recent, by the platform admin. Kept 30 days.';
 
 create index app_errors_recent_first on public.app_errors (last_at desc);
+-- Every call reads the day's rows and removes the old days: by day.
+create index app_errors_by_day on public.app_errors (day);
 
 alter table public.app_errors enable row level security;
 -- No policy: nobody reads or writes the rows through the API.
@@ -118,22 +121,22 @@ begin
     return;
   end if;
 
-  v_alert := (select count(*) from public.app_errors e where e.day = v_day and e.alerted)
-             < c_alerts_a_day;
-
+  -- The overflow row asks for no alert: by the 201st row of a day the first
+  -- 20 have spent the day's alerts.
   if (select count(*) from public.app_errors e
        where e.day = v_day and e.fingerprint <> 'overflow') >= c_rows_a_day then
-    insert into public.app_errors as e (day, fingerprint, kind, route, message, alerted)
+    insert into public.app_errors as e (day, fingerprint, kind, route, message)
     values (v_day, 'overflow', 'overflow', '-',
-            format('more than %s different errors today: the rest are only counted here', c_rows_a_day),
-            v_alert)
+            format('more than %s different errors today: the rest are only counted here', c_rows_a_day))
     on conflict on constraint app_errors_once_a_day
       do update set count = e.count + 1, last_at = now()
     returning * into v_row;
-    -- A repeat of the overflow row asks for nothing.
-    return query select v_row.count = 1 and v_row.alerted, v_row.day, v_row.count, v_row.first_at, true;
+    return query select false, v_row.day, v_row.count, v_row.first_at, true;
     return;
   end if;
+
+  v_alert := (select count(*) from public.app_errors e where e.day = v_day and e.alerted)
+             < c_alerts_a_day;
 
   insert into public.app_errors (day, fingerprint, kind, route, message, stack, digest, release, alerted)
   values (v_day, p_fingerprint, p_kind, p_route, p_message, p_stack, p_digest, p_release, v_alert)
