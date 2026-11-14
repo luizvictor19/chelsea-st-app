@@ -335,6 +335,7 @@ As 13 decisões do topo da spec consolidada de 06/11, com a situação em 14/11:
 - a dúvida por voz e a conversa livre, com voz ao vivo (#277);
 - o vídeo (#278);
 - a dúvida por chat (#279);
+- a animação da sessão (#280): o mascote com estados fixos (parado, voando, mergulhando no orb, saindo do orb, ouvindo, falando, comemorando) e o orb em código, que pulsa com o volume; fora do orb é a trilha, sem crédito, dentro dele a voz ao vivo, que gasta crédito. Na v1 o mascote usa as imagens paradas de `public/robin/`;
 - painel completo de quem ensina;
 - correção que cita o erro da pessoa com voz gerada na hora;
 - qualquer voz gerada na hora.
@@ -360,3 +361,4 @@ As 13 decisões do topo da spec consolidada de 06/11, com a situação em 14/11:
 | #277  | a voz ao vivo (nível 2)                             |
 | #278  | o vídeo (nível 3)                                   |
 | #279  | a dúvida por chat                                   |
+| #280  | a animação do mascote e do orb                      |
