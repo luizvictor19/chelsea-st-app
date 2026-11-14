@@ -67,8 +67,9 @@ aos scripts de medição.
 
 ## Banco
 
-As migrations ficam em `supabase/migrations`, aplicadas em ordem, e só o Luiz
-aplica, com `supabase db push`. Toda tabela nasce com Row Level Security
+As migrations ficam em `supabase/migrations`, aplicadas em ordem. O Claude
+aplica cada uma com `supabase db push`, do worktree da issue, logo antes do
+merge, com cópia lógica e `--dry-run` antes (`docs/commands.md`, Migrations). Toda tabela nasce com Row Level Security
 ligada, na mesma migration que a cria, e o CI confere as regras rodando o
 `scripts/verify-rls.sql` num Postgres de verdade (ADR 0003). Os tipos de
 `src/lib/supabase/types.ts` saem das migrations, com `./scripts/gen-types.sh`,
