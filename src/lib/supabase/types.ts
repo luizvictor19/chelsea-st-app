@@ -2365,6 +2365,7 @@ export type Database = {
           suggested_representation:
             Database["public"]["Enums"]["representation_kind"] | null;
           suggestion_run_id: string | null;
+          symbol_text: string | null;
           term: string;
           word_class: Database["public"]["Enums"]["word_class"] | null;
         };
@@ -2385,6 +2386,7 @@ export type Database = {
           suggested_representation?:
             Database["public"]["Enums"]["representation_kind"] | null;
           suggestion_run_id?: string | null;
+          symbol_text?: string | null;
           term: string;
           word_class?: Database["public"]["Enums"]["word_class"] | null;
         };
@@ -2404,6 +2406,7 @@ export type Database = {
           suggested_representation?:
             Database["public"]["Enums"]["representation_kind"] | null;
           suggestion_run_id?: string | null;
+          symbol_text?: string | null;
           term?: string;
           word_class?: Database["public"]["Enums"]["word_class"] | null;
         };

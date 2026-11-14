@@ -10598,6 +10598,85 @@ begin
 end;
 $$;
 
+-- A symbol shows its character, since 0064 (#370) ----------------------------------
+--
+-- Only a word decided symbol holds a character, and never a blank one; a
+-- symbol without one is the waiting state and is accepted. Moving a word to
+-- any other kind through clear_word_representation takes the character off,
+-- and moving it to symbol keeps it. Every refusal is caught by the name of
+-- its check. Nothing written here is kept.
+
+\i supabase/migrations/0064_a_symbol_shows_its_character.sql
+
+do $$
+declare
+  v_point uuid := (select id from points order by number limit 1);
+  v_word uuid;
+  v_text text;
+  v_refused text;
+  v_failures text;
+begin
+  delete from verify.failures;
+
+  -- [1] a character on a word of another kind
+  v_refused := null;
+  begin
+    insert into vocabulary_items (term, first_point_id, representation, symbol_text)
+      values ('a drawn word with a character 0064', v_point, 'photo', '5');
+  exception when check_violation then
+    get stacked diagnostics v_refused = constraint_name;
+  end;
+  perform verify.holds_0058('[0064 #1] a character on a photo word is refused by vocabulary_items_symbol_text_only_symbol',
+    v_refused is not distinct from 'vocabulary_items_symbol_text_only_symbol');
+
+  -- [2] a blank character
+  v_refused := null;
+  begin
+    insert into vocabulary_items (term, first_point_id, representation, symbol_text)
+      values ('a blank symbol 0064', v_point, 'symbol', '  ');
+  exception when check_violation then
+    get stacked diagnostics v_refused = constraint_name;
+  end;
+  perform verify.holds_0058('[0064 #2] a blank character is refused by vocabulary_items_symbol_text_not_blank',
+    v_refused is not distinct from 'vocabulary_items_symbol_text_not_blank');
+
+  -- [3] a symbol waiting for its character
+  insert into vocabulary_items (term, first_point_id, representation)
+    values ('a waiting symbol 0064', v_point, 'symbol')
+    returning id into v_word;
+  perform verify.holds_0058('[0064 #3] a symbol without a character is accepted',
+    (select symbol_text from vocabulary_items where id = v_word) is null);
+  delete from vocabulary_items where id = v_word;
+
+  -- [4] staying a symbol keeps the character
+  insert into vocabulary_items (term, first_point_id, representation, symbol_text)
+    values ('a kept symbol 0064', v_point, 'symbol', '5')
+    returning id into v_word;
+  perform clear_word_representation(v_word, 'symbol');
+  select symbol_text into v_text from vocabulary_items where id = v_word;
+  perform verify.holds_0058('[0064 #4] clear_word_representation to symbol keeps the character',
+    v_text is not distinct from '5');
+
+  -- [5] another kind takes it off, drawing kind or not
+  perform clear_word_representation(v_word, 'usage');
+  select symbol_text into v_text from vocabulary_items where id = v_word;
+  perform verify.holds_0058('[0064 #5] clear_word_representation to usage takes the character off',
+    v_text is null);
+  update vocabulary_items set representation = 'symbol', symbol_text = '6' where id = v_word;
+  perform clear_word_representation(v_word, 'photo');
+  select symbol_text into v_text from vocabulary_items where id = v_word;
+  perform verify.holds_0058('[0064 #6] clear_word_representation to photo takes the character off',
+    v_text is null);
+  delete from vocabulary_items where id = v_word;
+
+  select string_agg(what, '; ') into v_failures from verify.failures;
+  if v_failures is not null then
+    raise exception 'a symbol shows its character: %', v_failures;
+  end if;
+  raise notice 'a symbol shows its character: only a symbol holds one, never blank; another kind takes it off, symbol keeps it';
+end;
+$$;
+
 -- A restored copy gets back what the dump leaves out (#101, #104) --------------------
 --
 -- supabase db dump writes the schemas of the project, not storage or auth, so
